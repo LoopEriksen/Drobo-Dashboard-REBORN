@@ -81,7 +81,8 @@ It does make a small, deliberate set of changes, each through one audited path:
 - **Identify** (blink the front lights) -- the only command on the safe list;
   it stops on its own.
 - **LED brightness** and **drive spin-down delay** -- written by reading the
-  device's live settings block, changing one field, and echoing the rest back
+  device's live settings block, changing only what was asked for (one field,
+  or two when spin-down is switched off), and echoing the rest back
   exactly as read. Refused outright if the block holds a field this software
   does not recognise.
 - **Per-user share access**, limited to read/write (confirmed against the
@@ -94,12 +95,15 @@ It does make a small, deliberate set of changes, each through one audited path:
 - **Start or stop an installed DroboApp**, validated against the list the
   device itself reports.
 
-Every write reads the device back afterwards and reports exactly one of:
-verified; verified but unacknowledged (the device closed the connection
-instead of answering, yet the read-back shows the change); failed (refused,
-rejected, unreachable, or applied nothing); or unknown -- never a guess. Not
-supported: renaming the Drobo, creating or deleting users, and anything
-involving firmware.
+Every settings and share write reads the device back afterwards and reports
+exactly one of: verified; verified but unacknowledged (the device closed the
+connection instead of answering, yet the read-back shows the change); failed
+(refused, rejected, unreachable, or applied nothing); or unknown -- never a
+guess. Identify and DroboApp start/stop work differently: Identify reports the
+device's own reply, and a DroboApp start or stop shows a fresh read of the app
+list without treating it as proof, because an app changes state in its own
+time. Not supported: renaming the Drobo, creating or deleting users, and
+anything involving firmware.
 
 And beyond the device itself:
 
