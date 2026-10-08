@@ -1,0 +1,13 @@
+# The Python runtime bundled into the installer by windows/build-installer.ps1.
+#
+# The agent is standard-library-only, so the "embeddable" distribution from
+# python.org (a 12 MB zip with no installer, no registry, no PATH changes) is
+# all it needs. Bundling it means a tester installs nothing else -- "install
+# Python and tick Add to PATH" was the single most likely way a test would
+# fail before it began.
+#
+# The build downloads this exact version and refuses to ship it unless the
+# SHA-256 matches. Bumping the version means downloading the new zip, taking
+# its hash (Get-FileHash -Algorithm SHA256), and changing both lines together.
+version=3.14.2
+sha256=f05e28d161c6b15af64a7cb7f08b4a22b3a6b03eee71baee24ea557b3bdd5798

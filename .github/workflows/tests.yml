@@ -1,0 +1,255 @@
+# CI: on every change pushed here, actually RUN the tests.
+#
+# WHY this exists: this project's thirty Python suites and the Windows app's
+# own test program are the only thing standing between a protocol change and
+# a Drobo that stops being read correctly -- and until this file, nothing ran
+# them on a push. "All thirty suites pass" was a sentence re-established by
+# hand at each release, which means it was true on one machine, on one day,
+# for whatever was checked out at the time. lint.yml proves the code parses
+# and guard.yml proves it carries no secrets; neither notices a parser that
+# now returns the wrong number. A break could sit there looking green for days.
+#
+# WHY windows-latest for the Python suites, when lint.yml and guard.yml use
+# ubuntu: agent/tests/test_backup.py prints "SKIP robocopy is Windows-only"
+# and skips the only test in the project that copies real files to a real
+# folder. On Linux this job would be greener and prove less -- exactly the
+# silent gap it is here to close. The shipped product is Windows-only
+# (WPF app, MSI, robocopy backups), so Windows is also simply where the
+# suites are meant to run.
+#
+# WHY Python 3.12, when development happens on 3.14: checked before pinning.
+# No suite needs anything newer -- sdk/pyproject.toml declares
+# requires-python >=3.10, no file anywhere tests sys.version_info or uses
+# 3.13/3.14-only syntax or library calls, and every import is the standard
+# library. Pinning one version below the development interpreter is
+# deliberate: it catches a 3.14-only habit before somebody running an older
+# Python does, and it matches the version the other two workflows already use.
+#
+# WHY no installs, like lint.yml: this project has no dependencies, on
+# purpose, and nothing here may quietly acquire one. If a suite ever needs a
+# package, this job goes red and that is the news.
+#
+# WHY each suite is run standalone from its own folder, rather than through a
+# test runner: that is how README.md, agent/README.md and sdk/README.md tell
+# a developer to run them, several resolve fixtures and sibling modules
+# relative to that folder, and a runner would be a second thing that can
+# break. Sequentially, because agent/tests/test_agent.py binds a fixed port.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suites:
+    name: Python suites
+    runs-on: windows-latest
+    # Generous, but not "six hours of a hung socket": the whole set takes a
+    # couple of minutes, so anything near this is a suite that has stopped
+    # timing out properly.
+    timeout-minutes: 20
+    env:
+      # test_discovery.py has one optional read-only check against a real
+      # Drobo, at DROBO_LIVE_HOST or 10.0.0.50 -- a private address a runner
+      # could conceivably reach something at. 192.0.2.1 is TEST-NET-1
+      # (RFC 5737), reserved for documentation and routed nowhere, so that
+      # check can only SKIP and this job can never touch somebody's device.
+      DROBO_LIVE_HOST: 192.0.2.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run every tracked suite, each from its own folder
+        shell: bash
+        run: |
+          # Driven off `git ls-files` rather than a glob, like lint.yml: a
+          # suite added later is picked up without editing this file.
+          suites=$(git ls-files 'agent/tests/test_*.py' 'sdk/tests/test_*.py' 'tools/test_*.py')
+          if [ -z "$suites" ]; then
+            echo "::error::No test suites found. Did they move?"
+            exit 1
+          fi
+
+          # The other half of "no suite silently drops out of the count": ask
+          # git for every tracked test file ANYWHERE, and fail if one lives
+          # outside the three folders this job knows about. A suite moved to a
+          # new folder then makes this job red, instead of quietly not running.
+          stray=$(git ls-files '*test_*.py' | grep -vxF "$suites" || true)
+          if [ -n "$stray" ]; then
+            echo "::error::A test suite lives outside agent/tests, sdk/tests and tools:"
+            echo "$stray"
+            exit 1
+          fi
+
+          total=$(echo "$suites" | wc -l | tr -d ' ')
+          echo "Found $total suites."
+          echo
+
+          logs=$(mktemp -d)
+          summary=""
+          ran=0
+          fail=0
+
+          # A here-string, not a pipe: a `while` on the right of a pipe runs in
+          # a subshell, and the failure count would not survive the loop.
+          while IFS= read -r suite; do
+            name=$(basename "$suite")
+            log="$logs/$(echo "$suite" | tr '/' '_').log"
+            start=$(date +%s)
+            rc=0
+            ( cd "$(dirname "$suite")" && python "$name" ) > "$log" 2>&1 || rc=$?
+            secs=$(( $(date +%s) - start ))
+            ran=$(( ran + 1 ))
+
+            # Every suite in this project prints one line per check: "  PASS ",
+            # "  FAIL " or, in tools/test_nasd_dissect.py, "  ok:". Counting
+            # them is what makes a skipped suite loud: a file that exits 0
+            # without asserting anything -- an early return, a guard that
+            # swallowed the body -- is reported as a FAILURE here, not as a
+            # quiet pass.
+            checks=$(grep -cE '^  (PASS|FAIL|ok:)' "$log" || true)
+            skips=$(grep -cE '^[[:space:]]*SKIP' "$log" || true)
+            # The FAIL lines are counted as well as totalled, because an exit
+            # code is a promise a suite has to keep: every one of the thirty
+            # ends in sys.exit(1 if fails else 0) today, but a suite that
+            # printed FAIL lines and still returned 0 would otherwise be
+            # folded away as a green group and counted in "all suites passed".
+            # The evidence is already in the log; this reads it.
+            failed=$(grep -cE '^  FAIL' "$log" || true)
+
+            if [ "$rc" -eq 0 ] && [ "$checks" -gt 0 ] && [ "$failed" -eq 0 ]; then
+              status="PASS"
+            else
+              status="FAIL"
+              fail=1
+            fi
+            if [ "$rc" -ne 0 ]; then
+              why="exit $rc"
+            elif [ "$checks" -eq 0 ]; then
+              why="ran no checks"
+            elif [ "$failed" -gt 0 ]; then
+              why="$failed checks failed"
+            else
+              why=""
+            fi
+
+            # Passing output is folded away; a failure is printed open, since
+            # that is the run somebody has to read.
+            if [ "$status" = "PASS" ]; then
+              echo "::group::PASS  $suite  ($checks checks, $skips skipped, ${secs}s)"
+              cat "$log"
+              echo "::endgroup::"
+            else
+              echo "----- FAIL  $suite  ($why) -----"
+              cat "$log"
+              echo "----- end $suite -----"
+            fi
+
+            summary="${summary}$(printf '%-5s %4s checks %2s skipped %4ss  %s %s' \
+              "$status" "$checks" "$skips" "$secs" "$suite" "$why")"$'\n'
+          done <<< "$suites"
+
+          echo
+          echo "== per-suite summary =="
+          printf '%s' "$summary"
+          echo "$ran of $total suites ran."
+
+          # Also on the run's summary page, so the result is readable without
+          # opening the log. Guarded, so this script still runs as-is locally.
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Python suites ($ran of $total ran)"
+              echo '```'
+              printf '%s' "$summary"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ "$ran" -ne "$total" ]; then
+            echo "::error::Only $ran of $total suites ran."
+            exit 1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::A test suite failed. See the FAIL rows above."
+            exit 1
+          fi
+          echo "All $total suites passed."
+
+  windows-app:
+    # WHY a second job: windows/DroboDashboardReborn.Tests holds the checks for
+    # AlertNotifier (when this app is allowed to interrupt somebody -- the
+    # maintainer has twice reported it being intrusive) and for CredentialStore
+    # (which writes a NAS password into Windows Credential Manager). Nothing
+    # in this repository ran it: `dotnet run --project` for it appeared in two
+    # READMEs and in no script and no workflow. Building the app itself in the
+    # same job also catches the other thing a README cannot: source that
+    # compiles on the machine it was written on but not from a clean checkout.
+    #
+    # Its own tests are a plain console program with no packages and no test
+    # framework (see the .csproj), matching the Python suites, so this job
+    # installs nothing either -- setup-dotnet provides the SDK, the way
+    # setup-python provides the interpreter above.
+    name: Windows app and its tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build the app and run its test program
+        shell: bash
+        run: |
+          # Paths come from `git ls-files`, so a renamed or moved project
+          # fails here loudly instead of this job building nothing at all.
+          app=$(git ls-files '*/DroboDashboardReborn.csproj')
+          tests=$(git ls-files '*/DroboDashboardReborn.Tests.csproj')
+          if [ -z "$app" ] || [ -z "$tests" ]; then
+            echo "::error::The app or its test project is not where this job expects it."
+            echo "app='$app' tests='$tests'"
+            exit 1
+          fi
+
+          echo "== building the app (Release) =="
+          # Release is what a tester is handed: it is the configuration that
+          # turns off the PDB and applies the PathMap that keeps the build
+          # machine's paths out of the binary.
+          dotnet build "$app" -c Release --nologo
+
+          echo
+          echo "== building the test program =="
+          dotnet build "$tests" -c Release --nologo
+
+          echo
+          echo "== running the test program =="
+          # Captured to a file rather than piped through tee, so the exit code
+          # read here is the test program's own and not the pipe's.
+          log=$(mktemp)
+          rc=0
+          dotnet run --project "$tests" -c Release --no-build > "$log" 2>&1 || rc=$?
+          cat "$log"
+          checks=$(grep -cE '^  (PASS|FAIL)' "$log" || true)
+
+          echo
+          echo "== summary =="
+          echo "DroboDashboardReborn.Tests: $checks checks, exit $rc"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "### Windows app: $checks checks, exit $rc" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Same rule as the Python job: exiting 0 without asserting anything
+          # is a failure, not a pass.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::The Windows app's tests failed."
+            exit 1
+          fi
+          if [ "$checks" -eq 0 ]; then
+            echo "::error::The Windows app's tests ran no checks."
+            exit 1
+          fi
+          echo "The Windows app builds and its $checks checks pass."

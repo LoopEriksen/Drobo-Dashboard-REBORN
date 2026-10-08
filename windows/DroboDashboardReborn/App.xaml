@@ -1,0 +1,274 @@
+<Application x:Class="DroboDashboardReborn.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:DroboDashboardReborn"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+
+        <!--
+          CONTROL STYLES FOR EVERY WINDOW (added 2026-09-14).
+
+          Until this, no button or drop-down in the app had a template of its
+          own. Styles only set colours, so WPF's stock template took over for
+          hover, press and disabled, and painted its own light backgrounds
+          under this app's light text. The maintainer could not read the buttons in
+          the Connect dialog, and a drop-down list opened as white with
+          near-white items. Living here, in Application.Resources, is what
+          makes one fix reach every dialog as well as the main window.
+
+          Every colour pair below was measured against WCAG's 4.5 to 1 minimum
+          for normal text, in every state. The app's old blue (#2C7BC4 behind
+          white) measured 4.4 and its red delete button 3.7, so both are a
+          shade darker here. The disabled state stays readable at 5.3 to 1:
+          a greyed button still has to say what it would do.
+
+          HOW STATES GET THEIR COLOURS. One shared template reads its hover
+          and pressed colours through DynamicResource. The defaults are the
+          dark secondary look, defined just below; each keyed style overrides
+          them in its own Style.Resources. So Primary darkens on hover, Danger
+          darkens, and the dark buttons lighten, all through one template.
+        -->
+
+        <SolidColorBrush x:Key="Btn.HoverBackground" Color="#2E343D"/>
+        <SolidColorBrush x:Key="Btn.HoverBorder" Color="#55606C"/>
+        <SolidColorBrush x:Key="Btn.PressedBackground" Color="#1A1E24"/>
+        <SolidColorBrush x:Key="Btn.DisabledBackground" Color="#1B2027"/>
+        <SolidColorBrush x:Key="Btn.DisabledBorder" Color="#2A313A"/>
+        <SolidColorBrush x:Key="Btn.DisabledForeground" Color="#8B93A1"/>
+        <SolidColorBrush x:Key="Btn.FocusRing" Color="#7FA7FF"/>
+
+        <ControlTemplate x:Key="AppButtonTemplate" TargetType="Button">
+            <Grid>
+                <!-- Keyboard focus ring. The stock dotted rectangle is black,
+                     which is invisible on this background, so keyboard users
+                     had no way to see where they were. -->
+                <Border x:Name="FocusRing" Margin="-3" CornerRadius="5" BorderThickness="2"
+                        BorderBrush="{DynamicResource Btn.FocusRing}" Visibility="Collapsed"/>
+                <Border x:Name="Bd" CornerRadius="3" SnapsToDevicePixels="True"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}">
+                    <ContentPresenter x:Name="Content" Margin="{TemplateBinding Padding}"
+                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      RecognizesAccessKey="True"/>
+                </Border>
+            </Grid>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Btn.HoverBackground}"/>
+                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Btn.HoverBorder}"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Btn.PressedBackground}"/>
+                </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter TargetName="FocusRing" Property="Visibility" Value="Visible"/>
+                </Trigger>
+                <!-- Last, so it wins over hover: a disabled button must not
+                     light up under the mouse as if it could be clicked. -->
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Btn.DisabledBackground}"/>
+                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Btn.DisabledBorder}"/>
+                    <Setter TargetName="Content" Property="TextElement.Foreground" Value="{DynamicResource Btn.DisabledForeground}"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- Every Button in the app, unless it names a style. Its colours are
+             the dark secondary look, which is right for any button nobody
+             chose a colour for. -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#22262E"/>
+            <Setter Property="Foreground" Value="#E6EBF0"/>
+            <Setter Property="BorderBrush" Value="#39424D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template" Value="{StaticResource AppButtonTemplate}"/>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- White on #2670B0 is 5.2 to 1; hover 6.7; pressed 8.4. -->
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Resources>
+                <SolidColorBrush x:Key="Btn.HoverBackground" Color="#1F5F97"/>
+                <SolidColorBrush x:Key="Btn.HoverBorder" Color="#1F5F97"/>
+                <SolidColorBrush x:Key="Btn.PressedBackground" Color="#1A5082"/>
+            </Style.Resources>
+            <Setter Property="Background" Value="#2670B0"/>
+            <Setter Property="BorderBrush" Value="#2670B0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- Destructive and filled: white on #C0392B is 5.4 to 1; hover 6.6. -->
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Resources>
+                <SolidColorBrush x:Key="Btn.HoverBackground" Color="#A93226"/>
+                <SolidColorBrush x:Key="Btn.HoverBorder" Color="#A93226"/>
+                <SolidColorBrush x:Key="Btn.PressedBackground" Color="#922B21"/>
+            </Style.Resources>
+            <Setter Property="Background" Value="#C0392B"/>
+            <Setter Property="BorderBrush" Value="#C0392B"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- Destructive but quiet, for a row of ordinary buttons: red text on
+             the dark button. #F07167 on #22262E is 5.2 to 1. Hover keeps the
+             dark background, because lightening it would drop the red text
+             below the line, and marks the border red instead. -->
+        <Style x:Key="DangerOutlineButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Resources>
+                <SolidColorBrush x:Key="Btn.HoverBackground" Color="#22262E"/>
+                <SolidColorBrush x:Key="Btn.HoverBorder" Color="#F07167"/>
+            </Style.Resources>
+            <Setter Property="Foreground" Value="#F07167"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- ================= Drop-downs ================= -->
+
+        <!-- Each item in an open list. Explicit colours rather than inherited
+             ones: the stock list is white, and the items used to inherit the
+             ComboBox's light text, which is exactly the unreadable list the
+             maintainer reported. #E6EBF0 on #161B21 is 14.9 to 1; the highlighted
+             row, white on #2670B0, is 5.2. -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#E6EBF0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="2" SnapsToDevicePixels="True">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E3A55"/>
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#2670B0"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#8B93A1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#0D1116"/>
+            <Setter Property="Foreground" Value="#E6EBF0"/>
+            <Setter Property="BorderBrush" Value="#262E37"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid x:Name="Root" SnapsToDevicePixels="True">
+                            <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Bd" CornerRadius="3" Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="24"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path x:Name="Arrow" Grid.Column="1" Data="M 0 0 L 4 4 L 8 0 Z"
+                                                      Fill="#8B93A1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#55606C"/>
+                                                <Setter TargetName="Arrow" Property="Fill" Value="#E6EBF0"/>
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2670B0"/>
+                                                <Setter TargetName="Arrow" Property="Fill" Value="#E6EBF0"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Left" VerticalAlignment="Center"/>
+
+                            <!-- Used only by an editable ComboBox (the access
+                                 panel's user box). Hidden otherwise. -->
+                            <TextBox x:Name="PART_EditableTextBox" Visibility="Hidden"
+                                     IsReadOnly="{TemplateBinding IsReadOnly}"
+                                     Background="Transparent" BorderThickness="0"
+                                     Foreground="{TemplateBinding Foreground}" CaretBrush="#E6EBF0"
+                                     SelectionBrush="#2670B0"
+                                     Margin="4,0,26,0" VerticalAlignment="Center"/>
+
+                            <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
+                                   Focusable="False" PopupAnimation="Slide"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}">
+                                <Border x:Name="DropDown" Background="#161B21" BorderBrush="#39424D"
+                                        BorderThickness="1" CornerRadius="3" Margin="0,2,0,0"
+                                        MinWidth="{Binding ActualWidth, ElementName=Root}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <ScrollViewer Margin="2" SnapsToDevicePixels="True">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="DropDown" Property="MinHeight" Value="28"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Toggle" Property="BorderBrush" Value="#7FA7FF"/>
+                            </Trigger>
+                            <!-- Dimmed, not vanished: the drive-letter list is
+                                 disabled until mounting is ticked, and its
+                                 current letter should still be legible. -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Toggle" Property="Opacity" Value="0.55"/>
+                                <Setter TargetName="ContentSite" Property="Opacity" Value="0.7"/>
+                                <Setter TargetName="PART_EditableTextBox" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
+</Application>

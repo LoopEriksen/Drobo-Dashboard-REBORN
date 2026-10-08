@@ -1,0 +1,156 @@
+﻿<Window x:Class="DroboDashboardReborn.ShareBrowserWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Browse share"
+        Width="900" Height="620" MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="#0D1116" Foreground="#E6EBF0"
+        FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6B7683"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+        </Style>
+        <!-- A path segment that reads as a link, not a button: no box at all,
+             so it gets its own small template. #8FA3BC on the window is 7.3
+             to 1; hover goes to #E6EBF0 and underlines. -->
+        <Style x:Key="Crumb" TargetType="Button">
+            <Setter Property="Foreground" Value="#8FA3BC"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" BorderThickness="0,0,0,1"
+                                BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter x:Name="Content" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#E6EBF0"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#E6EBF0"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#7FA7FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header: share name plus the live path being viewed -->
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock x:Name="Header" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock x:Name="PathText" Style="{StaticResource Label}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button x:Name="UpBtn" Content="Up" Padding="12,5" Margin="0,0,8,0"
+                        Style="{StaticResource SecondaryButton}" Click="Up_Click"/>
+                <Button x:Name="ExplorerBtn" Content="Open in Explorer" Padding="12,5"
+                        Style="{StaticResource SecondaryButton}" Click="Explorer_Click"
+                        ToolTip="Open this folder in Windows File Explorer instead"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Breadcrumb: click any segment to jump back to it -->
+        <WrapPanel x:Name="Crumbs" Grid.Row="1" Margin="0,0,0,8"/>
+
+        <!-- The listing. Columns size to content and the name wraps, so every
+             name and number stays visible rather than being truncated. -->
+        <Border Grid.Row="2" Background="#161B21" BorderBrush="#262E37" BorderThickness="1" CornerRadius="3">
+            <Grid>
+                <ListView x:Name="Entries" Background="Transparent" BorderThickness="0"
+                          Foreground="#E6EBF0" FontFamily="Consolas" FontSize="12"
+                          MouseDoubleClick="Entries_MouseDoubleClick" KeyDown="Entries_KeyDown"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="8,5"/>
+                            <Setter Property="Foreground" Value="#E6EBF0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#1C2229"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#12202E"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.View>
+                        <GridView>
+                            <GridView.ColumnHeaderContainerStyle>
+                                <Style TargetType="GridViewColumnHeader">
+                                    <Setter Property="Background" Value="#0D1116"/>
+                                    <Setter Property="Foreground" Value="#6B7683"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    <Setter Property="BorderBrush" Value="#262E37"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                    <Setter Property="FontFamily" Value="Consolas"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </GridView.ColumnHeaderContainerStyle>
+                            <GridViewColumn Header="NAME" Width="480">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Glyph}" Foreground="#8FA3BC" Margin="0,0,8,0"/>
+                                            <TextBlock Text="{Binding Name}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="SIZE" Width="110">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SizeText}" Foreground="#8B93A1" TextAlignment="Right"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="MODIFIED" Width="200">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ModifiedText}" Foreground="#8B93A1"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <!-- Empty / loading / error state, shown over the list -->
+                <TextBlock x:Name="StateText" Style="{StaticResource Label}" FontSize="12"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
+                           Visibility="Collapsed"/>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="3" Style="{StaticResource Label}" Margin="0,8,0,0" TextWrapping="Wrap"
+                   Text="Double-click a folder to open it, or a file to open it with its usual program. Backspace goes up a level. This view reads the share directly; nothing is copied or changed."/>
+    </Grid>
+</Window>

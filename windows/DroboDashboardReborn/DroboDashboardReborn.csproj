@@ -1,0 +1,114 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Only for TrayIconManager's System.Windows.Forms.NotifyIcon — the
+         rest of the app stays pure WPF. NotifyIcon works fine hosted inside
+         a WPF app (it just needs a Win32 message pump, which the WPF
+         Dispatcher already provides); this flag only adds the WinForms
+         assembly reference, it doesn't pull in a second UI framework. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!--
+    KEEP THE BUILD MACHINE OUT OF THE SHIPPED BINARY.
+
+    By default the compiler records where it built: the .exe carried the full
+    path of this project on the machine that produced it, which can name the
+    builder's Windows account and the folders the checkout sits in.
+    That string then travelled to every tester inside the MSI. Found by a
+    privacy audit on 2026-09-08, by scanning the built file rather than by
+    reading the build script, which is the only way this kind of leak shows
+    up: nothing in the source contains the path.
+
+    Two settings, because they cover different routes:
+
+    PathMap rewrites source paths the compiler embeds (in exception stack
+    traces, and in anything using CallerFilePath) to a neutral "/src/" root.
+    It applies to every configuration, since a Debug build can be handed to
+    somebody too.
+
+    DebugType none, in Release only, stops a PDB being produced and stops the
+    path to it being written into the executable's debug directory. That
+    directory entry was the actual carrier here. Debug builds keep their
+    symbols, so day-to-day debugging is unaffected.
+
+    If a Release PDB is ever wanted (for reading a crash dump), the honest
+    way is DebugType portable plus a PathMap'd, DETERMINISTIC build, and
+    keeping the .pdb out of the shipped payload rather than out of the
+    build. windows/build-installer.ps1 verifies the produced binary either
+    way, so a regression here fails the build instead of shipping.
+  -->
+  <PropertyGroup>
+    <PathMap>$(MSBuildProjectDirectory)=/src/</PathMap>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <!--
+    UseWindowsForms above makes the SDK add implicit global usings for
+    System.Drawing and System.Windows.Forms (see
+    obj\...\DroboDashboardReborn.GlobalUsings.g.cs) alongside ImplicitUsings'
+    own System.* set. Both namespaces have types the rest of this WPF app
+    already uses under different names from explicit `using System.Windows;`
+    / `using System.Windows.Media;` (Application, Brush), so left alone
+    those two implicit usings make every such reference project-wide
+    ambiguous (CS0104), not just inside TrayIconManager. Removing just the
+    two colliding implicit usings here fixes that without touching
+    ImplicitUsings itself; TrayIconManager.cs still gets what it needs from
+    its own explicit `using System.Drawing;` and fully-qualified
+    System.Windows.Forms.* references, neither of which this affects.
+  -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!--
+    <ApplicationIcon> above only embeds the .ico as a native Win32 resource
+    (what Explorer/the taskbar read for the .exe's own file icon). Loading it
+    at runtime — the window's Icon property, and TrayIconManager's
+    NotifyIcon — needs it embedded as a WPF resource too, addressable via a
+    pack URI, which is what this ItemGroup does. generate_icon.py (same
+    folder) is the reproducible source for both .ico files; it is not a
+    build input, just kept alongside them.
+  -->
+  <ItemGroup>
+    <Resource Include="Assets\AppIcon.ico" />
+    <Resource Include="Assets\AppIconAlert.ico" />
+  </ItemGroup>
+
+  <!--
+    Packaging metadata only: the actual publish (self-contained, single-file,
+    win-x64) is invoked with explicit flags by windows/build-installer.ps1, not
+    baked in here, so plain `dotnet build`/`dotnet run` during development stay
+    fast and framework-dependent exactly as before.
+
+    Version is the number a release is named by: build-installer.ps1 passes
+    it to WiX as -d Version, it becomes the Add/Remove Programs version, it
+    names the staged folder and the MSI, and it is what the app reports on
+    its Tools tab. It is not the only copy: AssemblyVersion and FileVersion
+    below, the agent's VERSION in agent/drobo_agent/api.py, and the others
+    listed under "Versioning" in windows/README.md must all say the same
+    number. If you bump one, bump them all.
+  -->
+  <PropertyGroup>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <Product>Drobo Dashboard REBORN</Product>
+    <AssemblyTitle>Drobo Dashboard REBORN</AssemblyTitle>
+    <Company>Drobo Dashboard REBORN Project</Company>
+    <Description>Native Windows client for the Drobo Dashboard REBORN agent.</Description>
+  </PropertyGroup>
+
+</Project>

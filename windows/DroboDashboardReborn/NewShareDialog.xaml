@@ -1,0 +1,59 @@
+﻿<Window x:Class="DroboDashboardReborn.NewShareDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New share"
+        Width="420" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#0D1116" Foreground="#E6EBF0"
+        FontFamily="Segoe UI" FontSize="14"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6B7683"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+        </Style>
+        <Style x:Key="Field" TargetType="Control">
+            <Setter Property="Background" Value="#0D1116"/>
+            <Setter Property="Foreground" Value="#E6EBF0"/>
+            <Setter Property="BorderBrush" Value="#262E37"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Margin" Value="0,4,0,6"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="20">
+        <TextBlock Text="New share" FontSize="17" FontWeight="SemiBold"/>
+        <TextBlock Style="{StaticResource Label}" Margin="0,2,0,16" TextWrapping="Wrap"
+                   Text="Creates a new share on the Drobo. User access can be granted afterwards from the Tools tab."/>
+
+        <TextBlock Text="SHARE NAME" Style="{StaticResource Label}"/>
+        <!-- MaxLength matches the 27-character rule so the box itself stops
+             overtyping; NameHint words the rest of the rules. The text is sent
+             exactly as typed (no silent trimming), so what the hint approves
+             is what the agent receives. -->
+        <TextBox x:Name="NameBox" Style="{StaticResource Field}" MaxLength="27"
+                 TextChanged="NameBox_TextChanged"/>
+
+        <!-- Inline validation, mirroring the agent's name rules so obvious
+             rejects never leave the app. Shows the rules in grey while the
+             name is empty or fine, and the specific problem in red once there
+             is one — the same line either way, so nothing jumps around. -->
+        <TextBlock x:Name="NameHint" Style="{StaticResource Label}" TextWrapping="Wrap"
+                   Margin="0,0,0,16"/>
+
+        <TextBlock x:Name="ErrorText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                   Foreground="#E2564B" Background="#301714" Padding="10,8"
+                   Visibility="Collapsed" Margin="0,0,0,16"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="CancelBtn" Content="Cancel" Padding="14,6" Margin="0,0,8,0"
+                    Style="{StaticResource SecondaryButton}" FontSize="14"
+                    Click="Cancel_Click" IsCancel="True"/>
+            <Button x:Name="CreateBtn" Content="Create" Padding="14,6"
+                    Style="{StaticResource PrimaryButton}" FontSize="14"
+                    Click="Create_Click" IsDefault="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
