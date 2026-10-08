@@ -64,8 +64,8 @@ if (-not (Test-Path $CsprojPath)) {
 $dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
 if (-not $dotnetCmd) {
     Fail (
-        ".NET SDK not found on PATH. Install the .NET 8 SDK first:`n" +
-        "    winget install Microsoft.DotNet.SDK.8`n" +
+        ".NET SDK not found on PATH. Install the .NET 10 SDK first:`n" +
+        "    winget install Microsoft.DotNet.SDK.10`n" +
         "then open a new terminal and re-run this script."
     )
 }
@@ -75,10 +75,10 @@ try {
 } catch {
     $sdks = $null
 }
-if (-not ($sdks -match '^8\.')) {
+if (-not ($sdks -match '^10\.')) {
     Fail (
-        ".NET 8 SDK not found (`dotnet --list-sdks` didn't report an 8.x`n" +
-        "entry). Install it with: winget install Microsoft.DotNet.SDK.8"
+        ".NET 10 SDK not found (`dotnet --list-sdks` didn't report a 10.x`n" +
+        "entry). Install it with: winget install Microsoft.DotNet.SDK.10"
     )
 }
 

@@ -697,6 +697,14 @@ eight commits since 1.0.0 had found every fix already here. 1.1.0 is the first
 release from this repository, on its own Releases page; the advice to
 uninstall 1.0.0 before installing it is unchanged.
 
+The same day the Windows app moved from .NET 8 to .NET 10. The installer
+carries its runtime inside it, and .NET 8's support ends on 11-10, so 1.1.0
+would have handed testers a runtime a month from its last security fix. The
+move was two target-framework lines, the SDK the build script insists on, and
+the version the CI workflow installs; the app and its tests built and passed
+unchanged on .NET 10 before anything was committed, in a scratch copy, then
+again in the tree.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

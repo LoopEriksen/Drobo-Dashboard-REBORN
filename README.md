@@ -254,7 +254,7 @@ Three pieces. Only one of them knows anything about Drobo internals.
       |
       |  plain JSON over your LAN
       |
-      +--- Windows app     native, WPF / .NET 8
+      +--- Windows app     native, WPF / .NET 10
       +--- web dashboard   any browser, including your phone
       +--- iPhone app      photo + video backup
 ```
@@ -262,7 +262,7 @@ Three pieces. Only one of them knows anything about Drobo internals.
 | Piece | What it is | Status |
 |---|---|---|
 | **[Drobo Agent](agent/)** | Always-on Python service. Finds the Drobo, polls it, keeps history, raises alerts, receives photo uploads, serves everything as JSON. Standard library only — no dependencies to rot. | **Working against a real Drobo 5N** |
-| **[Windows app](windows/)** | WPF / .NET 8. Device picker, Status, Alerts, Shares, Settings, Tools. | **Working** |
+| **[Windows app](windows/)** | WPF / .NET 10. Device picker, Status, Alerts, Shares, Settings, Tools. | **Working** |
 | **Web dashboard** | Served by the agent. Live-updating, works on a phone. | **Working** |
 | **[iPhone app](ios/)** | SwiftUI. Automatic photo and video backup. | Not started — **needs a Mac to build.** Agent side is done. |
 

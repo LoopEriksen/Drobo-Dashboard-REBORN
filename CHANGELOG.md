@@ -318,6 +318,10 @@ would have shipped in the next release.
   in `agent/README.md` corrected (29 suites, not 21).
 
 ### Changed
+- **The Windows app runs on .NET 10** (2026-10-08). It was built for .NET 8,
+  whose support ends on 2026-11-10; .NET 10 is supported until November 2028.
+  The installer still carries its own copy of the runtime, so there is nothing
+  extra to install. Building the app from source now needs the .NET 10 SDK.
 - **The installer now installs like an ordinary Windows program**, into
   `C:\Program Files\Drobo Dashboard REBORN` for everyone on the PC, instead
   of into one user's profile. Windows asks for administrator approval, which

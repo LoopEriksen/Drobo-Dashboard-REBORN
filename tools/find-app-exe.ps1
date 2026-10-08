@@ -66,7 +66,13 @@ $candidates = @(
     (Join-Path $env:LOCALAPPDATA 'Programs\DroboDashboardReborn\DroboDashboardReborn.exe')
     # Developer builds. The win-x64 variants appear when built with
     # -r win-x64; the plain ones when built without. Both are common, which is
-    # exactly how the stale-build problem arose.
+    # exactly how the stale-build problem arose. The app targets .NET 10 since
+    # 2026-10-08; the net8.0 folders stay listed so a build made before then
+    # is still found (the newest file wins, so a fresh build always beats it).
+    (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Release\net10.0-windows\win-x64\DroboDashboardReborn.exe')
+    (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Release\net10.0-windows\DroboDashboardReborn.exe')
+    (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Debug\net10.0-windows\win-x64\DroboDashboardReborn.exe')
+    (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Debug\net10.0-windows\DroboDashboardReborn.exe')
     (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Release\net8.0-windows\win-x64\DroboDashboardReborn.exe')
     (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Release\net8.0-windows\DroboDashboardReborn.exe')
     (Join-Path $Repo 'windows\DroboDashboardReborn\bin\Debug\net8.0-windows\win-x64\DroboDashboardReborn.exe')

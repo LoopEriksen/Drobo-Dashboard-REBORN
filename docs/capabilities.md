@@ -89,7 +89,7 @@ convention.
 |---|---|---|
 | Protocol SDK | `sdk/drobo_nasd/` | The Drobo protocol, reverse-engineered: the status document the device pushes on TCP 5000, and the command channel on TCP 5001 with its framing and login. Standard library only. |
 | Agent | `agent/` | An always-on Python service that speaks the protocol in exactly one place and exposes a local HTTP/JSON API (port 7420), a browser dashboard, alerts and notifications, backup, a photo-upload API, and an on-demand update check. |
-| Windows app | `windows/DroboDashboardReborn/` | A native WPF app (.NET 8) over the agent's API. Five tabs: **Shares**, **Status**, **Alerts**, **Settings** (The Drobo, which also shows this app's version and the Drobo's firmware; Preferences), **Tools**, where the Advanced Configuration card sits behind the admin login. |
+| Windows app | `windows/DroboDashboardReborn/` | A native WPF app (.NET 10) over the agent's API. Five tabs: **Shares**, **Status**, **Alerts**, **Settings** (The Drobo, which also shows this app's version and the Drobo's firmware; Preferences), **Tools**, where the Advanced Configuration card sits behind the admin login. |
 | Installer | `windows/installer/` | A per-machine MSI installing to Program Files, bundling its own Python runtime, with Start Menu, optional desktop shortcut, an Uninstall entry, and a testing guide. |
 | Tools | `tools/` | Packet-capture, firmware-analysis and command-sweep tooling used to map the protocol. Read-only toward the device. |
 

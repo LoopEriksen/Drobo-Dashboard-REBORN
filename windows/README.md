@@ -71,7 +71,7 @@ share) and `VolumeRow` (a volume).
 
 ## Requirements
 
-- .NET 8 SDK (`winget install Microsoft.DotNet.SDK.8`) — only for building. An
+- .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`) — only for building. An
   installed copy needs nothing else: the installer bundles its own Python.
 - Python — only when running from source (see [agent/README.md](../agent/README.md))
 - The agent running somewhere reachable (usually this same PC)
@@ -268,7 +268,7 @@ dotnet build windows/DroboDashboardReborn -c Release
 ```
 
 The executable lands at
-`windows/DroboDashboardReborn/bin/Release/net8.0-windows/DroboDashboardReborn.exe`.
+`windows/DroboDashboardReborn/bin/Release/net10.0-windows/DroboDashboardReborn.exe`.
 
 ## Using it (dev build)
 

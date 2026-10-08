@@ -412,7 +412,7 @@ would put the maintainer's legal name on every binary.
    [Parked](#parked--not-possible-on-what-we-know-today). Nothing in Phase 1
    waits on them any more.
 2. **The native Windows app is built and running** (`windows/DroboDashboardReborn/`,
-   WPF on .NET 8). It reads the agent's API and shows device identity,
+   WPF, on .NET 8 until 2026-10-08 and .NET 10 since). It reads the agent's API and shows device identity,
    capacity, per-bay disk health, and alerts (worst-first, severity chips, a
    calm empty state when there's nothing wrong). WinUI 3 was the original
    target; WPF shipped first because
