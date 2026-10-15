@@ -4,7 +4,7 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
-## 1.1.0 -- not yet released
+## 1.1.0 -- 2026-10-15
 
 Everything below has landed since 1.0.0.
 
@@ -241,8 +241,8 @@ does not change -- uninstall 1.0.0 first, wherever you got it.
   whatever the answer, and a check that cannot run says why and exits 3
   rather than Python's 1, which is the check's own "an update is available".
   The installer's lifecycle test now runs the shortcut and requires its
-  answer. (Proven against a copy of the bundled runtime; the new installer
-  checks have not yet run in a real elevated install.)
+  answer. (Proven against a copy of the bundled runtime, then in a real elevated
+  install on 2026-10-08.)
 - **`Check-ForUpdates.bat` also works inside a copy of the source.** That
   fault was the source copy's alone; the installed copy's is the entry
   above. Double-clicked where it sits in the source, `windows/installer/`,

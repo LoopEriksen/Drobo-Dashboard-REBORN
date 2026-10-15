@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-10-08_
+_Last updated: 2026-10-15_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded
@@ -90,7 +90,9 @@ been proven against the real 5N**
   (53 checks) and again on 2026-09-21 with the upgrade leg (64 checks, all
   passing: install 1.1.0, launch the installed copy, remove it, then install
   1.1.0, upgrade it in place to a 1.1.1 build, and prove the settings
-  survived both the upgrade and the uninstall); auto-updater built and
+  survived both the upgrade and the uninstall), and on 2026-10-08 against the
+  .NET 10 build (70 checks, all passing, the installed Check for Updates
+  shortcut included; one error mentioning a constructor appeared in the console part-way through and was not captured; it did not fail a check and could not be reproduced afterwards (the installed app opened normally on its own and against the simulated driver)); auto-updater built and
   dormant until a manifest URL is set
 - LED brightness; spin-down delay
 - Per-user share access writes (the Everyone row verified on hardware; this
@@ -159,8 +161,8 @@ the event log's replies, one permission code, and creating and deleting a user.
 | Remembering a share login | **Built, unverified** | Tested against the real Credential Manager. Not yet proven in use: sign out, sign back in, and reach a Drobo share on the saved login without being asked again. |
 | Create a share on the device | **Built, unverified** | Applied to a real Drobo once, before the fix that settles an unacknowledged write by reading the value back. One more run against the hardware decides it. |
 | Delete a share on the device | **Built, unverified** | Built from a capture, never sent to a device at all. Needs one run against the hardware. |
-| The "Check for Updates" shortcut in an installed copy | **Built, unverified** | Broken in every installed copy from 2026-09-02, when the installer began bundling its own Python, until 2026-09-26: it asked that Python to find the agent's code in the folder it was started from, which the bundled runtime never looks in, and its window closed before the error could be read. No published release had it; 1.0.0 used the PC's own Python. Fixed, and proven against a copy of the bundled runtime; a check on every push now runs it the way that runtime does. The lifecycle test now runs the installed shortcut as well, and that needs one run from an administrator shell. |
-| Publishing this repository, with release 1.1.0 | **In progress** | The next release is **1.1.0** (a minor bump, decided 2026-09-21): every place the number is written says so, and the changelog's top section is headed as 1.1.0, not yet released, and opens by telling testers to uninstall 1.0.0 first. No longer blocked by the bounded reads, which are merged. How it is published changed on 2026-10-08: this repository becomes the public one, published as one fresh first commit with none of its earlier history, and the separate export repository is retired, so there is no export or carry-back step any more (see Phase 6). Every tracked file was scrubbed for it the same day. What is left is the publication itself and the release on this repository's own Releases page, which run only on the maintainer's explicit command. |
+| The "Check for Updates" shortcut in an installed copy | **Working** | Broken in every installed copy from 2026-09-02, when the installer began bundling its own Python, until 2026-09-26: it asked that Python to find the agent's code in the folder it was started from, which the bundled runtime never looks in, and its window closed before the error could be read. No published release had it; 1.0.0 used the PC's own Python. Fixed, and proven against a copy of the bundled runtime; a check on every push now runs it the way that runtime does. The lifecycle test now runs the installed shortcut as well, and did so in the elevated run of 2026-10-08: it gave the "switched off" answer and exit 0. |
+| Publishing this repository, with release 1.1.0 | **Working** | The next release is **1.1.0** (a minor bump, decided 2026-09-21): every place the number is written says so, and the changelog's top section is 1.1.0, dated 2026-10-15, and opens by telling testers to uninstall 1.0.0 first. No longer blocked by the bounded reads, which are merged. How it is published changed on 2026-10-08: this repository becomes the public one, published as one fresh first commit with none of its earlier history, and the separate export repository is retired, so there is no export or carry-back step any more (see Phase 6). Every tracked file was scrubbed for it the same day. Published 2026-10-08; release 1.1.0, on .NET 10, went out on this repository's Releases page on 2026-10-15 after the elevated lifecycle test passed (70 checks). |
 | Reading the device's event log line by line | **Blocked** | The log is fetched; the format of each line's timestamp and severity has never been captured, so both fields carry an explicit not-decoded marker instead of an invented value. Needs a capture of the original Dashboard reading the log. |
 | Meaning of share access codes 0 and 2 | **Blocked** | Code 1 (read/write) is confirmed. 0 is displayed hedged but can still be written, because "no access" is the safe direction to be wrong in; 2 has never been seen and can be written only by copying a code already live on the device. Settling either meaning needs it observed on real hardware. The maintainer's hardware session measures one of them on the way: the throwaway user it creates is given a permission other than read/write, and `tools/access_codes.py` read before and after pins the word the original Dashboard shows to the number the device stores. |
 | Add and remove Drobo user accounts | **Blocked** | Wanted: the maintainer decided on 2026-09-21 that this gets built. Nothing about it has ever been seen on the wire -- this unit has never reported a user at all -- and this project does not guess a write, so it waits on a capture: one recording of the original Dashboard creating a throwaway user (and giving it that permission), and a second, short one deleting it, made only after the permission codes have been read back. The capture script's on-screen steps now cover both. Moved here from Future features, where it was Someday. |
@@ -366,6 +368,13 @@ would put the maintainer's legal name on every binary.
 > cumulative update (KB5083769, Windows 11 24H2/25H2) SAC can be switched off
 > and back on from Windows Security > App & browser control. Turning it off to
 > test, then back on, is now an ordinary thing to ask of a tester.
+
+**The Windows app moved from .NET 8 to .NET 10 — 2026-10-08.** The installer
+bundles the .NET runtime, and .NET 8's support ends on 2026-11-10, so 1.1.0
+would have handed testers a runtime a month from its last security fix. .NET 10
+is supported until November 2028. Both project files target net10.0, CI and
+`build-installer.ps1` require the 10.0 SDK, and the app and its tests built and
+passed unchanged (69 of 69).
 
 ### What's built — and now reading the REAL device (2026-07-24)
 

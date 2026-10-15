@@ -705,6 +705,22 @@ the version the CI workflow installs; the app and its tests built and passed
 unchanged on .NET 10 before anything was committed, in a scratch copy, then
 again in the tree.
 
+## 1.1.0 goes out (2026-10-08 to 15)
+
+**10-08.** With the .NET 8 and 10 SDKs installed on this PC, the 1.1.0 MSI was built on
+.NET 10 (68 MB, the build's own identifier check clean) together with a throwaway 1.1.1
+for the upgrade leg, and the maintainer ran the lifecycle test from an administrator
+shell: 70 checks, all passing, including the installed Check for Updates shortcut that
+had been broken in every installed copy until 09-26. Part-way through, an error
+mentioning a constructor appeared in that console. It failed no check, it was not
+captured, and it could not be reproduced: every install, uninstall and upgrade logged
+success, and the installed app opened normally both alone and against the simulated
+driver. It is recorded here rather than explained; if it shows again, its text is what
+is needed.
+
+**10-15.** 1.1.0 was published on this repository's Releases page, with the MSI's
+SHA-256 beside it.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
