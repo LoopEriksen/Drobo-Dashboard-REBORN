@@ -132,7 +132,10 @@ def parse_sysinfo(payload: bytes) -> dict:
     # either the root of the inner document or a child of it.
     node = inner
     if inner is not None and inner.tag != "SysInfo":
-        node = inner.find("SysInfo") or inner
+        # `is not None`, never `or`: an Element with no children is
+        # falsy, so `or` would quietly fall back to the parent.
+        sysinfo_node = inner.find("SysInfo")
+        node = sysinfo_node if sysinfo_node is not None else inner
 
     temp = _int_or_none(node, "Temperature")
     if temp is not None and not (PLAUSIBLE_C[0] <= temp <= PLAUSIBLE_C[1]):
@@ -200,7 +203,8 @@ def parse_performance(payload: bytes) -> dict:
     inner = _inner_document(details)
     node = inner
     if inner is not None and inner.tag != "Performance":
-        node = inner.find("Performance") or inner
+        performance_node = inner.find("Performance")
+        node = performance_node if performance_node is not None else inner
 
     def non_negative(tag: str) -> int | None:
         v = _int_or_none(node, tag)

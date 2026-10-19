@@ -12,6 +12,7 @@ weeks.
 """
 import os
 import sys
+import warnings
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
@@ -211,6 +212,43 @@ bad_scale = _apps.parse_demo_mode(_demo(
     "&lt;FirmwareInfo&gt;<DemoMode>0</DemoMode><ScaleFactor>lots</ScaleFactor>&lt;/FirmwareInfo&gt;"))
 check("a non-numeric scale factor is dropped, not guessed",
       bad_scale["scale_factor"] is None and bad_scale["demo_mode"] is False, bad_scale)
+
+print("\n== an Element's truth value is never relied on ==")
+# An Element with no children is falsy, so `find(...) or inner` fell
+# back to the parent whenever the node it found was empty, and Python
+# 3.12+ warns on every such test. With that warning made an error,
+# every shape must still parse, to the same values.
+STRICT_CASES = (
+    ("unescaped <SysInfo>", sysinfo.parse_sysinfo, PLAIN,
+     {"temperature_c": 31, "uptime_seconds": 42}),
+    ("an empty <SysInfo> inside a wrapper", sysinfo.parse_sysinfo,
+     b"<TMCmd><ResultDetails>&lt;Wrap&gt;&lt;SysInfo/&gt;&lt;/Wrap&gt;"
+     b"</ResultDetails></TMCmd>\x00",
+     {"temperature_c": None, "uptime_seconds": None}),
+    ("unescaped <Performance>", sysinfo.parse_performance,
+     b"<TMCmd><ResultDetails><Performance><Iops>7</Iops>"
+     b"</Performance></ResultDetails></TMCmd>\x00",
+     {"read_mb_per_s": None, "write_mb_per_s": None, "iops": 7,
+      "tier_iops": None}),
+    ("unescaped <FirmwareInfo>", _apps.parse_demo_mode,
+     _demo("<FirmwareInfo><DemoMode>0</DemoMode></FirmwareInfo>"),
+     {"demo_mode": False, "scale_factor": None}),
+    ("unescaped <DroboApps>", _apps.parse_droboapps,
+     _demo("<DroboApps><App><Name>rsync</Name><Stopped>0</Stopped></App>"
+           "</DroboApps>"),
+     {"sdk_version": "",
+      "apps": [{"name": "rsync", "version": "", "description": "",
+                "running": True, "status": "", "has_web_ui": False}]}),
+)
+for label, parse, payload, expected in STRICT_CASES:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        try:
+            got = parse(payload)
+        except DeprecationWarning as exc:
+            got = exc
+    check(f"{label} parses with DeprecationWarning made an error",
+          got == expected, got)
 
 print("\n== eCmdGetDimming: the reading that had no way out ==")
 # Parser existed and worked since 2026-07-26; nothing exposed it until

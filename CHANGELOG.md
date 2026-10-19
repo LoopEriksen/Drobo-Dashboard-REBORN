@@ -38,6 +38,20 @@ released. Every push to this repository carries this file.
   longer gives a reading time to a temperature that never arrived.
   Nothing sent to the Drobo changed, nor how often. `test_drivers.py`
   gains seven checks for this (47 to 54). (2026-10-19)
+- **Four SDK readers no longer test an XML element's truth value.** The
+  readers for the Drobo's temperature and uptime, its throughput, its
+  DroboApps list and its shop-demo flag each found their section with
+  `find(...) or` the enclosing element. An element with no children
+  counts as false, so an empty section fell back to the one around it,
+  and Python 3.12 and later warn on every such test. With that warning
+  made an error (as `-W error` or `PYTHONWARNINGS=error` does), a
+  reply whose section was not escaped stopped the reader with an
+  exception; from the temperature reader, that would have shown the
+  Drobo as unreachable. They now test `is not None`, which also matches
+  what Python 3.13 and later announce: that an element will always
+  count as true. The Drobo's real replies escape these sections, so no
+  value read from it changes, and nothing sent to it changes.
+  `test_sysinfo.py` gains five checks for this (45 to 50). (2026-10-19)
 
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no

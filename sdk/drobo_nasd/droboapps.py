@@ -73,7 +73,10 @@ def parse_droboapps(payload: bytes) -> dict:
     inner = _inner_document(details)
     node = inner if inner is not None else details
     if node.tag != "DroboApps":
-        node = node.find("DroboApps") or node
+        # `is not None`, never `or`: an Element with no children is
+        # falsy, so `or` would quietly fall back to the parent.
+        apps_node = node.find("DroboApps")
+        node = apps_node if apps_node is not None else node
 
     apps = []
     for el in node.findall("App"):
@@ -165,7 +168,8 @@ def parse_demo_mode(payload: bytes) -> dict:
     inner = _inner_document(details)
     node = inner if inner is not None else details
     if node.tag != "FirmwareInfo":
-        node = node.find("FirmwareInfo") or node
+        firmware_node = node.find("FirmwareInfo")
+        node = firmware_node if firmware_node is not None else node
 
     raw = _text(node, "DemoMode")
     if raw:
