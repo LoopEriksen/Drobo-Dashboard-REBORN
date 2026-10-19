@@ -218,7 +218,12 @@ convention.
   edits the code.
   Anything that needs hardware this project does not have is listed with
   exact steps in [`testers-tasks.md`](testers-tasks.md).
-- **License:** not yet granted; all rights reserved until decided.
+- **License:** GPL-3.0-or-later since 2026-10-19 (the maintainer's
+  decision; until then all rights were reserved). The verbatim text is
+  `LICENSE` at the repository root, the SDK's package metadata declares the
+  same, and the installer build copies `LICENSE` into the program folder
+  beside `TESTING.md`; that copy has not been through a build yet, and the
+  installer's lifecycle test does not check for it yet.
 
 ## How to check any claim here
 

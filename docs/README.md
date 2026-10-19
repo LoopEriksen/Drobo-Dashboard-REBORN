@@ -14,6 +14,7 @@ README describes that folder). If you read only one, read
 | [`development-history.md`](development-history.md) | How it was built, in order, including the wrong turns |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | What changed between releases |
 | [`../CREDITS.md`](../CREDITS.md) | Other people's work this project relies on, and why it was trusted |
+| [`../LICENSE`](../LICENSE) | The licence: GPL-3.0-or-later, the full text |
 | [`accessing-your-files.md`](accessing-your-files.md) | Why Windows 11 refuses the Drobo's shared folders, and the fix. The Windows app opens this page from its Tools tab, so never move or rename it |
 | [`hardware-session.md`](hardware-session.md) | The maintainer's own checklist for what only a real Drobo can settle, step by step: create and delete a throwaway share from the app, record the original Dashboard turning its Blink Lights on and off, showing its event log and creating and deleting a throwaway user, read one permission code, and blink the lights from the app at the 900 Dashboard sends. What to send back, and what never to touch |
 | [`running-the-agent.md`](running-the-agent.md) | Keeping the agent running in the background, even with nobody logged in, and reaching it from a phone. Optional: starting the app from a double-click launcher or the installed shortcut starts the agent too, for as long as its window stays open. Parts of it were written before the app and installer existed |

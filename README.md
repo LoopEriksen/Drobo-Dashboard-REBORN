@@ -207,6 +207,7 @@ or pull-request process: an issue is the way in.
 | [`ROADMAP.md`](ROADMAP.md) | The plan of record: six phases, dated decisions, and what is complete, in progress or blocked | — |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed between releases | — |
 | [`CREDITS.md`](CREDITS.md) | Other people's work this project relies on, and why it was trusted | — |
+| [`LICENSE`](LICENSE) | The licence: GPL-3.0-or-later, the full text | — |
 | [`CLAUDE.md`](CLAUDE.md) | Working notes for the Claude sessions this project is developed with; not needed to use the software | — |
 | [`agent/`](agent/) | The background service: it watches the Drobo and serves the dashboard | [`agent/README.md`](agent/README.md) |
 | [`sdk/`](sdk/) | The library that speaks the Drobo's own protocol, reverse-engineered: discovery, status, health, shares. The agent uses it | [`sdk/README.md`](sdk/README.md) |
@@ -407,8 +408,12 @@ retired; from 1.1.0 on, releases come from here.
 
 ## License
 
-No license is granted yet — all rights reserved. If you want to use this
-beyond reading it, open an issue.
+Drobo Dashboard REBORN is free software, licensed under the GNU General
+Public License, version 3 or (at your option) any later version
+(GPL-3.0-or-later). The full text is in [`LICENSE`](LICENSE); from the
+next release, the installer also puts a copy in the program's folder. You
+may run, study, share and change it; if you distribute it, changed or not,
+you must do so under the same licence and make the source available.
 
 ## A note on what this is
 

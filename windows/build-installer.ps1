@@ -413,8 +413,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "   bundled Python $pyProbe"
 
-Write-Host '-- Adding launcher, updater and the testers guide...'
+Write-Host '-- Adding launcher, updater, the testers guide and the licence...'
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'TESTING.md') -Destination $StagingDir
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StagingDir
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'Run-Agent.bat') -Destination $StagingDir
 
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'Launch-DroboDashboardReborn.bat') -Destination $StagingDir

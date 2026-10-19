@@ -8,16 +8,16 @@ version = "1.1.0"
 description = "Talk to a Drobo NAS. The protocol, recovered from firmware and confirmed against real hardware."
 readme = "README.md"
 requires-python = ">=3.10"
-# No license is granted yet -- deliberately. This field once said MIT, which
-# contradicted the project's stated all-rights-reserved posture in
-# pip-consumable metadata: anyone installing the package would receive a
-# grant the maintainer never made, and a published grant cannot be retracted.
-# When the maintainer picks a real license, set it here AND add a LICENSE file.
-license = { text = "Proprietary - all rights reserved (no license granted yet)" }
+# GPL-3.0-or-later, the project's licence since 2026-10-19; the full text
+# is LICENSE at the repository root. Written in the table form because
+# the setuptools floor above (>=68) does not accept PEP 639's plain SPDX
+# string; the classifier below says the same for tools that read it.
+license = { text = "GPL-3.0-or-later" }
 keywords = ["drobo", "nas", "storage", "beyondraid", "nasd"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
   "Programming Language :: Python :: 3",
   "Topic :: System :: Hardware",
   "Topic :: System :: Monitoring",

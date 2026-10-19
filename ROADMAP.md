@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-10-15_
+_Last updated: 2026-10-19_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded
@@ -126,10 +126,12 @@ are now in Working on now.*
   none); DroboSync trigger (needs a second unit) -- all listed with exact
   steps in `docs/testers-tasks.md`
 - WinUI 3 (optional polish)
-- A license
 
 *Not on any list, because it is not happening: code signing (decided
 2026-09-05, see the decision note in Phase 1).*
+
+*A license left this list on 2026-10-19: the project is GPL-3.0-or-later,
+now graded in Features.*
 
 ### Phase by phase
 
@@ -201,6 +203,7 @@ the same commit.
 | Privacy guard on every commit | **Working** | A scanner plus a commit hook that blocks personal information, database files and real environment files. The checks on every push go further: credential files blocked from being tracked, tracked content scanned for secrets, and the same scan for personal information. |
 | The tests run by themselves on every push | **Working** | Beside the secrets and personal-data scan and the compile check: all thirty Python suites, and the Windows app's own tests on a Windows runner. A suite that runs no checks, prints a failed check and exits 0 anyway, or moves out of its folder fails the run rather than dropping out of the count. Built 2026-09-19; first green run on GitHub 2026-09-20, both jobs. |
 | A simulated Drobo | **Working** | The whole program runs against a pretend device, including a sign-in account, so the alert path and the connect flow can be tried with no hardware. Nothing simulated is ever handed to Windows. |
+| A licence for the public release | **Working** | GPL-3.0-or-later, the maintainer's decision on 2026-10-19. The full text is `LICENSE` at the top of the repository, the SDK's package metadata declares the same licence, and the installer build copies `LICENSE` into the program folder beside `TESTING.md` -- that copy has not been through a build yet, and the installer's lifecycle test does not check for it yet. Moved here from Future features, where it was Later. |
 
 ## Future features
 
@@ -210,7 +213,6 @@ the same commit.
 | Rename the Drobo from the app | **Later** | Nothing technical — the mechanism is captured. The whole network settings block has to be resent, because a partial one blanks whatever it leaves out. |
 | Start the software automatically at login | **Later** | Nothing. It is a documented manual step today; the installer does not set it up. |
 | An iPhone app: health, alerts, and photo and video upload when you get home | **Later** | A Mac, which is the only thing missing. The service half is finished and tested. |
-| A licence for the public release | **Later** | A decision. All rights reserved until then. |
 | A photo library to replace Drobo Pix — view, send and receive, including Apple's photo and Live Photo formats | **Someday** | The iPhone app, and a change to the upload service: one Live Photo is two files that must stay linked, and the service has no notion of a group. |
 | Thumbnails generated on the machine running the service | **Someday** | Nothing but time. |
 | Start a Drobo-to-Drobo replication | **Someday** | A second Drobo on the same network. |
@@ -358,7 +360,9 @@ What that costs, stated plainly so nobody has to rediscover it:
 The two free signing routes (SignPath Foundation, Certum Open Source) both
 require an OSI-approved licence; if the licence question is ever settled that
 way, signing becomes free and this decision is worth revisiting. Paid routes
-would put the maintainer's legal name on every binary.
+would put the maintainer's legal name on every binary. (Noted 2026-10-19: the
+licence is now GPL-3.0-or-later, which is OSI-approved. The decision above is
+unchanged; whether to revisit it is the maintainer's call.)
 
 > **Correction, for the record:** an earlier note in this project suggested a
 > "free local exclusion" for Smart App Control. There is no such thing — SAC has
@@ -752,11 +756,15 @@ than this one; on 2026-08-10 (amended 2026-08-28, 2026-09-09 and 2026-09-21),
 that each release would be a code-only export into that separate repository.
 The working history stays private.
 
-Still open: **a LICENSE file**, deferred by the maintainer on 2026-09-04. It
-stays all rights reserved until they are ready to change it; GPL-3.0 and
-PolyForm Noncommercial were the two candidates discussed. The README states
-plainly that this is unaffiliated with Drobo, StorCentric, or their
-successors.
+**The licence, settled 2026-10-19: GPL-3.0-or-later.** A LICENSE file was
+deferred by the maintainer on 2026-09-04, and the project stayed all rights
+reserved until then; GPL-3.0 and PolyForm Noncommercial were the two
+candidates discussed. The maintainer chose GPL-3.0-or-later on 2026-10-19:
+the verbatim text is `LICENSE` at the top of the repository, the README's
+License section and the SDK's `pyproject.toml` say the same, and the
+installer copies `LICENSE` into the program folder the way it already copies
+`TESTING.md`. The README states plainly that this is unaffiliated with
+Drobo, StorCentric, or their successors.
 
 ---
 

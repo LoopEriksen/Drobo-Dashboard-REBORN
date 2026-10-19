@@ -4,6 +4,16 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
+## Unreleased
+
+### Changed
+- **The project is now free software: GPL-3.0-or-later.** Until now no
+  licence had been granted and all rights were reserved. The full text is
+  `LICENSE` at the top of the repository, the README's License section says
+  the same, and the SDK's package metadata declares it (it said
+  "Proprietary" before). The installer now puts a copy of `LICENSE` in the
+  program folder, beside `TESTING.md`. (2026-10-19)
+
 ## 1.1.0 -- 2026-10-15
 
 Everything below has landed since 1.0.0.

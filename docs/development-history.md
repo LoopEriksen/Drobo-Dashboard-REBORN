@@ -721,6 +721,22 @@ is needed.
 **10-15.** 1.1.0 was published on this repository's Releases page, with the MSI's
 SHA-256 beside it.
 
+## A licence (2026-10-19)
+
+**10-19.** The maintainer licensed the project GPL-3.0-or-later. The question
+had been open since 09-04, when a LICENSE file was deferred with GPL-3.0 and
+PolyForm Noncommercial as the two candidates, and until now everything here
+was all rights reserved: readable, because the repository is public, but not
+granted to anyone. `LICENSE` at the top of the repository is the GPL's text,
+verbatim. The README's License section says so in plain words. The SDK's
+`pyproject.toml`, which had carried a deliberate "Proprietary" placeholder
+since its MIT line was removed, now declares GPL-3.0-or-later, in the table
+form the pinned setuptools floor accepts, with the matching classifier. The
+installer build copies `LICENSE` into the program folder beside `TESTING.md`;
+the bundled Python already ships its own `LICENSE.txt`, because the build
+unpacks the embeddable zip whole. That one-line build change has not been
+through a Windows build yet.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -762,9 +778,8 @@ one elevated run of the installer's lifecycle test, which now runs the
 Check for Updates shortcut;
 record the original Dashboard creating and deleting a user, which user
 management now waits on; and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
-redundant pack to degrade for the status codes. A licence is still
-undecided and is deliberately not on that list: all rights are reserved
-until it is chosen, and nothing above waits on it.
+redundant pack to degrade for the status codes. The licence is no longer
+open: it was settled as GPL-3.0-or-later on 2026-10-19.
 
 One question was closed rather than answered on 2026-09-05: the software will
 not be code-signed, because this is not a for-profit project. That is a
