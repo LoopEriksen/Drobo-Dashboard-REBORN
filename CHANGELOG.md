@@ -76,6 +76,18 @@ released. Every push to this repository carries this file.
   update check that described how a missing or broken config was handled
   had been wrong for both and now says what happens. `test_updates.py`
   gains two checks for this (77 to 79). (2026-10-19)
+- **`tools/fwtool.py` names JFFS2 compression types correctly.** When it
+  met firmware nodes it cannot unpack, it labelled type 8 as LZO. In
+  JFFS2's own numbering (`linux/jffs2.h`) LZO is 7, so real LZO nodes were
+  reported as a bare "7", and type 8, which has no mainline meaning, as
+  LZO. It is a research tool for firmware files and never contacts a
+  Drobo. (2026-10-19)
+- **Comments that no longer matched the code**, corrected with no change
+  in behaviour: the example alert key (`drive-failed-3`, not
+  `drive-failed-bay3`) in the agent's `models.py` and the Windows app's
+  `AlertRow.cs`; and the ways discovery can find a Drobo, which also
+  include an address typed in (`manual`) and the one already in use
+  (`in-use`), and which front-ends receive as `found_by`. (2026-10-19)
 
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no

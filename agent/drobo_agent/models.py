@@ -51,7 +51,7 @@ class Alert:
     rather than a stream of one-off messages.
     """
 
-    key: str  # stable id, e.g. "drive-failed-bay3" -- used for dedupe
+    key: str  # stable id, e.g. "drive-failed-3" -- used for dedupe
     severity: str
     message: str
     first_seen: float = field(default_factory=time.time)

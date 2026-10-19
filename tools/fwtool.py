@@ -298,7 +298,11 @@ def cmd_rootfs(args) -> int:
     print(f"  {len(paths):,} paths, {written:,} files written to {args.out}")
     print(f"  listing: {os.path.normpath(listing)}")
     if unsupported:
-        names = {3: "RUBINMIPS", 5: "DYNRUBIN", 8: "LZO"}
+        # JFFS2's own compressor numbers (JFFS2_COMPR_* in
+        # linux/jffs2.h, like C_* above): LZO is 7, and 8 has no
+        # mainline meaning, so it prints as a bare number like any
+        # other unnamed type.
+        names = {3: "RUBINMIPS", 5: "DYNRUBIN", 7: "LZO"}
         print("  unsupported compression: "
               + ", ".join(f"{names.get(k, k)} x{v}" for k, v in unsupported.items()))
     return 0

@@ -161,11 +161,16 @@ def parse_mdns_response(data: bytes) -> list[dict]:
 
 @dataclass
 class Candidate:
-    """One address worth trying, and how we found it (for logging/debugging)."""
+    """One address worth trying, and how we found it."""
 
     host: str
     port: int = esatm.DEFAULT_PORT
-    source: str = ""  # "mdns" | "hostname" | "last-known" | "sweep"
+    # How it was found. _gather_candidates() gives "manual" (an address
+    # a person typed), "mdns", "hostname", "last-known" or "sweep"; the
+    # agent's /api/discover adds "in-use", for the address it is
+    # already monitoring, and sends the value to front-ends as
+    # "found_by".
+    source: str = ""
 
 
 def discover_mdns(timeout: float = 3.0) -> list[Candidate]:

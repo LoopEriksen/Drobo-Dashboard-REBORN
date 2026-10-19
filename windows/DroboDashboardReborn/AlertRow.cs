@@ -11,7 +11,7 @@ namespace DroboDashboardReborn;
 /// </summary>
 public sealed class AlertRow
 {
-    /// <summary>Stable id from the agent (e.g. "drive-failed-bay3"), used to tell
+    /// <summary>Stable id from the agent (e.g. "drive-failed-3"), used to tell
     /// which alerts in the "all" history are the same ones still showing as active.</summary>
     public string Key { get; set; } = "";
 
