@@ -434,7 +434,7 @@ def _subnet_reject_message(candidate: Candidate, allowed_subnets: list[str]) -> 
 # ---------------------------------------------------------------------------
 
 
-class IdentityMismatch(Exception):
+class IdentityMismatchError(Exception):
     """A candidate answered, but something about it doesn't match what we
     expect -- esa_id, MAC, or (via allowed_subnets) address range.
 
@@ -468,14 +468,14 @@ def verify_candidate(
     Connect to `candidate`, read its unprompted greeting, and check identity.
 
       - expected_esa_id set and it MATCHES    -> Verified(first_run=False)
-      - expected_esa_id set and it MISMATCHES -> raises IdentityMismatch
+      - expected_esa_id set and it MISMATCHES -> raises IdentityMismatchError
       - expected_esa_id blank (first run)     -> Verified(first_run=True);
         the caller should surface identity["esa_id"] so it can be pinned for
         next time.
 
     expected_mac is an optional second signal (see mac_for_ip's docstring for
     why it only corroborates, never proves):
-      - expected_mac set, observed MAC known and it DIFFERS -> IdentityMismatch,
+      - expected_mac set, observed MAC known and it DIFFERS -> IdentityMismatchError,
         exactly like an esa_id mismatch -- refused, not silently accepted.
       - expected_mac set but the MAC could not be read (no arp tool, unknown
         platform, etc.) -> a warnings.warn(), NOT a refusal. We never want a
@@ -489,7 +489,7 @@ def verify_candidate(
     identity = esatm.parse_identity(payload)
     esa_id = identity.get("esa_id", "")
     if expected_esa_id and esa_id != expected_esa_id:
-        raise IdentityMismatch(
+        raise IdentityMismatchError(
             f"refusing {candidate.host}:{candidate.port} -- it identifies as "
             f"esa_id={esa_id!r} ({identity.get('name', '?')!r}), not the "
             f"expected {expected_esa_id!r}. This is not your Drobo; not connecting."
@@ -507,7 +507,7 @@ def verify_candidate(
                 stacklevel=2,
             )
         elif mac != expected_norm:
-            raise IdentityMismatch(
+            raise IdentityMismatchError(
                 f"refusing {candidate.host}:{candidate.port} -- its MAC address is "
                 f"{mac}, expected {expected_norm}. esa_id matched (esa_id={esa_id!r}), "
                 f"but the link-layer address changed -- usually this means the Drobo's "
@@ -596,7 +596,7 @@ def resolve(
 
     Tries every candidate from _gather_candidates() in order and returns the
     first one whose identity checks out. A candidate that answers but has the
-    WRONG identity is refused (IdentityMismatch) and skipped, not silently
+    WRONG identity is refused (IdentityMismatchError) and skipped, not silently
     accepted -- so this only ever falls through to "not found" territory, it
     never falls through to "connected to the wrong device".
 
@@ -613,10 +613,10 @@ def resolve(
     verify_candidate for exactly how it degrades when the MAC can't be read.
 
     Raises:
-        IdentityMismatch  if at least one candidate answered but none matched
-                           (esa_id, MAC, or subnet -- only when the relevant
-                           expectation is configured).
-        LookupError       if nothing answered at all.
+        IdentityMismatchError  if at least one candidate answered but none matched
+                               (esa_id, MAC, or subnet -- only when the relevant
+                               expectation is configured).
+        LookupError            if nothing answered at all.
     """
     candidates = _gather_candidates(hostname, last_known_ip, port, try_sweep,
                                     mdns_timeout, manual_ips)
@@ -627,14 +627,14 @@ def resolve(
     for cand in candidates:
         try:
             return verify_candidate(cand, expected_esa_id, expected_mac, timeout)
-        except IdentityMismatch as exc:
+        except IdentityMismatchError as exc:
             mismatches.append(str(exc))
             continue
         except (OSError, esatm.FrameError, ET.ParseError):
             continue  # unreachable, or answered but wasn't a Drobo greeting
 
     if mismatches:
-        raise IdentityMismatch(
+        raise IdentityMismatchError(
             "found device(s) on the network, but none matched the expected "
             "Drobo:\n  " + "\n  ".join(mismatches)
         )

@@ -148,6 +148,25 @@ released. Every push to this repository carries this file.
   the same, and the SDK's package metadata declares it (it said
   "Proprietary" before). The installer now puts a copy of `LICENSE` in the
   program folder, beside `TESTING.md`. (2026-10-19)
+- **Names follow PEP 8 and say what they mean.** Classes, functions,
+  variables and constants in the SDK, the agent, the tools and the tests
+  are being renamed so that each name says what it holds or does, and
+  every exception's name ends in `Error`. This is a rename only: nothing
+  sent to a Drobo, no agent route or JSON key, no `config.json` key and no
+  command-line option changes, and every suite keeps its check counts.
+  There are no compatibility aliases, so a script of your own that
+  imports an old name from `drobo_nasd` stops at the import with an
+  `ImportError` or `AttributeError` naming it; the list below gives the
+  new name to use. Renamed so far (2026-10-19):
+  - `drobo_nasd.config_cmd.ConfigWriteOutcomeUnknown` ->
+    `ConfigWriteOutcomeUnknownError`
+  - `drobo_nasd.sharewrite.ShareVerifyUnavailable` ->
+    `ShareWriteOutcomeUnknownError` (the new name says what it means: the
+    write went out and its outcome could not be established)
+  - `drobo_nasd.discovery.IdentityMismatch` -> `IdentityMismatchError`
+  - agent `drivers.DroboNotFound` -> `DroboNotFoundError`
+  - agent `drivers.SimulatedWriteUnconfirmed` ->
+    `SimulatedWriteUnconfirmedError`
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

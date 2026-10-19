@@ -73,7 +73,7 @@ from .shareedit import ACCESS_NONE, ShareEditError
 _SECTION = "shares"
 
 
-class ShareVerifyUnavailable(ShareEditError):
+class ShareWriteOutcomeUnknownError(ShareEditError):
     """
     The write went out and its outcome cannot be established, because the
     read-back that would establish it could not be completed (transport
@@ -83,7 +83,7 @@ class ShareVerifyUnavailable(ShareEditError):
       * the device ACCEPTED the write and the confirming read-back failed;
       * the device never acknowledged the write at all (it closed the
         connection) and the ARBITRATING read-back failed too -- config_cmd's
-        ConfigWriteOutcomeUnknown, translated into this module's vocabulary.
+        ConfigWriteOutcomeUnknownError, translated into this module's vocabulary.
 
     Distinct from ShareEditError proper because the two demand opposite
     responses: a refused write may be retried; a write of unknown outcome must
@@ -92,7 +92,7 @@ class ShareVerifyUnavailable(ShareEditError):
     """
 
 
-class _NoChange(Exception):
+class _NoChangeNeeded(Exception):
     """Internal signal: the row already holds the requested code; skip the send."""
 
 
@@ -174,7 +174,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
 
     Raises ShareEditError for a disallowed code, an unknown share, or a lost
     share (which surgical editing should make impossible, but is asserted);
-    ShareVerifyUnavailable when the outcome cannot be established;
+    ShareWriteOutcomeUnknownError when the outcome cannot be established;
     config_cmd.ConfigWriteError propagates for a refused or unreachable device.
     """
     share_name = (share_name or "").strip()
@@ -252,7 +252,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
             # value that is already set. Signal it and let the caller skip
             # the send entirely.
             if (access.text or "").strip() == access_code:
-                raise _NoChange()
+                raise _NoChangeNeeded()
             access.text = access_code
         else:
             new_user = ET.SubElement(users_container, "ShareUser")
@@ -279,7 +279,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_reads_back)
-    except _NoChange:
+    except _NoChangeNeeded:
         # The row already held access_code. Nothing was sent -- and that is
         # the correct outcome, not a failure. acknowledged is None because
         # there was no write for the device to acknowledge.
@@ -287,8 +287,8 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
                 "acknowledged": None,
                 "note": f"{username!r} on {share_name!r} already has access "
                         f"{access_code}; nothing was written."}
-    except config_cmd.ConfigWriteOutcomeUnknown as exc:
-        raise ShareVerifyUnavailable(
+    except config_cmd.ConfigWriteOutcomeUnknownError as exc:
+        raise ShareWriteOutcomeUnknownError(
             f"the write setting {username!r} to access {access_code} on "
             f"{share_name!r} WAS sent, but neither the device's "
             f"acknowledgement nor a read-back could settle whether it applied "
@@ -311,7 +311,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         result["verified"] = _reads_back()
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
-        raise ShareVerifyUnavailable(
+        raise ShareWriteOutcomeUnknownError(
             f"the device ACCEPTED the write for {username!r} on {share_name!r} "
             f"(access {access_code}), but the read-back to confirm it could not "
             f"be completed ({type(exc).__name__}: {exc}). The change most likely "
@@ -434,7 +434,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     into plain success, and must NEVER retry on it.
 
     Raises ShareEditError for an invalid or duplicate name or an underivable
-    volume; ShareVerifyUnavailable when the outcome cannot be established --
+    volume; ShareWriteOutcomeUnknownError when the outcome cannot be established --
     whether the write was ACCEPTED and the read-back failed, or the write was
     never acknowledged and the read-back failed too;
     config_cmd.ConfigWriteError for a refused or unreachable device, or for a
@@ -507,8 +507,8 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_now_listed)
-    except config_cmd.ConfigWriteOutcomeUnknown as exc:
-        raise ShareVerifyUnavailable(
+    except config_cmd.ConfigWriteOutcomeUnknownError as exc:
+        raise ShareWriteOutcomeUnknownError(
             f"the write creating share {name!r} WAS sent, but neither the "
             f"device's acknowledgement nor a read-back could settle whether it "
             f"applied ({exc}). The share MAY now exist. Re-read the share "
@@ -528,7 +528,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         listed = _share_names_readback(host, esa_id, port, timeout)
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
-        raise ShareVerifyUnavailable(
+        raise ShareWriteOutcomeUnknownError(
             f"the device ACCEPTED the write creating share {name!r}, but the "
             f"read-back to confirm it could not be completed "
             f"({type(exc).__name__}: {exc}). The share was most likely "
@@ -568,7 +568,7 @@ def delete_share(host: str, esa_id: str, name: str,
     reach for the delete again, having already lost the data once.
 
     Raises ShareEditError for an unknown or ambiguous name;
-    ShareVerifyUnavailable when the outcome cannot be established;
+    ShareWriteOutcomeUnknownError when the outcome cannot be established;
     config_cmd.ConfigWriteError for a refused or unreachable device, or for a
     delete the read-back shows did not happen.
     """
@@ -625,8 +625,8 @@ def delete_share(host: str, esa_id: str, name: str,
         result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_now_gone)
-    except config_cmd.ConfigWriteOutcomeUnknown as exc:
-        raise ShareVerifyUnavailable(
+    except config_cmd.ConfigWriteOutcomeUnknownError as exc:
+        raise ShareWriteOutcomeUnknownError(
             f"the delete of share {name!r} WAS sent, but neither the device's "
             f"acknowledgement nor a read-back could settle whether it applied "
             f"({exc}). The share MAY already be gone -- and with it whatever it "
@@ -645,7 +645,7 @@ def delete_share(host: str, esa_id: str, name: str,
         listed = _share_names_readback(host, esa_id, port, timeout)
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
-        raise ShareVerifyUnavailable(
+        raise ShareWriteOutcomeUnknownError(
             f"the device ACCEPTED the delete of share {target_name!r}, but "
             f"the read-back to confirm it could not be completed "
             f"({type(exc).__name__}: {exc}). The share was most likely "

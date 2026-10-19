@@ -280,14 +280,14 @@ print("\n== an accepted write whose verify read-back fails is named as ACCEPTED-
 dev = FakeDrobo([_read_reply(TWO), _accept()])
 try:
     sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1", port=dev.port, timeout=3)
-    check("verify transport failure raises ShareVerifyUnavailable", False)
-except sw.ShareVerifyUnavailable as exc:
-    check("verify transport failure raises ShareVerifyUnavailable", "ACCEPTED" in str(exc), str(exc))
+    check("verify transport failure raises ShareWriteOutcomeUnknownError", False)
+except sw.ShareWriteOutcomeUnknownError as exc:
+    check("verify transport failure raises ShareWriteOutcomeUnknownError", "ACCEPTED" in str(exc), str(exc))
     check("...and warns not to blindly retry", "do NOT simply retry" in str(exc))
 except ShareEditError as exc:
-    check("verify transport failure raises ShareVerifyUnavailable (got plain ShareEditError)", False, str(exc))
+    check("verify transport failure raises ShareWriteOutcomeUnknownError (got plain ShareEditError)", False, str(exc))
 check("...it is still a ShareEditError subclass so broad handlers catch it",
-      issubclass(sw.ShareVerifyUnavailable, ShareEditError))
+      issubclass(sw.ShareWriteOutcomeUnknownError, ShareEditError))
 
 print("\n== a truncated reply is truncation, not a rejection ==")
 # A reply whose declared length exceeds what arrives must raise 'short payload',

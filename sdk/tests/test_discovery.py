@@ -110,9 +110,9 @@ with fake_drobo(PAYLOAD) as (host, port):
     cand = discovery.Candidate(host, port, "test")
     try:
         discovery.verify_candidate(cand, expected_esa_id="drb-not-the-real-one")
-        check("mismatch raises IdentityMismatch", False)
-    except discovery.IdentityMismatch as exc:
-        check("mismatch raises IdentityMismatch", True)
+        check("mismatch raises IdentityMismatchError", False)
+    except discovery.IdentityMismatchError as exc:
+        check("mismatch raises IdentityMismatchError", True)
         check("mismatch message names both ids",
               "drb-not-the-real-one" in str(exc) and SAMPLE_ESA_ID in str(exc), str(exc))
 
@@ -140,7 +140,7 @@ try:
             discovery.resolve(expected_esa_id="drb-someone-elses-drobo",
                                last_known_ip=host, port=port, mdns_timeout=0.1)
             check("resolve() refuses a mismatched device end-to-end", False)
-        except discovery.IdentityMismatch:
+        except discovery.IdentityMismatchError:
             check("resolve() refuses a mismatched device end-to-end", True)
 
     print("\n== resolve(): end-to-end first-run pairing ==")
@@ -156,8 +156,8 @@ try:
     try:
         discovery.resolve(expected_esa_id="", last_known_ip="", port=59999, mdns_timeout=0.1)
         check("resolve() with no candidates raises LookupError", False)
-    except discovery.IdentityMismatch:
-        check("resolve() with no candidates raises LookupError, not IdentityMismatch", False)
+    except discovery.IdentityMismatchError:
+        check("resolve() with no candidates raises LookupError, not IdentityMismatchError", False)
     except LookupError:
         check("resolve() with no candidates raises LookupError", True)
 finally:
@@ -371,9 +371,9 @@ try:
         cand = discovery.Candidate(host, port, "test")
         try:
             discovery.verify_candidate(cand, expected_esa_id=SAMPLE_ESA_ID, expected_mac="11:22:33:44:55:66")
-            check("MAC mismatch raises IdentityMismatch even though esa_id matched", False)
-        except discovery.IdentityMismatch as exc:
-            check("MAC mismatch raises IdentityMismatch even though esa_id matched", True)
+            check("MAC mismatch raises IdentityMismatchError even though esa_id matched", False)
+        except discovery.IdentityMismatchError as exc:
+            check("MAC mismatch raises IdentityMismatchError even though esa_id matched", True)
             check("MAC mismatch message names both expected and observed MAC",
                   "11:22:33:44:55:66" in str(exc) and "aa:bb:cc:dd:ee:ff" in str(exc), str(exc))
 finally:
@@ -445,7 +445,7 @@ try:
             discovery.resolve(expected_esa_id=SAMPLE_ESA_ID, last_known_ip=host, port=port,
                                mdns_timeout=0.1, allowed_subnets=["10.0.0.0/24"])
             check("resolve() refuses an out-of-subnet candidate end-to-end", False)
-        except discovery.IdentityMismatch as exc:
+        except discovery.IdentityMismatchError as exc:
             check("resolve() refuses an out-of-subnet candidate end-to-end", True)
             check("subnet-refusal message names the allowed range and the offending host",
                   "10.0.0.0/24" in str(exc) and host in str(exc), str(exc))
@@ -486,7 +486,7 @@ else:
                                    timeout=5.0)
         check("live device refuses a wrong expected esa_id", False,
               "it accepted a serial that does not match")
-    except discovery.IdentityMismatch:
+    except discovery.IdentityMismatchError:
         check("live device refuses a wrong expected esa_id", True)
 
 

@@ -424,7 +424,7 @@ class ConfigWriteError(ConfigError):
     """
 
 
-class ConfigWriteOutcomeUnknown(ConfigWriteError):
+class ConfigWriteOutcomeUnknownError(ConfigWriteError):
     """
     The write frame WAS put on the wire, the device never answered, and the
     read-back that would settle the question could not be completed either. So
@@ -506,13 +506,13 @@ def set_config(host: str, esa_id: str, section: str, build_inner,
     a zero-argument callable returning True when the device now shows the
     intended change. Pass it for every write that has a read-back available:
     without it, a write that applied but was never acknowledged can only be
-    reported as ConfigWriteOutcomeUnknown. See _send_inner.
+    reported as ConfigWriteOutcomeUnknownError. See _send_inner.
 
     Returns a small dict: what was sent, the device's result code, and whether
     the device acknowledged it (see _send_inner's RESULT KEYS). Raises
     ConfigWriteError on a bad section, a failed read, a build refusal, a
     non-accepted result, a transport error before the frame went out, or a
-    read-back that shows the change absent; ConfigWriteOutcomeUnknown when the
+    read-back that shows the change absent; ConfigWriteOutcomeUnknownError when the
     frame went out and neither the device nor a read-back could settle it.
 
     KNOWN LIMITATION -- the read and the write are separate connections, and
@@ -590,7 +590,7 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
 
         read-back True   -> success, `acknowledged` False (see the result keys)
         read-back False  -> genuine failure, ConfigWriteError
-        read-back itself unusable, or none supplied -> ConfigWriteOutcomeUnknown
+        read-back itself unusable, or none supplied -> ConfigWriteOutcomeUnknownError
 
     Nothing here ever re-sends. A retry after an unacknowledged-but-applied
     write is precisely the harm this arbitration exists to prevent.
@@ -746,7 +746,7 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
     below says or implies that nothing happened.
     """
     if readback is None:
-        raise ConfigWriteOutcomeUnknown(
+        raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device closed "
             f"the connection without answering ({type(cause).__name__}: {cause}), "
             f"and no read-back was available to settle it. The write MAY have "
@@ -762,7 +762,7 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
         # arbiter that fell over for any reason leaves us in the third, and
         # letting its exception escape would surface as a failed write. The
         # cause chain keeps a genuine bug in the arbiter findable.
-        raise ConfigWriteOutcomeUnknown(
+        raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device closed "
             f"the connection without answering ({type(cause).__name__}: {cause}), "
             f"and the read-back that would settle it could not be completed "

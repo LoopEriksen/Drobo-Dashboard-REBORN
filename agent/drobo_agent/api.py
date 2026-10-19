@@ -122,7 +122,7 @@ from drobo_nasd import shares as shares_mod
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
                         identify as identify_cmd, netcheck, sharewrite, sysinfo)
 from drobo_nasd.shareedit import ShareEditError
-from .drivers import MockDriver, SimulatedWriteUnconfirmed
+from .drivers import MockDriver, SimulatedWriteUnconfirmedError
 from .photos import PhotoStoreError
 
 #: One backup at a time, for the whole agent. Two robocopy processes writing
@@ -199,7 +199,7 @@ UNKNOWN_WRITE_GUIDANCE = (
 #: Exception types meaning "the write went out and its outcome could not be
 #: established" -- WRITE_UNKNOWN, never a failure. Every one of these MUST be
 #: caught before the refusal branches in _config_write, and
-#: ConfigWriteOutcomeUnknown especially: it subclasses ConfigWriteError purely
+#: ConfigWriteOutcomeUnknownError especially: it subclasses ConfigWriteError purely
 #: so old callers keep catching it, so an `except ConfigWriteError` reached
 #: first would report an unsettled write as a plain failure -- the one answer
 #: this whole path exists to prevent.
@@ -208,9 +208,12 @@ UNKNOWN_WRITE_GUIDANCE = (
 #: this file fails loudly at import instead of quietly mis-filing the write as
 #: failed. A new SDK type for this condition has to be added here.
 _UNCONFIRMED_WRITE_ERRORS = (
-    config_cmd.ConfigWriteOutcomeUnknown,   # brightness and spin-down writes
-    sharewrite.ShareVerifyUnavailable,      # share access, create and delete
-    SimulatedWriteUnconfirmed,              # the mock driver's injected ending
+    # brightness and spin-down writes
+    config_cmd.ConfigWriteOutcomeUnknownError,
+    # share access, create and delete
+    sharewrite.ShareWriteOutcomeUnknownError,
+    # the mock driver's injected ending
+    SimulatedWriteUnconfirmedError,
 )
 
 
@@ -1600,7 +1603,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # asserting which one is yours. Identity pinning still
                     # happens in the driver when you actually connect.
                     v = discovery.verify_candidate(cand, timeout=self.DISCOVER_TIMEOUT)
-                except (OSError, discovery.IdentityMismatch, esatm.FrameError):
+                except (OSError, discovery.IdentityMismatchError, esatm.FrameError):
                     continue  # answered badly or not at all; not a Drobo we can use
                 ident = v.identity
                 found.append({

@@ -530,8 +530,8 @@ the greeting (`mESAID`, the permanent hardware serial), the agent doesn't need
 `_nasd._tcp`, falls back to a `.local` hostname, then a last-known IP, then
 (opt-in only) a bounded subnet sweep, and treats "something answered on port
 5000" as provisional until the greeting's `mESAID` matches the serial the
-caller expects. A mismatch raises `IdentityMismatch` rather than trusting the
-candidate. No static IP or manual-IP command needed.
+caller expects. A mismatch raises `IdentityMismatchError` rather than
+trusting the candidate. No static IP or manual-IP command needed.
 
 ### Escape hatches
 

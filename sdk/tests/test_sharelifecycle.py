@@ -354,27 +354,27 @@ check("...nothing written", len(dev.sent) == 1, dev.sent)
 
 print("\n== accepted-but-unverified and accepted-but-unapplied are named apart ==")
 
-# Write accepted, verify connection refused -> ShareVerifyUnavailable, both ways.
+# Write accepted, verify connection refused -> ShareWriteOutcomeUnknownError, both ways.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
     sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1", port=dev.port, timeout=3)
-    check("create verify transport failure raises ShareVerifyUnavailable", False)
-except sw.ShareVerifyUnavailable as exc:
-    check("create verify transport failure raises ShareVerifyUnavailable",
+    check("create verify transport failure raises ShareWriteOutcomeUnknownError", False)
+except sw.ShareWriteOutcomeUnknownError as exc:
+    check("create verify transport failure raises ShareWriteOutcomeUnknownError",
           "ACCEPTED" in str(exc) and "do NOT simply retry" in str(exc), str(exc))
 except ShareEditError as exc:
-    check("create verify transport failure raises ShareVerifyUnavailable "
+    check("create verify transport failure raises ShareWriteOutcomeUnknownError "
           "(got plain ShareEditError)", False, str(exc))
 
 dev = FakeDrobo([_read_reply(WITH_ZZ), _accept()])
 try:
     sw.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port, timeout=3)
-    check("delete verify transport failure raises ShareVerifyUnavailable", False)
-except sw.ShareVerifyUnavailable as exc:
-    check("delete verify transport failure raises ShareVerifyUnavailable",
+    check("delete verify transport failure raises ShareWriteOutcomeUnknownError", False)
+except sw.ShareWriteOutcomeUnknownError as exc:
+    check("delete verify transport failure raises ShareWriteOutcomeUnknownError",
           "ACCEPTED" in str(exc) and "do NOT simply retry" in str(exc), str(exc))
 except ShareEditError as exc:
-    check("delete verify transport failure raises ShareVerifyUnavailable "
+    check("delete verify transport failure raises ShareWriteOutcomeUnknownError "
           "(got plain ShareEditError)", False, str(exc))
 
 # Device accepts but the read-back does not show the change -> received, not applied.

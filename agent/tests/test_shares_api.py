@@ -436,20 +436,20 @@ try:
         # (d) via config_cmd's own type. It subclasses ConfigWriteError, so a
         # handler that caught that first would file this as a flat failure --
         # this check is what stops that regression.
-        sdk_answers(config_cmd.ConfigWriteOutcomeUnknown(
+        sdk_answers(config_cmd.ConfigWriteOutcomeUnknownError(
             "the write to section 'shares' WAS sent, then the device closed "
             "the connection without answering."))
         s, b = call("/api/shares/create", body={"name": "SdkUnknown"})
-        check("SDK: ConfigWriteOutcomeUnknown is 502 UNKNOWN, not 502 failed",
+        check("SDK: ConfigWriteOutcomeUnknownError is 502 UNKNOWN, not 502 failed",
               s == 502 and b.get("outcome") == "unknown", (s, b))
         check("-- and keeps the SDK's own words", "WAS sent" in b.get("error", ""), b)
 
         # (d) via sharewrite's translation of the same condition.
-        sdk_answers(sharewrite.ShareVerifyUnavailable(
+        sdk_answers(sharewrite.ShareWriteOutcomeUnknownError(
             "the write creating share 'X' WAS sent, but neither the device's "
             "acknowledgement nor a read-back could settle whether it applied."))
         s, b = call("/api/shares/create", body={"name": "SdkUnverifiable"})
-        check("SDK: ShareVerifyUnavailable is 502 UNKNOWN too",
+        check("SDK: ShareWriteOutcomeUnknownError is 502 UNKNOWN too",
               s == 502 and b.get("outcome") == "unknown", (s, b))
 
         # (c) the genuine failure.
@@ -474,10 +474,10 @@ try:
 
     print("\n== the outcome vocabulary is pinned, not re-derived per caller ==")
     check("config_cmd's unknown-outcome error maps to 'unknown', by TYPE",
-          config_cmd.ConfigWriteOutcomeUnknown in api_mod._UNCONFIRMED_WRITE_ERRORS,
+          config_cmd.ConfigWriteOutcomeUnknownError in api_mod._UNCONFIRMED_WRITE_ERRORS,
           api_mod._UNCONFIRMED_WRITE_ERRORS)
     check("the SDK's accepted-but-unverifiable error maps to 'unknown', by TYPE",
-          sharewrite.ShareVerifyUnavailable in api_mod._UNCONFIRMED_WRITE_ERRORS,
+          sharewrite.ShareWriteOutcomeUnknownError in api_mod._UNCONFIRMED_WRITE_ERRORS,
           api_mod._UNCONFIRMED_WRITE_ERRORS)
     check("a plain verified result is 'verified'",
           api_mod._write_outcome({"verified": True}) == (api_mod.WRITE_VERIFIED, True))

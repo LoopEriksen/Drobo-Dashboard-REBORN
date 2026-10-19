@@ -84,7 +84,7 @@ class Monitor:
         poll = self.cfg["agent"]["poll_seconds"]
         try:
             self.driver.connect()
-        except discovery.IdentityMismatch as exc:
+        except discovery.IdentityMismatchError as exc:
             # Something answered and it is provably not this Drobo: a
             # different serial at the configured address, or discovery finding
             # only devices that are not the one config.json names. The one
@@ -99,7 +99,7 @@ class Monitor:
                 'the "drobo" block of config.json to the serial it reports (or '
                 "remove it to pair with the next Drobo found), then start the "
                 "agent again.\n") from exc
-        except drivers_mod.DroboNotFound as exc:
+        except drivers_mod.DroboNotFoundError as exc:
             # Discovery ran and nothing answered. Until 2026-09-26 this exited
             # the agent, under a comment calling it "a programming/config
             # error, not a network condition". That was true when it was

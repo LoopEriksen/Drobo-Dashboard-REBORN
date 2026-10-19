@@ -1413,7 +1413,7 @@ def _wait_for(pred, seconds=10.0):
 
 
 check("'not found' is its own type, a LookupError",
-      issubclass(_drivers_mod.DroboNotFound, LookupError))
+      issubclass(_drivers_mod.DroboNotFoundError, LookupError))
 
 discovery.resolve = _resolve_nothing
 _esatm_mod.read_snapshot = _must_not_reach("esatm.read_snapshot")
@@ -1518,7 +1518,7 @@ finally:
 # A device that answers and is provably not this Drobo stays a hard refusal --
 # but a readable one. It used to end in a raw traceback.
 def _resolve_stranger(*a, **kw):
-    raise discovery.IdentityMismatch(
+    raise discovery.IdentityMismatchError(
         "found device(s) on the network, but none matched the expected Drobo:\n"
         "  refusing 192.0.2.10:5000 -- it identifies as esa_id='drb000000OTHER', "
         f"not the expected {_NF_SERIAL!r}. This is not your Drobo; not connecting.")

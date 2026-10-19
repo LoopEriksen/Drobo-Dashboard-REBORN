@@ -651,8 +651,9 @@ stopped, and the installer test, which gave the exit as its reason for
 launching against the simulator.
 
 It was found by reading the code, not by a failed boot. Discovery finding
-nothing now has its own type, `DroboNotFound`, and gets the answer an
-unreachable Drobo already got: the agent starts, serves the dashboard, raises
+nothing now has its own type, `DroboNotFound` (since renamed
+`DroboNotFoundError`), and gets the answer an unreachable Drobo already
+got: the agent starts, serves the dashboard, raises
 the critical alert, and runs discovery again on every poll until the Drobo
 answers. The unused `ProtocolNotMappedError` is gone. A device that answers
 and is provably not this Drobo still stops the agent -- which one it is, a
@@ -769,6 +770,23 @@ exists to show, so the field name now has to be followed directly by `:` or
 `=`. Of the two stricter tag rules on offer, the maintainer chose the stricter:
 only an all-letter string is spared. A new suite, the fifth under `tools/`,
 checks both with made-up strings; eleven of its 25 checks fail against 1.1.0.
+
+## Names that say what they mean (2026-10-19)
+
+**10-19.** The maintainer approved a pass that brings the Python in line with
+PEP 8: every name says what it holds or does, every exception's name ends in
+`Error`, and, once the renames are done, lines are rewrapped to 79 columns (72
+for comments and docstrings). It goes in small steps, renames first, and each
+step is held to 1.1.0 by the same suites with the same counts, a recording of
+every byte the SDK sends to a fake Drobo on loopback, and fingerprints of the
+browser dashboard and the pairing QR code. Public names are renamed too,
+without compatibility aliases: the agent already relies on a renamed SDK type
+failing at import rather than being quietly mis-filed, and an alias would undo
+that. The first step renamed the exceptions. `ShareVerifyUnavailable` became
+`ShareWriteOutcomeUnknownError` rather than just gaining the suffix, because
+what it reports is a write whose outcome is unknown, and two of its three
+routes are a translation of `ConfigWriteOutcomeUnknownError`; an internal
+signal that is not an error at all became `_NoChangeNeeded`.
 
 ## The principles that emerged
 

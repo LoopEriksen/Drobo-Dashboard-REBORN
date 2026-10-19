@@ -391,7 +391,7 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     change -- true, but on the device's state rather than its word. Raises
     DimmingWriteError on an out-of-band value, an unrecognised block, or a write
     the device accepted but did not apply; ConfigWriteError propagates for a
-    refused or unreachable device, and ConfigWriteOutcomeUnknown when neither
+    refused or unreachable device, and ConfigWriteOutcomeUnknownError when neither
     the device nor a read-back could settle what happened.
     """
     # Import here, not at module load: keeps the read-only surface of this

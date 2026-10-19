@@ -49,7 +49,7 @@ from .models import (
 from drobo_nasd import config_cmd, discovery, esatm, eventlog, sharewrite, sysinfo
 
 
-class DroboNotFound(LookupError):
+class DroboNotFoundError(LookupError):
     """
     Automatic discovery ran and nothing answered as a Drobo: not a typed
     address, not the last-known one, not mDNS, and not the subnet sweep if it
@@ -71,11 +71,11 @@ class DroboNotFound(LookupError):
     """
 
 
-class SimulatedWriteUnconfirmed(Exception):
+class SimulatedWriteUnconfirmedError(Exception):
     """
     The simulated device took a configuration write and then made settling its
     outcome impossible -- the injected mirror of config_cmd's
-    ConfigWriteOutcomeUnknown and sharewrite's ShareVerifyUnavailable.
+    ConfigWriteOutcomeUnknownError and sharewrite's ShareWriteOutcomeUnknownError.
 
     Deliberately the simulator's OWN type rather than one of those: the mock
     stands in for a device, not for a particular SDK release, and it should not
@@ -126,8 +126,8 @@ class DroboDriver:
         Called once at startup. Raise if the device can't be reached.
 
         Monitor.start sorts what is raised. OSError, esatm.FrameError and
-        DroboNotFound mean "not reachable yet": the agent starts anyway and
-        the poll loop keeps trying. discovery.IdentityMismatch means something
+        DroboNotFoundError mean "not reachable yet": the agent starts anyway and
+        the poll loop keeps trying. discovery.IdentityMismatchError means something
         answered and it is provably not this Drobo: the agent refuses to
         start. Anything else is a bug and is left to surface as one.
         """
@@ -439,7 +439,7 @@ class MockDriver(DroboDriver):
         layer reads to tell a plain success from that one.
         """
         if self._write_fault == WRITE_FAULT_UNCONFIRMABLE:
-            raise SimulatedWriteUnconfirmed(
+            raise SimulatedWriteUnconfirmedError(
                 "the device took the write and then closed the connection, and "
                 "the read-back that would confirm it could not be completed "
                 "either. (injected mock fault)")
@@ -985,7 +985,7 @@ class Drobo5NDriver(DroboDriver):
     Leave it blank for first-run pairing: discovery still connects, but logs
     the discovered esa_id prominently so it can be pasted into config.json.
     Once set, a candidate that answers with a DIFFERENT esa_id is refused,
-    never silently trusted -- see discovery.IdentityMismatch.
+    never silently trusted -- see discovery.IdentityMismatchError.
 
     Read-only, but no longer silent: as of 2026-07-26 it also asks the device
     for its chassis temperature (eCmdGetSysInfo, a query) at most once every
@@ -1097,7 +1097,7 @@ class Drobo5NDriver(DroboDriver):
                 timeout=self.timeout,
                 manual_ips=self.manual_discovery_ips,
             )
-        except discovery.IdentityMismatch:
+        except discovery.IdentityMismatchError:
             # A device answered, and it is provably not ours. Let this through
             # untouched: discovery.py already produced a precise message naming
             # both serials, and reframing it as "couldn't find anything" would
@@ -1113,7 +1113,7 @@ class Drobo5NDriver(DroboDriver):
             # now what the "cannot reach" alert says, and it has to carry the
             # first thing to check itself. The config.json route is for a
             # network that blocks mDNS, which is the rarer case.
-            raise DroboNotFound(
+            raise DroboNotFoundError(
                 "Could not find the Drobo automatically (tried mDNS"
                 + (f", {len(self.manual_discovery_ips)} manually-added address(es)"
                    if self.manual_discovery_ips else "")
@@ -1159,7 +1159,7 @@ class Drobo5NDriver(DroboDriver):
         # handing that address to a different device later.
         snap = esatm.read_snapshot(self.host, self.port, self.timeout)
         if self.expected_esa_id and snap.device.serial != self.expected_esa_id:
-            raise discovery.IdentityMismatch(
+            raise discovery.IdentityMismatchError(
                 f"refusing {self.host}:{self.port} -- it identifies as "
                 f"esa_id={snap.device.serial!r}, not the expected "
                 f"{self.expected_esa_id!r}. This is not your Drobo; not connecting."

@@ -200,7 +200,7 @@ try:
     check("a refused connection raises", False)
 except cc.ConfigWriteError as exc:
     check("a refused connection is a plain ConfigWriteError, not outcome-unknown",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown), type(exc).__name__)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
     check("...with the pre-existing 'could not reach' wording",
           "could not reach the command port" in str(exc), str(exc))
 check("...and the read-back arbiter was never consulted", calls == [], calls)
@@ -231,7 +231,7 @@ try:
     check("a refused login raises", False)
 except cc.ConfigWriteError as exc:
     check("a refused login is a plain failure, not outcome-unknown",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
           and "login refused" in str(exc), str(exc))
 check("...and the arbiter was never consulted for a refused login", calls == [], calls)
 
@@ -285,7 +285,7 @@ try:
     check("an unanswered write whose change is ABSENT raises", False)
 except cc.ConfigWriteError as exc:
     check("an unanswered write whose change is ABSENT is a genuine failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
           and "did not apply" in str(exc), str(exc))
 check("...and still only one write frame went out", len(dev.writes()) == 1, dev.sent)
 
@@ -301,9 +301,9 @@ try:
     cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
                    readback=_exploding)
     check("an unarbitrable write raises", False)
-except cc.ConfigWriteOutcomeUnknown as exc:
+except cc.ConfigWriteOutcomeUnknownError as exc:
     msg = str(exc)
-    check("an unarbitrable write raises ConfigWriteOutcomeUnknown", True)
+    check("an unarbitrable write raises ConfigWriteOutcomeUnknownError", True)
     check("...the wording says the frame WAS sent", "WAS sent" in msg, msg)
     check("...the wording says it MAY have applied", "MAY have applied" in msg, msg)
     check("...the wording tells the caller to re-read first",
@@ -317,7 +317,7 @@ dev = ScriptedDrobo([HANGUP])
 try:
     cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5)
     check("an unanswered write with no arbiter raises", False)
-except cc.ConfigWriteOutcomeUnknown as exc:
+except cc.ConfigWriteOutcomeUnknownError as exc:
     check("an unanswered write with no arbiter is outcome-unknown, not failure",
           "MAY have applied" in str(exc), str(exc))
 
@@ -334,12 +334,12 @@ try:
     cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
                    readback=_buggy)
     check("a broken arbiter raises", False)
-except cc.ConfigWriteOutcomeUnknown as exc:
+except cc.ConfigWriteOutcomeUnknownError as exc:
     check("a broken arbiter yields UNKNOWN, not a false failure",
           "TypeError" in str(exc) and "MAY have applied" in str(exc), str(exc))
 
-check("ConfigWriteOutcomeUnknown is still a ConfigWriteError (broad handlers catch it)",
-      issubclass(cc.ConfigWriteOutcomeUnknown, cc.ConfigWriteError))
+check("ConfigWriteOutcomeUnknownError is still a ConfigWriteError (broad handlers catch it)",
+      issubclass(cc.ConfigWriteOutcomeUnknownError, cc.ConfigWriteError))
 
 print("\n== create_share: the write the hardware actually did this to ==")
 
@@ -364,7 +364,7 @@ try:
     check("an unacknowledged create that did NOT apply raises", False)
 except cc.ConfigWriteError as exc:
     check("an unacknowledged create that did NOT apply is a genuine failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
           and "did not apply" in str(exc), str(exc))
 check("...and the create was never re-sent", len(dev.writes()) == 1, dev.sent)
 
@@ -374,16 +374,16 @@ try:
     sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
                     port=dev.port, timeout=3)
     check("an unarbitrable create raises", False)
-except sw.ShareVerifyUnavailable as exc:
+except sw.ShareWriteOutcomeUnknownError as exc:
     msg = str(exc)
-    check("an unarbitrable create raises ShareVerifyUnavailable", True)
+    check("an unarbitrable create raises ShareWriteOutcomeUnknownError", True)
     check("...saying the write WAS sent", "WAS sent" in msg, msg)
     check("...saying the share MAY now exist", "MAY now exist" in msg, msg)
     check("...telling the caller to re-read first",
           "Re-read the share config" in msg, msg)
     check("...and forbidding a blind retry", "do NOT simply retry" in msg, msg)
 except ShareEditError as exc:
-    check("an unarbitrable create raises ShareVerifyUnavailable "
+    check("an unarbitrable create raises ShareWriteOutcomeUnknownError "
           "(got plain ShareEditError)", False, str(exc))
 check("...and the create was sent once and never repeated",
       len(dev.writes()) == 1, dev.sent)
@@ -408,9 +408,9 @@ dev = ScriptedDrobo([_read_reply(WITH_FRESH), HANGUP])
 try:
     sw.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=3)
     check("an unarbitrable delete raises", False)
-except sw.ShareVerifyUnavailable as exc:
+except sw.ShareWriteOutcomeUnknownError as exc:
     msg = str(exc)
-    check("an unarbitrable delete raises ShareVerifyUnavailable", True)
+    check("an unarbitrable delete raises ShareWriteOutcomeUnknownError", True)
     check("...saying the share MAY already be gone", "MAY already be gone" in msg, msg)
     check("...and forbidding a blind retry of a destructive write",
           "do NOT simply retry" in msg, msg)
@@ -437,8 +437,8 @@ try:
     sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
                              port=dev.port, timeout=3)
     check("an unarbitrable permission write raises", False)
-except sw.ShareVerifyUnavailable as exc:
-    check("an unarbitrable permission write raises ShareVerifyUnavailable",
+except sw.ShareWriteOutcomeUnknownError as exc:
+    check("an unarbitrable permission write raises ShareWriteOutcomeUnknownError",
           "WAS sent" in str(exc) and "MAY now be changed" in str(exc), str(exc))
 
 print("\n== every config write benefits, not just the share ones ==")
@@ -577,7 +577,7 @@ try:
     check("an unreadable reply with the change absent raises", False)
 except cc.ConfigWriteError as exc:
     check("an unreadable reply with the change absent is a plain failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown), type(exc).__name__)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
     check("...and the read-back was what decided it", calls == [False], calls)
 
 # A stated refusal is still a verdict: the device read the command and said no,
@@ -622,7 +622,7 @@ except cc.ConfigWriteError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           True, type(exc).__name__)
     check("...and not outcome-unknown, because nothing was sent",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknown), type(exc).__name__)
+          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
 except cc.ConfigError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           False, type(exc).__name__)
