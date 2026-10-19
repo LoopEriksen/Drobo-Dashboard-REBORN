@@ -19,6 +19,14 @@ released. Every push to this repository carries this file.
   port's real traffic; `tools/extract_commands.py` is the tool for the
   command port. Its test suite gains seven checks for this (51 to 58).
   (2026-10-19)
+- **The pairing QR encoder states its real limit.** Its notes and its
+  error message said it held about 270 characters. The most it holds is
+  213 bytes (version 10 at error-correction level M, in byte mode), and
+  the error now says so along with the size it was given. The pairing
+  link is well inside that, so no QR code changes. `test_agent.py` gains
+  three checks for this (268 to 271): a 213-byte round trip, which is the
+  first to reach version 10, the stated limit, and the refusal of 214
+  bytes. (2026-10-19)
 
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no

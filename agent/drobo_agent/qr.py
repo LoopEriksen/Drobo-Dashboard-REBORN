@@ -3,8 +3,9 @@ A small QR encoder, so pairing is a camera scan instead of typing a token.
 
 Standard library only -- no pillow, no qrcode package. Byte mode, error
 correction level M (~15% recoverable, which is the right trade-off for
-scanning off a screen), versions 1-10. That covers roughly 270 characters,
-far more than a pairing URL needs.
+scanning off a screen), versions 1-10. That holds 213 bytes
+(MAX_PAYLOAD_BYTES) -- 213 ASCII characters, fewer of anything wider
+in UTF-8 -- far more than a pairing URL needs.
 
 Implemented from the specification, ISO/IEC 18004 -- nobody's source code was
 read to write this. The Reed-Solomon error correction below runs over
@@ -101,6 +102,11 @@ def _capacity(version: int) -> int:
     return b1 * d1 + b2 * d2
 
 
+# What version 10 holds: its data codewords, less byte mode's 4-bit
+# indicator and 16-bit count. ISO/IEC 18004 tabulates 213 for 10-M.
+MAX_PAYLOAD_BYTES = (_capacity(10) * 8 - 4 - 16) // 8
+
+
 def _pick_version(nbytes: int) -> int:
     for v in range(1, 11):
         # 4 bits mode + count field + payload, rounded up to whole codewords
@@ -108,7 +114,8 @@ def _pick_version(nbytes: int) -> int:
         need = (4 + count_bits + nbytes * 8 + 7) // 8
         if need <= _capacity(v):
             return v
-    raise ValueError("payload too long for this encoder (max ~270 bytes)")
+    raise ValueError(f"payload too long for this encoder: {nbytes} bytes, "
+                     f"the most it holds is {MAX_PAYLOAD_BYTES}")
 
 
 # --------------------------------------------------------------------------

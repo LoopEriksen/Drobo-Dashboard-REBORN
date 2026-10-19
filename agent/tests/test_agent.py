@@ -587,12 +587,25 @@ def qr_decode(m):
 
 
 for payload in ['{"url":"http://192.0.2.50:7420","token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
-                "short", "x" * 180]:
+                "short", "x" * 180, "x" * 213]:
     m = _qr.matrix(payload)
     mode, mask, got = qr_decode(m)
     check("qr round-trips %d-byte payload" % len(payload),
           got == payload.encode() and mode == 0b0100,
           "mask=%d got=%r" % (mask, got[:60]))
+
+# 213 bytes is the most version 10-M holds in byte mode (ISO/IEC 18004's
+# own table); the refusal must say so, not the "~270" it used to claim.
+check("qr's stated limit is the real one, 213 bytes",
+      getattr(_qr, "MAX_PAYLOAD_BYTES", None) == 213,
+      getattr(_qr, "MAX_PAYLOAD_BYTES", "no such attribute"))
+try:
+    _qr.matrix("x" * 214)
+    refusal = ""
+except ValueError as exc:
+    refusal = str(exc)
+check("qr refuses a 214-byte payload, naming the real limit",
+      "213" in refusal and "270" not in refusal, refusal or "accepted")
 
 print("\n== index persistence ==")
 photos.flush()
