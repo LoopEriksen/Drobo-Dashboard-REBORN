@@ -132,20 +132,20 @@ def parse_sync_reply(payload: bytes) -> dict:
     return {"configured": bool(fields), "raw_xml": raw_xml, "fields": fields}
 
 
-def read(host: str, esa_id: str, what: str = "settings",
+def read(host: str, esa_id: str, read_kind: str = "settings",
          port: int = DEFAULT_PORT, timeout: float = 8.0) -> dict:
     """
     Ask the Drobo about DroboSync. Read-only; never triggers a sync.
 
-    `what` is one of READ_COMMANDS. An empty answer is returned as
+    `read_kind` is one of READ_COMMANDS. An empty answer is returned as
     {"configured": False}, NOT raised as an error -- on a device with no sync
     partner that is the correct and expected reply, and treating it as a
     failure would put a red error on screen for a machine behaving perfectly.
     """
-    if what not in READ_COMMANDS:
-        raise ValueError(f"unknown DroboSync read {what!r}; "
+    if read_kind not in READ_COMMANDS:
+        raise ValueError(f"unknown DroboSync read {read_kind!r}; "
                          f"choose from {sorted(READ_COMMANDS)}")
-    command_name = READ_COMMANDS[what]
+    command_name = READ_COMMANDS[read_kind]
 
     # Belt and braces. These are queries and none of them is in DO_NOT_SEND,
     # but this module sits next to three commands that move real data between
@@ -173,7 +173,7 @@ def read(host: str, esa_id: str, what: str = "settings",
             raise DroboSyncError(f"unexpected reply type 0x{frame_type:02x}")
         result = parse_sync_reply(body)
         result["command"] = command_name
-        result["what"] = what
+        result["what"] = read_kind
         return result
     finally:
         sock.close()

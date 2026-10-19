@@ -178,7 +178,7 @@ for bad, why in ((-1, "negative"), (-900, "very negative"),
         check(f"{why} interval is refused BEFORE connecting", False, repr(bad))
 
 check("the sanity limit itself is allowed",
-      idf._interval_xml(idf.MAX_INTERVAL).endswith(
+      idf._interval_params_xml(idf.MAX_INTERVAL).endswith(
           f"<IdentifyInterval>{idf.MAX_INTERVAL}</IdentifyInterval></Params>"))
 check("True is rejected even though bool is an int subclass",
       isinstance(True, int))

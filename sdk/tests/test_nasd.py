@@ -151,7 +151,7 @@ for name, params in cases:
     check(f"{name}: build() produced a DRINETTM root", "<DRINETTM>" in xml_text)
 
     env = envelope.parse(xml_text)
-    check(f"{name}: round-trip esaid", env.esaid == "ESA-1234", env.esaid)
+    check(f"{name}: round-trip esa_id", env.esa_id == "ESA-1234", env.esa_id)
     check(f"{name}: round-trip command_name", env.command_name == name, env.command_name)
     check(f"{name}: round-trip command_id", env.command_id == commands.COMMANDS[name], env.command_id)
     check(f"{name}: round-trip params", env.params == (params or {}), env.params)
@@ -274,8 +274,9 @@ check(
 print("\n== client.py: state machine guards (no socket touched) ==")
 # ---------------------------------------------------------------------------
 
-c = client.NasdClient("192.0.2.1", esaid="ESA-1")  # TEST-NET-1, never dialled
-check("client starts in state NEW", c.state == client.State.NEW, c.state)
+c = client.NasdClient("192.0.2.1", esa_id="ESA-1")  # TEST-NET-1, never dialled
+check("client starts in state NEW",
+      c.state == client.ConnectionState.NEW, c.state)
 
 try:
     c.login()
@@ -300,7 +301,7 @@ except NotImplementedError:
 # send-side code runs -- not just before a None-socket check would have.
 import socket as _socket
 
-c.state = client.State.LOGGED_IN
+c.state = client.ConnectionState.LOGGED_IN
 c._sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
 try:
     c.send_command("eCmdRunESACommand")

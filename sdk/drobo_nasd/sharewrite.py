@@ -38,8 +38,8 @@ WHAT ACCESS CODES ARE ALLOWED
 -----------------------------
 The same rule as shareedit: `0` (most likely no access -- NOT confirmed, and
 written anyway because no access is the safe direction to be wrong in), any
-code whose meaning is CONFIRMED (shares.ACCESS_CONFIRMED -- currently only
-`1`, read/write), or a code already live on this device. An unconfirmed code is a guess and is refused. See shareedit's
+code whose meaning is CONFIRMED (shares.CONFIRMED_ACCESS_CODES -- currently
+only `1`, read/write), or a code already live on this device. An unconfirmed code is a guess and is refused. See shareedit's
 module docstring for why 1 being confirmed is what makes unlocking an all-zero
 device possible.
 
@@ -67,8 +67,8 @@ import re
 import xml.etree.ElementTree as ET
 
 from . import config_cmd
-from .shares import ACCESS_CONFIRMED
-from .shareedit import ACCESS_NONE, ShareEditError
+from .shares import CONFIRMED_ACCESS_CODES
+from .shareedit import NO_ACCESS_CODE, ShareEditError
 
 _SECTION = "shares"
 
@@ -147,7 +147,7 @@ def _share_elements(share_config: ET.Element) -> list[ET.Element]:
 
 def _allowed_codes(share_config: ET.Element) -> set[str]:
     """0, every confirmed code, and every code already present on the device."""
-    allowed = {ACCESS_NONE} | set(ACCESS_CONFIRMED)
+    allowed = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
     for access in share_config.iter("ShareUserAccess"):
         code = (access.text or "").strip()
         if code:
@@ -269,8 +269,8 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
                 "impossible with a surgical edit and means something is wrong.")
 
     def _reads_back() -> bool:
-        return _reads_back_as(host, esa_id, share_name, username, access_code,
-                              port, timeout)
+        return _access_reads_back_as(host, esa_id, share_name, username,
+                                     access_code, port, timeout)
 
     # The arbiter is passed even when verify is False. `verify` chooses whether
     # to pay for a confirming read on the normal path; it is not permission to
@@ -332,14 +332,15 @@ def revoke_share_user(host: str, esa_id: str, share_name: str, username: str,
     Take a user's access away by setting code 0. Reversible: set it back.
 
     Code 0 most likely means no access, but that meaning is NOT confirmed
-    (shares.ACCESS_CONFIRMED holds only 1); every share seen with it was
-    unreachable from Windows, and no access is the safe way to be wrong.
+    (shares.CONFIRMED_ACCESS_CODES holds only 1); every share seen with
+    it was unreachable from Windows, and no access is the safe way to be
+    wrong.
 
     Does NOT delete the user entry -- setting code 0 can be undone, but a
     deleted row loses whatever code it held, and this module would rather keep a
     reversible change than a tidy one.
     """
-    return set_share_user_access(host, esa_id, share_name, username, ACCESS_NONE,
+    return set_share_user_access(host, esa_id, share_name, username, NO_ACCESS_CODE,
                                  port=port, timeout=timeout, verify=verify)
 
 
@@ -361,12 +362,12 @@ _NEW_SHARE_NODE = ("<Share><ShareName>{name}</ShareName>"
 # the device may allow: every observed share name fits it, and nothing in it
 # ever needs XML escaping -- the captured node carries the name as plain text,
 # and an escaped name has never been observed on the wire.
-_NAME_PATTERN = re.compile(r"^[0-9A-Za-z][0-9A-Za-z _-]{0,26}$")
-_NAME_RULE = ("1-27 characters: letters, digits, spaces, underscores or "
-              "hyphens, starting with a letter or digit")
+_SHARE_NAME_PATTERN = re.compile(r"^[0-9A-Za-z][0-9A-Za-z _-]{0,26}$")
+_SHARE_NAME_RULE = ("1-27 characters: letters, digits, spaces, underscores or "
+                    "hyphens, starting with a letter or digit")
 
 
-def _derive_volume(share_config: ET.Element) -> str:
+def _derive_volume_name(share_config: ET.Element) -> str:
     """
     The volume a new share should live on, from the device's own data.
 
@@ -408,16 +409,17 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     <ShareUsers/> -- no access for anyone until set_share_user_access grants
     it.
 
-    `name` is validated exactly as given: it must fit _NAME_PATTERN, and a
-    name with surrounding whitespace is refused rather than silently renamed
-    -- every stored-name comparison in this module strips, so a name that does
-    not survive a strip could never be verified after writing. A name that
-    case-folds onto an existing share is refused: this module could never
-    address such a pair apart again (see _resolve_share).
+    `name` is validated exactly as given: it must fit
+    _SHARE_NAME_PATTERN, and a name with surrounding whitespace is
+    refused rather than silently renamed -- every stored-name comparison
+    in this module strips, so a name that does not survive a strip could
+    never be verified after writing. A name that case-folds onto an
+    existing share is refused: this module could never address such a
+    pair apart again (see _resolve_share).
 
     `volume` defaults to the device's own single volume name when the read
     config yields exactly one; with zero or several candidates it must be
-    given explicitly (see _derive_volume).
+    given explicitly (see _derive_volume_name).
 
     `verify` (default True) re-reads the share config afterward and confirms
     the share is now listed.
@@ -447,10 +449,10 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
             f"rather than silently stripped -- every stored-name comparison "
             f"in this module strips, so such a name could never be verified "
             f"after writing.")
-    if not _NAME_PATTERN.match(name):
+    if not _SHARE_NAME_PATTERN.match(name):
         raise ShareEditError(
-            f"invalid share name {name!r}: must be {_NAME_RULE}. This rule is "
-            f"deliberately narrower than the device may allow.")
+            f"invalid share name {name!r}: must be {_SHARE_NAME_RULE}. "
+            f"This rule is deliberately narrower than the device may allow.")
     volume = (volume or "").strip() or None
     if volume is not None and any(ch in volume for ch in "&<>"):
         raise ShareEditError(
@@ -467,15 +469,16 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
                 f"a share named {clash[0]!r} already exists on this device, "
                 f"and share names differing only by case could never be "
                 f"addressed apart afterwards -- refusing the duplicate.")
-        chosen = volume if volume is not None else _derive_volume(share_config)
+        chosen = (volume if volume is not None
+                  else _derive_volume_name(share_config))
 
         # The document to send is the read reserialized -- every existing node
         # exactly as ElementTree emits it, the form the 2026-08-12 hardware
         # verification proved the device accepts -- with the new node spliced
         # in as a string, because its captured byte shape (_NEW_SHARE_NODE) is
         # outside what ElementTree can serialize. Names cannot carry markup
-        # (_NAME_PATTERN) and serialized text escapes every '<', so the one
-        # literal </Shares> is the container's close tag.
+        # (_SHARE_NAME_PATTERN) and serialized text escapes every '<', so the
+        # one literal </Shares> is the container's close tag.
         document = ET.tostring(share_config, encoding="unicode")
         if document.count("</Shares>") != 1:
             raise ShareEditError(
@@ -673,8 +676,9 @@ def _share_names_readback(host: str, esa_id: str, port: int,
     return [s["name"] for s in summarize(cfg, host)]
 
 
-def _reads_back_as(host: str, esa_id: str, share_name: str, username: str,
-                   access_code: str, port: int, timeout: float) -> bool:
+def _access_reads_back_as(host: str, esa_id: str, share_name: str,
+                          username: str, access_code: str, port: int,
+                          timeout: float) -> bool:
     """
     Re-read the share config and confirm the user's access is now what we set.
 

@@ -175,16 +175,38 @@ released. Every push to this repository carries this file.
   - `drobo_nasd.config_cmd.set_config`'s parameter `build_inner` ->
     `build_section_document` (only a call that passes it by keyword
     changes)
-  - `drobo_nasd.droboapps.get_scalar`'s parameter `command` ->
-    `command_name`
+  - `drobo_nasd.droboapps.get_scalar` -> `_query_reply_body`, now
+    private, as nothing outside the module calls it; its parameter
+    `command` -> `command_name`
   - `tools/nasd_sweep.py`: `send_one_command`'s parameter `cmd_id` ->
     `command_id`; `tools/nasd_tap.py`: `HEADER_LEN` -> `HEADER_BYTES`
+  - `drobo_nasd.shares.ACCESS_CONFIRMED` -> `CONFIRMED_ACCESS_CODES`
+  - `drobo_nasd.shareedit.ACCESS_NONE` -> `NO_ACCESS_CODE`
+  - `drobo_nasd.droboapps.COMMAND` -> `APPS_STATUS_COMMAND_NAME` and
+    `drobo_nasd.identify.COMMAND` -> `COMMAND_NAME`
+  - `drobo_nasd.drobosync.read`'s parameter `what` -> `read_kind` (only a
+    call that passes it by keyword changes; the `"what"` key in the
+    result stays)
+  - `drobo_nasd.envelope.Envelope.esaid` -> `esa_id`, and the `esaid`
+    parameter of `envelope.build_command` and `build_response` ->
+    `esa_id`
+  - `drobo_nasd.client.NasdClient`'s `esaid` parameter and attribute ->
+    `esa_id`, and `drobo_nasd.client.State` -> `ConnectionState`, so
+    `NasdClient`'s wrong-state errors now say `ConnectionState.NEW` and
+    so on where they said `State.NEW`
   - Private helpers that scripts of your own may reach into:
     `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
     `_send_section_document`, `_recv_exact` (in `config_cmd` and
     `esatm`) -> `_receive_exactly`, `config_cmd._to_dict` ->
     `_element_to_dict`, `config_cmd._result_code` ->
-    `_parse_result_code`, `sysinfo._ask` -> `_send_and_read_result`
+    `_parse_result_code`, `sysinfo._ask` -> `_send_and_read_result`,
+    `sharewrite._NAME_PATTERN` / `_NAME_RULE` -> `_SHARE_NAME_PATTERN` /
+    `_SHARE_NAME_RULE`, `sharewrite._reads_back_as` ->
+    `_access_reads_back_as`, `sharewrite._derive_volume` ->
+    `_derive_volume_name`, `droboapps._DIM_MIN` / `_DIM_MAX` ->
+    `_DIMMING_MIN` / `_DIMMING_MAX`, `droboapps._general_block` ->
+    `_extract_general_block`, `identify._interval_xml` ->
+    `_interval_params_xml`
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

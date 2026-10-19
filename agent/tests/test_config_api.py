@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "sdk"))
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
-from drobo_nasd.droboapps import _DIM_MIN, _DIM_MAX, _SPINDOWN_MAX  # noqa: E402
+from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX, _SPINDOWN_MAX  # noqa: E402
 
 fails = []
 
@@ -84,7 +84,7 @@ def call(path, body=None, method=None, token=TOKEN):
 
 try:
     print("\n== the token gate holds on every write route ==")
-    for path, body in (("/api/config/brightness", {"value": _DIM_MAX}),
+    for path, body in (("/api/config/brightness", {"value": _DIMMING_MAX}),
                        ("/api/config/spindown", {"enabled": False}),
                        ("/api/backup/plan", {"source": tmp, "destination": tmp})):
         s, b = call(path, body=body, token="")
@@ -99,12 +99,12 @@ try:
     check("a boolean is not a whole number -> 400", s == 400, (s, b))
     s, b = call("/api/config/brightness", body={"value": "50"})
     check("a string is not a whole number -> 400", s == 400, (s, b))
-    s, b = call("/api/config/brightness", body={"value": _DIM_MAX + 1000})
+    s, b = call("/api/config/brightness", body={"value": _DIMMING_MAX + 1000})
     check("out of range is refused with a structured error, not a 500",
           s != 500 and "error" in b, (s, b))
 
     print("\n== brightness: a valid write reports itself as simulated ==")
-    s, b = call("/api/config/brightness", body={"value": _DIM_MIN})
+    s, b = call("/api/config/brightness", body={"value": _DIMMING_MIN})
     check("valid write is 200 ok", s == 200 and b.get("ok") is True, (s, b))
     check("reported as simulated", b.get("simulated") is True, b)
     check("the message says what was set",

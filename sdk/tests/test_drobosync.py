@@ -80,7 +80,7 @@ check("DroboSyncError is catchable as SysInfoError, so existing handlers work",
 
 print("\n== an unknown read is rejected before any socket is opened ==")
 try:
-    drobosync.read("10.0.0.50", "drbTEST", what="nonsense")
+    drobosync.read("10.0.0.50", "drbTEST", read_kind="nonsense")
     check("an unknown read raises", False)
 except ValueError as exc:
     check("an unknown read raises ValueError naming the options",

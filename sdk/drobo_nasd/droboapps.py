@@ -42,7 +42,7 @@ from .sysinfo import SysInfoError, _inner_document
 
 import xml.etree.ElementTree as ET
 
-COMMAND = "eCmdGetDroboAppsStatus"
+APPS_STATUS_COMMAND_NAME = "eCmdGetDroboAppsStatus"
 
 
 def _text(node, tag: str) -> str:
@@ -187,9 +187,9 @@ def parse_demo_mode(payload: bytes) -> dict:
     return out
 
 
-def get_scalar(host: str, esa_id: str, command_name: str,
-               port: int = DEFAULT_PORT,
-               timeout: float = 8.0) -> bytes:
+def _query_reply_body(host: str, esa_id: str, command_name: str,
+                      port: int = DEFAULT_PORT,
+                      timeout: float = 8.0) -> bytes:
     """
     Send one query and hand back its raw reply body.
 
@@ -227,7 +227,7 @@ def get_scalar(host: str, esa_id: str, command_name: str,
 def get_dimming(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> int | None:
     """LED brightness as the device reports it. Read-only; see parse_dimming."""
-    return parse_dimming(get_scalar(host, esa_id, "eCmdGetDimming", port, timeout))
+    return parse_dimming(_query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
 
 
 # The fields the <General> block is known to carry, in the order the device
@@ -241,7 +241,7 @@ _GENERAL_FIELDS = ("FeatureStates", "SpindownDelay", "Dim")
 # the true scale is 0-255 this still admits every real value, and it turns a
 # fat-fingered 5900 into a refusal instead of a write. 0 is allowed: "lights
 # off" is a legitimate brightness.
-_DIM_MIN, _DIM_MAX = 0, 255
+_DIMMING_MIN, _DIMMING_MAX = 0, 255
 
 # SpindownDelay's band. Even looser and even less certain: the capture showed 0
 # (disabled) and 14, and the units are unconfirmed -- minutes and a dropdown
@@ -264,7 +264,7 @@ class SpindownWriteError(GeneralWriteError):
     """The spin-down delay could not be set safely, or the device refused it."""
 
 
-def _general_block(before: dict) -> dict:
+def _extract_general_block(before: dict) -> dict:
     """
     Pull the <General> field dict out of whatever wrapper depth it arrived in.
 
@@ -319,7 +319,7 @@ def _general_setter(field=None, new_value=None, *, changes: dict | None = None):
         raise GeneralWriteError(f"cannot set unknown General field(s) {sorted(bad)}")
 
     def build_section_document(before: dict) -> str:
-        block = _general_block(before)
+        block = _extract_general_block(before)
 
         unknown = set(block) - set(_GENERAL_FIELDS)
         if unknown:
@@ -405,9 +405,10 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     if isinstance(value, bool) or not isinstance(value, int):
         raise DimmingWriteError(
             f"brightness must be a whole number, not {type(value).__name__}")
-    if not (_DIM_MIN <= value <= _DIM_MAX):
+    if not (_DIMMING_MIN <= value <= _DIMMING_MAX):
         raise DimmingWriteError(
-            f"brightness {value} is outside the {_DIM_MIN}-{_DIM_MAX} sanity "
+            f"brightness {value} is outside the "
+            f"{_DIMMING_MIN}-{_DIMMING_MAX} sanity "
             f"band; the scale is unconfirmed, so a value beyond it is far more "
             f"likely a mistake than an intention")
 
@@ -451,7 +452,7 @@ def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     command to depend on.
     """
     from .config_cmd import get_config
-    block = _general_block(get_config(host, esa_id, "general", port=port, timeout=timeout))
+    block = _extract_general_block(get_config(host, esa_id, "general", port=port, timeout=timeout))
     raw = block.get("SpindownDelay")
     if not isinstance(raw, str) or not raw.strip():
         return None
@@ -518,7 +519,7 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
             f"likely a mistake than an intention")
 
     def changes_for(before: dict) -> dict:
-        block = _general_block(before)
+        block = _extract_general_block(before)
         fs = _feature_states(block)
         out = {"SpindownDelay": delay}
         if not (fs & _SPINDOWN_ENABLED_BIT):
@@ -567,7 +568,7 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     from .config_cmd import set_config  # noqa: F401
 
     def build_section_document(before: dict) -> str:
-        fs = _feature_states(_general_block(before))
+        fs = _feature_states(_extract_general_block(before))
         return _general_setter(changes={
             "FeatureStates": fs & ~_SPINDOWN_ENABLED_BIT,
             "SpindownDelay": 0,
@@ -576,8 +577,8 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     from .config_cmd import get_config
 
     def _read_state() -> tuple[int, object]:
-        block = _general_block(get_config(host, esa_id, "general", port=port,
-                                          timeout=timeout))
+        block = _extract_general_block(get_config(host, esa_id, "general",
+                                                  port=port, timeout=timeout))
         return _feature_states(block), block.get("SpindownDelay")
 
     def _reads_back() -> bool:
@@ -608,17 +609,19 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
 def get_demo_mode(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
     """Whether this unit is in shop-display mode. See parse_demo_mode."""
-    return parse_demo_mode(get_scalar(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
+    return parse_demo_mode(_query_reply_body(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
 
 
 def get_droboapps(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
     """Ask the Drobo what is installed on it. Read-only."""
-    if _commands.is_dangerous(COMMAND):
-        raise SysInfoError(f"{COMMAND} is on the do-not-send list")
-    command_id = _commands.COMMANDS.get(COMMAND)
+    if _commands.is_dangerous(APPS_STATUS_COMMAND_NAME):
+        raise SysInfoError(
+            f"{APPS_STATUS_COMMAND_NAME} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(APPS_STATUS_COMMAND_NAME)
     if command_id is None:
-        raise SysInfoError(f"{COMMAND} has no confirmed command id")
+        raise SysInfoError(
+            f"{APPS_STATUS_COMMAND_NAME} has no confirmed command id")
 
     request_payload = (
         f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"

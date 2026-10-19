@@ -655,7 +655,7 @@ class _Handler(BaseHTTPRequestHandler):
             # its private constants, rather than second-guessing the wrapper
             # shape here.
             try:
-                block = droboapps._general_block(config_cmd.get_config(
+                block = droboapps._extract_general_block(config_cmd.get_config(
                     host, esa, "general", timeout=self.CONFIG_TIMEOUT))
             except config_cmd.ConfigError as exc:
                 # Covers the whole family: SysInfoError and the SDK's
@@ -1304,9 +1304,9 @@ class _Handler(BaseHTTPRequestHandler):
                 f"invalid share name {name!r}: surrounding whitespace is "
                 f"refused rather than silently stripped -- a stripped name "
                 f"could never be verified against the device's read-back")
-        if not sharewrite._NAME_PATTERN.match(name):
+        if not sharewrite._SHARE_NAME_PATTERN.match(name):
             raise ValueError(
-                f"invalid share name {name!r}: must be {sharewrite._NAME_RULE}")
+                f"invalid share name {name!r}: must be {sharewrite._SHARE_NAME_RULE}")
         return name
 
     @staticmethod

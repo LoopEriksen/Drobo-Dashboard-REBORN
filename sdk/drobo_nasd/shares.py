@@ -72,7 +72,7 @@ ACCESS_LEVELS: dict[str, str] = {
 #: opposed to described from their number. A UI can use this to decide whether
 #: to show a word confidently or hedge -- see ACCESS_LEVELS for what is still
 #: open and why.
-ACCESS_CONFIRMED: frozenset[str] = frozenset({"1"})
+CONFIRMED_ACCESS_CODES: frozenset[str] = frozenset({"1"})
 
 
 def _as_list(node):
@@ -247,7 +247,8 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
     unconfirmed = [s["name"] for s in shares
                    if s.get("everyone")
                    and any(u.get("name", "").lower() == "everyone"
-                           and u.get("access_code") not in ACCESS_CONFIRMED
+                           and u.get("access_code")
+                           not in CONFIRMED_ACCESS_CODES
                            for u in s.get("users", []))]
 
     windows_part = (

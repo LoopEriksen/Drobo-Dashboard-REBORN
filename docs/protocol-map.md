@@ -1111,7 +1111,7 @@ maintainer described it as "supposed to be" read-only -- an intention, not a
 reading. Zero is the natural value for "none" in most permission
 enumerations, so calling it read-only risks telling somebody a share is
 readable when nobody can open it. Ten seconds with the old Dashboard settles
-it; until then it stays a number. See `shares.ACCESS_CONFIRMED`.
+it; until then it stays a number. See `shares.CONFIRMED_ACCESS_CODES`.
 
 ### Not captured
 
@@ -1841,8 +1841,8 @@ granted.
 
 This unit's stored `DRIShareConfig` contains **no `VolumeName` anywhere** — not
 on `Alpha`, not on `Beta`, and (per the normalization above) not on
-`ZZTESTZZ2` once stored. `sharewrite._derive_volume` therefore has nothing here
-to derive from and cannot supply one; the caller must pass `volume=`
+`ZZTESTZZ2` once stored. `sharewrite._derive_volume_name` therefore has nothing
+here to derive from and cannot supply one; the caller must pass `volume=`
 explicitly. The agent already does, through `api._new_share_volume`.
 
 The value used, `Volume1`, is not a guess: it is what the original Dashboard's

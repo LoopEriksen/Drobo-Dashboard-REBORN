@@ -126,7 +126,7 @@ from .config_cmd import (
     _read_frame,
 )
 
-COMMAND = "eCmdIdentify"
+COMMAND_NAME = "eCmdIdentify"
 
 #: The element the original Dashboard carries in <Params>. CONFIRMED on the
 #: wire (2026-07-25 capture) and as a tag name in Drobo Dashboard.exe 3.5.0;
@@ -197,7 +197,7 @@ def validate_interval(interval: int | None) -> int | None:
     return interval
 
 
-def _interval_xml(interval: int | None) -> str:
+def _interval_params_xml(interval: int | None) -> str:
     """
     The <Params> block.
 
@@ -269,20 +269,20 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
     # Belt and braces. The guard is enforced in commands.py, but this is the
     # one code path in the project that sends a write, so it re-checks rather
     # than trusting that it was called correctly.
-    if _commands.is_dangerous(COMMAND):
-        raise IdentifyError(f"{COMMAND} is on the do-not-send list")
-    if not _commands.is_safe_write(COMMAND):
+    if _commands.is_dangerous(COMMAND_NAME):
+        raise IdentifyError(f"{COMMAND_NAME} is on the do-not-send list")
+    if not _commands.is_safe_write(COMMAND_NAME):
         raise IdentifyError(
-            f"{COMMAND} is not on the approved-write list (commands.SAFE_WRITES)")
+            f"{COMMAND_NAME} is not on the approved-write list (commands.SAFE_WRITES)")
 
-    command_id = _commands.COMMANDS.get(COMMAND)
+    command_id = _commands.COMMANDS.get(COMMAND_NAME)
     if command_id is None:
-        raise IdentifyError(f"{COMMAND} has no confirmed command id")
+        raise IdentifyError(f"{COMMAND_NAME} has no confirmed command id")
 
     # Validated BEFORE the socket is opened. A bad interval is a programming
     # error, and it should surface as one rather than as a connection that was
     # made, logged and then abandoned.
-    params = _interval_xml(interval)
+    params = _interval_params_xml(interval)
 
     request_payload = (f"<TMCmd><CmdID>{command_id}</CmdID>{params}"
                        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
@@ -343,7 +343,7 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
 
         return {
             "sent": True,
-            "command": COMMAND,
+            "command": COMMAND_NAME,
             "command_id": command_id,
             "result_code": result_code,
             "accepted": result_code == _envelope.RESULT_ACCEPTED if result_code is not None else None,

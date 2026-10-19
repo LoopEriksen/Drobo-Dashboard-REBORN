@@ -199,7 +199,7 @@ for bad in ["", " leading", "trailing ", "-lead", "_lead", "a" * 28, "Bad<Name",
               "invalid share name" in str(exc), str(exc))
 for good in ["A", "a" * 27, "My Share_2-b", "0numeric", "x-", "x _-9"]:
     check(f"good name {good!r} passes the pattern",
-          sw._NAME_PATTERN.match(good) is not None)
+          sw._SHARE_NAME_PATTERN.match(good) is not None)
 
 # A duplicate -- even one differing only by case -- is refused after the read,
 # before any write.

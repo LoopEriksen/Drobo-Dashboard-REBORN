@@ -67,7 +67,7 @@ class EnvelopeError(ValueError):
 class Envelope:
     """The parsed contents of a DRINETTM message."""
 
-    esaid: str
+    esa_id: str
     command_id: Optional[int]  # None if the wire value didn't resolve to a known id
     command_name: Optional[str]  # None if command_id has no entry in commands.COMMANDS
     command_raw: str  # exactly what was in <Command>, before any interpretation
@@ -173,7 +173,7 @@ def _serialize(root: ET.Element) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_command(esaid: Union[str, int], command: Union[int, str], params: Optional[dict] = None) -> str:
+def build_command(esa_id: Union[str, int], command: Union[int, str], params: Optional[dict] = None) -> str:
     """
     Build a DRINETTM *request* message: ESAID, Command, optional Params.
 
@@ -183,7 +183,7 @@ def build_command(esaid: Union[str, int], command: Union[int, str], params: Opti
     """
     wire_text, _cmd_id, _cmd_name = _resolve_command(command)
     root = ET.Element(ROOT_TAG)
-    ET.SubElement(root, "ESAID").text = str(esaid)
+    ET.SubElement(root, "ESAID").text = str(esa_id)
     ET.SubElement(root, "Command").text = wire_text
     if params:
         params_elem = ET.SubElement(root, "Params")
@@ -192,7 +192,7 @@ def build_command(esaid: Union[str, int], command: Union[int, str], params: Opti
 
 
 def build_response(
-    esaid: Union[str, int],
+    esa_id: Union[str, int],
     command: Union[int, str],
     error: int = 0,
     params: Optional[dict] = None,
@@ -207,7 +207,7 @@ def build_response(
     """
     wire_text, _cmd_id, _cmd_name = _resolve_command(command)
     root = ET.Element(ROOT_TAG)
-    ET.SubElement(root, "ESAID").text = str(esaid)
+    ET.SubElement(root, "ESAID").text = str(esa_id)
     ET.SubElement(root, "Command").text = wire_text
     if params:
         params_elem = ET.SubElement(root, "Params")
@@ -255,7 +255,7 @@ def parse(xml_text: str) -> Envelope:
     if esaid_elem is None or command_elem is None:
         raise EnvelopeError("DRINETTM message missing <ESAID> or <Command>")
 
-    esaid = esaid_elem.text or ""
+    esa_id = esaid_elem.text or ""
     command_raw = command_elem.text or ""
     command_id: Optional[int]
     command_name: Optional[str]
@@ -287,7 +287,7 @@ def parse(xml_text: str) -> Envelope:
         )
 
     return Envelope(
-        esaid=esaid,
+        esa_id=esa_id,
         command_id=command_id,
         command_name=command_name,
         command_raw=command_raw,

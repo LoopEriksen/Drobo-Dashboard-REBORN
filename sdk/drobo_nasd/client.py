@@ -56,7 +56,7 @@ class NotConnectedError(NasdError):
     """Raised when a state-machine method is called out of order."""
 
 
-class State(enum.Enum):
+class ConnectionState(enum.Enum):
     NEW = "new"
     CONNECTED = "connected"
     LOGGED_IN = "logged_in"
@@ -87,17 +87,17 @@ class NasdClient:
         host: str,
         port: int = DEFAULT_PORT,
         *,
-        esaid: str = "",
+        esa_id: str = "",
         header_factory: Optional[Callable[[int], bytes]] = None,
         timeout: float = 5.0,
     ):
         self.host = host
         self.port = port
-        self.esaid = esaid
+        self.esa_id = esa_id
         self.timeout = timeout
         self._header_factory = header_factory or framing.NasdHeader.candidate_a_signature_then_length
         self._sock: Optional[socket.socket] = None
-        self.state = State.NEW
+        self.state = ConnectionState.NEW
 
     # -- step 1: discover -----------------------------------------------------
 
@@ -122,10 +122,10 @@ class NasdClient:
     # -- step 2: connect --------------------------------------------------
 
     def connect(self) -> None:
-        if self.state != State.NEW:
-            raise NasdError(f"connect() called from state {self.state}, expected {State.NEW}")
+        if self.state != ConnectionState.NEW:
+            raise NasdError(f"connect() called from state {self.state}, expected {ConnectionState.NEW}")
         self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        self.state = State.CONNECTED
+        self.state = ConnectionState.CONNECTED
 
     # -- step 3: session + login ------------------------------------------
 
@@ -139,8 +139,8 @@ class NasdClient:
         as still needing a capture. _build_login_payload() below is a
         placeholder that proves the plumbing, not the wire format.
         """
-        if self.state != State.CONNECTED:
-            raise NotConnectedError(f"login() called from state {self.state}, expected {State.CONNECTED}")
+        if self.state != ConnectionState.CONNECTED:
+            raise NotConnectedError(f"login() called from state {self.state}, expected {ConnectionState.CONNECTED}")
         if self._sock is None:
             raise NotConnectedError("no socket -- call connect() first")
 
@@ -152,7 +152,7 @@ class NasdClient:
         # ("cannot send login response (error %d)" in the daemon's own
         # strings proves one exists). Skipped: the response shape is exactly
         # as unconfirmed as the request shape.
-        self.state = State.LOGGED_IN
+        self.state = ConnectionState.LOGGED_IN
 
     @staticmethod
     def _build_login_payload(username: str, password: str) -> bytes:
@@ -168,8 +168,8 @@ class NasdClient:
     def send_command(self, command: Union[int, str], params: Optional[dict] = None) -> envelope.Envelope:
         """Build, frame, and send a DRINETTM command; return the parsed
         response. Refuses anything in commands.DO_NOT_SEND."""
-        if self.state != State.LOGGED_IN:
-            raise NotConnectedError(f"send_command() called from state {self.state}, expected {State.LOGGED_IN}")
+        if self.state != ConnectionState.LOGGED_IN:
+            raise NotConnectedError(f"send_command() called from state {self.state}, expected {ConnectionState.LOGGED_IN}")
 
         # Safety guard comes before the socket check, deliberately: refusing a
         # dangerous command must not depend on how far connection setup got.
@@ -180,7 +180,7 @@ class NasdClient:
         if self._sock is None:
             raise NotConnectedError("no socket -- call connect() and login() first")
 
-        message = envelope.build_command(self.esaid, command, params)
+        message = envelope.build_command(self.esa_id, command, params)
         payload = message.encode("utf-8")
         header = self._header_factory(len(payload))
         self._sock.sendall(header + payload)
@@ -208,7 +208,7 @@ class NasdClient:
                 self._sock.close()
             finally:
                 self._sock = None
-        self.state = State.CLOSED
+        self.state = ConnectionState.CLOSED
 
     def __enter__(self) -> "NasdClient":
         self.connect()

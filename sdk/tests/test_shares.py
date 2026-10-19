@@ -60,7 +60,8 @@ check("Time Machine flag read", out[0]["time_machine"] is False
 check("Everyone access surfaced, using the confirmed meaning of code 1",
       out[0]["everyone"] == "read/write (code 1)", out[0]["everyone"])
 check("only the codes we actually confirmed are marked as confirmed",
-      shares.ACCESS_CONFIRMED == frozenset({"1"}), shares.ACCESS_CONFIRMED)
+      shares.CONFIRMED_ACCESS_CODES == frozenset({"1"}),
+      shares.CONFIRMED_ACCESS_CODES)
 check("an unconfirmed code still says so in its description",
       "unconfirmed" in shares.ACCESS_LEVELS["0"], shares.ACCESS_LEVELS["0"])
 check("access code kept alongside the description",

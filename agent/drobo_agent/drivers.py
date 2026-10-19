@@ -447,9 +447,9 @@ class MockDriver(DroboDriver):
                 "acknowledged": self._write_fault != WRITE_FAULT_HANGS_UP}
 
     def set_dimming(self, value: int) -> dict:
-        from drobo_nasd.droboapps import _DIM_MIN, _DIM_MAX
-        if isinstance(value, bool) or not isinstance(value, int) or not (_DIM_MIN <= value <= _DIM_MAX):
-            raise ValueError(f"brightness must be a whole number {_DIM_MIN}-{_DIM_MAX}")
+        from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX
+        if isinstance(value, bool) or not isinstance(value, int) or not (_DIMMING_MIN <= value <= _DIMMING_MAX):
+            raise ValueError(f"brightness must be a whole number {_DIMMING_MIN}-{_DIMMING_MAX}")
         with self._lock:
             self._refuse_if_injected()
             self._dimming = value
@@ -515,13 +515,13 @@ class MockDriver(DroboDriver):
         """One user's access on one share, on the per-instance share config.
         Same rules as sharewrite: code must be 0, a CONFIRMED code, or one
         already on the device; the share must resolve unambiguously."""
-        from drobo_nasd.shares import ACCESS_CONFIRMED
-        from drobo_nasd.shareedit import ACCESS_NONE
+        from drobo_nasd.shares import CONFIRMED_ACCESS_CODES
+        from drobo_nasd.shareedit import NO_ACCESS_CODE
         with self._lock:
             block = self._shares["DRINASConfig"]["DRIShareConfig"]
             raw = block["Shares"]["Share"]
             shares = raw if isinstance(raw, list) else [raw]
-            allowed = {ACCESS_NONE} | set(ACCESS_CONFIRMED)
+            allowed = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
             for sh in shares:
                 us = (sh.get("ShareUsers") or {}).get("ShareUser") or []
                 for u in (us if isinstance(us, list) else [us]):
@@ -586,9 +586,9 @@ class MockDriver(DroboDriver):
                 f"invalid share name {given!r}: surrounding whitespace is refused "
                 f"rather than silently stripped -- a stripped name could never be "
                 f"verified against the device's read-back")
-        if not sharewrite._NAME_PATTERN.match(given):
+        if not sharewrite._SHARE_NAME_PATTERN.match(given):
             raise ValueError(
-                f"invalid share name {given!r}: must be {sharewrite._NAME_RULE}")
+                f"invalid share name {given!r}: must be {sharewrite._SHARE_NAME_RULE}")
         with self._lock:
             block = self._shares["DRINASConfig"]["DRIShareConfig"]
             raw = block["Shares"]["Share"]

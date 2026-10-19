@@ -221,8 +221,8 @@ DUP_MIXED = ("<Share><ShareName>Photos</ShareName><ShareUsers>"
              "</ShareUsers></Share>")
 dev = FakeDrobo([_read_reply(_shareconfig(DUP_MIXED))])  # one read for the verify
 check("read-back with a residual grant fails verification",
-      sw._reads_back_as("127.0.0.1", ESA, "Photos", "Everyone", "0",
-                        dev.port, 5) is False)
+      sw._access_reads_back_as("127.0.0.1", ESA, "Photos", "Everyone", "0",
+                               dev.port, 5) is False)
 
 print("\n== share names differing only by case: exact wins, else refuse (audit HIGH) ==")
 # 'Photos' and 'photos' both exist. Requesting 'photos' must hit 'photos'
@@ -252,7 +252,7 @@ check("...and nothing was written", len(dev.sent) == 1, dev.sent)
 # but the requested 'photos'=0 must be False.
 dev = FakeDrobo([_read_reply(_shareconfig(_share("Photos", "1") + _share("photos", "0")))])
 check("read-back resolves the exact share, not the first fold",
-      sw._reads_back_as("127.0.0.1", ESA, "photos", "Everyone", "1", dev.port, 5) is False)
+      sw._access_reads_back_as("127.0.0.1", ESA, "photos", "Everyone", "1", dev.port, 5) is False)
 
 print("\n== a no-op write is skipped, not sent ==")
 # Row already holds the target code -> nothing on the wire, reported as unchanged.

@@ -45,7 +45,8 @@ meanings are established one at a time, from captures of the original Dashboard:
     direction to be wrong in.
   * `1` -- READ/WRITE. A 2026-08-05 capture of Drobo Dashboard 3.5.0 set a
     share the maintainer states is Read/Write and it carried code 1. Confirmed;
-    see shares.ACCESS_CONFIRMED, the single source of truth this module reads.
+    see shares.CONFIRMED_ACCESS_CODES, the single source of truth this
+    module reads.
   * `2` -- unconfirmed. Never observed on the wire, meaning unknown.
 
 The rule this module follows: it will set `0`, any code whose meaning is
@@ -63,11 +64,11 @@ from __future__ import annotations
 
 import copy
 
-from .shares import ACCESS_CONFIRMED
+from .shares import CONFIRMED_ACCESS_CODES
 
 #: No access. Every share observed with `0` was unreachable. Kept as a named
 #: constant because it is the one code this module will set unconditionally.
-ACCESS_NONE = "0"
+NO_ACCESS_CODE = "0"
 
 
 class ShareEditError(Exception):
@@ -147,11 +148,12 @@ def set_user_access(config: dict, share_name: str, username: str,
     """
     Set one user's access on one share, and change nothing else.
 
-    `access_code` must be `"0"` (no access), a code whose meaning is CONFIRMED
-    (shares.ACCESS_CONFIRMED -- currently `"1"`, read/write), or a code that
-    ALREADY appears somewhere in this document. A code that is none of these is
-    refused: what an unconfirmed code means is a guess, and this will not write
-    a guess to someone's permissions. See the module docstring.
+    `access_code` must be `"0"` (no access), a code whose meaning is
+    CONFIRMED (shares.CONFIRMED_ACCESS_CODES -- currently `"1"`,
+    read/write), or a code that ALREADY appears somewhere in this
+    document. A code that is none of these is refused: what an
+    unconfirmed code means is a guess, and this will not write a guess
+    to someone's permissions. See the module docstring.
 
     Returns a new document. The input is never mutated.
     """
@@ -162,7 +164,7 @@ def set_user_access(config: dict, share_name: str, username: str,
     # already live on this device. The confirmed set is what makes "grant
     # read/write to a share that is currently locked to nobody" possible on a
     # device with no non-zero code to copy.
-    allowed = {ACCESS_NONE} | set(ACCESS_CONFIRMED)
+    allowed = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
     for s in _shares(_share_block(config)):
         for u in _users(s):
             code = str(u.get("ShareUserAccess", "")).strip()
@@ -211,7 +213,7 @@ def revoke_user(config: dict, share_name: str, username: str) -> dict:
     there, and since we cannot interpret those codes we could not restore it
     faithfully afterwards.
     """
-    return set_user_access(config, share_name, username, ACCESS_NONE)
+    return set_user_access(config, share_name, username, NO_ACCESS_CODE)
 
 
 def describe_change(before: dict, after: dict) -> list[str]:
@@ -242,9 +244,9 @@ def describe_change(before: dict, after: dict) -> list[str]:
             lines.append(f"{user} gains access to {share} (code {new})")
         elif new is None:
             lines.append(f"{user} is removed from {share}")
-        elif new == ACCESS_NONE:
+        elif new == NO_ACCESS_CODE:
             lines.append(f"{user} loses access to {share}")
-        elif old == ACCESS_NONE:
+        elif old == NO_ACCESS_CODE:
             lines.append(f"{user} is given access to {share} (code {new})")
         else:
             lines.append(f"{user} on {share}: access code {old} -> {new}")
