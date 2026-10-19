@@ -28,12 +28,13 @@ ever observed.
 
 WHAT WE DO NOT KNOW, AND WILL NOT PRETEND TO
 --------------------------------------------
-**Nobody here has ever seen a populated DroboSync reply.** The field names
-below are read defensively and the raw document is always carried alongside,
-because a parser written against a reply nobody has seen is a guess wearing a
-function signature. When a real one finally arrives, `raw_xml` is what tells us
-what the shape actually is -- and this module should be corrected from that
-evidence rather than trusted because it looks finished.
+**Nobody here has ever seen a populated DroboSync reply.** No field is
+named below: every leaf element is read generically, and the raw
+document is always carried alongside, because a parser written against
+a reply nobody has seen is a guess wearing a function signature. When a
+real one finally arrives, `raw_xml` is what tells us what the shape
+actually is -- and this module should be corrected from that evidence
+rather than trusted because it looks finished.
 
 Three sibling commands are WRITES and stay refused by commands.DO_NOT_SEND:
 eCmdSetDroboSyncSettings (36), eCmdSyncNow (40), eCmdStopSync (41). Triggering a
@@ -76,11 +77,6 @@ WRITE_COMMANDS = ("eCmdSetDroboSyncSettings", "eCmdSyncNow", "eCmdStopSync")
 class DroboSyncError(SysInfoError):
     """A DroboSync read failed. Subclasses SysInfoError so existing callers
     that already handle command-port failures keep working unchanged."""
-
-
-def _text(node, tag: str) -> str:
-    found = node.find(tag)
-    return (found.text or "").strip() if found is not None else ""
 
 
 def parse_sync_reply(payload: bytes) -> dict:

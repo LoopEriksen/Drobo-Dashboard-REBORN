@@ -97,6 +97,17 @@ released. Every push to this repository carries this file.
   "Proprietary" before). The installer now puts a copy of `LICENSE` in the
   program folder, beside `TESTING.md`. (2026-10-19)
 
+### Removed
+- **Four pieces of code that nothing used.** An unused `_text` helper in
+  `sdk/drobo_nasd/drobosync.py`, a copy of the photo settings that
+  `agent/drobo_agent/photos.py` stored and never read, three palette
+  colours the icon generator no longer draws with, and an unused helper
+  in `sdk/tests/test_discovery.py`. The DroboSync module's notes also
+  said its field names were read defensively. No field is named there:
+  every value in a reply is read generically, and the notes now say so.
+  Nothing the software does or sends to a Drobo changes, the icons are
+  byte-for-byte the same, and no suite's check count moves. (2026-10-19)
+
 ## 1.1.0 -- 2026-10-15
 
 Everything below has landed since 1.0.0.

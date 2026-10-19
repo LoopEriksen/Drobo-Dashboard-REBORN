@@ -44,9 +44,6 @@ SUPERSAMPLE = 4  # subsamples per axis per output pixel, for anti-aliased edges
 
 # ---- palette -----------------------------------------------------------
 ENCLOSURE = (46, 52, 61, 255)        # charcoal body
-ENCLOSURE_TOP = (64, 71, 82, 255)    # lighter top bezel strip
-BAY_SLOT = (21, 24, 29, 255)         # recessed bay slot, darker than the body
-BAY_LED = (70, 192, 122, 255)        # small "healthy" activity dot (large sizes only)
 REBORN_RED = (211, 58, 46, 255)      # the REBORN stamp
 WORDMARK = (238, 242, 247, 255)      # the "drobo" lettering in front
 PLATE = (26, 30, 37, 255)            # dark plate the lockup sits on

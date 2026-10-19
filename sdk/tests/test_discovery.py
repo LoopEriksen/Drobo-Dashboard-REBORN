@@ -347,10 +347,6 @@ finally:
     discovery._read_arp_table_text = _orig_read_arp
 
 
-def _raising_read_arp(timeout=2.0):
-    raise AssertionError("should never be called directly by _read_arp_table_text callers")
-
-
 # _read_arp_table_text itself must swallow subprocess failure, not just callers of it.
 import subprocess as _subprocess  # noqa: E402  (kept local to this check, mirrors module usage)
 

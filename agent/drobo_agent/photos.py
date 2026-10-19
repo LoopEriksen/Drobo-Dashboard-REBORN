@@ -52,7 +52,6 @@ def safe_filename(name: str) -> str:
 
 class PhotoStore:
     def __init__(self, cfg: dict):
-        self.cfg = cfg
         self.enabled = bool(cfg.get("enabled", True))
         self.target_dir = cfg.get("target_dir") or ""
         self.organize = bool(cfg.get("organize_by_date", True))
