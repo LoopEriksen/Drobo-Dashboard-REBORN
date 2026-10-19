@@ -1039,7 +1039,11 @@ class Drobo5NDriver(DroboDriver):
         self._temp_c: int | None = None
         self._temp_at: float | None = None
         self._temp_tried_at: float = 0.0
+        # Uptime rides the same reply but keeps its own timestamp: a
+        # reply can carry either reading without the other, and each
+        # must age from the moment it was actually read.
         self._uptime: int | None = None
+        self._uptime_read_at: float | None = None
         # Throughput/IOPS, fetched on the same connection as the temperature.
         # None until the device has answered once -- distinct from "all zeros",
         # which is what a real but idle array reports.
@@ -1186,10 +1190,12 @@ class Drobo5NDriver(DroboDriver):
         self._read_temperature(host)
         snap.device.temperature_c = self._temp_c
         snap.device.temperature_at = self._temp_at
-        if self._uptime is not None and self._temp_at:
+        if self._uptime is not None and self._uptime_read_at is not None:
             # Uptime arrives with the temperature, then keeps counting on its
             # own -- no need to ask the device again just to watch a clock.
-            snap.device.uptime_seconds = int(self._uptime + (time.time() - self._temp_at))
+            seconds_since_read = time.time() - self._uptime_read_at
+            snap.device.uptime_seconds = int(
+                self._uptime + seconds_since_read)
         if self._perf is not None:
             # measured=True even when every counter is zero: an idle array
             # really does report zeros, and that is a reading, not a gap.
@@ -1260,7 +1266,7 @@ class Drobo5NDriver(DroboDriver):
             self._temp_at = now
         if info.get("uptime_seconds") is not None:
             self._uptime = info["uptime_seconds"]
-            self._temp_at = self._temp_at or now
+            self._uptime_read_at = now
 
         perf = info.get("performance")
         if perf and any(v is not None for v in perf.values()):

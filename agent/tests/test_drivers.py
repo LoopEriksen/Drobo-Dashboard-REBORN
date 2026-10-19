@@ -13,6 +13,8 @@ socket. Covers the things that make these methods worth pinning down:
     timestamp) intact rather than blanking it
   * the derived uptime in read_snapshot() keeps counting between reads
     without asking the device again
+  * uptime and temperature each age from their own reading, so a reply
+    carrying only one of them leaves the other's time alone
   * an event-log fetch failure degrades the snapshot to the cached (possibly
     empty) log without ever breaking the poll
 
@@ -277,6 +279,88 @@ try:
           snap.device.uptime_seconds is None, snap.device.uptime_seconds)
 finally:
     nasd_sysinfo.get_sysinfo_and_performance = _orig_get_sysinfo_and_performance
+    nasd_esatm.read_snapshot = _orig_read_snapshot
+
+print("\n== uptime ages from its own reading, not the temperature's ==")
+# A reply may carry one reading without the other: parse_sysinfo drops
+# an implausible temperature and keeps the uptime. Until this was fixed,
+# both readings shared one timestamp, so an uptime-only reply was
+# counted on from the last TEMPERATURE reading -- adding that gap a
+# second time -- and a temperature-only reply restarted an old uptime
+# from now.
+
+
+class _FakeClock:
+    """Stands in for drivers.time, so no window needs a real sleep."""
+
+    def __init__(self, now):
+        self.now = now
+
+    def time(self):
+        return self.now
+
+
+FAKE_START = 1_000_000.0
+fake_clock = _FakeClock(FAKE_START)
+sysinfo_replies = [
+    {"temperature_c": 36, "uptime_seconds": 5000},
+    {"temperature_c": None, "uptime_seconds": 5120},
+    {"temperature_c": 37, "uptime_seconds": None},
+]
+
+
+def _next_scripted_reply(host, esa_id, port=None, timeout=8.0):
+    return sysinfo_replies.pop(0)
+
+
+_real_time_module = drivers.time
+drivers.time = fake_clock
+nasd_sysinfo.get_sysinfo_and_performance = _next_scripted_reply
+nasd_esatm.read_snapshot = fake_read_snapshot
+try:
+    d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 100})
+    d._resolved_host = HOST
+    d._resolved_port = 5000
+    d._known_esa_id = ESA_ID
+
+    snap = d.read_snapshot()
+    check("both readings together: uptime is the device's own figure",
+          snap.device.uptime_seconds == 5000, snap.device.uptime_seconds)
+
+    fake_clock.now = FAKE_START + 120
+    snap = d.read_snapshot()
+    check("an uptime-only reply is not counted on from the old temperature",
+          snap.device.uptime_seconds == 5120, snap.device.uptime_seconds)
+    check("-- and the temperature keeps its own, older timestamp",
+          snap.device.temperature_c == 36
+          and snap.device.temperature_at == FAKE_START,
+          (snap.device.temperature_c, snap.device.temperature_at))
+
+    fake_clock.now = FAKE_START + 240
+    snap = d.read_snapshot()
+    check("a temperature-only reply does not restart the old uptime",
+          snap.device.uptime_seconds == 5240, snap.device.uptime_seconds)
+    check("-- while the temperature and its timestamp move on",
+          snap.device.temperature_c == 37
+          and snap.device.temperature_at == FAKE_START + 240,
+          (snap.device.temperature_c, snap.device.temperature_at))
+
+    sysinfo_replies[:] = [{"temperature_c": None, "uptime_seconds": 700}]
+    fresh = drivers.Drobo5NDriver({"host": HOST})
+    fresh._resolved_host = HOST
+    fresh._resolved_port = 5000
+    fresh._known_esa_id = ESA_ID
+    snap = fresh.read_snapshot()
+    check("an uptime-only first reply stamps no temperature time",
+          snap.device.temperature_c is None
+          and snap.device.temperature_at is None,
+          (snap.device.temperature_c, snap.device.temperature_at))
+    check("-- but its uptime is still shown",
+          snap.device.uptime_seconds == 700, snap.device.uptime_seconds)
+finally:
+    drivers.time = _real_time_module
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _orig_get_sysinfo_and_performance)
     nasd_esatm.read_snapshot = _orig_read_snapshot
 
 print("\n== the device's own event log rides the snapshot; a failure never breaks the poll ==")

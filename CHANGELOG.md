@@ -27,6 +27,17 @@ released. Every push to this repository carries this file.
   three checks for this (268 to 271): a 213-byte round trip, which is the
   first to reach version 10, the stated limit, and the refusal of 214
   bytes. (2026-10-19)
+- **Uptime no longer runs fast or slow when one reading is missing.**
+  The Drobo reports its temperature and uptime in one reply, and the
+  agent counted uptime on from the time of the last *temperature*
+  reading. A reply with an uptime but no usable temperature (one outside
+  1-95 C is dropped as implausible) therefore counted the time since
+  that temperature twice, and more with every such reply. A reply with a
+  temperature but no uptime restarted an old uptime from that moment, so
+  it read low. Each reading now keeps its own time, and the status no
+  longer gives a reading time to a temperature that never arrived.
+  Nothing sent to the Drobo changed, nor how often. `test_drivers.py`
+  gains seven checks for this (47 to 54). (2026-10-19)
 
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no
