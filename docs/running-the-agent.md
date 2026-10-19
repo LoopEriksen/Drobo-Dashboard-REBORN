@@ -79,9 +79,9 @@ first ran no monitoring at all.
 
 What still stops it at start-up is a device that answers but is provably not
 your Drobo (a different serial from the `expected_esa_id` in `config.json`),
-or a `config.json` that is not valid JSON. `pythonw` has no window to show the
-reason in, so if `/api/ping` does not answer, run `py agent/run_agent.py` once
-in a terminal and read it there.
+or a `config.json` that is not valid JSON or not UTF-8 text. `pythonw` has no
+window to show the reason in, so if `/api/ping` does not answer, run
+`py agent/run_agent.py` once in a terminal and read it there.
 
 Stop or remove it:
 

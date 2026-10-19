@@ -270,6 +270,18 @@ with tempfile.TemporaryDirectory() as _tmp:
           bad.returncode == 3, (bad.returncode, bad.stdout, bad.stderr))
     check("-- and says what is wrong with it", "not valid JSON" in bad.stderr, bad.stderr)
 
+    # Windows PowerShell 5.1's `>` and Out-File write UTF-16, the other
+    # way a hand-edited config.json goes wrong. No URL is set, so
+    # nothing can be contacted even if the file were read.
+    with open(_cfg, "w", encoding="utf-16") as fh:
+        json.dump({"agent": {"token": secrets.token_urlsafe(24)},
+                   "updates": {"enabled": True}}, fh)
+    wide = _isolated([_script, "--config", _cfg], cwd=_tmp)
+    check("a UTF-16 config.json exits 3, not 0 as 'switched off'",
+          wide.returncode == 3, (wide.returncode, wide.stdout, wide.stderr))
+    check("-- and says it is not UTF-8", "not UTF-8" in wide.stderr,
+          wide.stderr)
+
     _lone = os.path.join(_tmp, "lone")
     os.makedirs(_lone)
     shutil.copy(_script, _lone)

@@ -52,6 +52,20 @@ released. Every push to this repository carries this file.
   count as true. The Drobo's real replies escape these sections, so no
   value read from it changes, and nothing sent to it changes.
   `test_sysinfo.py` gains five checks for this (45 to 50). (2026-10-19)
+- **A config.json that is not UTF-8 is reported, not misread.** One saved
+  as UTF-16 (Windows PowerShell 5.1's `>` and Out-File write that, and
+  Notepad does when asked) stopped the agent at start-up with a raw
+  traceback, and the Check for Updates shortcut said update checks were
+  off, with exit status 0, even when the file switched them on. Both now
+  say the file is not UTF-8 text and to save it as UTF-8, and the
+  shortcut exits 3, as it does for a file that is not valid JSON.
+  Separately, `py -m drobo_agent.updates` exits 2 (could not tell), not
+  1 (an update is available), on a config.json it cannot read; the
+  shortcut, which runs `check_updates.py`, keeps its 3. A file of valid
+  JSON but the wrong shape is handled as before. The comment in the
+  update check that described how a missing or broken config was handled
+  had been wrong for both and now says what happens. `test_updates.py`
+  gains two checks for this (77 to 79). (2026-10-19)
 
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no

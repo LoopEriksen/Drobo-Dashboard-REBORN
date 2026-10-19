@@ -119,6 +119,17 @@ def load(path: str) -> dict:
                     f"[config] Nothing was changed. Fix the file, or delete it "
                     f"to start again from defaults."
                 ) from None
+            except UnicodeDecodeError:
+                # Not UTF-8 at all -- usually UTF-16, which Windows
+                # PowerShell 5.1's `>` and Out-File write by default, as
+                # does Notepad's "UTF-16 LE". Said plainly for the same
+                # reason as above, and so the update check stops (exit
+                # 3) instead of reading an empty config.
+                raise SystemExit(
+                    f"[config] {path} is not UTF-8 text. Save it as UTF-8 "
+                    f"and try again.\n"
+                    f"[config] Nothing was changed."
+                ) from None
     cfg = _merge(DEFAULTS, on_disk)
 
     # Generate an access token on first run and write it back, so the value is

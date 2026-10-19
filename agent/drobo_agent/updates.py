@@ -62,6 +62,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -412,7 +413,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = config_mod.load(args.config)
     except Exception:
-        # A missing or broken config is not worth an error popup on a launcher.
+        # Neither a missing config nor a broken one lands here.
+        # load() creates a missing file from the defaults, and stops
+        # on one that is not valid JSON or not UTF-8 text with
+        # SystemExit, which `except Exception` does not catch:
+        # check_updates.py turns that into exit status 3, and the
+        # `-m` guard at the end of this file into 2. What does land
+        # here is anything else load() fails on -- a file it cannot
+        # read (permissions), JSON of the wrong shape, or a new token
+        # it cannot save -- and that is read as an empty config, so
+        # update checks are off.
         cfg = {}
 
     version = _installed_version(here)
@@ -444,4 +454,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        exit_status = main()
+    except SystemExit as exc:
+        # config.load() stops on a broken config.json with SystemExit
+        # and a message, which Python would exit 1 on -- "an update is
+        # available". Caught here, not inside main(): check_updates.py
+        # needs it to escape main() to give the shortcut its own exit
+        # status, 3. argparse's own exits carry a number; let those
+        # through as they are.
+        if exc.code is None or isinstance(exc.code, int):
+            raise
+        print(exc.code, file=sys.stderr)
+        exit_status = 2
+    raise SystemExit(exit_status)
