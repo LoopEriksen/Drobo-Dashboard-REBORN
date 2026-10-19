@@ -581,7 +581,7 @@ def analyse_direction(label: str, buf: bytes, report: dict, max_preview: int) ->
     report.setdefault("directions", {})[label] = dir_report
 
 
-def print_proposed_header(report: dict) -> None:
+def print_proposed_header(report: dict, port: int) -> None:
     print("\n" + "=" * 72)
     print("PROPOSED NasdHeader layout -- INFERRED from this capture, not FIRMWARE")
     print("or CONFIRMED per docs/protocol-map.md's confidence marks. Treat as a")
@@ -618,7 +618,8 @@ def print_proposed_header(report: dict) -> None:
             print(f"  offset {base+cmd['pad']+cmd['length_size']:<3}         : payload     XML, variable length")
     if not any_login:
         print("\nNo signature/framing could be inferred from this capture -- either")
-        print("the filter matched no port-" + str(args.port) + " traffic, or none of the header shapes")
+        print(f"the filter matched no port-{port} traffic, or none of the "
+              "header shapes")
         print("tried produced an XML-looking payload. See docs/protocol-map.md and")
         print("fall back to a manual 'Follow TCP Stream' in Wireshark.")
 
@@ -649,10 +650,10 @@ def main(argv=None) -> int:
                      "stream_count": len(streams), "streams": []}
 
     if not streams:
-        print("\nNothing on port 5000 in this capture -- check the Wireshark filter "
-              "used when saving it, or that Dashboard actually connected during "
-              "the recording.")
-        print_proposed_header(report)
+        print(f"\nNothing on port {args.port} in this capture -- check the "
+              "Wireshark filter used when saving it, or that Dashboard "
+              "actually connected during the recording.")
+        print_proposed_header(report, args.port)
     else:
         for key, st in streams.items():
             client = st["client"]
@@ -670,7 +671,7 @@ def main(argv=None) -> int:
             analyse_direction(f"{server}->{client} (server->client)", to_client,
                                stream_report, args.max_preview)
             report["streams"].append(stream_report)
-            print_proposed_header(stream_report)
+            print_proposed_header(stream_report, args.port)
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:

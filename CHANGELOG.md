@@ -6,6 +6,20 @@ released. Every push to this repository carries this file.
 
 ## Unreleased
 
+### Fixed
+- **The capture dissector finishes instead of crashing.**
+  `tools/nasd_dissect.py` stopped with a Python `NameError` whenever it
+  could not work out a frame layout. That happened on an empty capture, on
+  any recording of the command port (5001), which
+  `tools/capture-identify.ps1` asks it to read, and on the status port's
+  real greeting, whose confirmed layout is outside the shapes it tries. So
+  its `-o` report was never written. It now prints its "no framing could
+  be inferred" note and finishes, and it names the port it looked on
+  instead of always saying 5000. It still works out no layout from either
+  port's real traffic; `tools/extract_commands.py` is the tool for the
+  command port. Its test suite gains seven checks for this (51 to 58).
+  (2026-10-19)
+
 ### Changed
 - **The project is now free software: GPL-3.0-or-later.** Until now no
   licence had been granted and all rights were reserved. The full text is

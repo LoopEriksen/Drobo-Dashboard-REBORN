@@ -26,6 +26,8 @@ Run:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import shutil
 import socket
 import struct
@@ -217,6 +219,57 @@ def run_against(path: str, label: str) -> None:
               f"{label}: second frame's XML payload recovered exactly")
 
 
+# ----------------------------------------------------------------------
+# No DRINASD login frame: the command port, and an empty capture
+# ----------------------------------------------------------------------
+# The command port (5001) frames everything as DRINETTM, so no DRINASD
+# login frame is ever found there. Until this was fixed, that path --
+# and a capture with nothing on the port at all -- died with NameError
+# on `args`, after the stream output but before any -o report was
+# written.
+def run_dissector(argv: list[str]) -> tuple[object, str]:
+    """Run nasd_dissect.main(argv); return its result and its output.
+
+    The result is main()'s return code, or the exception it raised.
+    """
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            result = dissect.main(argv)
+    except Exception as exc:  # noqa: BLE001 -- the crash IS what is tested
+        result = exc
+    return result, printed.getvalue()
+
+
+def run_without_login_frame(tmp_dir: str) -> None:
+    print("\n=== no login frame: --port 5001, and an empty capture ===")
+    xml = b"<TMCmd><CmdID>30</CmdID><Params></Params></TMCmd>\x00"
+    frame = b"DRINETTM" + struct.pack(">II", 0, len(xml)) + xml
+    segment = tcp_segment(CLIENT_PORT, 5001, 1000, PSH_ACK, frame)
+    command_capture = os.path.join(tmp_dir, "command-port.pcap")
+    write_pcap_classic(command_capture,
+                       [eth_frame(ipv4_packet(CLIENT_IP, SERVER_IP,
+                                              segment))])
+    empty_capture = os.path.join(tmp_dir, "empty.pcap")
+    write_pcap_classic(empty_capture, [])
+
+    for path, label in ((command_capture, "a DRINETTM stream"),
+                        (empty_capture, "an empty capture")):
+        report_path = path + ".json"
+        result, text = run_dissector([path, "--port", "5001",
+                                      "-o", report_path])
+        check(result == 0, f"{label} on --port 5001 runs to the end "
+                           f"(got {result!r})")
+        check("port 5000" not in text and "port-5000" not in text,
+              f"{label}: no message names port 5000 when 5001 was asked "
+              "for")
+        check(os.path.exists(report_path),
+              f"{label}: the -o report is still written")
+    _, text = run_dissector([empty_capture, "--port", "5001"])
+    check("Nothing on port 5001" in text,
+          "an empty capture says which port it looked on")
+
+
 def main() -> int:
     # The synthetic captures go in a temp folder that is removed however the
     # run ends. Until 2026-09-16 every run left its folder behind in TEMP.
@@ -263,6 +316,7 @@ def run_checks(tmp_dir: str) -> int:
     # until 2026-07-26. Without it the suite passes while the tool is useless
     # on every real file.
     run_against(pcapng_le_path, "pcapng (little-endian, as real tools write)")
+    run_without_login_frame(tmp_dir)
 
     print()
     if FAILURES:
