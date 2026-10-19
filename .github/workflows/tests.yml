@@ -1,13 +1,14 @@
 # CI: on every change pushed here, actually RUN the tests.
 #
-# WHY this exists: this project's thirty Python suites and the Windows app's
-# own test program are the only thing standing between a protocol change and
-# a Drobo that stops being read correctly -- and until this file, nothing ran
-# them on a push. "All thirty suites pass" was a sentence re-established by
-# hand at each release, which means it was true on one machine, on one day,
-# for whatever was checked out at the time. lint.yml proves the code parses
-# and guard.yml proves it carries no secrets; neither notices a parser that
-# now returns the wrong number. A break could sit there looking green for days.
+# WHY this exists: this project's thirty-one Python suites and the Windows
+# app's own test program are the only thing standing between a protocol
+# change and a Drobo that stops being read correctly -- and until this file,
+# nothing ran them on a push. "All thirty-one suites pass" was a sentence
+# re-established by hand at each release, which means it was true on one
+# machine, on one day, for whatever was checked out at the time. lint.yml
+# proves the code parses and guard.yml proves it carries no secrets; neither
+# notices a parser that now returns the wrong number. A break could sit there
+# looking green for days.
 #
 # WHY windows-latest for the Python suites, when lint.yml and guard.yml use
 # ubuntu: agent/tests/test_backup.py prints "SKIP robocopy is Windows-only"
@@ -113,10 +114,11 @@ jobs:
             checks=$(grep -cE '^  (PASS|FAIL|ok:)' "$log" || true)
             skips=$(grep -cE '^[[:space:]]*SKIP' "$log" || true)
             # The FAIL lines are counted as well as totalled, because an exit
-            # code is a promise a suite has to keep: every one of the thirty
-            # ends in sys.exit(1 if fails else 0) today, but a suite that
-            # printed FAIL lines and still returned 0 would otherwise be
-            # folded away as a green group and counted in "all suites passed".
+            # code is a promise a suite has to keep: every one of the
+            # thirty-one ends in sys.exit(1 if fails else 0) today, but a
+            # suite that printed FAIL lines and still returned 0 would
+            # otherwise be folded away as a green group and counted in "all
+            # suites passed".
             # The evidence is already in the log; this reads it.
             failed=$(grep -cE '^  FAIL' "$log" || true)
 

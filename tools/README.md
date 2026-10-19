@@ -81,6 +81,7 @@ No Drobo needed. They run from any folder, for example
 
 | File | What it does | Talks to a real Drobo? | Still needed? |
 |---|---|---|---|
+| [`test_dashboard_strings.py`](test_dashboard_strings.py) | Checks that `dashboard_strings.py` hides keys, including one given with its field name, using made-up strings | No | Yes |
 | [`test_extract_commands.py`](test_extract_commands.py) | Checks `extract_commands.py` against a recording it builds itself | No | Yes |
 | [`test_fw_params.py`](test_fw_params.py) | Checks `fw_params.py`. Skips one check unless the firmware is on this PC | No | Yes |
 | [`test_nasd_dissect.py`](test_nasd_dissect.py) | Checks `nasd_dissect.py`. Prints `ok:` lines rather than `PASS` | No | Yes |

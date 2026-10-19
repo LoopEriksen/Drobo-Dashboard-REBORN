@@ -201,7 +201,7 @@ the same commit.
 | Fallback installer and uninstaller | **Built, unverified** | A pair of PowerShell scripts used when the installer toolchain is unavailable and the build produces a zip instead. Mirrors the real installer exactly in reverse, refuses to remove anything while the app or service is still running, and asks for administrator rights at most once rather than looping. Since 2026-09-19 a test drives both end to end — install, re-install, the refusal, uninstall — into a temporary folder and a scratch registry key, as an ordinary user, touching nothing real (78 checks); redirecting the four target places is all or nothing, so the test cannot leave one pointing at the real location. What is still unproven is one real, elevated install into Program Files. |
 | Diagnostics report | **Working** | Leads with *why* the Drobo could not be reached. Carries no password and no access token. It does carry hardware serial numbers, and this PC's own private network addresses when the Drobo is unreachable; it says so at the top, and the testers' guide says to read it before pasting it anywhere public. |
 | Privacy guard on every commit | **Working** | A scanner plus a commit hook that blocks personal information, database files and real environment files. The checks on every push go further: credential files blocked from being tracked, tracked content scanned for secrets, and the same scan for personal information. |
-| The tests run by themselves on every push | **Working** | Beside the secrets and personal-data scan and the compile check: all thirty Python suites, and the Windows app's own tests on a Windows runner. A suite that runs no checks, prints a failed check and exits 0 anyway, or moves out of its folder fails the run rather than dropping out of the count. Built 2026-09-19; first green run on GitHub 2026-09-20, both jobs. |
+| The tests run by themselves on every push | **Working** | Beside the secrets and personal-data scan and the compile check: all thirty-one Python suites, and the Windows app's own tests on a Windows runner. A suite that runs no checks, prints a failed check and exits 0 anyway, or moves out of its folder fails the run rather than dropping out of the count. Built 2026-09-19; first green run on GitHub 2026-09-20, both jobs. |
 | A simulated Drobo | **Working** | The whole program runs against a pretend device, including a sign-in account, so the alert path and the connect flow can be tried with no hardware. Nothing simulated is ever handed to Windows. |
 | A licence for the public release | **Working** | GPL-3.0-or-later, the maintainer's decision on 2026-10-19. The full text is `LICENSE` at the top of the repository, the SDK's package metadata declares the same licence, and the installer build copies `LICENSE` into the program folder beside `TESTING.md` -- that copy has not been through a build yet, and the installer's lifecycle test does not check for it yet. Moved here from Future features, where it was Later. |
 
@@ -401,9 +401,10 @@ passed unchanged (69 of 69).
   capacity, and chassis temperature with its own alert thresholds (warning at
   50 °C, critical at 60 °C).
 - **The agent** (`agent/`) — polling, history, alerts, notifications, photo
-  intake, shares, config, sysinfo. Thirty test suites today — ten under `agent/tests/`,
-  sixteen under `sdk/tests/`, four under `tools/` — all passing, last confirmed
-  by running every one of them on 2026-09-21, plus the Windows app's own suite
+  intake, shares, config, sysinfo. Thirty-one test suites today — ten under `agent/tests/`,
+  sixteen under `sdk/tests/`, five under `tools/` — all passing, last confirmed
+  by running every one of them on 2026-09-21 (all but
+  `tools/test_dashboard_strings.py`, added 2026-10-19), plus the Windows app's own suite
   under `windows/DroboDashboardReborn.Tests/`. Since 2026-09-19 the automatic
   checks on a push run every one of them too, and the Windows app's suite on a
   Windows runner; the first green run was 2026-09-20, so "all passing" is now

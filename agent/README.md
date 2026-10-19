@@ -96,14 +96,14 @@ the API; to count it yourself in PowerShell:
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.
 Run it after any change.
 
-This is one of thirty test suites in the project: ten under
+This is one of thirty-one test suites in the project: ten under
 `agent/tests/` (`test_agent`, `test_backup`, `test_config_api`,
 `test_drivers`, `test_droboapps_api`, `test_identify_api`,
 `test_notification_simulation`, `test_notify`, `test_shares_api`,
 `test_updates`), sixteen under
 `sdk/tests/` (the protocol: esatm, discovery, config, config writes, shares,
 share writes and lifecycle, write arbitration, sysinfo, event log, identify
-and friends), and four under `tools/`. Every suite runs standalone with
+and friends), and five under `tools/`. Every suite runs standalone with
 `py <file>`, from its own folder or from the repository's top folder, and none
 needs real hardware.
 

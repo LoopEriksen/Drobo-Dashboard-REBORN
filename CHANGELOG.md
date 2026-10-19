@@ -24,6 +24,26 @@ released. Every push to this repository carries this file.
   have not been through a Windows build yet. (2026-10-19)
 
 ### Fixed
+- **The Dashboard string miner hides every key it promised to hide.**
+  `tools/dashboard_strings.py` reads the original Dashboard's program
+  files, which carry a hardcoded key for Drobo's dead API Gateway, and its
+  notes (and `docs/command-surface.md`) said credentials were redacted from
+  its output on sight. Two kinds were not. A key given with its field name,
+  such as `x-api-key: ...` or a URL ending `?api_key=...`, was printed in
+  clear by `--near` and `--endpoints`, and so was the separate string that
+  follows a bare `x-api-key` in `--near` output. And a long key-shaped
+  string was let through whenever it started like a tag, so a 40-character
+  key beginning with a letter passed. Now a field name followed directly
+  by `:` or `=` and a value is redacted, the string after such a name in
+  `--near` output is too, and a long key-shaped string is kept only when
+  it is all letters, as a long tag name is. `--near` now also hides the
+  literal after any credential-named tag, such as the tag after
+  `SMTPPassword`, so it shows a little less than before; that is
+  deliberate. A URL whose path merely says `/token` is still shown. The
+  tool reads files on this PC only, so nothing sent to a Drobo changes.
+  A new suite, `tools/test_dashboard_strings.py`, checks it with made-up
+  strings (25 checks), which makes thirty-one suites, five of them under
+  `tools/`. (2026-10-19)
 - **A status-channel test can no longer pass without testing what it
   names.** Three socket cases in `sdk/tests/test_esatm.py` sent from
   threads that looked their socket up when they ran, not when they were

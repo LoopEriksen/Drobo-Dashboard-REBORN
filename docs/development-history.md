@@ -753,6 +753,23 @@ were "refreshed every couple of minutes" now says the agent asks for them that
 often, which stays true while the Drobo is not answering. The Windows half has
 not been through a Windows build yet.
 
+## A redactor that redacts (2026-10-19)
+
+**10-19.** `tools/dashboard_strings.py`, the tool that found `DimmingLevel` and
+the dead API Gateway in the original Dashboard, said it redacted credentials
+on sight, and `command-surface.md` repeated it. Half of that was never
+written. Its `_KEY_CONTEXT` pattern, the field names that introduce a key, was
+defined and nothing used it, so `x-api-key: ...` and `?api_key=...` were
+printed in clear; and the test that spared tag-shaped strings looked only at
+the first twenty characters, so a key that began with a letter passed too. The
+same review of unused code that found the performance timestamp found this,
+and again it was wired up rather than deleted. The first wiring proposed would
+have matched the `://` of every URL and hidden the very endpoints the tool
+exists to show, so the field name now has to be followed directly by `:` or
+`=`. Of the two stricter tag rules on offer, the maintainer chose the stricter:
+only an all-letter string is spared. A new suite, the fifth under `tools/`,
+checks both with made-up strings; eleven of its 25 checks fail against 1.1.0.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

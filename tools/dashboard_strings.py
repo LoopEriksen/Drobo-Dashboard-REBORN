@@ -72,6 +72,12 @@ _TAG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,40}$")
 #: redacted line, a false negative puts somebody's key in a commit.
 _KEYISH = re.compile(r"^[A-Za-z0-9+/_-]{24,}={0,2}$")
 _KEY_CONTEXT = re.compile(r"api.?key|secret|token|password|credential", re.I)
+#: A field name with its value in the same string: "x-api-key: ...",
+#: "?api_key=...". The name has to be followed directly by ":" or "=",
+#: so a URL whose path merely says /token or /forgot-password is kept;
+#: matching any ":" would count the "://" of every URL.
+_KEY_ASSIGNMENT = re.compile(
+    "(?:" + _KEY_CONTEXT.pattern + r")\w*\s*[:=]\s*\S", re.I)
 _REDACTED = "[redacted: credential-shaped string]"
 
 #: Noise that passes the tag shape but is plainly not protocol vocabulary.
@@ -99,7 +105,14 @@ def strings_of(blob: bytes) -> list[tuple[int, str, str]]:
 
 def redact(text: str) -> str:
     """Never let a credential-shaped string reach the output."""
-    return _REDACTED if _KEYISH.match(text) and not _TAG_RE.match(text[:20]) else text
+    if _KEY_ASSIGNMENT.search(text):
+        return _REDACTED
+    # A long run with any digit or symbol in it. Only pure letters pass,
+    # as a long CamelCase tag does; a key that merely starts like a tag
+    # (a letter-led 40-character API-Gateway key) is still a key.
+    if _KEYISH.match(text) and not text.isalpha():
+        return _REDACTED
+    return text
 
 
 def is_tag(text: str) -> bool:
@@ -120,8 +133,33 @@ def near(blob: bytes, anchor: str, span: int = 20) -> list[str]:
     found = strings_of(blob)
     for idx, (_off, text, enc) in enumerate(found):
         if text == anchor:
-            window = found[max(0, idx - span): idx + span]
-            return [redact(t) for _o, t, e in window if e == enc]
+            start = max(0, idx - span)
+            window = found[start: idx + span]
+            # A binary keeps a header name and its value as separate
+            # literals, so the one after "x-api-key" goes as well. That
+            # name can sit just before the window's left edge, so the
+            # scan starts from the nearest literal before it in the
+            # same encoding. After a password-named tag such as
+            # "SMTPPassword" the next tag is hidden too: losing a tag
+            # is the safe way to be wrong. A name in one encoding does
+            # not hide a value in the other, which redact() alone
+            # decides; the window shows only one encoding anyway.
+            before_window = (earlier_text
+                             for _offset, earlier_text, earlier_enc
+                             in reversed(found[:start])
+                             if earlier_enc == enc)
+            after_field_name = bool(
+                _KEY_CONTEXT.search(next(before_window, "")))
+            shown = []
+            for _offset, window_text, window_enc in window:
+                if window_enc != enc:
+                    continue
+                if after_field_name:
+                    shown.append(_REDACTED)
+                else:
+                    shown.append(redact(window_text))
+                after_field_name = bool(_KEY_CONTEXT.search(window_text))
+            return shown
     return []
 
 

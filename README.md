@@ -377,13 +377,13 @@ against a real Drobo at a placeholder address (or the address in
 py agent/tests/test_agent.py
 ```
 
-The full inventory is thirty suites: ten under `agent/tests/`, sixteen
+The full inventory is thirty-one suites: ten under `agent/tests/`, sixteen
 under `sdk/tests/` (the protocol, including every write path and its four
-outcomes), and four under `tools/`. Every suite runs standalone with
+outcomes), and five under `tools/`. Every suite runs standalone with
 `py <file>`, from its own folder or from the repository's top folder, and none
 needs hardware. Each is a `test_*.py` file in one of those three folders;
 [`agent/README.md`](agent/README.md) names the agent's ten, and
-[`tools/README.md`](tools/README.md) describes the four in `tools/`.
+[`tools/README.md`](tools/README.md) describes the five in `tools/`.
 
 The Windows app's notification rules and saved logins are tested too — they
 decide when this software is allowed to interrupt you, and what it puts in
