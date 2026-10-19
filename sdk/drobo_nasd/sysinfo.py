@@ -53,7 +53,7 @@ from .config_cmd import (
 # Anything outside this is not a chassis temperature -- it's a parse that went
 # wrong, or a field that means something else. A Drobo that genuinely reached
 # 95 C would have shut itself down long before reporting it.
-PLAUSIBLE_C = (1, 95)
+PLAUSIBLE_TEMPERATURE_RANGE_C = (1, 95)
 
 
 class SysInfoError(ConfigError):
@@ -138,7 +138,8 @@ def parse_sysinfo(payload: bytes) -> dict:
         node = sysinfo_node if sysinfo_node is not None else inner
 
     temp = _int_or_none(node, "Temperature")
-    if temp is not None and not (PLAUSIBLE_C[0] <= temp <= PLAUSIBLE_C[1]):
+    if temp is not None and not (PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temp
+                                 <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
         # Report nothing rather than something wrong. A bogus reading on a
         # dashboard is worse than a blank one.
         temp = None

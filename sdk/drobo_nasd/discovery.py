@@ -57,16 +57,16 @@ from dataclasses import dataclass
 
 from . import esatm
 
-MDNS_ADDR = "224.0.0.251"
+MDNS_MULTICAST_ADDRESS = "224.0.0.251"
 MDNS_PORT = 5353
 NASD_SERVICE = "_nasd._tcp.local"
 
 # DNS RR types we care about. Same numbering the real protocol uses -- see
 # tools/drobo_probe.py's mDNS client, which this borrows the wire-format
 # approach from (no dependency pulled in; it's ~50 lines of stdlib code).
-QTYPE_A = 1
-QTYPE_PTR = 12
-QTYPE_SRV = 33
+RECORD_TYPE_A = 1
+RECORD_TYPE_PTR = 12
+RECORD_TYPE_SRV = 33
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
     return ".".join(labels), (resume if jumped else offset)
 
 
-def _build_query(qname: str, qtype: int = QTYPE_PTR) -> bytes:
+def _build_query(qname: str, qtype: int = RECORD_TYPE_PTR) -> bytes:
     header = struct.pack("!HHHHHH", 0, 0, 1, 0, 0, 0)
     # qclass 0x8001 = IN with the "unicast response please" bit set, so a
     # responder answers straight back to us instead of multicasting.
@@ -145,11 +145,11 @@ def parse_mdns_response(data: bytes) -> list[dict]:
         offset += 10
         rdata = data[offset : offset + rdlen]
         rec: dict = {"name": name, "type": rtype}
-        if rtype == QTYPE_PTR:
+        if rtype == RECORD_TYPE_PTR:
             rec["value"], _ = _decode_name(data, offset)
-        elif rtype == QTYPE_A and rdlen == 4:
+        elif rtype == RECORD_TYPE_A and rdlen == 4:
             rec["value"] = socket.inet_ntoa(rdata)
-        elif rtype == QTYPE_SRV and rdlen >= 6:
+        elif rtype == RECORD_TYPE_SRV and rdlen >= 6:
             _pri, _wt, port = struct.unpack("!HHH", rdata[:6])
             target, _ = _decode_name(data, offset + 6)
             rec["value"] = target
@@ -189,7 +189,7 @@ def discover_mdns(timeout: float = 3.0) -> list[Candidate]:
     found: dict[str, Candidate] = {}
     try:
         try:
-            sock.sendto(_build_query(NASD_SERVICE, QTYPE_PTR), (MDNS_ADDR, MDNS_PORT))
+            sock.sendto(_build_query(NASD_SERVICE, RECORD_TYPE_PTR), (MDNS_MULTICAST_ADDRESS, MDNS_PORT))
         except OSError:
             return []
         deadline = time.time() + timeout
@@ -205,11 +205,11 @@ def discover_mdns(timeout: float = 3.0) -> list[Candidate]:
                 continue
             port = esatm.DEFAULT_PORT
             for rec in records:
-                if rec["type"] == QTYPE_SRV:
+                if rec["type"] == RECORD_TYPE_SRV:
                     port = rec["port"]
             found.setdefault(addr[0], Candidate(addr[0], port, "mdns"))
             for rec in records:
-                if rec["type"] == QTYPE_A:
+                if rec["type"] == RECORD_TYPE_A:
                     found.setdefault(rec["value"], Candidate(rec["value"], port, "mdns"))
     finally:
         sock.close()
@@ -447,7 +447,7 @@ class IdentityMismatchError(Exception):
 
 
 @dataclass
-class Verified:
+class VerificationResult:
     candidate: Candidate
     identity: dict
     first_run: bool  # True: no expected_esa_id was configured, so we can't
@@ -463,15 +463,16 @@ def verify_candidate(
     expected_esa_id: str = "",
     expected_mac: str = "",
     timeout: float = 5.0,
-) -> Verified:
+) -> VerificationResult:
     """
     Connect to `candidate`, read its unprompted greeting, and check identity.
 
-      - expected_esa_id set and it MATCHES    -> Verified(first_run=False)
+      - expected_esa_id set and it MATCHES    -> VerificationResult
+        (first_run=False)
       - expected_esa_id set and it MISMATCHES -> raises IdentityMismatchError
-      - expected_esa_id blank (first run)     -> Verified(first_run=True);
-        the caller should surface identity["esa_id"] so it can be pinned for
-        next time.
+      - expected_esa_id blank (first run)     -> VerificationResult
+        (first_run=True); the caller should surface identity["esa_id"] so
+        it can be pinned for next time.
 
     expected_mac is an optional second signal (see mac_for_ip's docstring for
     why it only corroborates, never proves):
@@ -480,8 +481,9 @@ def verify_candidate(
       - expected_mac set but the MAC could not be read (no arp tool, unknown
         platform, etc.) -> a warnings.warn(), NOT a refusal. We never want a
         missing 'arp' binary to make the agent unusable.
-      - expected_mac blank -> MAC is still looked up and returned on Verified
-        (for the caller to pin next time) but never checked.
+      - expected_mac blank -> MAC is still looked up and returned on
+        VerificationResult (for the caller to pin next time) but never
+        checked.
 
     Only ever reads the greeting nasd pushes on connect -- no command is sent.
     """
@@ -517,7 +519,7 @@ def verify_candidate(
                 f"treat this as suspicious and investigate before trusting it."
             )
 
-    return Verified(candidate, identity, first_run=not expected_esa_id, mac=mac)
+    return VerificationResult(candidate, identity, first_run=not expected_esa_id, mac=mac)
 
 
 def _gather_candidates(
@@ -590,7 +592,7 @@ def resolve(
     expected_mac: str = "",
     allowed_subnets: list[str] | None = None,
     manual_ips: list[str] | None = None,
-) -> Verified:
+) -> VerificationResult:
     """
     Find the Drobo and prove it's the right one.
 

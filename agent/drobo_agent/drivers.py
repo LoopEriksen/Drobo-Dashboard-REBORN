@@ -28,8 +28,8 @@ import time
 from collections import deque
 
 from .models import (
-    SEV_INFO,
-    SEV_WARNING,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
     STATE_EMPTY,
     STATE_FAILED,
     STATE_OK,
@@ -44,7 +44,7 @@ from .models import (
     PowerInfo,
     Snapshot,
     Volume,
-    _gb,
+    gigabytes_to_bytes,
 )
 from drobo_nasd import config_cmd, discovery, esatm, eventlog, sharewrite, sysinfo
 
@@ -189,11 +189,11 @@ class MockDriver(DroboDriver):
                     "present": populated,
                     "model": rng.choice(self._MODELS) if populated else "",
                     "serial": f"MOCK{rng.randrange(10**7, 10**8)}" if populated else "",
-                    "capacity": _gb(4000) if populated else 0,
+                    "capacity": gigabytes_to_bytes(4000) if populated else 0,
                     "temp_base": 34.0 + rng.uniform(-2.0, 4.0),
                 }
             )
-        self._used = _gb(6800)
+        self._used = gigabytes_to_bytes(6800)
 
         # -- Phase 1 scope additions (ROADMAP.md) -- believable baselines that
         # drift a little, same idea as the drive temperatures above.
@@ -202,7 +202,7 @@ class MockDriver(DroboDriver):
         self._fan_base = 2350
         self._power_override: str | None = None
         self._event_log: deque[EventLogEntry] = deque(maxlen=200)
-        self._log(SEV_INFO, "Drobo started up (mock driver)")
+        self._log(SEVERITY_INFO, "Drobo started up (mock driver)")
 
         # Kept only so a config carrying manual_discovery_ips loads cleanly
         # against either driver. The simulator has no network to search, so
@@ -453,7 +453,8 @@ class MockDriver(DroboDriver):
         with self._lock:
             self._refuse_if_injected()
             self._dimming = value
-            self._log(SEV_INFO, f"LED brightness set to {value} (mock driver)")
+            self._log(SEVERITY_INFO,
+                      f"LED brightness set to {value} (mock driver)")
             return self._write_ending()
 
     def set_spindown(self, delay) -> dict:
@@ -466,7 +467,8 @@ class MockDriver(DroboDriver):
                 self._refuse_if_injected()
                 self._feature_states &= ~_SPINDOWN_ENABLED_BIT
                 self._spindown = 0
-                self._log(SEV_INFO, "Drive spin-down disabled (mock driver)")
+                self._log(SEVERITY_INFO,
+                          "Drive spin-down disabled (mock driver)")
                 return self._write_ending()
             if isinstance(delay, bool) or not isinstance(delay, int) or delay <= 0 or delay > _SPINDOWN_MAX:
                 raise ValueError(f"spin-down delay must be 1-{_SPINDOWN_MAX}; a bare 0 does not "
@@ -474,7 +476,7 @@ class MockDriver(DroboDriver):
             self._refuse_if_injected()
             self._feature_states |= _SPINDOWN_ENABLED_BIT
             self._spindown = delay
-            self._log(SEV_INFO, f"Drive spin-down delay set to {delay} (mock driver)")
+            self._log(SEVERITY_INFO, f"Drive spin-down delay set to {delay} (mock driver)")
             return self._write_ending()
 
     def get_spindown(self) -> dict:
@@ -509,7 +511,8 @@ class MockDriver(DroboDriver):
                     f"(installed: {sorted(a['name'] for a in apps)}); refusing "
                     f"to act on a name the device did not report")
             matching[0]["running"] = action == "Start"
-            self._log(SEV_INFO, f"DroboApp {clean!r}: {action} (mock driver)")
+            self._log(SEVERITY_INFO,
+                      f"DroboApp {clean!r}: {action} (mock driver)")
 
     def set_share_access(self, share: str, user: str, access: str) -> dict:
         """One user's access on one share, on the per-instance share config.
@@ -562,7 +565,7 @@ class MockDriver(DroboDriver):
             users_c["ShareUser"] = users[0] if len(users) == 1 else users
             target["ShareUsers"] = users_c
             block["ConfigVersionBasis"] = str(int(block.get("ConfigVersionBasis", "0") or 0) + 1)
-            self._log(SEV_INFO, f"{user!r} on {share!r} set to access {access} (mock driver)")
+            self._log(SEVERITY_INFO, f"{user!r} on {share!r} set to access {access} (mock driver)")
             return self._write_ending()
 
     def create_share(self, name: str) -> dict:
@@ -605,7 +608,7 @@ class MockDriver(DroboDriver):
                            "TimeMachineEnabled": "0", "ShareUsers": None})
             block["Shares"]["Share"] = shares[0] if len(shares) == 1 else shares
             block["ConfigVersionBasis"] = str(int(block.get("ConfigVersionBasis", "0") or 0) + 1)
-            self._log(SEV_INFO, f"share {given!r} created (mock driver)")
+            self._log(SEVERITY_INFO, f"share {given!r} created (mock driver)")
             return self._write_ending()
 
     def delete_share(self, name: str) -> dict:
@@ -637,7 +640,7 @@ class MockDriver(DroboDriver):
             shares.remove(target)
             block["Shares"]["Share"] = shares[0] if len(shares) == 1 else shares
             block["ConfigVersionBasis"] = str(int(block.get("ConfigVersionBasis", "0") or 0) + 1)
-            self._log(SEV_INFO, f"share {clean!r} deleted (mock driver)")
+            self._log(SEVERITY_INFO, f"share {clean!r} deleted (mock driver)")
             return self._write_ending()
 
     def get_demo_mode(self) -> dict:
@@ -664,7 +667,7 @@ class MockDriver(DroboDriver):
         with self._lock:
             self._identify_count += 1
             self._identify_last_interval = interval
-            self._log(SEV_INFO,
+            self._log(SEVERITY_INFO,
                       f"Identify: front lights flashing, interval={interval} (mock driver)")
 
     #: The simulated Drobo's one account: user admin, password admin, set at
@@ -755,14 +758,14 @@ class MockDriver(DroboDriver):
         with self._lock:
             self._battery_override = state
             self._log(
-                SEV_WARNING if state == STATE_WARNING else SEV_INFO,
+                SEVERITY_WARNING if state == STATE_WARNING else SEVERITY_INFO,
                 f"Cache battery reports {state} (mock driver)",
             )
 
     def fail_power(self, state: str = STATE_FAILED) -> None:
         with self._lock:
             self._power_override = state
-            self._log(SEV_WARNING, f"PSU reports {state} (mock driver)")
+            self._log(SEVERITY_WARNING, f"PSU reports {state} (mock driver)")
 
     def fail_write(self, mode: str = WRITE_FAULT_HANGS_UP) -> None:
         """
@@ -780,7 +783,7 @@ class MockDriver(DroboDriver):
                 f"unknown write fault {mode!r}; choose from {list(WRITE_FAULTS)}")
         with self._lock:
             self._write_fault = mode
-            self._log(SEV_INFO, f"config writes will now end as {mode!r} (mock driver)")
+            self._log(SEVERITY_INFO, f"config writes will now end as {mode!r} (mock driver)")
 
     def reset(self) -> None:
         with self._lock:
@@ -796,7 +799,7 @@ class MockDriver(DroboDriver):
             elapsed = time.time() - self._started
             # Creep usage upward slowly so the capacity graph has something to
             # draw, and wobble temperatures on a slow sine plus noise.
-            self._used += int(_gb(0.002))
+            self._used += int(gigabytes_to_bytes(0.002))
             drives: list[DriveSlot] = []
             raw = 0
             for spec in self._bays:
@@ -1085,7 +1088,7 @@ class Drobo5NDriver(DroboDriver):
         if not self._known_esa_id:
             self._known_esa_id = esa_id
 
-    def _discover(self) -> discovery.Verified:
+    def _discover(self) -> discovery.VerificationResult:
         last_known = self._resolved_host or (self.host if not self._auto else "")
         try:
             verified = discovery.resolve(
@@ -1301,10 +1304,11 @@ class Drobo5NDriver(DroboDriver):
         BY DESIGN if the (never-captured) reply turns out to be an XML
         schema, and that refusal would otherwise repeat verbatim forever.
 
-        Entries arrive with eventlog.TS_NOT_DECODED / SEVERITY_NOT_DECODED
-        markers -- the reply's line format is uncaptured, so the SDK will not
-        invent timestamps or severities. Passed through untouched; presenting
-        an undecoded field is the UI's call, not this driver's.
+        Entries arrive with eventlog.TIMESTAMP_NOT_DECODED /
+        SEVERITY_NOT_DECODED markers -- the reply's line format is
+        uncaptured, so the SDK will not invent timestamps or severities.
+        Passed through untouched; presenting an undecoded field is the
+        UI's call, not this driver's.
         """
         now = time.time()
         if now - self._eventlog_tried_at < self.eventlog_seconds:

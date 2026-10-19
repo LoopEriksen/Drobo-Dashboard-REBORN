@@ -110,7 +110,7 @@ check("every entry is a models.EventLogEntry",
 check("the raw line rides in message, untouched",
       [e.message for e in entries] == ["a line", "another"], entries)
 check("ts is the NOT_DECODED marker, not a fabricated time",
-      all(e.ts == eventlog.TS_NOT_DECODED for e in entries), entries)
+      all(e.ts == eventlog.TIMESTAMP_NOT_DECODED for e in entries), entries)
 check("severity is the NOT_DECODED marker, not an assumed 'info'",
       all(e.severity == eventlog.SEVERITY_NOT_DECODED for e in entries), entries)
 d = entries[0].to_dict()
@@ -129,13 +129,13 @@ check("command 91 with the /uel.log path, CmdID/Params/ESAID order",
 
 print("\n== safety ==")
 check("we send eCmdGetUserEventLog, not the eCmdGetEventLogs that answers empty",
-      eventlog.COMMAND == "eCmdGetUserEventLog")
-check("its confirmed id is 91", C.COMMANDS.get(eventlog.COMMAND) == 91,
-      C.COMMANDS.get(eventlog.COMMAND))
+      eventlog.COMMAND_NAME == "eCmdGetUserEventLog")
+check("its confirmed id is 91", C.COMMANDS.get(eventlog.COMMAND_NAME) == 91,
+      C.COMMANDS.get(eventlog.COMMAND_NAME))
 check("it is not on the do-not-send list",
-      not C.is_dangerous(eventlog.COMMAND))
+      not C.is_dangerous(eventlog.COMMAND_NAME))
 check("the path constant is exactly the captured one",
-      eventlog.UEL_PATH == "/uel.log", eventlog.UEL_PATH)
+      eventlog.USER_EVENT_LOG_PATH == "/uel.log", eventlog.USER_EVENT_LOG_PATH)
 check("EventLogError is catchable as SysInfoError",
       issubclass(eventlog.EventLogError, SysInfoError))
 check("...and as ConfigError (callers already handle that)",

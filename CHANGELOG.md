@@ -194,6 +194,27 @@ released. Every push to this repository carries this file.
     `esa_id`, and `drobo_nasd.client.State` -> `ConnectionState`, so
     `NasdClient`'s wrong-state errors now say `ConnectionState.NEW` and
     so on where they said `State.NEW`
+  - `drobo_nasd.models.SEV_INFO` / `SEV_WARNING` / `SEV_CRITICAL` ->
+    `SEVERITY_INFO` / `SEVERITY_WARNING` / `SEVERITY_CRITICAL`, and the
+    same in the agent's `drobo_agent.models`, which re-exports them (the
+    values `"info"`, `"warning"` and `"critical"` stay)
+  - `drobo_nasd.models._gb` -> `gigabytes_to_bytes`, now public; its
+    parameter `n` -> `gigabytes`
+  - `drobo_nasd.discovery.Verified` -> `VerificationResult`
+  - `drobo_nasd.discovery.QTYPE_A` / `QTYPE_PTR` / `QTYPE_SRV` ->
+    `RECORD_TYPE_A` / `RECORD_TYPE_PTR` / `RECORD_TYPE_SRV`, and
+    `MDNS_ADDR` -> `MDNS_MULTICAST_ADDRESS`
+  - `drobo_nasd.eventlog.TS_NOT_DECODED` -> `TIMESTAMP_NOT_DECODED`,
+    `UEL_PATH` -> `USER_EVENT_LOG_PATH` and `COMMAND` -> `COMMAND_NAME`
+    (`SEVERITY_NOT_DECODED` stays)
+  - `drobo_nasd.sysinfo.PLAUSIBLE_C` -> `PLAUSIBLE_TEMPERATURE_RANGE_C`
+  - `drobo_nasd.firmware.PULLED` -> `WITHDRAWN_RELEASES`, and the
+    `Advisory` field `parsed` -> `release_numbers` (its place among the
+    fields, and the `"release"` key in `Advisory.to_dict()`, stay)
+  - `drobo_nasd.netcheck.DEFAULT_PREFIX` -> `DEFAULT_PREFIX_LENGTH`, the
+    `Interface` field `prefix_len` -> `prefix_length` (its place among
+    the fields stays), and `Interface.holds(ip)` ->
+    `network_contains(address)`
   - Private helpers that scripts of your own may reach into:
     `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
     `_send_section_document`, `_recv_exact` (in `config_cmd` and
@@ -206,7 +227,8 @@ released. Every push to this repository carries this file.
     `_derive_volume_name`, `droboapps._DIM_MIN` / `_DIM_MAX` ->
     `_DIMMING_MIN` / `_DIMMING_MAX`, `droboapps._general_block` ->
     `_extract_general_block`, `identify._interval_xml` ->
-    `_interval_params_xml`
+    `_interval_params_xml`, `models.Volume._SCHEMES` ->
+    `_PARTITION_SCHEME_NAMES`
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

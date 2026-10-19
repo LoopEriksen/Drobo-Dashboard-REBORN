@@ -22,14 +22,14 @@ STATE_FAILED = "failed"
 STATE_EMPTY = "empty"
 STATE_UNKNOWN = "unknown"
 
-SEV_INFO = "info"
-SEV_WARNING = "warning"
-SEV_CRITICAL = "critical"
+SEVERITY_INFO = "info"
+SEVERITY_WARNING = "warning"
+SEVERITY_CRITICAL = "critical"
 
 
-def _gb(n: float) -> int:
+def gigabytes_to_bytes(gigabytes: float) -> int:
     """Convenience for writing test data: gigabytes -> bytes."""
-    return int(n * 1000**3)
+    return int(gigabytes * 1000**3)
 
 
 @dataclass
@@ -165,10 +165,11 @@ class PerformanceInfo:
 class EventLogEntry:
     """One line from the Drobo's own event log -- eCmdGetUserEventLog (91),
     fetched by eventlog.get_event_log. More authoritative than anything we
-    infer by polling. A ts of eventlog.TS_NOT_DECODED (0.0) or a severity of
-    eventlog.SEVERITY_NOT_DECODED ("") means the fetcher could not read that
-    field from the line -- the reply format is uncaptured -- not that the
-    event happened in 1970 or carried no weight."""
+    infer by polling. A ts of eventlog.TIMESTAMP_NOT_DECODED (0.0) or a
+    severity of eventlog.SEVERITY_NOT_DECODED ("") means the fetcher
+    could not read that field from the line -- the reply format is
+    uncaptured -- not that the event happened in 1970 or carried no
+    weight."""
 
     ts: float
     severity: str
@@ -242,7 +243,8 @@ class Volume:
     #: management protocol. Only 3 is corroborated independently (see the class
     #: docstring); the rest are carried for completeness and would want the
     #: same second opinion before being trusted.
-    _SCHEMES = {0: "No partitions", 1: "MBR", 2: "APM", 3: "GPT"}
+    _PARTITION_SCHEME_NAMES = {
+        0: "No partitions", 1: "MBR", 2: "APM", 3: "GPT"}
 
     @property
     def partition_scheme(self) -> str:
@@ -255,7 +257,7 @@ class Volume:
         """
         if self.partition_type is None:
             return ""
-        return self._SCHEMES.get(self.partition_type, "")
+        return self._PARTITION_SCHEME_NAMES.get(self.partition_type, "")
 
     def to_dict(self) -> dict:
         # asdict() only sees fields, and partition_scheme is a property -- so

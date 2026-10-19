@@ -53,7 +53,7 @@ from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 from drobo_agent.models import (  # noqa: E402
     Snapshot, DeviceInfo, DriveSlot, Capacity, PackHealth,
-    SEV_CRITICAL, SEV_WARNING,
+    SEVERITY_CRITICAL, SEVERITY_WARNING,
 )
 
 fails = []
@@ -170,10 +170,10 @@ check("healthy mock starts with no drive/battery/PSU alerts",
 # Every fault the API can inject, with the alert key it must produce and the
 # notifier category that key must land in.
 FAULTS = [
-    ("drive fail (bay 3)",     "/api/mock/fail/3",         "drive-failed-3",  "drives",  SEV_CRITICAL),
-    ("drive warn (bay 2)",     "/api/mock/warn/2",         "drive-warning-2", "drives",  SEV_WARNING),
-    ("cache battery failed",   "/api/mock/battery/failed", "battery-failed",  "battery", SEV_CRITICAL),
-    ("cache battery warning",  "/api/mock/battery/warning","battery-warning", "battery", SEV_WARNING),
+    ("drive fail (bay 3)",     "/api/mock/fail/3",         "drive-failed-3",  "drives",  SEVERITY_CRITICAL),
+    ("drive warn (bay 2)",     "/api/mock/warn/2",         "drive-warning-2", "drives",  SEVERITY_WARNING),
+    ("cache battery failed",   "/api/mock/battery/failed", "battery-failed",  "battery", SEVERITY_CRITICAL),
+    ("cache battery warning",  "/api/mock/battery/warning","battery-warning", "battery", SEVERITY_WARNING),
 ]
 
 for label, path, key, want_cat, want_sev in FAULTS:

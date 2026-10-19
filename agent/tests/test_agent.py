@@ -757,7 +757,7 @@ def _fake_discover_mdns_found(timeout=3.0):
 
 
 def _fake_verify_ok(cand, timeout=5.0, **kw):
-    return discovery.Verified(
+    return discovery.VerificationResult(
         candidate=cand,
         identity={"name": "TestDrobo", "model": "Drobo 5N", "firmware": "4.3.1",
                   "esa_id": "drb000000SAMPLE2"},
@@ -850,7 +850,7 @@ def _fake_discover_mdns_two(timeout=3.0):
 def _fake_verify_one_unreachable(cand, timeout=5.0, **kw):
     if cand.host == "10.0.0.8":
         raise OSError("simulated: no answer")
-    return discovery.Verified(
+    return discovery.VerificationResult(
         candidate=cand,
         identity={"name": "Good", "model": "Drobo 5N", "firmware": "4.3.1",
                   "esa_id": "drb0000000GOOD"},
@@ -1348,7 +1348,7 @@ httpd.shutdown(); mon.stop(); httpd.server_close()
 # counted by a check below rather than going out onto the network.
 print("\n== starting with no Drobo to be found ==")
 from drobo_agent import drivers as _drivers_mod
-from drobo_agent.models import SEV_CRITICAL as _SEV_CRITICAL
+from drobo_agent.models import SEVERITY_CRITICAL as _SEVERITY_CRITICAL
 from drobo_nasd import esatm as _esatm_mod
 from drobo_nasd import eventlog as _eventlog_mod
 from drobo_nasd import sysinfo as _sysinfo_mod
@@ -1458,14 +1458,14 @@ try:
     _ua = _unreachable()
     check("the unreachable alert is raised", len(_ua) == 1, _ua)
     _msg = _ua[0]["message"] if _ua else ""
-    check("-- as critical", bool(_ua) and _ua[0]["severity"] == _SEV_CRITICAL, _ua)
+    check("-- as critical", bool(_ua) and _ua[0]["severity"] == _SEVERITY_CRITICAL, _ua)
     check("-- carrying discovery's own reason", "no Drobo found" in _msg, _msg)
     # This advice used to sit in Run-Agent.bat's footer, shown only after the
     # agent had exited. Nothing exits now, so the alert has to carry it.
     check("-- and naming the first thing to check",
           "switched on" in _msg and "same network" in _msg, _msg)
     check("-- and it went out through the notifier",
-          any(sev == _SEV_CRITICAL and "Cannot reach" in m for _t, m, sev in _nf_rec.sent),
+          any(sev == _SEVERITY_CRITICAL and "Cannot reach" in m for _t, m, sev in _nf_rec.sent),
           _nf_rec.sent)
     s, b = _nf_call("/api/status")
     check("/api/status says unreachable rather than failing",
@@ -1480,7 +1480,7 @@ try:
     # 192.0.2.0/24, which nothing real uses) and the status read is a fake.
     def _resolve_found(*a, **kw):
         _resolve_calls.append(kw)
-        return discovery.Verified(
+        return discovery.VerificationResult(
             candidate=discovery.Candidate(host="192.0.2.10", port=5000, source="mdns"),
             identity={"esa_id": _NF_SERIAL, "name": "SimDrobo", "model": "Drobo 5N",
                       "firmware": "4.2.2"},

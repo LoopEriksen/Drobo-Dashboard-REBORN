@@ -92,7 +92,8 @@ print("\n== verify_candidate: identity match ==")
 with fake_drobo(PAYLOAD) as (host, port):
     cand = discovery.Candidate(host, port, "test")
     verified = discovery.verify_candidate(cand, expected_esa_id=SAMPLE_ESA_ID)
-    check("match returns Verified", isinstance(verified, discovery.Verified))
+    check("match returns VerificationResult",
+          isinstance(verified, discovery.VerificationResult))
     check("match esa_id correct", verified.identity["esa_id"] == SAMPLE_ESA_ID, verified.identity["esa_id"])
     check("match is not flagged first_run", verified.first_run is False)
     check("identity carries disk_pack_id", verified.identity["disk_pack_id"] == "0000000000000000",
@@ -185,12 +186,12 @@ srv_rdata = struct.pack("!HHH", 0, 0, 5000) + _name("MyDrobo.local")
 a_rdata = socket.inet_aton("10.0.0.50")
 packet = (
     struct.pack("!HHHHHH", 0, 0x8400, 0, 2, 0, 0)
-    + _rr("MyDrobo._nasd._tcp.local", discovery.QTYPE_SRV, srv_rdata)
-    + _rr("MyDrobo.local", discovery.QTYPE_A, a_rdata)
+    + _rr("MyDrobo._nasd._tcp.local", discovery.RECORD_TYPE_SRV, srv_rdata)
+    + _rr("MyDrobo.local", discovery.RECORD_TYPE_A, a_rdata)
 )
 records = discovery.parse_mdns_response(packet)
-srv_recs = [r for r in records if r["type"] == discovery.QTYPE_SRV]
-a_recs = [r for r in records if r["type"] == discovery.QTYPE_A]
+srv_recs = [r for r in records if r["type"] == discovery.RECORD_TYPE_SRV]
+a_recs = [r for r in records if r["type"] == discovery.RECORD_TYPE_A]
 check("two records parsed", len(records) == 2, records)
 check("SRV record extracted with port", srv_recs and srv_recs[0]["port"] == 5000, srv_recs)
 check("SRV record target name decoded", srv_recs and srv_recs[0]["value"] == "MyDrobo.local", srv_recs)
@@ -200,8 +201,8 @@ check("A record extracted", a_recs and a_recs[0]["value"] == "10.0.0.50", a_recs
 compressed_ptr = struct.pack("!H", 0xC000 | 12)  # points at offset 12, the first record's name
 packet2 = (
     struct.pack("!HHHHHH", 0, 0x8400, 0, 2, 0, 0)
-    + _rr("MyDrobo._nasd._tcp.local", discovery.QTYPE_SRV, srv_rdata)
-    + compressed_ptr + struct.pack("!HHIH", discovery.QTYPE_A, 1, 120, len(a_rdata)) + a_rdata
+    + _rr("MyDrobo._nasd._tcp.local", discovery.RECORD_TYPE_SRV, srv_rdata)
+    + compressed_ptr + struct.pack("!HHIH", discovery.RECORD_TYPE_A, 1, 120, len(a_rdata)) + a_rdata
 )
 records2 = discovery.parse_mdns_response(packet2)
 check("compressed name pointer resolves", len(records2) == 2 and records2[1]["name"] == "MyDrobo._nasd._tcp.local",
@@ -387,7 +388,7 @@ try:
             warnings.simplefilter("always")
             verified = discovery.verify_candidate(cand, expected_esa_id=SAMPLE_ESA_ID,
                                                     expected_mac="11:22:33:44:55:66")
-            check("expected_mac set but MAC unknown does NOT refuse", isinstance(verified, discovery.Verified))
+            check("expected_mac set but MAC unknown does NOT refuse", isinstance(verified, discovery.VerificationResult))
             check("expected_mac set but MAC unknown still confirms esa_id",
                   verified.first_run is False)
             check("expected_mac set but MAC unknown emits a warning, not silence",
@@ -435,7 +436,8 @@ check("no allowed_subnets configured means nothing is rejected",
 
 # end-to-end via resolve(): the fake Drobo listens on 127.0.0.1, which is
 # outside the allowed range, so resolve() must refuse it WITHOUT ever
-# connecting -- if it had connected it would return Verified, not raise.
+# connecting -- if it had connected it would return VerificationResult,
+# not raise.
 _orig_mdns, _orig_hostname, _orig_sweep = discovery.discover_mdns, discovery.resolve_hostname, discovery.sweep_subnet
 discovery.discover_mdns = lambda timeout=3.0: []
 discovery.resolve_hostname = lambda hostname, port=esatm.DEFAULT_PORT: None

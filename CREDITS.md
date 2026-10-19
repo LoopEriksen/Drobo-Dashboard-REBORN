@@ -25,7 +25,7 @@ were read but not borrowed from.
 
 **What was taken:** the partition-scheme table
 `{0: "No partitions", 1: "MBR", 2: "APM", 3: "GPT"}`, used by
-`Volume._SCHEMES` / `Volume.partition_scheme` in
+`Volume._PARTITION_SCHEME_NAMES` / `Volume.partition_scheme` in
 [`sdk/drobo_nasd/models.py`](sdk/drobo_nasd/models.py).
 
 **From whom:** [petersilva/drobo-utils](https://github.com/petersilva/drobo-utils),

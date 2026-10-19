@@ -184,7 +184,8 @@ check("an empty target -> no opinion", netcheck.diagnose("", WIFI) is None)
 check("an IPv6 target -> no opinion", netcheck.diagnose("fe80::1", WIFI) is None)
 
 print("\n== an assumed mask is never presented as a measurement ==")
-GUESSED = [Interface("10.9.9.41", netcheck.DEFAULT_PREFIX, assumed=True)]
+GUESSED = [Interface("10.9.9.41", netcheck.DEFAULT_PREFIX_LENGTH,
+                     assumed=True)]
 g = netcheck.diagnose("10.0.0.50", GUESSED)
 check("assumed_prefix is flagged", g.assumed_prefix)
 check("the guess is admitted in the caveat", "could not be read" in g.caveat, g.caveat)

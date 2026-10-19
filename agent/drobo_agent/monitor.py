@@ -17,9 +17,9 @@ from drobo_nasd import discovery, esatm, firmware, netcheck
 
 from . import drivers as drivers_mod
 from .models import (
-    SEV_CRITICAL,
-    SEV_INFO,
-    SEV_WARNING,
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
     STATE_FAILED,
     STATE_WARNING,
     Alert,
@@ -276,7 +276,7 @@ class Monitor:
                            f"(What the agent tried: {error})")
             else:
                 message = f"Cannot reach the Drobo: {error}"
-            seen["unreachable"] = (SEV_CRITICAL, message)
+            seen["unreachable"] = (SEVERITY_CRITICAL, message)
         else:
             for drive in snap.drives:
                 if not drive.present:
@@ -284,20 +284,20 @@ class Monitor:
                 where = f"bay {drive.bay}"
                 if drive.state == STATE_FAILED:
                     seen[f"drive-failed-{drive.bay}"] = (
-                        SEV_CRITICAL,
+                        SEVERITY_CRITICAL,
                         f"Drive in {where} has failed ({drive.model or 'unknown model'}). "
                         "Replace it as soon as possible.",
                     )
                 elif drive.state == STATE_WARNING:
                     seen[f"drive-warning-{drive.bay}"] = (
-                        SEV_WARNING,
+                        SEVERITY_WARNING,
                         f"Drive in {where} reports a problem. {drive.note}".strip(),
                     )
                 # mErrorCount is unambiguous -- above zero is a real problem,
                 # regardless of the drive's overall state.
                 if drive.error_count > 0:
                     seen[f"drive-errors-{drive.bay}"] = (
-                        SEV_WARNING,
+                        SEVERITY_WARNING,
                         f"Drive in {where} has reported {drive.error_count} error(s) "
                         f"({drive.model or 'unknown model'}).",
                     )
@@ -305,13 +305,13 @@ class Monitor:
                 if temp is not None:
                     if temp >= acfg["temperature_critical_c"]:
                         seen[f"temp-critical-{drive.bay}"] = (
-                            SEV_CRITICAL,
+                            SEVERITY_CRITICAL,
                             f"Drive in {where} is {temp:.1f} C -- above the "
                             f"{acfg['temperature_critical_c']:.0f} C critical threshold.",
                         )
                     elif temp >= acfg["temperature_warning_c"]:
                         seen[f"temp-warning-{drive.bay}"] = (
-                            SEV_WARNING,
+                            SEVERITY_WARNING,
                             f"Drive in {where} is running warm at {temp:.1f} C.",
                         )
 
@@ -331,14 +331,14 @@ class Monitor:
             if chassis is not None:
                 if chassis >= acfg["temperature_critical_c"]:
                     seen["chassis-temp-critical"] = (
-                        SEV_CRITICAL,
+                        SEVERITY_CRITICAL,
                         f"The Drobo is {chassis} C inside -- above the "
                         f"{acfg['temperature_critical_c']:.0f} C critical threshold. "
                         "Check it has room to breathe and that the fan is running.",
                     )
                 elif chassis >= acfg["temperature_warning_c"]:
                     seen["chassis-temp-warning"] = (
-                        SEV_WARNING,
+                        SEVERITY_WARNING,
                         f"The Drobo is running warm at {chassis} C inside. "
                         "Worth checking it has space around it and clear vents.",
                     )
@@ -346,13 +346,13 @@ class Monitor:
             battery = snap.battery
             if battery.state == STATE_FAILED:
                 seen["battery-failed"] = (
-                    SEV_CRITICAL,
+                    SEVERITY_CRITICAL,
                     "Cache battery has failed. "
                     f"{battery.note or 'Replace it as soon as possible.'}".strip(),
                 )
             elif battery.state == STATE_WARNING:
                 seen["battery-warning"] = (
-                    SEV_WARNING,
+                    SEVERITY_WARNING,
                     f"Cache battery is weak. {battery.note}".strip(),
                 )
 
@@ -366,25 +366,25 @@ class Monitor:
             power = snap.power
             if power.state == STATE_FAILED:
                 seen["power-failed"] = (
-                    SEV_CRITICAL,
+                    SEVERITY_CRITICAL,
                     f"Power supply has failed. {power.note or 'Check the PSU and its connection.'}".strip(),
                 )
             elif power.state == STATE_WARNING:
                 seen["power-warning"] = (
-                    SEV_WARNING,
+                    SEVERITY_WARNING,
                     f"Power supply reports a problem. {power.note}".strip(),
                 )
 
             fan = snap.fan
             if fan.state == STATE_FAILED:
                 seen["fan-failed"] = (
-                    SEV_CRITICAL,
+                    SEVERITY_CRITICAL,
                     "A cooling fan has failed. The Drobo will overheat without it -- "
                     "check airflow and the fan.",
                 )
             elif fan.state == STATE_WARNING:
                 seen["fan-warning"] = (
-                    SEV_WARNING,
+                    SEVERITY_WARNING,
                     "A cooling fan reports a problem.",
                 )
 
@@ -405,26 +405,26 @@ class Monitor:
                 warn_fraction = acfg["capacity_warning_fraction"]
             if frac >= crit_fraction:
                 seen["capacity-critical"] = (
-                    SEV_CRITICAL,
+                    SEVERITY_CRITICAL,
                     f"Only {free} free ({frac:.0%} used). The array is nearly full.",
                 )
             elif frac >= warn_fraction:
                 seen["capacity-warning"] = (
-                    SEV_WARNING,
+                    SEVERITY_WARNING,
                     f"{frac:.0%} used, {free} free.",
                 )
 
             # -- pack-level health the greeting already sends ----------
             if ph.double_degraded_count > 0:
                 seen["double-degraded"] = (
-                    SEV_CRITICAL,
+                    SEVERITY_CRITICAL,
                     f"Double-degraded count is {ph.double_degraded_count} -- two "
                     "drives were degraded at once; the array's protection may "
                     "have been exhausted.",
                 )
             if ph.relayout_count > 0:
                 seen["relayout"] = (
-                    SEV_INFO,
+                    SEVERITY_INFO,
                     f"Relayout count is {ph.relayout_count} -- rebuilding, this "
                     "is normal after a drive change.",
                 )
@@ -432,7 +432,7 @@ class Monitor:
                 current = getattr(ph, attr)
                 if current is not None and current != baseline:
                     seen[f"pack-status-{attr}"] = (
-                        SEV_WARNING,
+                        SEVERITY_WARNING,
                         f"{attr} changed from the healthy baseline ({baseline}) "
                         f"to {current}. We don't know what this code means -- "
                         "just that it's different from before.",
@@ -461,7 +461,7 @@ class Monitor:
                 self._last_sent.pop(key, None)
                 cleared = Alert(
                     key=key + "-cleared",
-                    severity=SEV_INFO,
+                    severity=SEVERITY_INFO,
                     message=f"Resolved: {alert.message}",
                 )
                 fired.append(cleared)
@@ -471,8 +471,8 @@ class Monitor:
     def _dispatch(self, alert: Alert) -> None:
         self._last_sent[alert.key] = time.time()
         title = {
-            SEV_CRITICAL: "Drobo: action needed",
-            SEV_WARNING: "Drobo: warning",
+            SEVERITY_CRITICAL: "Drobo: action needed",
+            SEVERITY_WARNING: "Drobo: warning",
         }.get(alert.severity, "Drobo")
         self.notifier.send(title, alert.message, alert.severity)
         self._broadcast({"type": "alert", "data": alert.to_dict()})

@@ -53,7 +53,7 @@ from dataclasses import dataclass
 #: Assumed when a real subnet mask cannot be read. Right on essentially every
 #: home network, and WRONG often enough that anything relying on it says so out
 #: loud -- see Diagnosis.caveat.
-DEFAULT_PREFIX = 24
+DEFAULT_PREFIX_LENGTH = 24
 
 #: How many networks a message lists before it starts summarising. A PC with
 #: WSL, Hyper-V, VirtualBox and a VPN can hold six or seven, and a sentence
@@ -70,18 +70,18 @@ class Interface:
     """One IPv4 address this machine holds, and how wide its network is."""
 
     address: str
-    prefix_len: int
-    #: True when prefix_len is DEFAULT_PREFIX because nothing could be read,
-    #: not because the OS said so. Callers must surface this rather than
-    #: presenting a guess as a measurement.
+    prefix_length: int
+    #: True when prefix_length is DEFAULT_PREFIX_LENGTH because nothing
+    #: could be read, not because the OS said so. Callers must surface
+    #: this rather than presenting a guess as a measurement.
     assumed: bool = False
 
     @property
     def network(self) -> ipaddress.IPv4Network:
-        return ipaddress.ip_network(f"{self.address}/{self.prefix_len}", strict=False)
+        return ipaddress.ip_network(f"{self.address}/{self.prefix_length}", strict=False)
 
-    def holds(self, ip: ipaddress.IPv4Address) -> bool:
-        return ip in self.network
+    def network_contains(self, address: ipaddress.IPv4Address) -> bool:
+        return address in self.network
 
 
 @dataclass(frozen=True)
@@ -259,7 +259,7 @@ def parse_interfaces(text: str) -> list[Interface]:
     seen: set[tuple[str, int]] = set()
     unique: list[Interface] = []
     for iface in found:
-        key = (iface.address, iface.prefix_len)
+        key = (iface.address, iface.prefix_length)
         if key not in seen:
             seen.add(key)
             unique.append(iface)
@@ -327,7 +327,7 @@ def local_interfaces(timeout: float = 3.0) -> list[Interface]:
     address = _routing_probe()
     if not address:
         return []
-    return [Interface(address, DEFAULT_PREFIX, assumed=True)]
+    return [Interface(address, DEFAULT_PREFIX_LENGTH, assumed=True)]
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +375,7 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
     if not found:
         return None
 
-    same = any(iface.holds(ip) for iface in found)
+    same = any(iface.network_contains(ip) for iface in found)
     assumed = any(iface.assumed for iface in found)
     where = _describe_networks(found)
 

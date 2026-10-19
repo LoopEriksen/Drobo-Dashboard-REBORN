@@ -16,7 +16,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .models import SEV_CRITICAL, SEV_WARNING
+from .models import SEVERITY_CRITICAL, SEVERITY_WARNING
 
 
 class Notifier:
@@ -30,7 +30,8 @@ class ConsoleNotifier(Notifier):
     name = "console"
 
     def send(self, title: str, message: str, severity: str) -> None:
-        marker = {SEV_CRITICAL: "!!", SEV_WARNING: " !"}.get(severity, "  ")
+        marker = {SEVERITY_CRITICAL: "!!",
+                  SEVERITY_WARNING: " !"}.get(severity, "  ")
         print(f"[alert]{marker} {title}: {message}", flush=True)
 
 
@@ -40,8 +41,8 @@ class NtfyNotifier(Notifier):
     name = "ntfy"
 
     # ntfy priorities: 1 min .. 5 max
-    _PRIORITY = {SEV_CRITICAL: "5", SEV_WARNING: "4"}
-    _TAGS = {SEV_CRITICAL: "rotating_light", SEV_WARNING: "warning"}
+    _PRIORITY = {SEVERITY_CRITICAL: "5", SEVERITY_WARNING: "4"}
+    _TAGS = {SEVERITY_CRITICAL: "rotating_light", SEVERITY_WARNING: "warning"}
 
     def __init__(self, server: str, topic: str):
         self.server = (server or "https://ntfy.sh").rstrip("/")

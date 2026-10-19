@@ -20,9 +20,9 @@ import time
 from dataclasses import asdict, dataclass, field
 
 from drobo_nasd.models import (  # noqa: F401  (re-exported on purpose)
-    SEV_CRITICAL,
-    SEV_INFO,
-    SEV_WARNING,
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
     STATE_EMPTY,
     STATE_FAILED,
     STATE_OK,
@@ -39,7 +39,7 @@ from drobo_nasd.models import (  # noqa: F401  (re-exported on purpose)
     PowerInfo,
     Snapshot,
     Volume,
-    _gb,
+    gigabytes_to_bytes,
 )
 
 

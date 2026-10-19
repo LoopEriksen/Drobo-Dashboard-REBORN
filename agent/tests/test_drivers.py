@@ -491,7 +491,7 @@ try:
           [e.message for e in snap1.event_log] == ["line one", "line two"],
           snap1.event_log)
     check("the SDK's NOT_DECODED markers pass through untouched",
-          all(e.ts == nasd_eventlog.TS_NOT_DECODED
+          all(e.ts == nasd_eventlog.TIMESTAMP_NOT_DECODED
               and e.severity == nasd_eventlog.SEVERITY_NOT_DECODED
               for e in snap1.event_log))
 

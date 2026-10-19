@@ -46,7 +46,7 @@ from dataclasses import dataclass
 #: measured" -- we have measured no faults on 4.3.1 at all -- but "the vendor
 #: took these down and then ceased to exist", which is a different and more
 #: durable statement.
-PULLED = ((4, 3, 0), (4, 3, 1))
+WITHDRAWN_RELEASES = ((4, 3, 0), (4, 3, 1))
 
 #: The version the community settled on as the last one nobody reported
 #: trouble with. Recorded for context in the advisory text; this module never
@@ -67,7 +67,7 @@ class Advisory:
     version: str
     #: (major, minor, patch) with missing components as 0, or None if the
     #: string didn't start with a number at all.
-    parsed: tuple[int, int, int] | None
+    release_numbers: tuple[int, int, int] | None
     risk: str
     headline: str
     detail: str
@@ -80,7 +80,7 @@ class Advisory:
     def to_dict(self) -> dict:
         return {
             "version": self.version,
-            "release": ".".join(str(n) for n in self.parsed) if self.parsed else None,
+            "release": ".".join(str(n) for n in self.release_numbers) if self.release_numbers else None,
             "risk": self.risk,
             "notable": self.notable,
             "headline": self.headline,
@@ -120,14 +120,14 @@ def assess(version: str) -> Advisory:
 
     if parsed is None:
         return Advisory(
-            version=version or "", parsed=None, risk=RISK_UNKNOWN,
+            version=version or "", release_numbers=None, risk=RISK_UNKNOWN,
             headline="", detail="",
         )
 
-    if parsed in PULLED:
+    if parsed in WITHDRAWN_RELEASES:
         release = ".".join(str(n) for n in parsed)
         return Advisory(
-            version=version, parsed=parsed, risk=RISK_WITHDRAWN,
+            version=version, release_numbers=parsed, risk=RISK_WITHDRAWN,
             headline=f"This Drobo runs firmware {release}, which Drobo withdrew.",
             detail=(
                 f"{release} was pulled by Drobo's own engineers shortly after "
@@ -146,5 +146,5 @@ def assess(version: str) -> Advisory:
             ),
         )
 
-    return Advisory(version=version, parsed=parsed, risk=RISK_NONE,
+    return Advisory(version=version, release_numbers=parsed, risk=RISK_NONE,
                     headline="", detail="")

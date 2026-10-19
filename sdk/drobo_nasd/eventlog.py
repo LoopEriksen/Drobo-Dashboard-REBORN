@@ -27,9 +27,10 @@ reply that turns out to be XML-STRUCTURED instead of text is refused with an
 error saying a capture is needed, because flattening an unseen schema into
 "lines" would be exactly the guessing this refuses to do.
 
-Consequently the normalized entries carry TS_NOT_DECODED (0.0) and
-SEVERITY_NOT_DECODED ("") -- explicit "the fetcher could not read this from
-the line" markers, NOT a claim the event happened in 1970 or was informational.
+Consequently the normalized entries carry TIMESTAMP_NOT_DECODED (0.0)
+and SEVERITY_NOT_DECODED ("") -- explicit "the fetcher could not read
+this from the line" markers, NOT a claim the event happened in 1970 or
+was informational.
 The full raw line rides in `message`, so nothing the device said is lost.
 When a real reply is finally captured, parse_event_log is the single place to
 teach the actual format; the entry shape callers see will not change.
@@ -57,17 +58,17 @@ from .config_cmd import (
 from .models import EventLogEntry
 from .sysinfo import SysInfoError
 
-COMMAND = "eCmdGetUserEventLog"
+COMMAND_NAME = "eCmdGetUserEventLog"
 
 # The one path the Dashboard was ever seen to ask for. Deliberately NOT a
 # parameter of get_event_log: any other path would be a guessed instruction to
 # the device, and the empty-params variant is known to drop the connection.
-UEL_PATH = "/uel.log"
+USER_EVENT_LOG_PATH = "/uel.log"
 
 # Markers for fields the reply format does not (yet) let us decode. 0.0 and ""
 # rather than None so EventLogEntry keeps its concrete field types and its
 # to_dict stays crash-free; callers compare against these names, not literals.
-TS_NOT_DECODED = 0.0
+TIMESTAMP_NOT_DECODED = 0.0
 SEVERITY_NOT_DECODED = ""
 
 
@@ -79,11 +80,11 @@ class EventLogError(SysInfoError):
 def _command_xml(esa_id: str) -> bytes:
     """The exact request the Dashboard was captured sending: command 91 with
     the /uel.log path, in the CmdID / Params / ESAID order of the capture."""
-    command_id = _commands.COMMANDS.get(COMMAND)
+    command_id = _commands.COMMANDS.get(COMMAND_NAME)
     if command_id is None:
-        raise EventLogError(f"{COMMAND} has no confirmed command id")
+        raise EventLogError(f"{COMMAND_NAME} has no confirmed command id")
     return (f"<TMCmd><CmdID>{command_id}</CmdID>"
-            f"<Params><Path>{UEL_PATH}</Path></Params>"
+            f"<Params><Path>{USER_EVENT_LOG_PATH}</Path></Params>"
             f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
 
@@ -182,7 +183,8 @@ def entries_from_lines(lines: list[str]) -> list[EventLogEntry]:
     is the message. File order is preserved; which end is newest is one more
     thing the capture will have to say.
     """
-    return [EventLogEntry(ts=TS_NOT_DECODED, severity=SEVERITY_NOT_DECODED,
+    return [EventLogEntry(ts=TIMESTAMP_NOT_DECODED,
+                          severity=SEVERITY_NOT_DECODED,
                           message=line)
             for line in lines]
 
@@ -200,8 +202,8 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
     torn-down connection right after the command is the failure the empty-
     params variant of 91 is known to cause, so it is named in the error.
     """
-    if _commands.is_dangerous(COMMAND):
-        raise EventLogError(f"{COMMAND} is on the do-not-send list")
+    if _commands.is_dangerous(COMMAND_NAME):
+        raise EventLogError(f"{COMMAND_NAME} is on the do-not-send list")
     request_payload = _command_xml(esa_id)
 
     sock = socket.create_connection((host, port), timeout=timeout)
