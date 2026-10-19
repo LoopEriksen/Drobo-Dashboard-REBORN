@@ -18,7 +18,7 @@ empirically, how many of the other 102 commands answer that way -- so the
 project knows exactly how much of the original Dashboard can be rebuilt
 *today*, without needing to reverse anything further.
 
-It reuses config_cmd.py's login/framing verbatim (_frame, _login_payload,
+It reuses config_cmd.py's login/framing verbatim (_build_frame, _login_payload,
 _read_frame, the TYPE_* constants) rather than reinventing them -- that module
 is the one piece of this codebase already confirmed against real hardware.
 
@@ -252,12 +252,12 @@ def _redact_and_summarize(body: bytes) -> dict:
 
     return {
         "tags": sorted(_collect_tags(root)),
-        "redacted_value": cc._to_dict(root),
+        "redacted_value": cc._element_to_dict(root),
         "escaped_document": escaped,
     }
 
 
-def send_one_command(host: str, port: int, esa_id: str, cmd_id: int,
+def send_one_command(host: str, port: int, esa_id: str, command_id: int,
                       timeout: float) -> dict:
     """
     Fresh TCP connection: login, send exactly one command with empty
@@ -274,31 +274,33 @@ def send_one_command(host: str, port: int, esa_id: str, cmd_id: int,
     sock.settimeout(timeout)
     try:
         try:
-            sock.sendall(cc._frame(cc.TYPE_LOGIN, cc._login_payload(esa_id)))
-            msg_type, _ = cc._read_frame(sock)
+            sock.sendall(cc._build_frame(cc.TYPE_LOGIN,
+                                         cc._login_payload(esa_id)))
+            frame_type, _ = cc._read_frame(sock)
         except (TimeoutError, socket.timeout):
             return {"status": "timeout", "phase": "login"}
         except (cc.ConfigError, OSError) as exc:
             return {"status": "refused", "phase": "login", "detail": str(exc)}
 
-        if msg_type != cc.TYPE_LOGIN_OK:
+        if frame_type != cc.TYPE_LOGIN_OK:
             return {"status": "refused", "phase": "login",
-                    "detail": f"unexpected type 0x{msg_type:02x}"}
+                    "detail": f"unexpected type 0x{frame_type:02x}"}
 
-        xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><ESAID>{esa_id}</ESAID>"
-               f"<Params></Params></TMCmd>").encode() + b"\x00"
+        request_payload = (
+            f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+            f"<Params></Params></TMCmd>").encode() + b"\x00"
         try:
-            sock.sendall(cc._frame(cc.TYPE_COMMAND, xml))
-            msg_type, body = cc._read_frame(sock)
+            sock.sendall(cc._build_frame(cc.TYPE_COMMAND, request_payload))
+            frame_type, body = cc._read_frame(sock)
         except (TimeoutError, socket.timeout):
             return {"status": "timeout", "phase": "command"}
         except (cc.ConfigError, OSError) as exc:
             return {"status": "refused", "phase": "command", "detail": str(exc)}
 
         elapsed = time.monotonic() - t0
-        if msg_type != cc.TYPE_RESULT:
+        if frame_type != cc.TYPE_RESULT:
             return {"status": "refused", "phase": "command",
-                    "detail": f"unexpected type 0x{msg_type:02x}", "elapsed_s": elapsed}
+                    "detail": f"unexpected type 0x{frame_type:02x}", "elapsed_s": elapsed}
         if not body or not body.rstrip(b"\x00").strip():
             return {"status": "empty", "elapsed_s": elapsed}
 
@@ -320,12 +322,14 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
     consecutive_timeouts = 0
     aborted = False
 
-    for i, name in enumerate(names):
-        cmd_id = C.COMMANDS[name]  # allowlist is pre-validated; always present
-        print(f"[{i + 1}/{len(names)}] {name} (id {cmd_id}) ...", flush=True)
-        record = send_one_command(host, port, esa_id, cmd_id, timeout)
-        record["name"] = name
-        record["cmd_id"] = cmd_id
+    for i, command_name in enumerate(names):
+        # allowlist is pre-validated; always present
+        command_id = C.COMMANDS[command_name]
+        print(f"[{i + 1}/{len(names)}] {command_name} (id {command_id}) ...",
+              flush=True)
+        record = send_one_command(host, port, esa_id, command_id, timeout)
+        record["name"] = command_name
+        record["cmd_id"] = command_id
         results.append(record)
 
         status = record["status"]

@@ -50,7 +50,7 @@ from .config_cmd import (
     TYPE_LOGIN_OK,
     TYPE_RESULT,
     ConfigError,
-    _frame,
+    _build_frame,
     _login_payload,
     _read_frame,
 )
@@ -79,10 +79,10 @@ class EventLogError(SysInfoError):
 def _command_xml(esa_id: str) -> bytes:
     """The exact request the Dashboard was captured sending: command 91 with
     the /uel.log path, in the CmdID / Params / ESAID order of the capture."""
-    cmd_id = _commands.COMMANDS.get(COMMAND)
-    if cmd_id is None:
+    command_id = _commands.COMMANDS.get(COMMAND)
+    if command_id is None:
         raise EventLogError(f"{COMMAND} has no confirmed command id")
-    return (f"<TMCmd><CmdID>{cmd_id}</CmdID>"
+    return (f"<TMCmd><CmdID>{command_id}</CmdID>"
             f"<Params><Path>{UEL_PATH}</Path></Params>"
             f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
@@ -202,25 +202,25 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     if _commands.is_dangerous(COMMAND):
         raise EventLogError(f"{COMMAND} is on the do-not-send list")
-    xml = _command_xml(esa_id)
+    request_payload = _command_xml(esa_id)
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise EventLogError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise EventLogError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
         try:
-            msg_type, body = _read_frame(sock)
+            frame_type, body = _read_frame(sock)
         except (ConfigError, OSError) as exc:
             raise EventLogError(
                 f"connection lost while reading the event-log reply ({exc}); "
                 f"this is the teardown eCmdGetUserEventLog is known for when "
                 f"sent without its Path -- see docs/command-surface.md") from exc
-        if msg_type != TYPE_RESULT:
-            raise EventLogError(f"unexpected reply type 0x{msg_type:02x}")
+        if frame_type != TYPE_RESULT:
+            raise EventLogError(f"unexpected reply type 0x{frame_type:02x}")
         return entries_from_lines(parse_event_log(body))
     finally:
         sock.close()

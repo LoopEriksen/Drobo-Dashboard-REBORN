@@ -566,8 +566,9 @@ Nothing joins that set without the maintainer saying so explicitly.
 *persist* a setting, so both fail test 3 — and when this was written there
 was no read-back-and-restore path. **Correction 2026-08-21: that path has
 since shipped.** `sdk/drobo_nasd/config_cmd.py` reads a section un-redacted
-before every write, sends it through one shared tail (`_send_inner`: confine
-to the section's own root, escape once, send, require the accept code), and
+before every write, sends it through one shared tail (`_send_inner`, since
+renamed `_send_section_document`: confine to the section's own root, escape
+once, send, require the accept code), and
 the write helpers built on it read the value back afterwards — "ok" means
 the device reads back the new value, not merely "accepted". Brightness and
 share-access writes ride that path in production (agent endpoints + the WPF

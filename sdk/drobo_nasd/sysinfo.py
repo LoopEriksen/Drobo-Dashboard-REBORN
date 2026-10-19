@@ -45,7 +45,7 @@ from .config_cmd import (
     TYPE_LOGIN_OK,
     TYPE_RESULT,
     ConfigError,
-    _frame,
+    _build_frame,
     _login_payload,
     _read_frame,
 )
@@ -219,26 +219,27 @@ def parse_performance(payload: bytes) -> dict:
     }
 
 
-def _command_frame(name: str, esa_id: str) -> bytes:
+def _command_frame(command_name: str, esa_id: str) -> bytes:
     """Build one command frame, resolving the id by NAME and refusing writes."""
-    if name in _commands.DO_NOT_SEND:
-        raise SysInfoError(f"{name} is on the do-not-send list")
-    cmd_id = _commands.COMMANDS.get(name)
-    if cmd_id is None:
-        raise SysInfoError(f"{name} has no confirmed command id")
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><Params></Params>"
-           f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
-    return _frame(TYPE_COMMAND, xml)
+    if command_name in _commands.DO_NOT_SEND:
+        raise SysInfoError(f"{command_name} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise SysInfoError(f"{command_name} has no confirmed command id")
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"
+        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
+    return _build_frame(TYPE_COMMAND, request_payload)
 
 
-def _ask(sock, name: str, esa_id: str) -> bytes:
+def _send_and_read_result(sock, command_name: str, esa_id: str) -> bytes:
     """Send one command on an already-logged-in socket and return its body."""
-    sock.sendall(_command_frame(name, esa_id))
-    msg_type, body = _read_frame(sock)
-    if msg_type != TYPE_RESULT:
-        raise SysInfoError(f"unexpected reply type 0x{msg_type:02x} for {name}")
+    sock.sendall(_command_frame(command_name, esa_id))
+    frame_type, body = _read_frame(sock)
+    if frame_type != TYPE_RESULT:
+        raise SysInfoError(f"unexpected reply type 0x{frame_type:02x} for {command_name}")
     if not body:
-        raise SysInfoError(f"device returned nothing for {name}")
+        raise SysInfoError(f"device returned nothing for {command_name}")
     return body
 
 
@@ -253,11 +254,12 @@ def get_sysinfo(host: str, esa_id: str, port: int = DEFAULT_PORT,
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{msg_type:02x})")
-        return parse_sysinfo(_ask(sock, "eCmdGetSysInfo", esa_id))
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
+        return parse_sysinfo(
+            _send_and_read_result(sock, "eCmdGetSysInfo", esa_id))
     finally:
         sock.close()
 
@@ -282,16 +284,17 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{msg_type:02x})")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
 
-        out = dict(parse_sysinfo(_ask(sock, "eCmdGetSysInfo", esa_id)))
+        out = dict(parse_sysinfo(
+            _send_and_read_result(sock, "eCmdGetSysInfo", esa_id)))
         out["performance"] = None
         try:
             out["performance"] = parse_performance(
-                _ask(sock, "eCmdGetPerformance", esa_id))
+                _send_and_read_result(sock, "eCmdGetPerformance", esa_id))
         except (SysInfoError, OSError):
             pass  # keep the temperature we already have
         return out

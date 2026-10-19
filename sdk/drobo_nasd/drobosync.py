@@ -54,7 +54,7 @@ from .config_cmd import (
     TYPE_LOGIN,
     TYPE_LOGIN_OK,
     TYPE_RESULT,
-    _frame,
+    _build_frame,
     _login_payload,
     _read_frame,
 )
@@ -145,33 +145,34 @@ def read(host: str, esa_id: str, what: str = "settings",
     if what not in READ_COMMANDS:
         raise ValueError(f"unknown DroboSync read {what!r}; "
                          f"choose from {sorted(READ_COMMANDS)}")
-    command = READ_COMMANDS[what]
+    command_name = READ_COMMANDS[what]
 
     # Belt and braces. These are queries and none of them is in DO_NOT_SEND,
     # but this module sits next to three commands that move real data between
     # two arrays, and the guard costs one dictionary lookup.
-    if _commands.is_dangerous(command):
-        raise DroboSyncError(f"{command} is on the do-not-send list")
-    cmd_id = _commands.COMMANDS.get(command)
-    if cmd_id is None:
-        raise DroboSyncError(f"{command} has no confirmed command id")
+    if _commands.is_dangerous(command_name):
+        raise DroboSyncError(f"{command_name} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise DroboSyncError(f"{command_name} has no confirmed command id")
 
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><Params></Params>"
-           f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"
+        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise DroboSyncError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock)
-        if msg_type != TYPE_RESULT:
-            raise DroboSyncError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise DroboSyncError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(sock)
+        if frame_type != TYPE_RESULT:
+            raise DroboSyncError(f"unexpected reply type 0x{frame_type:02x}")
         result = parse_sync_reply(body)
-        result["command"] = command
+        result["command"] = command_name
         result["what"] = what
         return result
     finally:

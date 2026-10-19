@@ -73,13 +73,13 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
                 conn.close(); srv.close(); return
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             seen["command"] = conn.recv(ln)
-            conn.sendall(cc._frame(reply_type, reply_body))
+            conn.sendall(cc._build_frame(reply_type, reply_body))
             conn.close()
         except OSError:
             pass

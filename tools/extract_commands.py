@@ -72,9 +72,9 @@ _ID_TO_NAME = {v: k for k, v in COMMANDS.items()}
 #: the device just pushes its greeting there.
 DEFAULT_PORT = 5001
 
-#: Same idea as config_cmd._SECRET: match the FIELD NAME, not the value, so a
-#: password is redacted whatever it happens to contain.
-_SECRET = re.compile(r"pass|pwd|secret|token|credential|key", re.I)
+#: Same idea as config_cmd._CREDENTIAL_NAME_RE: match the FIELD NAME, not
+#: the value, so a password is redacted whatever it happens to contain.
+_CREDENTIAL_NAME_RE = re.compile(r"pass|pwd|secret|token|credential|key", re.I)
 _REDACTED = "[redacted]"
 
 #: A whole XML document, as this firmware likes to nest them: escaped text
@@ -87,7 +87,7 @@ _LOOKS_LIKE_XML = re.compile(r"^\s*<\?xml|^\s*<[A-Za-z]")
 def _redact(elem: ET.Element) -> None:
     """Blank any element whose TAG looks like a credential, children and all."""
     for child in list(elem):
-        if _SECRET.search(child.tag):
+        if _CREDENTIAL_NAME_RE.search(child.tag):
             child.text = _REDACTED
             child.attrib.clear()
             for grandchild in list(child):

@@ -41,9 +41,10 @@ from .models import (
 )
 
 SIGNATURE = b"DRINASD\x00"
-HEADER_LEN = 16
+HEADER_BYTES = 16
 DEFAULT_PORT = 5000
-MAX_PAYLOAD = 8 * 1024 * 1024  # a greeting is ~7 KB; this is a sane ceiling
+# a greeting is ~7 KB; this is a sane ceiling
+MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
 # mDiskState -> our state. 16 = healthy, confirmed across five good drives.
 # 0 with an empty slot means no disk. Any other non-zero value is unknown, so
@@ -56,24 +57,26 @@ class FrameError(Exception):
     """The bytes on the wire were not a well-formed DRINASD frame."""
 
 
-def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> bytes:
+def _receive_exactly(sock: socket.socket, byte_count: int, deadline: float | None = None) -> bytes:
     """
-    Read exactly n bytes, or as many as arrive before the socket gives up.
+    Read exactly byte_count bytes, or as many as arrive before the socket
+    gives up.
 
     `deadline` is a time.monotonic() instant that bounds the WHOLE read, and
     it matters because sock.settimeout() does not. A socket timeout is per
     recv call, so a peer that sends one byte just inside every timeout window
-    keeps this loop alive for as long as it likes -- and with MAX_PAYLOAD at
-    8 MB it can declare a length that makes "as long as it likes" mean hours.
-    Anything on the LAN can answer on port 5000 and claim to be a Drobo (see
-    the trust note at the top of discovery.py), and the agent runs this loop
-    while holding the process-wide discovery lock, so one such peer used to be
-    enough to wedge the device picker until the agent was restarted.
+    keeps this loop alive for as long as it likes -- and with MAX_PAYLOAD_BYTES
+    at 8 MB it can declare a length that makes "as long as it likes" mean
+    hours. Anything on the LAN can answer on port 5000 and claim to be a Drobo
+    (see the trust note at the top of discovery.py), and the agent runs this
+    loop while holding the process-wide discovery lock, so one such peer used
+    to be enough to wedge the device picker until the agent was
+    restarted.
 
     Left at None -- the default -- the read is unbounded exactly as it has
     always been, so every caller that passes no deadline is unaffected.
     """
-    buf = b""
+    received = b""
     # The shrinking timeout below belongs to THIS read. Left in place it
     # would silently become the budget for whatever the caller does next on
     # the same socket. fetch_greeting closes the socket straight after, so
@@ -81,32 +84,32 @@ def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> b
     # this read does (it reads the login reply and then sends the command
     # frame on the same socket), and the two copies are deliberately kept the
     # same read. Hand the socket back as it was found.
-    prev_timeout = sock.gettimeout() if deadline is not None else None
+    original_timeout = sock.gettimeout() if deadline is not None else None
     try:
-        while len(buf) < n:
+        while len(received) < byte_count:
             if deadline is not None:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
                     raise FrameError(
-                        f"timed out reading frame: got {len(buf)} of {n} bytes")
+                        f"timed out reading frame: got {len(received)} of {byte_count} bytes")
                 # Shrink the per-recv wait as the budget runs down, or the very
                 # last recv could still overshoot by a full socket timeout.
-                sock.settimeout(left)
-            chunk = sock.recv(min(65536, n - len(buf)))
+                sock.settimeout(remaining_seconds)
+            chunk = sock.recv(min(65536, byte_count - len(received)))
             if not chunk:
                 break
-            buf += chunk
+            received += chunk
     finally:
         if deadline is not None:
             try:
-                sock.settimeout(prev_timeout)
+                sock.settimeout(original_timeout)
             except OSError:
                 # The socket is already unusable -- the peer went away and it
                 # was closed underneath this read. That is the read's own
                 # failure to report; restoring a timeout on it must not
                 # replace that error with a confusing one from the cleanup.
                 pass
-    return buf
+    return received
 
 
 def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes:
@@ -114,18 +117,18 @@ def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes:
     Read one DRINASD frame and return its raw XML payload (NUL included).
 
     `deadline` (a time.monotonic() instant) bounds header and payload
-    together; see _recv_exact for why a socket timeout alone is not a bound.
-    Keyword-optional so existing callers keep working unchanged.
+    together; see _receive_exactly for why a socket timeout alone is not a
+    bound. Keyword-optional so existing callers keep working unchanged.
     """
-    head = _recv_exact(sock, HEADER_LEN, deadline)
-    if len(head) < HEADER_LEN:
-        raise FrameError(f"short header: got {len(head)} of {HEADER_LEN} bytes")
+    head = _receive_exactly(sock, HEADER_BYTES, deadline)
+    if len(head) < HEADER_BYTES:
+        raise FrameError(f"short header: got {len(head)} of {HEADER_BYTES} bytes")
     if head[:8] != SIGNATURE:
         raise FrameError(f"bad signature: {head[:8]!r}")
     length = struct.unpack(">I", head[12:16])[0]
-    if length > MAX_PAYLOAD:
+    if length > MAX_PAYLOAD_BYTES:
         raise FrameError(f"implausible payload length {length}")
-    payload = _recv_exact(sock, length, deadline)
+    payload = _receive_exactly(sock, length, deadline)
     if len(payload) < length:
         raise FrameError(f"short payload: got {len(payload)} of {length} bytes")
     return payload

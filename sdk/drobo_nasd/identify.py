@@ -121,7 +121,7 @@ from .config_cmd import (
     TYPE_LOGIN,
     TYPE_LOGIN_OK,
     TYPE_RESULT,
-    _frame,
+    _build_frame,
     _login_payload,
     _read_frame,
 )
@@ -275,8 +275,8 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
         raise IdentifyError(
             f"{COMMAND} is not on the approved-write list (commands.SAFE_WRITES)")
 
-    cmd_id = _commands.COMMANDS.get(COMMAND)
-    if cmd_id is None:
+    command_id = _commands.COMMANDS.get(COMMAND)
+    if command_id is None:
         raise IdentifyError(f"{COMMAND} has no confirmed command id")
 
     # Validated BEFORE the socket is opened. A bad interval is a programming
@@ -284,11 +284,12 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
     # made, logged and then abandoned.
     params = _interval_xml(interval)
 
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID>{params}"
-           f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
+    request_payload = (f"<TMCmd><CmdID>{command_id}</CmdID>{params}"
+                       f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
     try:
-        return _send_once(host, port, esa_id, xml, timeout, cmd_id, interval)
+        return _send_once(host, port, esa_id, request_payload, timeout,
+                          command_id, interval)
     except (OSError, ConfigError) as exc:
         # Worth wording carefully: the Drobo is fine, and the array is fine.
         # It just would not take this particular command this particular time.
@@ -298,21 +299,21 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
         ) from exc
 
 
-def _send_once(host: str, port: int, esa_id: str, xml: bytes,
-               timeout: float, cmd_id: int, interval: int | None = None) -> dict:
+def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
+               timeout: float, command_id: int, interval: int | None = None) -> dict:
     """One attempt. Connection problems propagate for the caller to retry."""
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise IdentifyError(f"login refused (type 0x{msg_type:02x})")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise IdentifyError(f"login refused (type 0x{frame_type:02x})")
 
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock)
-        if msg_type != TYPE_RESULT:
-            raise IdentifyError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(sock)
+        if frame_type != TYPE_RESULT:
+            raise IdentifyError(f"unexpected reply type 0x{frame_type:02x}")
 
         # An empty body is a perfectly good answer here. Most commands on this
         # firmware reply with nothing at all, and Identify has nothing to
@@ -343,7 +344,7 @@ def _send_once(host: str, port: int, esa_id: str, xml: bytes,
         return {
             "sent": True,
             "command": COMMAND,
-            "command_id": cmd_id,
+            "command_id": command_id,
             "result_code": result_code,
             "accepted": result_code == _envelope.RESULT_ACCEPTED if result_code is not None else None,
             # Reported back so a caller writing down a measurement records

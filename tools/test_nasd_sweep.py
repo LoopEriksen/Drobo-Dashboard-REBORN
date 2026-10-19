@@ -174,11 +174,11 @@ def fake_drobo_answers(reply_body: bytes, port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_RESULT, reply_body))
+            conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply_body))
             conn.close()
         except OSError:
             pass
@@ -202,7 +202,7 @@ def fake_drobo_refuses_login(port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(0x99, b""))  # not TYPE_LOGIN_OK
+            conn.sendall(cc._build_frame(0x99, b""))  # not TYPE_LOGIN_OK
             conn.close()
         except OSError:
             pass
@@ -228,7 +228,7 @@ def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
             # Read the command, but never reply -- the client must time out.
             conn.recv(16)
             time.sleep(5)

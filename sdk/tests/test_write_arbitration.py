@@ -94,14 +94,14 @@ class ScriptedDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._frame(conn)  # login
-                conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
                 payload = self._frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
                 # The command frame is fully read either way -- the client's
                 # sendall must complete before the socket goes away, or the
                 # test would be measuring a SEND failure, not an ACK failure.
                 if step is not HANGUP:
-                    conn.sendall(cc._frame(cc.TYPE_RESULT, step))
+                    conn.sendall(cc._build_frame(cc.TYPE_RESULT, step))
                 conn.close()
             except OSError:
                 break
@@ -195,8 +195,8 @@ def _arbiter(answer):
 # happened and the arbiter must not even be asked.
 ask, calls = _arbiter(True)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                   dead_port(), 2, readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dead_port(), 2, readback=ask)
     check("a refused connection raises", False)
 except cc.ConfigWriteError as exc:
     check("a refused connection is a plain ConfigWriteError, not outcome-unknown",
@@ -218,7 +218,7 @@ def _refuse_login():
     head = conn.recv(16)
     ln = struct.unpack(">I", head[12:16])[0]
     conn.recv(ln)
-    conn.sendall(cc._frame(0x99, b""))   # not TYPE_LOGIN_OK
+    conn.sendall(cc._build_frame(0x99, b""))   # not TYPE_LOGIN_OK
     conn.close()
     srv.close()
 
@@ -226,8 +226,8 @@ def _refuse_login():
 threading.Thread(target=_refuse_login, daemon=True).start()
 ask, calls = _arbiter(True)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, lport, 3,
-                   readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              lport, 3, readback=ask)
     check("a refused login raises", False)
 except cc.ConfigWriteError as exc:
     check("a refused login is a plain failure, not outcome-unknown",
@@ -239,8 +239,8 @@ print("\n== config_cmd: the acknowledged path is untouched ==")
 
 dev = ScriptedDrobo([_accept()])
 ask, calls = _arbiter(False)   # would fail the write if it were ever consulted
-res = cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                     dev.port, 5, readback=ask)
+res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                SET_CONFIG_ID, dev.port, 5, readback=ask)
 check("an accepted write still returns the device's result code",
       res["result_code"] == cc.RESULT_ACCEPTED, res)
 check("...and reports itself acknowledged", res["acknowledged"] is True, res)
@@ -251,8 +251,8 @@ check("...and carries no 'verified' of its own", "verified" not in res, res)
 dev = ScriptedDrobo([(f"<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"])
 ask, calls = _arbiter(True)   # would rescue the write if it were ever consulted
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
-                   readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dev.port, 5, readback=ask)
     check("a non-accept Result still raises", False)
 except cc.ConfigWriteError as exc:
     check("a non-accept Result still raises ConfigWriteError",
@@ -264,8 +264,8 @@ print("\n== config_cmd: sent, then silence -- the read-back decides ==")
 
 dev = ScriptedDrobo([HANGUP])
 ask, calls = _arbiter(True)
-res = cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                     dev.port, 5, readback=ask)
+res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                SET_CONFIG_ID, dev.port, 5, readback=ask)
 check("an unanswered write whose change IS present succeeds",
       res["verified"] is True, res)
 check("...and is flagged unacknowledged", res["acknowledged"] is False, res)
@@ -280,8 +280,8 @@ check("...and the write frame went out exactly once (no retry)",
 dev = ScriptedDrobo([HANGUP])
 ask, calls = _arbiter(False)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
-                   readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dev.port, 5, readback=ask)
     check("an unanswered write whose change is ABSENT raises", False)
 except cc.ConfigWriteError as exc:
     check("an unanswered write whose change is ABSENT is a genuine failure",
@@ -298,8 +298,8 @@ def _exploding():
 
 dev = ScriptedDrobo([HANGUP])
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
-                   readback=_exploding)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dev.port, 5, readback=_exploding)
     check("an unarbitrable write raises", False)
 except cc.ConfigWriteOutcomeUnknownError as exc:
     msg = str(exc)
@@ -315,7 +315,8 @@ except cc.ConfigWriteOutcomeUnknownError as exc:
 # With no arbiter at all the outcome is equally unknown -- never a failure.
 dev = ScriptedDrobo([HANGUP])
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dev.port, 5)
     check("an unanswered write with no arbiter raises", False)
 except cc.ConfigWriteOutcomeUnknownError as exc:
     check("an unanswered write with no arbiter is outcome-unknown, not failure",
@@ -331,8 +332,8 @@ def _buggy():
 
 
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, dev.port, 5,
-                   readback=_buggy)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              dev.port, 5, readback=_buggy)
     check("a broken arbiter raises", False)
 except cc.ConfigWriteOutcomeUnknownError as exc:
     check("a broken arbiter yields UNKNOWN, not a false failure",
@@ -543,8 +544,8 @@ def _garbled_reply(port_holder):
                     break
                 buf += chunk
             if _ == 0:
-                conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
-        conn.sendall(cc._frame(0x77, b"who knows"))   # not TYPE_RESULT
+                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+        conn.sendall(cc._build_frame(0x77, b"who knows"))   # not TYPE_RESULT
         conn.close()
         srv.close()
     threading.Thread(target=serve, daemon=True).start()
@@ -556,8 +557,8 @@ def _garbled_reply(port_holder):
 holder = []
 _garbled_reply(holder)
 ask, calls = _arbiter(True)
-res = cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                     holder[0], 3, readback=ask)
+res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                SET_CONFIG_ID, holder[0], 3, readback=ask)
 check("an unreadable reply consults the read-back", calls == [True], calls)
 check("...and a read-back that finds the change reports success",
       res.get("verified") is True, res)
@@ -572,8 +573,8 @@ holder = []
 _garbled_reply(holder)
 ask, calls = _arbiter(False)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                   holder[0], 3, readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              holder[0], 3, readback=ask)
     check("an unreadable reply with the change absent raises", False)
 except cc.ConfigWriteError as exc:
     check("an unreadable reply with the change absent is a plain failure",
@@ -586,8 +587,8 @@ srv2 = ScriptedDrobo([(f"<TMCmd><CmdID>{SET_CONFIG_ID}</CmdID><Result>5</Result>
                        f"<ResultDetails/></TMCmd>").encode() + b"\x00"])
 ask, calls = _arbiter(True)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                   srv2.port, 3, readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              srv2.port, 3, readback=ask)
     check("a stated refusal raises", False)
 except cc.ConfigWriteError as exc:
     check("a stated refusal stays a refusal", "did not accept" in str(exc), str(exc))
@@ -615,8 +616,8 @@ def _hangup_at_login():
 threading.Thread(target=_hangup_at_login, daemon=True).start()
 ask, calls = _arbiter(True)
 try:
-    cc._send_inner("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID, hport, 3,
-                   readback=ask)
+    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
+                              hport, 3, readback=ask)
     check("a login that dies raises", False)
 except cc.ConfigWriteError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
@@ -639,11 +640,13 @@ _SOURCE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                encoding="utf-8").read()
 check("config_cmd sends a command frame from exactly three places "
       "(two reads, one write)",
-      _SOURCE.count("sendall(_frame(TYPE_COMMAND") == 3,
-      _SOURCE.count("sendall(_frame(TYPE_COMMAND"))
-check("...and _send_inner -- the write -- holds exactly one of them",
-      _SOURCE.split("def _send_inner")[1].split("def _arbitrate_unacknowledged")[0]
-      .count("sendall(_frame(TYPE_COMMAND") == 1)
+      _SOURCE.count("sendall(_build_frame(TYPE_COMMAND") == 3,
+      _SOURCE.count("sendall(_build_frame(TYPE_COMMAND"))
+check("...and _send_section_document -- the write -- holds exactly one "
+      "of them",
+      _SOURCE.split("def _send_section_document")[1]
+      .split("def _arbitrate_unacknowledged")[0]
+      .count("sendall(_build_frame(TYPE_COMMAND") == 1)
 check("...and the arbiter itself never sends anything",
       "sendall" not in _SOURCE.split("def _arbitrate_unacknowledged")[1]
       .split("def get_config_element")[0])

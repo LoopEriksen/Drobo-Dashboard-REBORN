@@ -31,7 +31,7 @@ from .config_cmd import (
     TYPE_LOGIN,
     TYPE_LOGIN_OK,
     TYPE_RESULT,
-    _frame,
+    _build_frame,
     _login_payload,
     _read_frame,
     # A pure predicate over a write summary -- no socket, nothing to gate --
@@ -187,7 +187,8 @@ def parse_demo_mode(payload: bytes) -> dict:
     return out
 
 
-def get_scalar(host: str, esa_id: str, command: str, port: int = DEFAULT_PORT,
+def get_scalar(host: str, esa_id: str, command_name: str,
+               port: int = DEFAULT_PORT,
                timeout: float = 8.0) -> bytes:
     """
     Send one query and hand back its raw reply body.
@@ -197,26 +198,27 @@ def get_scalar(host: str, esa_id: str, command: str, port: int = DEFAULT_PORT,
     duplicating them per command would just be three more places for the
     do-not-send check to be forgotten.
     """
-    if _commands.is_dangerous(command):
-        raise SysInfoError(f"{command} is on the do-not-send list")
-    cmd_id = _commands.COMMANDS.get(command)
-    if cmd_id is None:
-        raise SysInfoError(f"{command} has no confirmed command id")
+    if _commands.is_dangerous(command_name):
+        raise SysInfoError(f"{command_name} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise SysInfoError(f"{command_name} has no confirmed command id")
 
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><Params></Params>"
-           f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"
+        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock)
-        if msg_type != TYPE_RESULT:
-            raise SysInfoError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(sock)
+        if frame_type != TYPE_RESULT:
+            raise SysInfoError(f"unexpected reply type 0x{frame_type:02x}")
         return body
     finally:
         sock.close()
@@ -293,8 +295,9 @@ def _general_block(before: dict) -> dict:
 
 def _general_setter(field=None, new_value=None, *, changes: dict | None = None):
     """
-    Build a set_config build_inner that changes ONLY the named field(s) in the
-    <General> block and echoes every other sibling back exactly as read.
+    Build a set_config build_section_document that changes ONLY the named
+    field(s) in the <General> block and echoes every other sibling back
+    exactly as read.
 
     Call as _general_setter("Dim", 5) for one field, or
     _general_setter(changes={"FeatureStates": 5, "SpindownDelay": 0}) for
@@ -315,7 +318,7 @@ def _general_setter(field=None, new_value=None, *, changes: dict | None = None):
     if bad:
         raise GeneralWriteError(f"cannot set unknown General field(s) {sorted(bad)}")
 
-    def build_inner(before: dict) -> str:
+    def build_section_document(before: dict) -> str:
         block = _general_block(before)
 
         unknown = set(block) - set(_GENERAL_FIELDS)
@@ -345,7 +348,7 @@ def _general_setter(field=None, new_value=None, *, changes: dict | None = None):
         parts = "".join(f"<{f}>{out[f]}</{f}>" for f in _GENERAL_FIELDS)
         return f"<General>{parts}</General>"
 
-    return build_inner
+    return build_section_document
 
 
 def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
@@ -411,7 +414,8 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     # The read-back doubles as config_cmd's arbiter for a write the device never
     # acknowledges: sent, socket closed, no result frame. Reporting that as a
     # failure would be a lie (measured on a share create, 2026-08-25/26), so the
-    # arbiter is passed whatever `verify` says -- see config_cmd._send_inner.
+    # arbiter is passed whatever `verify` says -- see
+    # config_cmd._send_section_document.
     def _reads_back() -> bool:
         return get_dimming(host, esa_id, port=port, timeout=timeout) == value
 
@@ -522,15 +526,16 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
         return out
 
     # The changes depend on the live block (whether the bit is already set), so
-    # build them inside build_inner rather than ahead of the read.
-    def build_inner(before: dict) -> str:
+    # build them inside build_section_document rather than ahead of the
+    # read.
+    def build_section_document(before: dict) -> str:
         return _general_setter(changes=changes_for(before))(before)
 
     def _reads_back() -> bool:
         return get_spindown(host, esa_id, port=port, timeout=timeout) == delay
 
-    result = set_config(host, esa_id, "general", build_inner, port=port,
-                        timeout=timeout, readback=_reads_back)
+    result = set_config(host, esa_id, "general", build_section_document,
+                        port=port, timeout=timeout, readback=_reads_back)
     # Stop here without a fresh read in two cases: config_cmd already settled
     # this write by reading the device back (its verdict IS the verification --
     # reading again only invites a second answer), or the caller asked for no
@@ -561,7 +566,7 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     from .config_cmd import set_config  # noqa: F401
 
-    def build_inner(before: dict) -> str:
+    def build_section_document(before: dict) -> str:
         fs = _feature_states(_general_block(before))
         return _general_setter(changes={
             "FeatureStates": fs & ~_SPINDOWN_ENABLED_BIT,
@@ -579,8 +584,8 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
         fs, delay = _read_state()
         return not (fs & _SPINDOWN_ENABLED_BIT) and delay == "0"
 
-    result = set_config(host, esa_id, "general", build_inner, port=port,
-                        timeout=timeout, readback=_reads_back)
+    result = set_config(host, esa_id, "general", build_section_document,
+                        port=port, timeout=timeout, readback=_reads_back)
     # Stop here without a fresh read in two cases: config_cmd already settled
     # this write by reading the device back (its verdict IS the verification --
     # reading again only invites a second answer), or the caller asked for no
@@ -611,24 +616,25 @@ def get_droboapps(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """Ask the Drobo what is installed on it. Read-only."""
     if _commands.is_dangerous(COMMAND):
         raise SysInfoError(f"{COMMAND} is on the do-not-send list")
-    cmd_id = _commands.COMMANDS.get(COMMAND)
-    if cmd_id is None:
+    command_id = _commands.COMMANDS.get(COMMAND)
+    if command_id is None:
         raise SysInfoError(f"{COMMAND} has no confirmed command id")
 
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><Params></Params>"
-           f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"
+        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock)
-        if msg_type != TYPE_RESULT:
-            raise SysInfoError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(sock)
+        if frame_type != TYPE_RESULT:
+            raise SysInfoError(f"unexpected reply type 0x{frame_type:02x}")
         return parse_droboapps(body)
     finally:
         sock.close()
@@ -679,7 +685,7 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     Raises DroboAppsActionError on a bad verb, an unknown app, a refused device,
     or a non-accepted result.
     """
-    from .config_cmd import RESULT_ACCEPTED, _result_code
+    from .config_cmd import RESULT_ACCEPTED, _parse_result_code
 
     if action not in _APP_ACTIONS:
         raise DroboAppsActionError(
@@ -689,12 +695,13 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     if not clean_name:
         raise DroboAppsActionError("no app name given")
 
-    cmd = "eCmdDroboAppsAction"
-    if cmd not in _commands.VETTED_WRITES:
-        raise DroboAppsActionError(f"{cmd} is not a vetted write (commands.VETTED_WRITES)")
-    cmd_id = _commands.COMMANDS.get(cmd)
-    if cmd_id is None:
-        raise DroboAppsActionError(f"{cmd} has no confirmed command id")
+    command_name = "eCmdDroboAppsAction"
+    if command_name not in _commands.VETTED_WRITES:
+        raise DroboAppsActionError(f"{command_name} is not a vetted write (commands.VETTED_WRITES)")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise DroboAppsActionError(
+            f"{command_name} has no confirmed command id")
 
     if check_installed:
         installed = {a["name"] for a in get_droboapps(host, esa_id, port, timeout).get("apps", [])}
@@ -710,8 +717,9 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     import html
     safe_name = html.escape(clean_name, quote=False)
     params = f"<Name>{safe_name}</Name><Action>{action}</Action>"
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><ESAID>{esa_id}</ESAID>"
-           f"<Params>{params}</Params></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params>{params}</Params></TMCmd>").encode() + b"\x00"
 
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
@@ -719,15 +727,15 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
         raise DroboAppsActionError(f"could not reach the command port: {exc}") from exc
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock)
-        if msg_type != TYPE_LOGIN_OK:
-            raise DroboAppsActionError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock)
-        if msg_type != TYPE_RESULT:
-            raise DroboAppsActionError(f"unexpected reply type 0x{msg_type:02x}")
-        code = _result_code(body or b"")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise DroboAppsActionError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(sock)
+        if frame_type != TYPE_RESULT:
+            raise DroboAppsActionError(f"unexpected reply type 0x{frame_type:02x}")
+        code = _parse_result_code(body or b"")
         if code != RESULT_ACCEPTED:
             raise DroboAppsActionError(
                 f"the device did not accept {action} {clean_name!r} "

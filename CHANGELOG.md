@@ -167,6 +167,24 @@ released. Every push to this repository carries this file.
   - agent `drivers.DroboNotFound` -> `DroboNotFoundError`
   - agent `drivers.SimulatedWriteUnconfirmed` ->
     `SimulatedWriteUnconfirmedError`
+  - `drobo_nasd.config_cmd.HEADER_LEN` -> `HEADER_BYTES`,
+    `MAX_PAYLOAD` -> `MAX_PAYLOAD_BYTES` and `LOGIN_LEN` ->
+    `LOGIN_PAYLOAD_BYTES`
+  - `drobo_nasd.esatm.HEADER_LEN` -> `HEADER_BYTES` and `MAX_PAYLOAD` ->
+    `MAX_PAYLOAD_BYTES`
+  - `drobo_nasd.config_cmd.set_config`'s parameter `build_inner` ->
+    `build_section_document` (only a call that passes it by keyword
+    changes)
+  - `drobo_nasd.droboapps.get_scalar`'s parameter `command` ->
+    `command_name`
+  - `tools/nasd_sweep.py`: `send_one_command`'s parameter `cmd_id` ->
+    `command_id`; `tools/nasd_tap.py`: `HEADER_LEN` -> `HEADER_BYTES`
+  - Private helpers that scripts of your own may reach into:
+    `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
+    `_send_section_document`, `_recv_exact` (in `config_cmd` and
+    `esatm`) -> `_receive_exactly`, `config_cmd._to_dict` ->
+    `_element_to_dict`, `config_cmd._result_code` ->
+    `_parse_result_code`, `sysinfo._ask` -> `_send_and_read_result`
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

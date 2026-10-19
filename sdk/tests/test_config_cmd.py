@@ -168,7 +168,7 @@ except cc.ConfigError:
 check("empty payload gives an empty dict", cc.parse_config_result(b"\x00") == {})
 
 print("\n== frame construction matches the observed wire format ==")
-f = cc._frame(cc.TYPE_COMMAND, b"abc")
+f = cc._build_frame(cc.TYPE_COMMAND, b"abc")
 check("frame starts with DRINETTM", f[:8] == b"DRINETTM", f[:8])
 check("type byte placed correctly", f[8] == cc.TYPE_COMMAND, f[8])
 check("length is big-endian", struct.unpack(">I", f[12:16])[0] == 3, f[12:16].hex())
@@ -217,13 +217,13 @@ def fake_drobo(reply: bytes, port_holder: list, login_ok=True):
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
                 conn.close(); srv.close(); return
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._frame(cc.TYPE_RESULT, reply))
+            conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
             conn.close()
         except OSError:
             pass
@@ -263,20 +263,20 @@ except cc.ConfigError as exc:
 # --------------------------------------------------------------------------
 print("\n== a dribbling peer cannot hold the command channel open ==")
 # This is the defect the bounded-read fix closed on the status channel
-# (esatm._recv_exact), still live here until now. _recv_exact had only a
-# PER-RECV socket timeout, and a socket timeout is not a bound: a peer that
-# sends one byte just inside every window keeps the loop running for as long
-# as it likes, and the header can declare a payload of up to MAX_PAYLOAD to
-# make "as long as it likes" mean hours. On THIS channel that is worse than a
-# stalled read, because a write left waiting on a result frame that never
-# finishes arriving is an outcome-unknown write.
+# (esatm._receive_exactly), still live here until now. _receive_exactly
+# had only a PER-RECV socket timeout, and a socket timeout is not a bound: a
+# peer that sends one byte just inside every window keeps the loop running for
+# as long as it likes, and the header can declare a payload of up to
+# MAX_PAYLOAD_BYTES to make "as long as it likes" mean hours. On THIS channel
+# that is worse than a stalled read, because a write left waiting on a result
+# frame that never finishes arriving is an outcome-unknown write.
 #
 # Everything below is a socketpair or 127.0.0.1: loopback only, no hardware.
 
 # A well-formed header declaring the largest payload the module will accept --
 # exactly what a peer wanting to stall would send.
 HEAD_MAX = (cc.SIGNATURE + bytes([cc.TYPE_RESULT, 0x01]) + b"\x00\x00"
-            + struct.pack(">I", cc.MAX_PAYLOAD))
+            + struct.pack(">I", cc.MAX_PAYLOAD_BYTES))
 BUDGET = 0.4        # the deadline under test
 CEILING = 5.0       # generous: this asserts "bounded at all", not a stopwatch
 
@@ -318,10 +318,10 @@ for _label, _whole, _trickle in (
 
 # ...without the bound getting in the way of a device that simply answers.
 a, b = socket.socketpair()
-b.sendall(cc._frame(cc.TYPE_RESULT, NETWORK))
-msg_type, body = cc._read_frame(a, deadline=time.monotonic() + CEILING)
+b.sendall(cc._build_frame(cc.TYPE_RESULT, NETWORK))
+frame_type, body = cc._read_frame(a, deadline=time.monotonic() + CEILING)
 check("a normal read still succeeds under a deadline",
-      msg_type == cc.TYPE_RESULT and body == NETWORK, msg_type)
+      frame_type == cc.TYPE_RESULT and body == NETWORK, frame_type)
 a.close()
 b.close()
 
@@ -329,12 +329,13 @@ b.close()
 # module -- droboapps, eventlog, identify, sysinfo, drobosync, nasd_sweep --
 # reads exactly as it did before.
 a, b = socket.socketpair()
-b.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
-msg_type, body = cc._read_frame(a)
+b.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+frame_type, body = cc._read_frame(a)
 check("a read with no deadline is unchanged",
-      msg_type == cc.TYPE_LOGIN_OK and body == b"", msg_type)
-check("the deadline stays optional", cc._recv_exact.__defaults__ == (None,),
-      cc._recv_exact.__defaults__)
+      frame_type == cc.TYPE_LOGIN_OK and body == b"", frame_type)
+check("the deadline stays optional",
+      cc._receive_exactly.__defaults__ == (None,),
+      cc._receive_exactly.__defaults__)
 a.close()
 b.close()
 
@@ -342,9 +343,9 @@ print("\n-- the error is the one esatm raises for the same situation --")
 # Same situation on both channels: the budget is already spent when the read
 # begins, so neither module even reaches recv. The class differs because each
 # raises its own framing error -- FrameError there, ConfigError here, which is
-# what every other bad-frame path in this module raises and what _send_inner
-# reads as "the result frame was lost". The WORDING must not differ: one fix,
-# one message, whichever channel stalled.
+# what every other bad-frame path in this module raises and what
+# _send_section_document reads as "the result frame was lost". The WORDING must
+# not differ: one fix, one message, whichever channel stalled.
 _spent = time.monotonic() - 1.0
 a, b = socket.socketpair()
 c, d = socket.socketpair()
@@ -385,7 +386,7 @@ def fake_dribbler(port_holder):
             conn.settimeout(5)
             head = conn.recv(16)
             conn.recv(struct.unpack(">I", head[12:16])[0])
-            conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
             head = conn.recv(16)
             conn.recv(struct.unpack(">I", head[12:16])[0])
             conn.sendall(HEAD_MAX)          # a payload that never arrives...
@@ -417,14 +418,14 @@ print("\n== a bounded read hands the socket back as it found it ==")
 # The deadline is implemented by shrinking the socket's OWN timeout as the
 # budget runs down, and that shrunken value belongs to the one read. This
 # channel, unlike esatm's read-the-greeting-and-close, keeps using the socket:
-# get_config, _send_inner and get_config_element all read the login reply and
-# then send the command frame on the same socket. A timeout left shrunken
-# would quietly become the budget for that sendall, so a device that answered
-# LOGIN_OK late in the budget could make the command frame time out on send --
-# a narrowing of the caller's timeout that nobody asked for.
+# get_config, _send_section_document and get_config_element all read the login
+# reply and then send the command frame on the same socket. A timeout left
+# shrunken would quietly become the budget for that sendall, so a device that
+# answered LOGIN_OK late in the budget could make the command frame time out on
+# send -- a narrowing of the caller's timeout that nobody asked for.
 a, b = socket.socketpair()
 a.settimeout(5.0)
-dribble(b, cc._frame(cc.TYPE_LOGIN_OK, b""))
+dribble(b, cc._build_frame(cc.TYPE_LOGIN_OK, b""))
 cc._read_frame(a, deadline=time.monotonic() + CEILING)
 check("a completed bounded read leaves the socket's timeout alone",
       a.gettimeout() == 5.0, a.gettimeout())
@@ -447,7 +448,7 @@ b.close()
 # With no deadline the timeout is never touched at all.
 a, b = socket.socketpair()
 a.settimeout(3.5)
-b.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+b.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
 cc._read_frame(a)
 check("an unbounded read never touches it", a.gettimeout() == 3.5, a.gettimeout())
 a.close()

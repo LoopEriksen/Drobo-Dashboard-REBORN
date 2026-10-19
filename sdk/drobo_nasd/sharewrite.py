@@ -58,8 +58,8 @@ and not applied (spin-down 0, 2026-08-12), and a write can be applied and never
 acknowledged -- 2026-08-25/26, a share create the 5N stored after closing the
 socket without answering. Every function here therefore decides its outcome
 from a read-back, and hands config_cmd that same read-back to arbitrate an
-unanswered write (see config_cmd._send_inner). No function here ever re-sends:
-retrying a write that already applied is the harm.
+unanswered write (see config_cmd._send_section_document). No function here ever
+re-sends: retrying a write that already applied is the harm.
 """
 from __future__ import annotations
 
@@ -502,7 +502,8 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
 
     # MEASURED 2026-08-25/26: this is the write the device took and then hung up
     # on without answering. `readback` is what stops that being reported as a
-    # failure -- see config_cmd._send_inner. Passed regardless of `verify`.
+    # failure -- see config_cmd._send_section_document. Passed regardless of
+    # `verify`.
     try:
         result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
                                            port=port, timeout=timeout,

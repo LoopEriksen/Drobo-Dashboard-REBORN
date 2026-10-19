@@ -25,7 +25,7 @@ confidence levels -- do not conflate them:
    is a 16-byte header (`DRINETTM` signature + 1-byte type + 1-byte version +
    2-byte flags + big-endian u32 length) followed by a 220-byte login payload
    that is just the device's serial (ESAID) twice, NUL-padded. That confirmed
-   framing is implemented directly in `config_cmd.py` (`_frame`,
+   framing is implemented directly in `config_cmd.py` (`_build_frame`,
    `_login_payload`), not through this class. The CANDIDATE constructors here
    are left as-is -- superseded, not deleted -- so `client.NasdClient`'s
    existing tests keep exercising the same code; don't add a new candidate

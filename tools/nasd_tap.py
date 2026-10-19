@@ -78,7 +78,7 @@ import threading
 import time
 
 SIGNATURE = b"DRINASD\x00"
-HEADER_LEN = 16
+HEADER_BYTES = 16
 
 _print_lock = threading.Lock()
 
@@ -101,7 +101,7 @@ def describe(data: bytes) -> str:
     client's are exactly what we're trying to learn, so this stays descriptive
     rather than asserting a structure we haven't confirmed.
     """
-    if len(data) >= HEADER_LEN and data[:8] == SIGNATURE:
+    if len(data) >= HEADER_BYTES and data[:8] == SIGNATURE:
         major, minor = data[8], data[9]
         flags = struct.unpack(">H", data[10:12])[0]
         length = struct.unpack(">I", data[12:16])[0]

@@ -103,10 +103,10 @@ class FakeDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._frame(conn)  # login
-                conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
                 payload = self._frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
-                conn.sendall(cc._frame(cc.TYPE_RESULT, reply))
+                conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
                 conn.close()
             except OSError:
                 break
@@ -298,10 +298,10 @@ tport = srv.getsockname()[1]
 def _truncating():
     conn, _ = srv.accept(); conn.settimeout(3)
     head = conn.recv(16); ln = _st.unpack(">I", head[12:16])[0]; conn.recv(ln)   # login
-    conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+    conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
     head = conn.recv(16); ln = _st.unpack(">I", head[12:16])[0]; conn.recv(ln)   # command
     full = _accept()
-    frame = cc._frame(cc.TYPE_RESULT, full)
+    frame = cc._build_frame(cc.TYPE_RESULT, full)
     conn.sendall(frame[:16 + len(full) // 2])   # header promises full, body cut short
     conn.close(); srv.close()
 threading.Thread(target=_truncating, daemon=True).start()

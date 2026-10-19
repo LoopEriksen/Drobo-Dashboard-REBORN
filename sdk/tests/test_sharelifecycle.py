@@ -131,10 +131,10 @@ class FakeDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._frame(conn)  # login
-                conn.sendall(cc._frame(cc.TYPE_LOGIN_OK, b""))
+                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
                 payload = self._frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
-                conn.sendall(cc._frame(cc.TYPE_RESULT, reply))
+                conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
                 conn.close()
             except OSError:
                 break

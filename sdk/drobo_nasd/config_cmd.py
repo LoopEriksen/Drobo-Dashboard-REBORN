@@ -70,9 +70,9 @@ from . import commands as _commands
 from .envelope import RESULT_ACCEPTED
 
 SIGNATURE = b"DRINETTM"
-HEADER_LEN = 16
+HEADER_BYTES = 16
 DEFAULT_PORT = 5001
-MAX_PAYLOAD = 4 * 1024 * 1024
+MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
 
 TYPE_LOGIN = 0x07
 TYPE_LOGIN_OK = 0x87
@@ -81,8 +81,8 @@ TYPE_RESULT = 0x8A
 
 # The login packet is the device serial twice, in two 20-byte NUL-padded slots,
 # then padding to 220. Confirmed on the wire.
-LOGIN_LEN = 220
-_LOGIN_SLOT = 20
+LOGIN_PAYLOAD_BYTES = 220
+_LOGIN_SLOT_BYTES = 20
 
 # Sections eCmdGetConfig understands. "admin" is deliberately last and
 # deliberately noisy in the docs -- see the credentials note above.
@@ -101,59 +101,61 @@ SECTIONS = {
 # The document root eCmdSetConfig writes wrap their section in. CONFIRMED from
 # the 2026-08-06 capture: the escaped payload is <DRINASConfig><General>...
 # (note the ALL-CAPS "NAS", which is the device's own spelling and must match).
-_WRITE_ROOT = "DRINASConfig"
+_WRITE_ROOT_TAG = "DRINASConfig"
 
 # Any element whose name matches this never leaves this module with its value.
-_SECRET = re.compile(r"(?i)pass|secret|credential|\bkey\b|token")
-_REDACTED = "[redacted]"
+_CREDENTIAL_NAME_RE = re.compile(r"(?i)pass|secret|credential|\bkey\b|token")
+_REDACTION_SENTINEL = "[redacted]"
 
 
 class ConfigError(Exception):
     """The command channel refused us, or answered with something unusable."""
 
 
-def _frame(msg_type: int, payload: bytes) -> bytes:
-    return (SIGNATURE + bytes([msg_type, 0x01]) + b"\x00\x00"
+def _build_frame(frame_type: int, payload: bytes) -> bytes:
+    return (SIGNATURE + bytes([frame_type, 0x01]) + b"\x00\x00"
             + struct.pack(">I", len(payload)) + payload)
 
 
 def _login_payload(esa_id: str) -> bytes:
     raw = esa_id.encode("ascii", "ignore")
-    if not raw or len(raw) > _LOGIN_SLOT:
+    if not raw or len(raw) > _LOGIN_SLOT_BYTES:
         raise ConfigError(f"implausible device serial {esa_id!r}")
-    buf = bytearray(LOGIN_LEN)
+    buf = bytearray(LOGIN_PAYLOAD_BYTES)
     buf[0:len(raw)] = raw
-    buf[_LOGIN_SLOT:_LOGIN_SLOT + len(raw)] = raw
+    buf[_LOGIN_SLOT_BYTES:_LOGIN_SLOT_BYTES + len(raw)] = raw
     return bytes(buf)
 
 
-def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> bytes:
+def _receive_exactly(sock: socket.socket, byte_count: int, deadline: float | None = None) -> bytes:
     """
-    Read exactly n bytes, or as many as arrive before the socket gives up.
+    Read exactly byte_count bytes, or as many as arrive before the socket
+    gives up.
 
     `deadline` is a time.monotonic() instant that bounds the WHOLE read, and
     it matters because sock.settimeout() does not. A socket timeout is per
     recv call, so a peer that sends one byte just inside every timeout window
-    keeps this loop alive for as long as it likes -- and with MAX_PAYLOAD at
-    4 MB it can declare a length that makes "as long as it likes" mean hours.
+    keeps this loop alive for as long as it likes -- and with MAX_PAYLOAD_BYTES
+    at 4 MB it can declare a length that makes "as long as it likes" mean
+    hours.
 
-    This is the same defect esatm._recv_exact was fixed for, carried across to
-    the channel where it was still live. Nothing about port 5001 makes the peer
-    answering on it any more trustworthy than the one on 5000, and the stall
-    costs more here: a write left waiting on a result frame that never finishes
-    arriving is an outcome-unknown write, held open for as long as the peer
-    cares to hold it.
+    This is the same defect esatm._receive_exactly was fixed for, carried
+    across to the channel where it was still live. Nothing about port 5001
+    makes the peer answering on it any more trustworthy than the one on 5000,
+    and the stall costs more here: a write left waiting on a result frame that
+    never finishes arriving is an outcome-unknown write, held open for as long
+    as the peer cares to hold it.
 
     Left at None -- the default -- the read is unbounded exactly as it has
     always been, so every caller that passes no deadline is unaffected.
 
     The error is this module's ConfigError rather than esatm's FrameError for
     the same reason every other framing failure here is one: that is what
-    callers of the command channel catch, and _send_inner already reads a
-    ConfigError from this read as "the result frame was lost" -- which is
-    precisely what a read that ran out of budget is.
+    callers of the command channel catch, and _send_section_document already
+    reads a ConfigError from this read as "the result frame was lost" -- which
+    is precisely what a read that ran out of budget is.
     """
-    buf = b""
+    received = b""
     # The shrinking timeout below belongs to THIS read. Left in place it
     # would silently become the budget for whatever the caller does next on
     # the same socket -- and on the command channel the next thing is always
@@ -161,32 +163,32 @@ def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> b
     # the budget would leave that send with the remainder of the budget
     # instead of the timeout the caller asked for. Hand the socket back as
     # it was found.
-    prev_timeout = sock.gettimeout() if deadline is not None else None
+    original_timeout = sock.gettimeout() if deadline is not None else None
     try:
-        while len(buf) < n:
+        while len(received) < byte_count:
             if deadline is not None:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
                     raise ConfigError(
-                        f"timed out reading frame: got {len(buf)} of {n} bytes")
+                        f"timed out reading frame: got {len(received)} of {byte_count} bytes")
                 # Shrink the per-recv wait as the budget runs down, or the very
                 # last recv could still overshoot by a full socket timeout.
-                sock.settimeout(left)
-            chunk = sock.recv(min(65536, n - len(buf)))
+                sock.settimeout(remaining_seconds)
+            chunk = sock.recv(min(65536, byte_count - len(received)))
             if not chunk:
                 break
-            buf += chunk
+            received += chunk
     finally:
         if deadline is not None:
             try:
-                sock.settimeout(prev_timeout)
+                sock.settimeout(original_timeout)
             except OSError:
                 # The socket is already unusable -- the peer went away and it
                 # was closed underneath this read. That is the read's own
                 # failure to report; restoring a timeout on it must not
                 # replace that error with a confusing one from the cleanup.
                 pass
-    return buf
+    return received
 
 
 def _read_frame(sock: socket.socket,
@@ -195,18 +197,18 @@ def _read_frame(sock: socket.socket,
     Read one DRINETTM frame: its type byte and its raw payload.
 
     `deadline` (a time.monotonic() instant) bounds header and payload
-    together; see _recv_exact for why a socket timeout alone is not a bound.
-    Keyword-optional so existing callers keep working unchanged.
+    together; see _receive_exactly for why a socket timeout alone is not a
+    bound. Keyword-optional so existing callers keep working unchanged.
     """
-    head = _recv_exact(sock, HEADER_LEN, deadline)
-    if len(head) < HEADER_LEN:
-        raise ConfigError(f"short header: {len(head)} of {HEADER_LEN} bytes")
+    head = _receive_exactly(sock, HEADER_BYTES, deadline)
+    if len(head) < HEADER_BYTES:
+        raise ConfigError(f"short header: {len(head)} of {HEADER_BYTES} bytes")
     if head[:8] != SIGNATURE:
         raise ConfigError(f"bad signature {head[:8]!r}")
     length = struct.unpack(">I", head[12:16])[0]
-    if length > MAX_PAYLOAD:
+    if length > MAX_PAYLOAD_BYTES:
         raise ConfigError(f"implausible payload length {length}")
-    body = _recv_exact(sock, length, deadline)
+    body = _receive_exactly(sock, length, deadline)
     if len(body) < length:
         # Name truncation as truncation. Returned silently, a write reply cut
         # off before <Result> read as "the device did not accept" -- a
@@ -229,17 +231,17 @@ def _strip_secrets(node: ET.Element) -> None:
        its own text replaced. Previously a `<Password>` carrying child elements
        rather than text kept those children verbatim, because the old code
        replaced `.text` (empty in that case) and then skipped descending. The
-       value walked straight out through _to_dict.
+       value walked straight out through _element_to_dict.
 
     2. Text that turns out to be an escaped XML document is handled by
        _redact_escaped_document below, not here -- see the note there. That is
        the encoding this firmware genuinely uses.
     """
     for child in node:
-        if _SECRET.search(child.tag):
+        if _CREDENTIAL_NAME_RE.search(child.tag):
             # Whatever hangs off a credential node is suspect, so nothing from
             # it survives: no text, no attributes, no children.
-            child.text = _REDACTED
+            child.text = _REDACTION_SENTINEL
             child.tail = child.tail  # keep layout, drop nothing else
             child.attrib.clear()
             for grandchild in list(child):
@@ -294,24 +296,24 @@ def _redact_escaped_document(node: ET.Element) -> None:
             sub = ET.fromstring(body)
         except ET.ParseError:
             # Unparseable but XML-shaped. Refuse to pass it on.
-            if _SECRET.search(text):
-                child.text = _REDACTED
+            if _CREDENTIAL_NAME_RE.search(text):
+                child.text = _REDACTION_SENTINEL
             continue
-        if _SECRET.search(sub.tag):
-            child.text = _REDACTED
+        if _CREDENTIAL_NAME_RE.search(sub.tag):
+            child.text = _REDACTION_SENTINEL
             continue
         _strip_secrets(sub)
         child.text = ET.tostring(sub, encoding="unicode")
 
 
-def _to_dict(node: ET.Element):
+def _element_to_dict(node: ET.Element):
     """XML subtree -> plain dict/list/str, with repeated tags becoming lists."""
     children = list(node)
     if not children:
         return (node.text or "").strip()
     out: dict = {}
     for child in children:
-        value = _to_dict(child)
+        value = _element_to_dict(child)
         if child.tag in out:
             if not isinstance(out[child.tag], list):
                 out[child.tag] = [out[child.tag]]
@@ -360,7 +362,7 @@ def parse_config_result(payload: bytes, redact: bool = True) -> dict:
     if redact:
         _strip_secrets(details)
         _redact_escaped_document(details)
-    return _to_dict(details)
+    return _element_to_dict(details)
 
 
 def get_config(host: str, esa_id: str, section: str = "network",
@@ -380,34 +382,36 @@ def get_config(host: str, esa_id: str, section: str = "network",
     if section not in SECTIONS:
         raise ConfigError(f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
-    name = "eCmdGetConfig"
-    if name in _commands.DO_NOT_SEND:
-        raise ConfigError(f"{name} is on the do-not-send list")
-    cmd_id = _commands.COMMANDS.get(name)
-    if cmd_id is None:
-        raise ConfigError(f"{name} has no confirmed command id")
+    command_name = "eCmdGetConfig"
+    if command_name in _commands.DO_NOT_SEND:
+        raise ConfigError(f"{command_name} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise ConfigError(f"{command_name} has no confirmed command id")
 
     tag = SECTIONS[section]
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><ESAID>{esa_id}</ESAID>"
-           f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
         # `timeout` is the budget for each frame in turn, anchored as that
         # frame's read begins -- the same reading esatm.fetch_greeting gives
         # it, and the one the old per-recv socket timeout already implied. A
         # device that answers each frame inside it sees no change at all; a
         # peer that dribbles is now bounded instead of unbounded.
-        msg_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
-        if msg_type != TYPE_LOGIN_OK:
-            raise ConfigError(f"login refused (type 0x{msg_type:02x})")
+        frame_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
+        if frame_type != TYPE_LOGIN_OK:
+            raise ConfigError(f"login refused (type 0x{frame_type:02x})")
 
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock, deadline=time.monotonic() + timeout)
-        if msg_type != TYPE_RESULT:
-            raise ConfigError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(
+            sock, deadline=time.monotonic() + timeout)
+        if frame_type != TYPE_RESULT:
+            raise ConfigError(f"unexpected reply type 0x{frame_type:02x}")
         if not body:
             raise ConfigError(f"device returned nothing for {section!r}")
         return parse_config_result(body, redact=redact)
@@ -443,7 +447,7 @@ class ConfigWriteOutcomeUnknownError(ConfigWriteError):
     """
 
 
-def _result_code(payload: bytes) -> int | None:
+def _parse_result_code(payload: bytes) -> int | None:
     """
     The integer in the reply's <Result>, or None if it is absent or ambiguous.
 
@@ -463,7 +467,7 @@ def _result_code(payload: bytes) -> int | None:
         return None
 
 
-def set_config(host: str, esa_id: str, section: str, build_inner,
+def set_config(host: str, esa_id: str, section: str, build_section_document,
                port: int = DEFAULT_PORT, timeout: float = 10.0,
                readback=None) -> dict:
     """
@@ -480,40 +484,42 @@ def set_config(host: str, esa_id: str, section: str, build_inner,
     allowed to build one, because it guarantees the two things that make a write
     defensible:
 
-      1. It is built from a REAL PRIOR READ. `build_inner` is handed the exact
-         document the device returned microseconds earlier, so it can preserve
-         every field it does not mean to change. The 2026-08-06 capture proved
-         this matters: the <General> block ships FeatureStates, SpindownDelay
-         and Dim together, and a write of only <Dim> would plausibly clear the
-         other two. Rename and share writes send the WHOLE section for the same
-         reason.
+      1. It is built from a REAL PRIOR READ. `build_section_document` is handed
+         the exact document the device returned microseconds earlier, so it can
+         preserve every field it does not mean to change. The 2026-08-06
+         capture proved this matters: the <General> block ships FeatureStates,
+         SpindownDelay and Dim together, and a write of only <Dim> would
+         plausibly clear the other two. Rename and share writes send the WHOLE
+         section for the same reason.
 
       2. The device is asked whether it accepted it. The reply's <Result> must
          equal RESULT_ACCEPTED; anything else raises rather than being reported
          as success. Identify taught this: a well-formed reply is not the same
          as an accepted command.
 
-    `build_inner(before: dict) -> str` receives the parsed current section and
-    must return the inner document to write (e.g. "<General>...</General>"),
-    having changed only what it intends and having REFUSED -- by raising
-    ConfigWriteError -- if the read shows anything it does not recognise well
-    enough to preserve. The confinement rules are the caller's, because they are
-    domain-specific (only <Dim> for brightness; shareedit's own guards for
-    shares). This function owns the transport and the accepted-check, nothing
-    more.
+    `build_section_document(before: dict) -> str` receives the parsed current
+    section and must return the inner document to write (e.g.
+    "<General>...</General>"), having changed only what it intends and
+    having REFUSED -- by raising ConfigWriteError -- if the read shows anything
+    it does not recognise well enough to preserve. The confinement rules are the
+    caller's, because they are domain-specific (only <Dim> for brightness;
+    shareedit's own guards for shares). This function owns the transport and
+    the accepted-check, nothing more.
 
     `readback` is the optional arbiter for a write the device never answers --
     a zero-argument callable returning True when the device now shows the
     intended change. Pass it for every write that has a read-back available:
     without it, a write that applied but was never acknowledged can only be
-    reported as ConfigWriteOutcomeUnknownError. See _send_inner.
+    reported as ConfigWriteOutcomeUnknownError. See
+    _send_section_document.
 
     Returns a small dict: what was sent, the device's result code, and whether
-    the device acknowledged it (see _send_inner's RESULT KEYS). Raises
-    ConfigWriteError on a bad section, a failed read, a build refusal, a
-    non-accepted result, a transport error before the frame went out, or a
-    read-back that shows the change absent; ConfigWriteOutcomeUnknownError when the
-    frame went out and neither the device nor a read-back could settle it.
+    the device acknowledged it (see _send_section_document's RESULT
+    KEYS). Raises ConfigWriteError on a bad section, a failed read, a
+    build refusal, a non-accepted result, a transport error before the frame
+    went out, or a read-back that shows the change absent;
+    ConfigWriteOutcomeUnknownError when the frame went out and neither the
+    device nor a read-back could settle it.
 
     KNOWN LIMITATION -- the read and the write are separate connections, and
     nasd offers no locking, so this read-modify-write is not atomic. If some
@@ -532,13 +538,13 @@ def set_config(host: str, esa_id: str, section: str, build_inner,
     # The gate is real, not advisory. eCmdSetConfig is in commands.DESTRUCTIVE
     # so no other code path may send it; this function is the sanctioned
     # exception and says so by name, so "who can write config" is one grep.
-    write_cmd = "eCmdSetConfig"
-    if write_cmd not in _commands.VETTED_WRITES:
+    command_name = "eCmdSetConfig"
+    if command_name not in _commands.VETTED_WRITES:
         raise ConfigWriteError(
-            f"{write_cmd} is not a vetted write (commands.VETTED_WRITES)")
-    cmd_id = _commands.COMMANDS.get(write_cmd)
-    if cmd_id is None:
-        raise ConfigWriteError(f"{write_cmd} has no confirmed command id")
+            f"{command_name} is not a vetted write (commands.VETTED_WRITES)")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise ConfigWriteError(f"{command_name} has no confirmed command id")
 
     # Read first -- always, and WITHOUT redaction. A write must echo back every
     # field it does not change, and get_config's normal masking of credential
@@ -547,18 +553,20 @@ def set_config(host: str, esa_id: str, section: str, build_inner,
     before = get_config(host, esa_id, section, port=port, timeout=timeout,
                         redact=False)
 
-    inner = build_inner(before)
-    if not isinstance(inner, str) or not inner.strip():
+    section_document = build_section_document(before)
+    if not isinstance(section_document, str) or not section_document.strip():
         raise ConfigWriteError(
-            "build_inner must return a non-empty document string")
+            "build_section_document must return a non-empty document string")
 
-    return _send_inner(host, esa_id, section, inner, cmd_id, port, timeout,
-                       readback=readback)
+    return _send_section_document(host, esa_id, section, section_document,
+                                  command_id, port, timeout,
+                                  readback=readback)
 
 
-def _send_inner(host: str, esa_id: str, section: str, inner: str,
-                cmd_id: int, port: float, timeout: float,
-                readback=None) -> dict:
+def _send_section_document(host: str, esa_id: str, section: str,
+                           section_document: str,
+                           command_id: int, port: float, timeout: float,
+                           readback=None) -> dict:
     """
     The shared tail of every eCmdSetConfig write: confine, escape, send, decide.
 
@@ -610,7 +618,7 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
     # wipe every share. Parse it and require its root to be the section's own
     # element.
     try:
-        root_el = ET.fromstring(inner)
+        root_el = ET.fromstring(section_document)
     except ET.ParseError as exc:
         raise ConfigWriteError(f"the document to write is not valid XML: {exc}") from exc
     expected_root = SECTIONS[section]
@@ -624,18 +632,19 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
     # carry the sentinel. If it does -- a device that literally stored
     # "[redacted]", or a value sourced from a redacted read -- refuse rather
     # than write a mask over a real value.
-    if _REDACTED in inner:
+    if _REDACTION_SENTINEL in section_document:
         raise ConfigWriteError(
-            f"the document to write contains the redaction sentinel {_REDACTED!r}; "
+            f"the document to write contains the redaction sentinel {_REDACTION_SENTINEL!r}; "
             f"refusing -- a masked value must never be written back to the device")
 
     # The device escapes the inner document into <Params>. quote=False so only
     # &lt; &gt; &amp; are produced -- the only escaping the capture confirmed;
     # emitting &#x27;/&quot; for an apostrophe in a device or share name is not
     # something the wire format was ever observed to accept.
-    escaped = html.escape(f"<{_WRITE_ROOT}>{inner}</{_WRITE_ROOT}>", quote=False)
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><ESAID>{esa_id}</ESAID>"
-           f"<Params>{escaped}</Params></TMCmd>").encode() + b"\x00"
+    escaped = html.escape(f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>", quote=False)
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params>{escaped}</Params></TMCmd>").encode() + b"\x00"
 
     # Everything from here to the sendall below is the "nothing happened" half
     # of the write. A refused connection, a rejected login, a login reply we
@@ -653,18 +662,18 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
         # applied", which would be a lie about a login that never got as far
         # as sending the command frame.
         try:
-            sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-            msg_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
+            sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+            frame_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
         except (OSError, ConfigError) as exc:
             raise ConfigWriteError(f"could not log in to write: {exc}") from exc
-        if msg_type != TYPE_LOGIN_OK:
-            raise ConfigWriteError(f"login refused (type 0x{msg_type:02x})")
+        if frame_type != TYPE_LOGIN_OK:
+            raise ConfigWriteError(f"login refused (type 0x{frame_type:02x})")
 
         # A partial sendall raises too, and that also counts as not sent: a
         # truncated DRINETTM frame is a length the device is still waiting to
         # fill, not a command it can parse and act on.
         try:
-            sock.sendall(_frame(TYPE_COMMAND, xml))
+            sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
         except OSError as exc:
             raise ConfigWriteError(f"the write was not sent: {exc}") from exc
 
@@ -678,7 +687,7 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
             # case below, now reached in bounded time rather than never: the
             # budget runs out, the ConfigError lands here, and the read-back
             # settles the outcome exactly as it does for a dropped connection.
-            msg_type, body = _read_frame(sock, deadline=time.monotonic() + timeout)
+            frame_type, body = _read_frame(sock, deadline=time.monotonic() + timeout)
         except (OSError, ConfigError) as exc:
             # The device hung up (or went silent) before answering. Not an
             # answer of "no" -- no answer at all.
@@ -688,15 +697,15 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
             # The device answered. This is the path that already worked, and it
             # is deliberately unchanged: a real result frame still decides the
             # outcome on its own, with no read-back involved.
-            if msg_type != TYPE_RESULT:
+            if frame_type != TYPE_RESULT:
                 # Noise, not a verdict. A reply we cannot read as a result is
                 # no more an answer of "no" than silence is, and the command
                 # frame is already on the wire either way -- so the read-back
                 # settles it, exactly as it does when nothing comes back.
                 unacknowledged = ConfigError(
-                    f"unexpected reply type 0x{msg_type:02x}")
+                    f"unexpected reply type 0x{frame_type:02x}")
             else:
-                code = _result_code(body or b"")
+                code = _parse_result_code(body or b"")
                 if code != RESULT_ACCEPTED:
                     raise ConfigWriteError(
                         f"the device did not accept the write "
@@ -708,14 +717,16 @@ def _send_inner(host: str, esa_id: str, section: str, inner: str,
                 # local -- straight to the caller. A size and root are enough
                 # to log or display.
                 return {"section": section, "sent_root": root_el.tag,
-                        "sent_bytes": len(inner), "result_code": code,
+                        "sent_bytes": len(section_document),
+                        "result_code": code,
                         "acknowledged": True}
     finally:
         sock.close()
 
     # Reached only when the frame went out and the acknowledgement did not come
     # back. The socket is closed first so the arbitrating read starts clean.
-    return _arbitrate_unacknowledged(section, root_el.tag, len(inner),
+    return _arbitrate_unacknowledged(section, root_el.tag,
+                                     len(section_document),
                                      readback, unacknowledged)
 
 
@@ -727,9 +738,9 @@ def decided_by_readback(result: dict) -> bool:
     Callers use this for two things. A UI or API layer needs it to say "the
     change is there, but the device never confirmed it" rather than a flat
     "done". A write function needs it to SKIP its own confirming read-back:
-    _send_inner has already done that read and only returns at all when the
-    change was present, so reading again just invites a second answer that
-    could disagree with the first.
+    _send_section_document has already done that read and only returns at all
+    when the change was present, so reading again just invites a second answer
+    that could disagree with the first.
     """
     return result.get("acknowledged") is False
 
@@ -804,25 +815,27 @@ def get_config_element(host: str, esa_id: str, section: str,
     if section not in SECTIONS:
         raise ConfigError(f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
-    name = "eCmdGetConfig"
-    cmd_id = _commands.COMMANDS.get(name)
-    if cmd_id is None:
-        raise ConfigError(f"{name} has no confirmed command id")
+    command_name = "eCmdGetConfig"
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise ConfigError(f"{command_name} has no confirmed command id")
     tag = SECTIONS[section]
-    xml = (f"<TMCmd><CmdID>{cmd_id}</CmdID><ESAID>{esa_id}</ESAID>"
-           f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:
-        sock.sendall(_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        msg_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
-        if msg_type != TYPE_LOGIN_OK:
-            raise ConfigError(f"login refused (type 0x{msg_type:02x})")
-        sock.sendall(_frame(TYPE_COMMAND, xml))
-        msg_type, body = _read_frame(sock, deadline=time.monotonic() + timeout)
-        if msg_type != TYPE_RESULT:
-            raise ConfigError(f"unexpected reply type 0x{msg_type:02x}")
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
+        if frame_type != TYPE_LOGIN_OK:
+            raise ConfigError(f"login refused (type 0x{frame_type:02x})")
+        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
+        frame_type, body = _read_frame(
+            sock, deadline=time.monotonic() + timeout)
+        if frame_type != TYPE_RESULT:
+            raise ConfigError(f"unexpected reply type 0x{frame_type:02x}")
         if not body:
             raise ConfigError(f"device returned nothing for {section!r}")
     finally:
@@ -863,7 +876,8 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
     receives the parsed <DRIShareConfig> (or <Network>...) Element, mutates it
     in place (typically one .text change on one node), and returns nothing. The
     element is un-redacted, so real credential values round-trip untouched;
-    _send_inner's sentinel check still guards against a mask slipping in.
+    _send_section_document's sentinel check still guards against a mask
+    slipping in.
 
     `edit` may instead RETURN the complete inner document as a string, built
     from the element it was handed. That exists for one reason: some captured
@@ -872,32 +886,33 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
     <ShareMaxTMSizeGB></ShareMaxTMSizeGB> pair, which ET can only emit as
     <ShareMaxTMSizeGB />. Mirroring a capture byte-for-byte therefore needs
     string-level control of the one piece being added. A returned document
-    passes through every check in _send_inner unchanged -- confinement to the
-    section root, the sentinel refusal, the accepted-check -- so it is exactly
-    as guarded as the mutate-in-place path.
+    passes through every check in _send_section_document unchanged --
+    confinement to the section root, the sentinel refusal, the accepted-check
+    -- so it is exactly as guarded as the mutate-in-place path.
 
     Same gate, confinement, accepted-check, read-back arbitration (`readback`)
     and KNOWN LIMITATION (non-atomic RMW) as set_config -- see there. Returns
     the same summary.
     """
-    write_cmd = "eCmdSetConfig"
-    if write_cmd not in _commands.VETTED_WRITES:
+    command_name = "eCmdSetConfig"
+    if command_name not in _commands.VETTED_WRITES:
         raise ConfigWriteError(
-            f"{write_cmd} is not a vetted write (commands.VETTED_WRITES)")
-    cmd_id = _commands.COMMANDS.get(write_cmd)
-    if cmd_id is None:
-        raise ConfigWriteError(f"{write_cmd} has no confirmed command id")
+            f"{command_name} is not a vetted write (commands.VETTED_WRITES)")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise ConfigWriteError(f"{command_name} has no confirmed command id")
 
     element = get_config_element(host, esa_id, section, port=port, timeout=timeout)
     replacement = edit(element)
     if replacement is None:
-        inner = ET.tostring(element, encoding="unicode")
+        section_document = ET.tostring(element, encoding="unicode")
     elif isinstance(replacement, str) and replacement.strip():
-        inner = replacement
+        section_document = replacement
     else:
         raise ConfigWriteError(
             "edit must mutate the element in place (returning None) or return "
             "the complete inner document as a non-empty string; got "
             f"{type(replacement).__name__}")
-    return _send_inner(host, esa_id, section, inner, cmd_id, port, timeout,
-                       readback=readback)
+    return _send_section_document(host, esa_id, section, section_document,
+                                  command_id, port, timeout,
+                                  readback=readback)

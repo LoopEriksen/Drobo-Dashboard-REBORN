@@ -123,12 +123,12 @@ class FakeDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._recv_frame(conn)  # login
-                conn.sendall(cc._frame(cc.TYPE_LOGIN_OK if self.login_ok else 0x99, b""))
+                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK if self.login_ok else 0x99, b""))
                 if not self.login_ok:
                     conn.close(); continue
                 payload = self._recv_frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
-                conn.sendall(cc._frame(cc.TYPE_RESULT, reply))
+                conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
                 conn.close()
             except OSError:
                 break
@@ -252,27 +252,28 @@ except cc.ConfigWriteError:
 
 print("\n== set_config itself: the transport guarantees ==")
 
-# build_inner returning junk is refused before anything is sent.
+# build_section_document returning junk is refused before anything is
+# sent.
 dev = FakeDrobo([_general_reply(), _result(cc.RESULT_ACCEPTED)])
 try:
     cc.set_config("127.0.0.1", ESA, "general", lambda before: "", port=dev.port, timeout=5)
-    check("an empty build_inner is refused", False)
+    check("an empty build_section_document is refused", False)
 except cc.ConfigWriteError:
-    check("an empty build_inner is refused", True)
+    check("an empty build_section_document is refused", True)
 
 dev = FakeDrobo([_general_reply(), _result(cc.RESULT_ACCEPTED)])
 try:
     cc.set_config("127.0.0.1", ESA, "general", lambda before: "not xml", port=dev.port, timeout=5)
-    check("a non-XML build_inner is refused", False)
+    check("a non-XML build_section_document is refused", False)
 except cc.ConfigWriteError:
-    check("a non-XML build_inner is refused", True)
+    check("a non-XML build_section_document is refused", True)
 
 check("an unknown section is refused",
       _raises(lambda: cc.set_config("127.0.0.1", ESA, "nonsense",
                                     lambda b: "<x/>", port=1, timeout=1),
               cc.ConfigWriteError))
 
-# build_inner sees the REAL prior read, not an empty dict.
+# build_section_document sees the REAL prior read, not an empty dict.
 seen = {}
 dev = FakeDrobo([_general_reply(feature="5", spindown="0", dim="59"),
                  _result(cc.RESULT_ACCEPTED)])
@@ -284,12 +285,13 @@ def _capture(before):
 
 
 cc.set_config("127.0.0.1", ESA, "general", _capture, port=dev.port, timeout=5)
-check("build_inner is handed the device's current document",
+check("build_section_document is handed the device's current document",
       isinstance(seen.get("before"), dict) and seen["before"], seen)
 
 print("\n== the write is confined to the section it read ==")
-# A build_inner whose document is NOT the section's element is refused, so an
-# empty-DRIShareConfig 'wipe every share' cannot be shipped under section=general.
+# A build_section_document whose document is NOT the section's element is
+# refused, so an empty-DRIShareConfig 'wipe every share' cannot be shipped under
+# section=general.
 dev = FakeDrobo([_general_reply(), _result(cc.RESULT_ACCEPTED)])
 try:
     cc.set_config("127.0.0.1", ESA, "general",
@@ -316,7 +318,8 @@ except cc.ConfigWriteError as exc:
 check("...and the masked write never reached the device", len(dev.sent) == 1, dev.sent)
 
 # And the baseline read really is un-redacted: a secret-named field in the
-# General reply comes through to build_inner intact, not masked.
+# General reply comes through to build_section_document intact, not
+# masked.
 grabbed = {}
 dev = FakeDrobo([(f"<TMCmd><CmdID>30</CmdID><ResultDetails>"
                   f"<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>"
@@ -334,7 +337,8 @@ try:
     cc.set_config("127.0.0.1", ESA, "general", _grab, port=dev.port, timeout=5)
 except cc.ConfigWriteError:
     pass
-check("the write-path read is NOT redacted (real secret reaches build_inner)",
+check("the write-path read is NOT redacted "
+      "(real secret reaches build_section_document)",
       grabbed.get("AccessKey") == "hunter2", grabbed)
 
 print("\n== the gate is real: eCmdSetConfig is a vetted write ==")
@@ -344,8 +348,8 @@ check("...and is STILL refused to ordinary senders (in DO_NOT_SEND)",
       "eCmdSetConfig" in C.DO_NOT_SEND)
 
 print("\n== a non-scalar General sibling is refused, not repr'd ==")
-# _to_dict yields a dict for an element with children; set_dimming must not
-# serialize {'x': '1'} into the block.
+# _element_to_dict yields a dict for an element with children; set_dimming must
+# not serialize {'x': '1'} into the block.
 dev = FakeDrobo([(f"<TMCmd><CmdID>30</CmdID><ResultDetails>"
                   f"<FeatureStates><Nested>1</Nested></FeatureStates>"
                   f"<SpindownDelay>14</SpindownDelay><Dim>59</Dim>"
