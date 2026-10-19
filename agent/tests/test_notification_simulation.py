@@ -28,6 +28,9 @@ So this test does two things the others cannot:
 The category mapping is a Python port of AlertNotifier.CategoryFor kept in
 lockstep by test #3 below, which asserts the C# source still contains every
 prefix rule this port relies on. Change one, the other test fails.
+Test #3 also reads the ids of the C# Categories list, which the
+app's Settings switches are built from, and requires them to be
+exactly the categories this port routes to.
 """
 import atexit
 import json
@@ -89,7 +92,10 @@ def category_for(key: str) -> str:
     return ""
 
 
-CATEGORIES = {"drives", "temperature", "capacity", "battery", "unreachable", "pack", "hardware"}
+# Every category category_for() can return. Test #3 requires these to be
+# exactly the ids of AlertNotifier.Categories in the C# app.
+CATEGORIES = {"drives", "temperature", "capacity", "battery",
+              "unreachable", "pack", "hardware"}
 
 # ---------------------------------------------------------------------------
 # Part 1: a live mock agent, faults injected through the real API
@@ -300,6 +306,24 @@ for rule in ('"drive-"', '"temp-"', '"chassis-temp-"', '"capacity-"', '"battery-
              '"unreachable"', '"double-degraded"', '"relayout"', '"pack-status-"', '"-cleared"',
              '"power-"', '"fan-"'):
     check(f"C# notifier still contains the {rule} rule this port mirrors", rule in cs)
+
+# The categories themselves must match too. The app builds its Settings
+# switches from AlertNotifier.Categories and loads the saved settings
+# only for the ids in it, and a category with no entry there counts as
+# off. So a category this port routes to but the C# list has dropped
+# could never be switched on, and its alerts would never notify.
+categories_block = re.search(r"\bCategories\s*=\s*\{(.*?)\};", cs, re.S)
+cs_category_ids = (
+    re.findall(r'\(\s*"([a-z-]+)"\s*,', categories_block.group(1))
+    if categories_block else [])
+check("found the category ids of the C# Categories list",
+      bool(cs_category_ids), cs_category_ids)
+missing_from_cs = sorted(CATEGORIES - set(cs_category_ids))
+check("every category this port routes to is a row of the C# list",
+      not missing_from_cs, missing_from_cs)
+unknown_to_port = sorted(set(cs_category_ids) - CATEGORIES)
+check("the C# list has no category this port never routes to",
+      not unknown_to_port, unknown_to_port)
 
 print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
 sys.exit(1 if fails else 0)

@@ -34,6 +34,16 @@ released. Every push to this repository carries this file.
   already did, and the bad-signature check requires the bad-signature
   error. Tests only: nothing the software sends to a Drobo changes, and
   the suite still has 60 checks. (2026-10-19)
+- **The notification test now notices a category missing from the
+  Windows app.** `agent/tests/test_notification_simulation.py` listed the
+  seven notification categories its port of the app's routing can return,
+  but never used the list, so it did not check the app's own Categories
+  list in `AlertNotifier.cs`. The app builds its Settings switches from
+  that list and keeps saved settings only for the categories in it, so a
+  category dropped from it could never be switched on. The test now reads
+  that list's ids and fails if they are not exactly its own seven. Tests
+  only: the app and agent are unchanged, and nothing is sent to a Drobo.
+  The suite gains three checks for this (54 to 57). (2026-10-19)
 - **The capture dissector finishes instead of crashing.**
   `tools/nasd_dissect.py` stopped with a Python `NameError` whenever it
   could not work out a frame layout. That happened on an empty capture, on
