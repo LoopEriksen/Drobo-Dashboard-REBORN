@@ -6,6 +6,23 @@ released. Every push to this repository carries this file.
 
 ## Unreleased
 
+### Added
+- **Kept activity figures show how old they are.** When a fetch of the
+  Drobo's read/write counters fails, the agent keeps serving the last
+  figures, and the command port can stop answering for half an hour. Until
+  now those kept figures looked as fresh as a new reading everywhere they
+  appeared. The agent's performance data (`/api/performance`, and
+  `performance` in `/api/status`) gains `measured_at`, the time the Drobo
+  sent the figures, in Unix seconds, or null before it ever has; no
+  existing key changes. When the figures are more than three minutes old
+  (the agent's two-minute refresh plus a minute's slack), the browser
+  dashboard's Recent activity panel and the Windows app's Status tab say
+  "Last read ... ago" beside them, and the Windows app's saved diagnostics
+  report gives the time under PERFORMANCE. Nothing sent to the Drobo
+  changes, nor how often. `test_drivers.py` gains nine checks for this
+  (54 to 63) and `test_agent.py` one (271 to 272). The Windows changes
+  have not been through a Windows build yet. (2026-10-19)
+
 ### Fixed
 - **A status-channel test can no longer pass without testing what it
   names.** Three socket cases in `sdk/tests/test_esatm.py` sent from
@@ -90,6 +107,11 @@ released. Every push to this repository carries this file.
   (`in-use`), and which front-ends receive as `found_by`. (2026-10-19)
 
 ### Changed
+- **The browser dashboard's activity note no longer promises a refresh.**
+  It said the figures were "refreshed every couple of minutes", which is
+  false while the Drobo is not answering. It now says the agent asks for
+  them every couple of minutes, and the age line above covers the rest.
+  (2026-10-19)
 - **The project is now free software: GPL-3.0-or-later.** Until now no
   licence had been granted and all rights were reserved. The full text is
   `LICENSE` at the top of the repository, the README's License section says

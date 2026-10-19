@@ -139,6 +139,11 @@ internal static class DiagnosticsReport
             AppendField(sb, "Read", Long(perf, "read_mb_per_s") + " MB/s");
             AppendField(sb, "Write", Long(perf, "write_mb_per_s") + " MB/s");
             AppendField(sb, "IOPS", Long(perf, "iops").ToString());
+            // When the Drobo sent these: a failed fetch keeps the last figures,
+            // so they can be much older than the report.
+            if (perf.TryGetProperty("measured_at", out var measuredAt) && measuredAt.ValueKind == JsonValueKind.Number)
+                AppendField(sb, "Measured at", DateTimeOffset.FromUnixTimeMilliseconds((long)(measuredAt.GetDouble() * 1000))
+                    .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
             sb.AppendLine();
         }
     }

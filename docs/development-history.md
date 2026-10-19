@@ -737,6 +737,22 @@ the bundled Python already ships its own `LICENSE.txt`, because the build
 unpacks the embeddable zip whole. That one-line build change has not been
 through a Windows build yet.
 
+## Kept figures say how old they are (2026-10-19)
+
+**10-19.** The rule recorded when the command port first stopped answering, on
+07-26, is that a kept reading travels with its timestamp and anything showing
+it shows its age. The temperature follows it. The read/write counters, fetched
+on the same connection, did not: the driver noted when they arrived in
+`_perf_at` and nothing read it, so after a failed fetch the last figures were
+served every poll as a fresh measurement. A review of code that nothing used
+found it, and it was wired up rather than deleted. The performance data now
+carries `measured_at`, and the browser dashboard and the Windows app show
+"Last read ... ago" once the figures are more than three minutes old, one
+missed two-minute refresh plus slack. The browser note that said the figures
+were "refreshed every couple of minutes" now says the agent asks for them that
+often, which stays true while the Drobo is not answering. The Windows half has
+not been through a Windows build yet.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

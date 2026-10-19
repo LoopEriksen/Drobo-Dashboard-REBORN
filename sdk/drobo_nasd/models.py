@@ -141,6 +141,13 @@ class PerformanceInfo:
     that never got an answer leaves it False, so a caller can tell "idle" from
     "we don't know" -- which matters here, because a genuinely idle array
     reports zeros that look identical to no reading at all.
+
+    `measured_at` is when the device sent these figures (Unix seconds),
+    or None when it never has. The command port stops answering for a
+    while under load, and a failed fetch keeps the last figures, so a
+    reading can be far older than the poll that carries it. Like
+    DeviceInfo.temperature_at, anything displaying an old reading must
+    show its age.
     """
 
     read_mb_per_s: int = 0
@@ -148,6 +155,7 @@ class PerformanceInfo:
     iops: int = 0
     tier_iops: int = 0
     measured: bool = False
+    measured_at: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

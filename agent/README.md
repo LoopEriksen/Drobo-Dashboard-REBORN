@@ -90,7 +90,7 @@ Starts a real agent on port 7431 of this PC (a fixed port, so run one copy
 of the tests at a time), exercises every endpoint, checks the answers, and
 stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
-raises the "cannot reach" alert; no Drobo is contacted. 271 checks as of 2026-10-19 (the number grows with
+raises the "cannot reach" alert; no Drobo is contacted. 272 checks as of 2026-10-19 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.

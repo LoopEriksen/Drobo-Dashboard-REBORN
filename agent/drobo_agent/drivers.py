@@ -945,6 +945,7 @@ class MockDriver(DroboDriver):
             write_mb_per_s=write_mb,
             iops=max(0, int(read_mb * 4 + write_mb * 2 + random.uniform(-5, 5))),
             measured=True,
+            measured_at=time.time(),  # simulated afresh on every poll
         )
 
 
@@ -1048,6 +1049,9 @@ class Drobo5NDriver(DroboDriver):
         # None until the device has answered once -- distinct from "all zeros",
         # which is what a real but idle array reports.
         self._perf: dict | None = None
+        # When `_perf` arrived -- the twin of `_temp_at`. A failed
+        # fetch keeps the old figures, so this, not the poll time, is
+        # their age.
         self._perf_at: float | None = None
         # The device's own event log (eCmdGetUserEventLog), cached like the
         # temperature but on a slower clock: it costs its own command-port
@@ -1199,12 +1203,15 @@ class Drobo5NDriver(DroboDriver):
         if self._perf is not None:
             # measured=True even when every counter is zero: an idle array
             # really does report zeros, and that is a reading, not a gap.
+            # measured_at is when they arrived, which after a failed
+            # fetch is earlier than this poll -- the UIs show that age.
             snap.performance = PerformanceInfo(
                 read_mb_per_s=self._perf.get("read_mb_per_s") or 0,
                 write_mb_per_s=self._perf.get("write_mb_per_s") or 0,
                 iops=self._perf.get("iops") or 0,
                 tier_iops=self._perf.get("tier_iops") or 0,
                 measured=True,
+                measured_at=self._perf_at,
             )
         self._read_event_log(host)
         snap.event_log = list(self._event_log)

@@ -115,7 +115,7 @@ convention.
 | Capacity: raw, usable, used, free, and what is held back for protection | **Complete** | |
 | Volumes (what Windows shows as drive letters) | **Complete** | |
 | Chassis temperature and uptime, always with the age of the reading | **Complete** | Per-drive temperature reads 0 on a 5N; the chassis reading stands in |
-| Throughput and IOPS | **Complete** | Units inferred as megabytes per second; counters lag ~25 s |
+| Throughput and IOPS, with the age of a kept reading | **Complete** | Units inferred as megabytes per second; counters lag ~25 s. A failed fetch keeps the last figures, which carry `measured_at` (the time the Drobo sent them) since 2026-10-19; both UIs show their age once it passes three minutes, and the Windows diagnostics report gives the time. Before that, kept figures looked fresh. The Windows side has not been through a Windows build yet |
 | Pack health: relayout and double-degraded counts, rebuild notice | **Complete** | |
 | Network configuration (read-only) and port speed | **Complete** | |
 | Shares, with each share's per-user access list | **Complete** | Code 1 = read/write confirmed; code 0 shown hedged; code 2 never observed |

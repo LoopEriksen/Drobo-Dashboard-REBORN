@@ -164,6 +164,8 @@ s, b = call("/api/performance")
 check("performance endpoint 200", s == 200, b)
 check("performance has read/write bps",
       "read_mb_per_s" in b and "write_mb_per_s" in b, b)
+check("performance says when it was measured",
+      isinstance(b.get("measured_at"), (int, float)), b)
 
 s, b = call("/api/status")
 check("status carries battery/fan/power/performance",

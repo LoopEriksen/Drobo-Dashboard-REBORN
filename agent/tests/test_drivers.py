@@ -15,6 +15,8 @@ socket. Covers the things that make these methods worth pinning down:
     without asking the device again
   * uptime and temperature each age from their own reading, so a reply
     carrying only one of them leaves the other's time alone
+  * performance figures carry the time they were measured, and a failed
+    fetch keeps both the figures and that original time
   * an event-log fetch failure degrades the snapshot to the cached (possibly
     empty) log without ever breaking the poll
 
@@ -357,6 +359,105 @@ try:
           (snap.device.temperature_c, snap.device.temperature_at))
     check("-- but its uptime is still shown",
           snap.device.uptime_seconds == 700, snap.device.uptime_seconds)
+finally:
+    drivers.time = _real_time_module
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _orig_get_sysinfo_and_performance)
+    nasd_esatm.read_snapshot = _orig_read_snapshot
+
+print("\n== performance figures carry the time they were measured ==")
+# A failed fetch keeps the last figures, as it keeps the temperature,
+# so their measured_at must stay at the time they arrived: the UIs show
+# that age, and kept figures stamped with the poll time would look
+# fresh.
+PERF_FIGURES = {"read_mb_per_s": 12, "write_mb_per_s": 3, "iops": 40,
+                "tier_iops": 0}
+PERF_UNANSWERED = {"read_mb_per_s": None, "write_mb_per_s": None,
+                   "iops": None, "tier_iops": None}
+perf_replies = [
+    {"temperature_c": 36, "uptime_seconds": 5000,
+     "performance": PERF_FIGURES},
+    OSError("simulated: command port stops answering"),
+    # sysinfo answered but eCmdGetPerformance did not (sysinfo.py then
+    # returns None for it), or answered with no usable figures.
+    {"temperature_c": 37, "uptime_seconds": 5240, "performance": None},
+    {"temperature_c": 37, "uptime_seconds": 5360,
+     "performance": PERF_UNANSWERED},
+    {"temperature_c": 38, "uptime_seconds": 5480,
+     "performance": {**PERF_FIGURES, "read_mb_per_s": 20}},
+]
+
+
+def _next_perf_reply(host, esa_id, port=None, timeout=8.0):
+    reply = perf_replies.pop(0)
+    if isinstance(reply, Exception):
+        raise reply
+    return reply
+
+
+fake_clock = _FakeClock(FAKE_START)
+drivers.time = fake_clock
+nasd_sysinfo.get_sysinfo_and_performance = _next_perf_reply
+nasd_esatm.read_snapshot = fake_read_snapshot
+try:
+    d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 100})
+    d._resolved_host = HOST
+    d._resolved_port = 5000
+    d._known_esa_id = ESA_ID
+
+    perf = d.read_snapshot().performance
+    check("a fresh reading is stamped with the time it arrived",
+          perf.measured and perf.read_mb_per_s == 12
+          and perf.measured_at == FAKE_START,
+          perf)
+    check("-- and the stamp is served in the snapshot's JSON",
+          d.read_snapshot().to_dict()["performance"]["measured_at"]
+          == FAKE_START)
+
+    fake_clock.now = FAKE_START + 120
+    perf = d.read_snapshot().performance
+    check("a failed fetch keeps the figures with their OLD time",
+          perf.measured and perf.read_mb_per_s == 12
+          and perf.measured_at == FAKE_START,
+          perf)
+
+    fake_clock.now = FAKE_START + 240
+    snap = d.read_snapshot()
+    check("a reply without performance keeps the old time too",
+          snap.performance.read_mb_per_s == 12
+          and snap.performance.measured_at == FAKE_START,
+          snap.performance)
+    check("-- while the temperature in that reply is stamped afresh",
+          snap.device.temperature_at == FAKE_START + 240,
+          snap.device.temperature_at)
+
+    fake_clock.now = FAKE_START + 360
+    perf = d.read_snapshot().performance
+    check("figures that are all unanswered keep the old time as well",
+          perf.read_mb_per_s == 12 and perf.measured_at == FAKE_START,
+          perf)
+
+    fake_clock.now = FAKE_START + 480
+    perf = d.read_snapshot().performance
+    check("the next good reading moves figures and time on together",
+          perf.read_mb_per_s == 20
+          and perf.measured_at == FAKE_START + 480,
+          perf)
+
+    never = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 100})
+    never._resolved_host = HOST
+    never._resolved_port = 5000
+    never._known_esa_id = ESA_ID
+    perf_replies[:] = [OSError("simulated: never answers")]
+    perf = never.read_snapshot().performance
+    check("no reading ever: not measured, and no time either",
+          not perf.measured and perf.measured_at is None, perf)
+
+    mock_perf = drivers.MockDriver({}).read_snapshot().performance
+    check("the mock driver stamps its simulated figures with now",
+          mock_perf.measured
+          and mock_perf.measured_at == fake_clock.now,
+          mock_perf)
 finally:
     drivers.time = _real_time_module
     nasd_sysinfo.get_sysinfo_and_performance = (

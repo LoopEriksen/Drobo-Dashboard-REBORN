@@ -2560,6 +2560,11 @@ public partial class MainWindow : Window
         VolumesCard.Visibility = Visibility.Visible;
     }
 
+    /// <summary>Older than this, the figures carry their age: the agent's
+    /// 120s refresh (sysinfo_seconds) plus a minute's slack for the poll
+    /// that shows it. Same threshold as webui.py's ACTIVITY_STALE_SECONDS.</summary>
+    private const double PerfStaleSeconds = 180;
+
     private void RenderPerformance(JsonElement s)
     {
         var perf = s.TryGetProperty("performance", out var pf) && pf.ValueKind == JsonValueKind.Object
@@ -2571,8 +2576,21 @@ public partial class MainWindow : Window
             PerfUnknown.Visibility = Visibility.Visible;
             PerfIdle.Visibility = Visibility.Collapsed;
             PerfActive.Visibility = Visibility.Collapsed;
+            PerfAge.Visibility = Visibility.Collapsed;
             return;
         }
+
+        // A failed fetch keeps the last figures, and the command port can stop
+        // answering for half an hour -- so past one missed refresh, say how old
+        // they are, as DeviceExtras does for the temperature. measured_at is
+        // absent from an older agent; Double() then gives 0 and no age shows.
+        double measuredAt = Double(perf, "measured_at");
+        bool stale = measuredAt > 0
+                     && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - measuredAt > PerfStaleSeconds;
+        PerfAge.Text = stale
+            ? "Last read " + RelativeTime(measuredAt) + " -- the Drobo has not sent newer figures since."
+            : "";
+        PerfAge.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
 
         long readMb = Long(perf, "read_mb_per_s");
         long writeMb = Long(perf, "write_mb_per_s");

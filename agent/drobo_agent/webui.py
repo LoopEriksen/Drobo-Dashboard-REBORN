@@ -142,6 +142,7 @@ ul.alerts li:last-child { border-bottom: 0; }
 .run.on { color: var(--ok); background: var(--ok-bg); }
 .run.off { color: var(--muted); background: var(--unknown-bg); }
 .activity-idle { font-size: .9rem; color: var(--muted); margin: 0; }
+.activity-age { font-size: .78rem; color: var(--warn); margin: .5rem 0 0; }
 /* Resolved alerts are history, not news -- present and readable, but visibly
    quieter than something still wrong. */
 .resolved-head { margin-top: 1rem; }
@@ -370,6 +371,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     <section class="panel" id="activityPanel" hidden>
       <h2>Recent activity</h2>
       <div class="figures" id="activityFigures"></div>
+      <p class="activity-age" id="activityAge" hidden></p>
       <p class="quiet activity-note" id="activityNote"></p>
     </section>
 
@@ -930,6 +932,10 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       .then(function () { btn.disabled = false; });
   }
 
+  // Older than this, the activity figures carry their age: the agent's
+  // two-minute refresh, plus a minute's slack for the poll that shows it.
+  var ACTIVITY_STALE_SECONDS = 180;
+
   function renderActivity(p) {
     var panel = $("activityPanel");
     if (!p || p.measured !== true) {
@@ -963,11 +969,25 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       });
     }
 
+    // The agent asks for fresh figures every two minutes, but a failed
+    // fetch keeps the last ones, and the command port can stop answering
+    // for half an hour. Past one missed refresh, say how old they are:
+    // old figures shown as current would be a lie.
+    var age = $("activityAge");
+    var stale = p.measured_at != null
+                && Date.now() / 1000 - p.measured_at > ACTIVITY_STALE_SECONDS;
+    age.hidden = !stale;
+    age.textContent = stale
+      ? "Last read " + ago(p.measured_at) + " — the Drobo has not sent " +
+        "newer figures since."
+      : "";
+
     $("activityNote").textContent =
       "This is recent activity, not a live reading. The Drobo's own counters " +
-      "lag by around half a minute and this is refreshed every couple of " +
-      "minutes, so a big copy can be well underway before the numbers move — " +
-      "seeing zero here while the drive light is busy is normal.";
+      "lag by around half a minute and the agent asks for them only every " +
+      "couple of minutes, so a big copy can be well underway before the " +
+      "numbers move — seeing zero here while the drive light is busy is " +
+      "normal.";
   }
 
   // Note: rank lookups must not use `||` for the default -- critical is 0,

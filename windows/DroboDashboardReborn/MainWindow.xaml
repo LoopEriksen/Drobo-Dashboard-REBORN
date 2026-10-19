@@ -855,6 +855,11 @@
                                         </StackPanel>
                                     </StackPanel>
 
+                                    <!-- the age of kept figures: a failed fetch re-serves the last ones,
+                                         so past one missed refresh RenderPerformance says how old they are -->
+                                    <TextBlock x:Name="PerfAge" Text="" FontFamily="Consolas" FontSize="11" Foreground="#E9A83C"
+                                               TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+
                                     <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                                                Text="Recent activity, not a live reading -- it can lag real use by up to a couple of minutes, so seeing 0 during a big copy is normal."/>
                                 </StackPanel>
