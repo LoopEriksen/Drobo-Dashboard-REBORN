@@ -12,7 +12,6 @@ import os
 import socket
 import struct
 import sys
-import threading
 import time
 
 sys.path.insert(0, os.path.abspath(
@@ -143,20 +142,34 @@ check("a field that IS present still parses", _ph.device_status == 98304,
 
 print("\n== frame reading over a real socket ==")
 frame = esatm.SIGNATURE + b"\x01\x01\x00\x00" + struct.pack(">I", len(payload)) + payload
+# Each peer below sends from this thread, before the read, as
+# test_config_cmd.py does. They used to send from threads whose lambdas
+# looked `b` up when they RAN, so a sender still going when the next
+# case rebound `b` closed that case's socket instead of its own. The
+# biggest frame here is the greeting, about 7 KB: a socketpair holds
+# that with nobody reading yet, so the send does not block. Not by a
+# wide margin everywhere -- macOS gives an AF_UNIX pair only 8 KB by
+# default -- so a much bigger fixture would need a reader first.
 a, b = socket.socketpair()
-threading.Thread(target=lambda: (b.sendall(frame), b.close()), daemon=True).start()
+b.sendall(frame)
+b.close()
 got = esatm.read_frame(a)
 a.close()
 check("read_frame returns the exact payload", got == payload, len(got))
 
 print("\n== a bad signature is rejected ==")
 a, b = socket.socketpair()
-threading.Thread(target=lambda: (b.sendall(b"NOTDROBO" + b"\x00" * 8), b.close()), daemon=True).start()
+b.sendall(b"NOTDROBO" + b"\x00" * 8)
+b.close()
 try:
     esatm.read_frame(a)
     check("bad signature raises", False)
-except esatm.FrameError:
-    check("bad signature raises FrameError", True)
+except esatm.FrameError as exc:
+    # The message too, not just the class: a peer that hangs up before
+    # sending raises FrameError as well ("short header"), which is how a
+    # socket closed too early could pass this with no signature read.
+    check("bad signature raises FrameError", "bad signature" in str(exc),
+          exc)
 finally:
     a.close()
 
@@ -168,10 +181,8 @@ print("\n== a stalling peer cannot hold the read open for ever ==")
 # discovery lock. Anything on the LAN can answer on port 5000 and claim to be
 # a Drobo, so a peer that behaves badly on purpose is the realistic case.
 a, b = socket.socketpair()
-threading.Thread(
-    target=lambda: b.sendall(
-        esatm.SIGNATURE + b"\x01\x01\x00\x00" + struct.pack(">I", 4 * 1024 * 1024)),
-    daemon=True).start()
+b.sendall(esatm.SIGNATURE + b"\x01\x01\x00\x00"
+          + struct.pack(">I", 4 * 1024 * 1024))
 _t0 = time.monotonic()
 try:
     esatm.read_frame(a, deadline=time.monotonic() + 0.3)

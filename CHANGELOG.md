@@ -7,6 +7,16 @@ released. Every push to this repository carries this file.
 ## Unreleased
 
 ### Fixed
+- **A status-channel test can no longer pass without testing what it
+  names.** Three socket cases in `sdk/tests/test_esatm.py` sent from
+  threads that looked their socket up when they ran, not when they were
+  started, so a sender slow to run could close the next case's socket
+  instead of its own. The bad-signature case then passed on a hang-up,
+  because a short header raises the same error class. The cases now send
+  before they read, from the test itself, as `test_config_cmd.py`
+  already did, and the bad-signature check requires the bad-signature
+  error. Tests only: nothing the software sends to a Drobo changes, and
+  the suite still has 60 checks. (2026-10-19)
 - **The capture dissector finishes instead of crashing.**
   `tools/nasd_dissect.py` stopped with a Python `NameError` whenever it
   could not work out a frame layout. That happened on an empty capture, on
