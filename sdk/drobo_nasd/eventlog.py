@@ -88,16 +88,16 @@ def _command_xml(esa_id: str) -> bytes:
             f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
 
-def _lines(text: str) -> list[str]:
+def _display_lines(text: str) -> list[str]:
     """Split into display-ready lines: trailing whitespace (and the CR of a
     CRLF file) stripped, blank lines dropped, leading indentation kept in case
     the log uses it for continuation."""
-    out = []
-    for raw in text.splitlines():
-        line = raw.rstrip()
+    lines = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
         if line.strip():
-            out.append(line)
-    return out
+            lines.append(line)
+    return lines
 
 
 def parse_event_log(payload: bytes) -> list[str]:
@@ -126,18 +126,18 @@ def parse_event_log(payload: bytes) -> list[str]:
     and when an XML-looking body does not parse, which is indistinguishable
     from a truncated envelope and must not be shown as log lines.
     """
-    text = payload.rstrip(b"\x00")
-    if not text.strip():
+    trimmed_payload = payload.rstrip(b"\x00")
+    if not trimmed_payload.strip():
         return []
 
-    if not text.strip().startswith(b"<"):
+    if not trimmed_payload.strip().startswith(b"<"):
         # No envelope at all: treat as the file body served bare. Decoded with
         # errors="replace" -- a stray byte in somebody's log must not take the
         # whole fetch down.
-        return _lines(text.decode("utf-8", "replace"))
+        return _display_lines(trimmed_payload.decode("utf-8", "replace"))
 
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
         # Could be a truncated envelope, could be a text log whose first line
         # merely begins with "<". Not distinguishable, so fail loudly -- junk
@@ -153,22 +153,22 @@ def parse_event_log(payload: bytes) -> list[str]:
             "capture has shown; refusing to flatten an unseen schema into "
             "lines -- capture a real reply and teach parse_event_log")
 
-    raw = details.text or ""
-    if not raw.strip():
+    details_text = details.text or ""
+    if not details_text.strip():
         return []
 
-    unescaped = html.unescape(raw)
-    candidate = unescaped.strip()
-    if candidate.startswith("<"):
+    unescaped = html.unescape(details_text)
+    stripped_text = unescaped.strip()
+    if stripped_text.startswith("<"):
         try:
-            ElementTree.fromstring(candidate)
+            ElementTree.fromstring(stripped_text)
         except ElementTree.ParseError:
             pass  # ordinary log text that happens to open with "<"
         else:
             raise EventLogError(
                 "the event-log reply unescapes into an XML document, a shape "
                 "no capture has shown; refusing to guess its schema")
-    return _lines(unescaped)
+    return _display_lines(unescaped)
 
 
 def entries_from_lines(lines: list[str]) -> list[EventLogEntry]:

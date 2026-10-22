@@ -49,7 +49,7 @@ MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 # mDiskState -> our state. 16 = healthy, confirmed across five good drives.
 # 0 with an empty slot means no disk. Any other non-zero value is unknown, so
 # it maps to WARNING rather than being silently treated as OK.
-_DISK_STATE = {16: STATE_OK, 0: STATE_EMPTY}
+_STATE_BY_DISK_STATE_CODE = {16: STATE_OK, 0: STATE_EMPTY}
 _EMPTY_SLOT_STATUS = 128  # mStatus for a bay with no disk
 
 
@@ -120,17 +120,17 @@ def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes:
     together; see _receive_exactly for why a socket timeout alone is not a
     bound. Keyword-optional so existing callers keep working unchanged.
     """
-    head = _receive_exactly(sock, HEADER_BYTES, deadline)
-    if len(head) < HEADER_BYTES:
-        raise FrameError(f"short header: got {len(head)} of {HEADER_BYTES} bytes")
-    if head[:8] != SIGNATURE:
-        raise FrameError(f"bad signature: {head[:8]!r}")
-    length = struct.unpack(">I", head[12:16])[0]
-    if length > MAX_PAYLOAD_BYTES:
-        raise FrameError(f"implausible payload length {length}")
-    payload = _receive_exactly(sock, length, deadline)
-    if len(payload) < length:
-        raise FrameError(f"short payload: got {len(payload)} of {length} bytes")
+    header = _receive_exactly(sock, HEADER_BYTES, deadline)
+    if len(header) < HEADER_BYTES:
+        raise FrameError(f"short header: got {len(header)} of {HEADER_BYTES} bytes")
+    if header[:8] != SIGNATURE:
+        raise FrameError(f"bad signature: {header[:8]!r}")
+    payload_length = struct.unpack(">I", header[12:16])[0]
+    if payload_length > MAX_PAYLOAD_BYTES:
+        raise FrameError(f"implausible payload length {payload_length}")
+    payload = _receive_exactly(sock, payload_length, deadline)
+    if len(payload) < payload_length:
+        raise FrameError(f"short payload: got {len(payload)} of {payload_length} bytes")
     return payload
 
 
@@ -151,19 +151,19 @@ def fetch_greeting(host: str, port: int = DEFAULT_PORT, timeout: float = 8.0) ->
         sock.close()
 
 
-def _int(el, tag: str, default: int = 0) -> int:
-    node = el.find(tag)
-    if node is None or not node.text:
+def _child_int(element, tag: str, default: int = 0) -> int:
+    child = element.find(tag)
+    if child is None or not child.text:
         return default
     try:
-        return int(node.text)
+        return int(child.text)
     except ValueError:
         return default
 
 
-def _text(el, tag: str, default: str = "") -> str:
-    node = el.find(tag)
-    return node.text if node is not None and node.text else default
+def _child_text(element, tag: str, default: str = "") -> str:
+    child = element.find(tag)
+    return child.text if child is not None and child.text else default
 
 
 def _parse_volumes(root) -> list[Volume]:
@@ -178,35 +178,40 @@ def _parse_volumes(root) -> list[Volume]:
     rather than 0, because a volume that reports no partition count is not a
     volume with zero partitions. Same rule as the pack status codes.
     """
-    updates = root.find("mLUNUpdates")
-    if updates is None:
+    lun_updates = root.find("mLUNUpdates")
+    if lun_updates is None:
         return []
 
-    out: list[Volume] = []
-    for node in updates:
+    volumes: list[Volume] = []
+    for volume_container in lun_updates:
         # Only numbered containers; anything else is not a volume.
-        if not re.fullmatch(r"n\d+", node.tag or ""):
+        if not re.fullmatch(r"n\d+", volume_container.tag or ""):
             continue
-        out.append(Volume(
-            lun=_int_or_none(node, "mLUN") or 0,
-            unique_id=_text(node, "mUniqueLUNID"),
+        volumes.append(Volume(
+            lun=_child_int_or_none(volume_container, "mLUN") or 0,
+            unique_id=_child_text(volume_container, "mUniqueLUNID"),
             # Drobo leaves the name empty on a single-volume pack; the front
             # end decides what to call it rather than us inventing one here.
-            name=_text(node, "mLUNName"),
-            max_size_bytes=_int_or_none(node, "mMaximumLUNSize") or 0,
-            used_bytes=_int_or_none(node, "mUsedCapacityOS") or 0,
-            partition_count=_int_or_none(node, "mPartitionCount"),
-            partition_type=_int_or_none(node, "mPartitionType"),
-            partition_format=_int_or_none(node, "mPartitionFormat"),
-            share_state=_int_or_none(node, "mShareState"),
+            name=_child_text(volume_container, "mLUNName"),
+            max_size_bytes=_child_int_or_none(
+                volume_container, "mMaximumLUNSize") or 0,
+            used_bytes=_child_int_or_none(
+                volume_container, "mUsedCapacityOS") or 0,
+            partition_count=_child_int_or_none(
+                volume_container, "mPartitionCount"),
+            partition_type=_child_int_or_none(
+                volume_container, "mPartitionType"),
+            partition_format=_child_int_or_none(
+                volume_container, "mPartitionFormat"),
+            share_state=_child_int_or_none(volume_container, "mShareState"),
         ))
-    out.sort(key=lambda v: v.lun)
-    return out
+    volumes.sort(key=lambda v: v.lun)
+    return volumes
 
 
-def _int_or_none(el, tag: str) -> int | None:
+def _child_int_or_none(element, tag: str) -> int | None:
     """
-    Like _int, but absent means None rather than 0.
+    Like _child_int, but absent means None rather than 0.
 
     This matters for the opaque pack-status codes. Their healthy baseline
     includes non-zero values (dnas_status=6, device_status=98304), so a missing
@@ -214,16 +219,16 @@ def _int_or_none(el, tag: str) -> int | None:
     claiming the code "changed" -- when in truth we simply never received it.
     None is the honest answer, and monitor._evaluate_alerts skips it.
     """
-    node = el.find(tag)
-    if node is None or not node.text:
+    child = element.find(tag)
+    if child is None or not child.text:
         return None
     try:
-        return int(node.text)
+        return int(child.text)
     except ValueError:
         return None
 
 
-def _threshold_fraction(el, tag: str) -> float | None:
+def _threshold_fraction(element, tag: str) -> float | None:
     """
     mRedThreshold/mYellowThreshold are the Drobo's own capacity alert
     levels, reported as hundredths of a percent (9500 == 95.00%).
@@ -232,11 +237,11 @@ def _threshold_fraction(el, tag: str) -> float | None:
     so preferring the device's own numbers when present (see
     monitor._evaluate_alerts) is a faithful improvement, not a guess.
     """
-    node = el.find(tag)
-    if node is None or not node.text:
+    child = element.find(tag)
+    if child is None or not child.text:
         return None
     try:
-        return int(node.text) / 10000.0
+        return int(child.text) / 10000.0
     except ValueError:
         return None
 
@@ -247,7 +252,7 @@ def _threshold_fraction(el, tag: str) -> float | None:
 # 4.3.1-8.126.117497 (the private capture of the status greeting from
 # 2026-07-24; the sanitised fixture sdk/tests/fixtures/esatm-sample.xml keeps
 # the same slot n5: state=0, capacity=0, no make).
-_BAY_COUNT = {
+_BAY_COUNT_BY_MODEL = {
     "Drobo 5N": 5,
 }
 
@@ -261,14 +266,14 @@ def _trim_phantom_slots(drives: list[DriveSlot], model: str) -> None:
     stays visible -- over-reporting a bay is a cosmetic bug, hiding a real drive
     would be a serious one.
     """
-    expected = _BAY_COUNT.get(model)
-    if not expected:
+    bay_count = _BAY_COUNT_BY_MODEL.get(model)
+    if not bay_count:
         return
-    while len(drives) > expected and not drives[-1].present:
+    while len(drives) > bay_count and not drives[-1].present:
         drives.pop()
 
 
-def _parse_root(payload: bytes) -> ElementTree.Element:
+def _parse_greeting_xml(payload: bytes) -> ElementTree.Element:
     """Strip the frame's trailing NUL (length includes it) and parse the XML."""
     return ElementTree.fromstring(payload.rstrip(b"\x00").rstrip())
 
@@ -285,13 +290,13 @@ def parse_identity(payload: bytes) -> dict:
     confirm "this is definitely (or definitely not) my Drobo" before trusting
     anything else the device says -- see nasd/discovery.py.
     """
-    root = _parse_root(payload)
+    root = _parse_greeting_xml(payload)
     return {
-        "esa_id": _text(root, "mESAID"),
-        "disk_pack_id": _text(root, "DNASDiskPackId"),
-        "name": _text(root, "mDroboName") or _text(root, "mName"),
-        "model": _text(root, "mModel"),
-        "firmware": _text(root, "mVersion"),
+        "esa_id": _child_text(root, "mESAID"),
+        "disk_pack_id": _child_text(root, "DNASDiskPackId"),
+        "name": _child_text(root, "mDroboName") or _child_text(root, "mName"),
+        "model": _child_text(root, "mModel"),
+        "firmware": _child_text(root, "mVersion"),
     }
 
 
@@ -299,56 +304,58 @@ def parse_esatm(payload: bytes) -> Snapshot:
     """Turn an <ESATMUpdate> payload into a Snapshot."""
     # The payload is NUL-terminated and the length includes the NUL, so strip
     # trailing NULs/whitespace before the XML parser sees it.
-    root = _parse_root(payload)
+    root = _parse_greeting_xml(payload)
 
     device = DeviceInfo(
-        name=_text(root, "mDroboName") or _text(root, "mName"),
+        name=_child_text(root, "mDroboName") or _child_text(root, "mName"),
         # The model comes from the device itself (mModel) rather than being
-        # hardcoded here -- _BAY_COUNT below still keys off the model string,
-        # so an unrecognized/missing mModel just means _trim_phantom_slots is
-        # a no-op (conservative: never hides a bay we don't have a count for).
-        model=_text(root, "mModel"),
+        # hardcoded here -- _BAY_COUNT_BY_MODEL above still keys off the
+        # model string, so an unrecognized/missing mModel just means
+        # _trim_phantom_slots is a no-op (conservative: never hides a bay
+        # we don't have a count for).
+        model=_child_text(root, "mModel"),
         # Top-level mESAID is the permanent hardware serial. NOTE: per-slot
         # mSerial (below) is each *disk's* serial -- a different thing, don't
         # confuse them.
-        serial=_text(root, "mESAID"),
-        firmware=_text(root, "mVersion"),
+        serial=_child_text(root, "mESAID"),
+        firmware=_child_text(root, "mVersion"),
     )
 
     drives: list[DriveSlot] = []
-    raw = 0
+    raw_capacity_bytes = 0
     for slot in root.iter():
         if slot.find("mSlotNumber") is None:
             continue
-        bay = _int(slot, "mSlotNumber") + 1  # device is 0-indexed; UI is 1-indexed
-        status = _int(slot, "mStatus")
-        phys = _int(slot, "mPhysicalCapacity")
-        if status == _EMPTY_SLOT_STATUS or phys <= 0:
+        bay = _child_int(slot, "mSlotNumber") + 1  # device is 0-indexed; UI is 1-indexed
+        slot_status = _child_int(slot, "mStatus")
+        physical_capacity_bytes = _child_int(slot, "mPhysicalCapacity")
+        if slot_status == _EMPTY_SLOT_STATUS or physical_capacity_bytes <= 0:
             drives.append(DriveSlot(bay=bay, present=False, state=STATE_EMPTY))
             continue
-        raw += phys
-        disk_state = _int(slot, "mDiskState")
-        state = _DISK_STATE.get(disk_state, STATE_WARNING)
-        temp = _int(slot, "mTemperature")
+        raw_capacity_bytes += physical_capacity_bytes
+        disk_state = _child_int(slot, "mDiskState")
+        state = _STATE_BY_DISK_STATE_CODE.get(disk_state, STATE_WARNING)
+        drive_temperature_c = _child_int(slot, "mTemperature")
         drives.append(
             DriveSlot(
                 bay=bay,
                 present=True,
                 state=state,
-                model=(_text(slot, "mMake") or "disk").strip(),
-                serial=_text(slot, "mSerial"),
-                capacity_bytes=phys,
+                model=(_child_text(slot, "mMake") or "disk").strip(),
+                serial=_child_text(slot, "mSerial"),
+                capacity_bytes=physical_capacity_bytes,
                 # The 5N greeting reports 0 for these drives -- treat 0 as "not
                 # reported" rather than a real and alarming 0 C.
-                temperature_c=float(temp) if temp > 0 else None,
+                temperature_c=(float(drive_temperature_c)
+                               if drive_temperature_c > 0 else None),
                 note="" if state == STATE_OK else f"disk state code {disk_state}",
                 # Surfaced; not previously parsed. mErrorCount is the one
                 # unambiguous per-drive signal here -- above zero is bad.
-                error_count=_int(slot, "mErrorCount"),
-                ssd_life_remaining=_int(slot, "SSDLifeRemaining"),
-                firmware_rev=_text(slot, "mDiskFwRev"),
-                rotational_speed=_int(slot, "RotationalSpeed"),
-                managed_capacity_bytes=_int(slot, "mManagedCapacity"),
+                error_count=_child_int(slot, "mErrorCount"),
+                ssd_life_remaining=_child_int(slot, "SSDLifeRemaining"),
+                firmware_rev=_child_text(slot, "mDiskFwRev"),
+                rotational_speed=_child_int(slot, "RotationalSpeed"),
+                managed_capacity_bytes=_child_int(slot, "mManagedCapacity"),
             )
         )
 
@@ -356,30 +363,32 @@ def parse_esatm(payload: bytes) -> Snapshot:
     _trim_phantom_slots(drives, device.model)
 
     capacity = Capacity(
-        raw_bytes=raw,
-        usable_bytes=_int(root, "mTotalCapacityProtected"),
-        used_bytes=_int(root, "mUsedCapacityProtected"),
-        free_bytes=_int(root, "mFreeCapacityProtected"),
+        raw_bytes=raw_capacity_bytes,
+        usable_bytes=_child_int(root, "mTotalCapacityProtected"),
+        used_bytes=_child_int(root, "mUsedCapacityProtected"),
+        free_bytes=_child_int(root, "mFreeCapacityProtected"),
     )
 
     # Pack/device-level health values the greeting already sends. See
     # PackHealth's docstring for the healthy-baseline values and the
     # discipline of not inventing meanings for the opaque status codes.
     pack_health = PackHealth(
-        # Opaque codes: absent must be None, not 0 -- see _int_or_none.
-        disk_pack_status=_int_or_none(root, "mDiskPackStatus"),
-        dnas_status=_int_or_none(root, "DNASStatus"),
-        device_status=_int_or_none(root, "mStatus"),
-        status_ex=_int_or_none(root, "mStatusEx"),
-        real_time_integrity_checking=_int_or_none(root, "mRealTimeIntegrityChecking"),
+        # Opaque codes: absent must be None, not 0 -- see
+        # _child_int_or_none.
+        disk_pack_status=_child_int_or_none(root, "mDiskPackStatus"),
+        dnas_status=_child_int_or_none(root, "DNASStatus"),
+        device_status=_child_int_or_none(root, "mStatus"),
+        status_ex=_child_int_or_none(root, "mStatusEx"),
+        real_time_integrity_checking=_child_int_or_none(root, "mRealTimeIntegrityChecking"),
         # Counts are genuinely counts: absent sensibly means zero, and the
         # alert rules compare with > 0, so 0 is both safe and truthful here.
-        relayout_count=_int(root, "mRelayoutCount"),
-        double_degraded_count=_int(root, "mDoubleDegradedCnt"),
+        relayout_count=_child_int(root, "mRelayoutCount"),
+        double_degraded_count=_child_int(root, "mDoubleDegradedCnt"),
         red_threshold_fraction=_threshold_fraction(root, "mRedThreshold"),
         yellow_threshold_fraction=_threshold_fraction(root, "mYellowThreshold"),
-        total_capacity_unprotected_bytes=_int(root, "mTotalCapacityUnprotected"),
-        use_unprotected_capacity=_int(root, "mUseUnprotectedCapacity") != 0,
+        total_capacity_unprotected_bytes=_child_int(root, "mTotalCapacityUnprotected"),
+        use_unprotected_capacity=_child_int(
+            root, "mUseUnprotectedCapacity") != 0,
     )
 
     return Snapshot(
@@ -390,7 +399,7 @@ def parse_esatm(payload: bytes) -> Snapshot:
         drives=drives,
         volumes=_parse_volumes(root),
         # How many volumes this pack could hold. 16 on a 5N.
-        max_volumes=_int_or_none(root, "mMaxLUNs"),
+        max_volumes=_child_int_or_none(root, "mMaxLUNs"),
         pack_health=pack_health,
     )
 

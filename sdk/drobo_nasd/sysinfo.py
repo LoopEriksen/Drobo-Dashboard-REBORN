@@ -84,9 +84,9 @@ def _inner_document(
     # Drop an inner <?xml ...?> declaration; ElementTree rejects one that isn't
     # at the very start of the string it is handed.
     if unescaped.startswith("<?xml"):
-        end = unescaped.find("?>")
-        if end != -1:
-            unescaped = unescaped[end + 2:].strip()
+        declaration_end = unescaped.find("?>")
+        if declaration_end != -1:
+            unescaped = unescaped[declaration_end + 2:].strip()
     if not unescaped:
         return None
     try:
@@ -95,15 +95,16 @@ def _inner_document(
         raise SysInfoError(f"could not read the system-info document: {exc}") from exc
 
 
-def _int_or_none(node: ElementTree.Element | None, tag: str) -> int | None:
+def _child_int_or_none(element: ElementTree.Element | None,
+                       tag: str) -> int | None:
     """A missing field and a field we can't read both mean 'no answer', not 0."""
-    if node is None:
+    if element is None:
         return None
-    found = node.find(tag)
-    if found is None or not (found.text or "").strip():
+    child = element.find(tag)
+    if child is None or not (child.text or "").strip():
         return None
     try:
-        return int((found.text or "").strip())
+        return int((child.text or "").strip())
     except ValueError:
         return None
 
@@ -116,11 +117,11 @@ def parse_sysinfo(payload: bytes) -> dict:
     Either value may be None -- the device answering but omitting a field is a
     real case, and is not an error.
     """
-    text = payload.rstrip(b"\x00").rstrip()
-    if not text:
+    trimmed_payload = payload.rstrip(b"\x00").rstrip()
+    if not trimmed_payload:
         return {"temperature_c": None, "uptime_seconds": None}
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
@@ -128,28 +129,30 @@ def parse_sysinfo(payload: bytes) -> dict:
     if details is None:
         raise SysInfoError("result carried no <ResultDetails>")
 
-    inner = _inner_document(details)
+    inner_document = _inner_document(details)
     # The device nests <SysInfo> inside <ResultDetails>; tolerate it being
     # either the root of the inner document or a child of it.
-    node = inner
-    if inner is not None and inner.tag != "SysInfo":
+    sysinfo_element = inner_document
+    if inner_document is not None and inner_document.tag != "SysInfo":
         # `is not None`, never `or`: an Element with no children is
         # falsy, so `or` would quietly fall back to the parent.
-        sysinfo_node = inner.find("SysInfo")
-        node = sysinfo_node if sysinfo_node is not None else inner
+        nested_sysinfo = inner_document.find("SysInfo")
+        sysinfo_element = (nested_sysinfo if nested_sysinfo is not None
+                           else inner_document)
 
-    temp = _int_or_none(node, "Temperature")
-    if temp is not None and not (PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temp
-                                 <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
+    temperature_c = _child_int_or_none(sysinfo_element, "Temperature")
+    if temperature_c is not None and not (
+            PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temperature_c
+            <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
         # Report nothing rather than something wrong. A bogus reading on a
         # dashboard is worse than a blank one.
-        temp = None
+        temperature_c = None
 
-    uptime = _int_or_none(node, "UpTime")
+    uptime = _child_int_or_none(sysinfo_element, "UpTime")
     if uptime is not None and uptime < 0:
         uptime = None
 
-    return {"temperature_c": temp, "uptime_seconds": uptime}
+    return {"temperature_c": temperature_c, "uptime_seconds": uptime}
 
 
 def parse_performance(payload: bytes) -> dict:
@@ -189,12 +192,12 @@ def parse_performance(payload: bytes) -> dict:
     rather than implying live throughput, and should never be used to decide
     whether the array is busy right now.
     """
-    text = payload.rstrip(b"\x00").rstrip()
-    if not text:
+    trimmed_payload = payload.rstrip(b"\x00").rstrip()
+    if not trimmed_payload:
         return {"read_mb_per_s": None, "write_mb_per_s": None,
                 "iops": None, "tier_iops": None}
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
@@ -202,16 +205,18 @@ def parse_performance(payload: bytes) -> dict:
     if details is None:
         raise SysInfoError("result carried no <ResultDetails>")
 
-    inner = _inner_document(details)
-    node = inner
-    if inner is not None and inner.tag != "Performance":
-        performance_node = inner.find("Performance")
-        node = performance_node if performance_node is not None else inner
+    inner_document = _inner_document(details)
+    performance_element = inner_document
+    if inner_document is not None and inner_document.tag != "Performance":
+        nested_performance = inner_document.find("Performance")
+        performance_element = (nested_performance
+                               if nested_performance is not None
+                               else inner_document)
 
     def non_negative(tag: str) -> int | None:
-        v = _int_or_none(node, tag)
+        value = _child_int_or_none(performance_element, tag)
         # A negative rate is meaningless; report nothing rather than nonsense.
-        return None if v is None or v < 0 else v
+        return None if value is None or value < 0 else value
 
     return {
         "read_mb_per_s": non_negative("ReadThroughout"),
@@ -291,14 +296,14 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
         if frame_type != TYPE_LOGIN_OK:
             raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
 
-        out = dict(parse_sysinfo(
+        readings = dict(parse_sysinfo(
             _send_and_read_result(sock, "eCmdGetSysInfo", esa_id)))
-        out["performance"] = None
+        readings["performance"] = None
         try:
-            out["performance"] = parse_performance(
+            readings["performance"] = parse_performance(
                 _send_and_read_result(sock, "eCmdGetPerformance", esa_id))
         except (SysInfoError, OSError):
             pass  # keep the temperature we already have
-        return out
+        return readings
     finally:
         sock.close()

@@ -58,11 +58,11 @@ DEFAULT_PREFIX_LENGTH = 24
 #: How many networks a message lists before it starts summarising. A PC with
 #: WSL, Hyper-V, VirtualBox and a VPN can hold six or seven, and a sentence
 #: naming all of them stops being readable long before it stops being accurate.
-_MAX_LISTED = 4
+_MAX_NETWORKS_LISTED = 4
 
 _IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 _CIDR_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})\b")
-_HEXMASK_RE = re.compile(r"\b0x([0-9a-fA-F]{8})\b")
+_HEX_NETMASK_RE = re.compile(r"\b0x([0-9a-fA-F]{8})\b")
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,7 @@ class Diagnosis:
 # ---------------------------------------------------------------------------
 
 
-def _prefix_from_mask(dotted: str) -> int | None:
+def _prefix_from_mask(dotted_mask: str) -> int | None:
     """
     Prefix length for a dotted netmask, or None if it isn't one.
 
@@ -147,22 +147,22 @@ def _prefix_from_mask(dotted: str) -> int | None:
     every warning this module exists to raise.
     """
     try:
-        prefix = ipaddress.IPv4Network(f"0.0.0.0/{dotted}").prefixlen
+        prefix = ipaddress.IPv4Network(f"0.0.0.0/{dotted_mask}").prefixlen
     except ValueError:
         return None
     return prefix or None
 
 
-def _prefix_from_hex(hexmask: str) -> int | None:
+def _prefix_from_hex(hex_mask: str) -> int | None:
     """BSD/macOS ifconfig writes the mask as 0xffffff00."""
     try:
-        packed = int(hexmask, 16).to_bytes(4, "big")
+        packed = int(hex_mask, 16).to_bytes(4, "big")
     except (ValueError, OverflowError):
         return None
     return _prefix_from_mask(str(ipaddress.IPv4Address(packed)))
 
 
-def _usable(address: str) -> bool:
+def _is_usable_address(address: str) -> bool:
     """
     Whether an address tells us anything about where this machine is.
 
@@ -172,13 +172,14 @@ def _usable(address: str) -> bool:
     misleading. Anything unparseable is dropped rather than guessed at.
     """
     try:
-        addr = ipaddress.ip_address(address)
+        parsed_address = ipaddress.ip_address(address)
     except ValueError:
         return False
-    if addr.version != 4:
+    if parsed_address.version != 4:
         return False
-    return not (addr.is_loopback or addr.is_link_local or addr.is_multicast
-                or addr.is_unspecified)
+    return not (parsed_address.is_loopback or parsed_address.is_link_local
+                or parsed_address.is_multicast
+                or parsed_address.is_unspecified)
 
 
 def parse_interfaces(text: str) -> list[Interface]:
@@ -208,62 +209,65 @@ def parse_interfaces(text: str) -> list[Interface]:
     Callers who end up with nothing should fall back to local_interfaces()'
     routing probe, which is honest about guessing.
     """
-    found: list[Interface] = []
-    pending: str | None = None  # an address still waiting for its mask
+    interfaces: list[Interface] = []
+    pending_address: str | None = None  # an address still waiting for its mask
 
     for line in text.splitlines():
-        cidr = _CIDR_RE.search(line)
-        if cidr:
-            address, prefix = cidr.group(1), int(cidr.group(2))
-            pending = None
-            if _usable(address) and 0 < prefix <= 32:
-                found.append(Interface(address, prefix))
+        cidr_match = _CIDR_RE.search(line)
+        if cidr_match:
+            address, prefix = cidr_match.group(1), int(cidr_match.group(2))
+            pending_address = None
+            if _is_usable_address(address) and 0 < prefix <= 32:
+                interfaces.append(Interface(address, prefix))
             continue
 
-        tokens = _IPV4_RE.findall(line)
-        hexmask = _HEXMASK_RE.search(line)
+        ipv4_tokens = _IPV4_RE.findall(line)
+        hex_mask_match = _HEX_NETMASK_RE.search(line)
 
-        if not tokens:
-            if hexmask and pending:
-                prefix = _prefix_from_hex(hexmask.group(1))
+        if not ipv4_tokens:
+            if hex_mask_match and pending_address:
+                prefix = _prefix_from_hex(hex_mask_match.group(1))
                 if prefix:
-                    found.append(Interface(pending, prefix))
-                pending = None
+                    interfaces.append(Interface(pending_address, prefix))
+                pending_address = None
             continue
 
         # Split this line's IPv4-shaped tokens into "could be a mask" and
         # "must be an address". A host address is never a contiguous netmask,
         # so this classification is exact rather than heuristic.
-        addresses = [t for t in tokens if _prefix_from_mask(t) is None]
-        masks = [p for p in (_prefix_from_mask(t) for t in tokens) if p]
+        addresses = [t for t in ipv4_tokens if _prefix_from_mask(t) is None]
+        masks = [p for p in (_prefix_from_mask(t) for t in ipv4_tokens) if p]
 
         if addresses:
             # A new address supersedes any earlier one still waiting: the
             # previous line's lone address never got a mask, so it was a
             # gateway, a DNS server, or something else that isn't ours.
-            candidate = addresses[0]
-            prefix = masks[0] if masks else (_prefix_from_hex(hexmask.group(1))
-                                             if hexmask else None)
+            line_address = addresses[0]
+            prefix = masks[0] if masks else (
+                _prefix_from_hex(hex_mask_match.group(1))
+                if hex_mask_match else None)
             if prefix:
-                pending = None
-                if _usable(candidate):
-                    found.append(Interface(candidate, prefix))
+                pending_address = None
+                if _is_usable_address(line_address):
+                    interfaces.append(Interface(line_address, prefix))
             else:
-                pending = candidate if _usable(candidate) else None
+                pending_address = (
+                    line_address if _is_usable_address(line_address)
+                    else None)
             continue
 
-        if masks and pending:
-            found.append(Interface(pending, masks[0]))
-            pending = None
+        if masks and pending_address:
+            interfaces.append(Interface(pending_address, masks[0]))
+            pending_address = None
 
     seen: set[tuple[str, int]] = set()
-    unique: list[Interface] = []
-    for iface in found:
-        key = (iface.address, iface.prefix_length)
+    unique_interfaces: list[Interface] = []
+    for interface in interfaces:
+        key = (interface.address, interface.prefix_length)
         if key not in seen:
             seen.add(key)
-            unique.append(iface)
-    return unique
+            unique_interfaces.append(interface)
+    return unique_interfaces
 
 
 def _read_interface_text(timeout: float = 3.0) -> str | None:
@@ -275,12 +279,12 @@ def _read_interface_text(timeout: float = 3.0) -> str | None:
     not an error.
     """
     if sys.platform.startswith("win"):
-        commands = [["ipconfig"]]
+        listing_commands = [["ipconfig"]]
     else:
-        commands = [["ip", "-o", "-4", "addr", "show"], ["ifconfig"], ["ifconfig", "-a"]]
-    for cmd in commands:
+        listing_commands = [["ip", "-o", "-4", "addr", "show"], ["ifconfig"], ["ifconfig", "-a"]]
+    for listing_command in listing_commands:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(listing_command, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired, ValueError):
             continue
         if result.returncode == 0 and result.stdout.strip():
@@ -305,7 +309,7 @@ def _routing_probe() -> str:
         return ""
     finally:
         probe.close()
-    return address if _usable(address) else ""
+    return address if _is_usable_address(address) else ""
 
 
 def local_interfaces(timeout: float = 3.0) -> list[Interface]:
@@ -321,9 +325,9 @@ def local_interfaces(timeout: float = 3.0) -> list[Interface]:
     """
     text = _read_interface_text(timeout)
     if text:
-        parsed = parse_interfaces(text)
-        if parsed:
-            return parsed
+        interfaces = parse_interfaces(text)
+        if interfaces:
+            return interfaces
     address = _routing_probe()
     if not address:
         return []
@@ -335,7 +339,7 @@ def local_interfaces(timeout: float = 3.0) -> list[Interface]:
 # ---------------------------------------------------------------------------
 
 
-def _join(items: list[str]) -> str:
+def _join_with_and(items: list[str]) -> str:
     if len(items) == 1:
         return items[0]
     if len(items) == 2:
@@ -344,11 +348,11 @@ def _join(items: list[str]) -> str:
 
 
 def _describe_networks(interfaces: tuple[Interface, ...]) -> str:
-    names = [str(i.network) for i in interfaces]
-    if len(names) <= _MAX_LISTED:
-        return _join(names)
-    rest = len(names) - _MAX_LISTED
-    return _join(names[:_MAX_LISTED]) + f" (and {rest} other{'s' if rest > 1 else ''})"
+    network_names = [str(i.network) for i in interfaces]
+    if len(network_names) <= _MAX_NETWORKS_LISTED:
+        return _join_with_and(network_names)
+    unlisted_count = len(network_names) - _MAX_NETWORKS_LISTED
+    return _join_with_and(network_names[:_MAX_NETWORKS_LISTED]) + f" (and {unlisted_count} other{'s' if unlisted_count > 1 else ''})"
 
 
 def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosis | None:
@@ -365,33 +369,36 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
     without a network, a platform, or a subprocess.
     """
     try:
-        ip = ipaddress.ip_address(target.strip())
+        target_address = ipaddress.ip_address(target.strip())
     except (ValueError, AttributeError):
         return None
-    if ip.version != 4:
+    if target_address.version != 4:
         return None
 
-    found = tuple(interfaces if interfaces is not None else local_interfaces())
-    if not found:
+    known_interfaces = tuple(
+        interfaces if interfaces is not None else local_interfaces())
+    if not known_interfaces:
         return None
 
-    same = any(iface.network_contains(ip) for iface in found)
-    assumed = any(iface.assumed for iface in found)
-    where = _describe_networks(found)
+    on_same_network = any(interface.network_contains(target_address)
+                          for interface in known_interfaces)
+    any_mask_assumed = any(interface.assumed for interface in known_interfaces)
+    networks_description = _describe_networks(known_interfaces)
 
-    if same:
+    if on_same_network:
         # Nothing useful to add: the Drobo is on our network and still isn't
         # answering, so the network layout is not the story. Returned rather
         # than suppressed so a caller can distinguish "checked, fine" from
         # "couldn't check" -- but the text stays empty so nobody displays it.
         return Diagnosis(
-            target=str(ip), interfaces=found, same_network=True,
-            assumed_prefix=assumed, headline="", detail="", caveat="",
+            target=str(target_address), interfaces=known_interfaces,
+            same_network=True, assumed_prefix=any_mask_assumed,
+            headline="", detail="", caveat="",
         )
 
     headline = "This PC is on a different network from the Drobo."
     detail = (
-        f"It is on {where}, while the Drobo was last seen at {ip}. Reconnect this "
+        f"It is on {networks_description}, while the Drobo was last seen at {target_address}. Reconnect this "
         f"PC to the Drobo's network and it should come straight back -- nothing "
         f"needs changing on the Drobo itself."
     )
@@ -399,14 +406,15 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
         "Worth knowing: separate networks can be routed together, so this is the "
         "likely explanation rather than a certainty."
     )
-    if assumed:
+    if any_mask_assumed:
         caveat += (
             " This PC's subnet mask could not be read, so the usual /24 was "
             "assumed when working that out."
         )
     return Diagnosis(
-        target=str(ip), interfaces=found, same_network=False,
-        assumed_prefix=assumed, headline=headline, detail=detail, caveat=caveat,
+        target=str(target_address), interfaces=known_interfaces,
+        same_network=False, assumed_prefix=any_mask_assumed,
+        headline=headline, detail=detail, caveat=caveat,
     )
 
 
@@ -416,8 +424,9 @@ def explain(target: str, interfaces: list[Interface] | None = None) -> str:
     nothing worth saying. The convenience form of diagnose() for callers that
     only have room for a string.
     """
-    result = diagnose(target, interfaces)
-    return result.message if result and not result.same_network else ""
+    diagnosis = diagnose(target, interfaces)
+    return (diagnosis.message
+            if diagnosis and not diagnosis.same_network else "")
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -430,31 +439,30 @@ def _main(argv: list[str] | None = None) -> int:
     directly. Exit status is the answer: 0 same network, 1 different, 2 no
     opinion -- so a shell script can branch on it without parsing text.
     """
-    import sys as _sys
-    args = list(argv if argv is not None else _sys.argv[1:])
+    args = list(argv if argv is not None else sys.argv[1:])
     if not args:
         print("usage: py -m drobo_nasd.netcheck <ip-address>")
         return 2
 
-    found = local_interfaces()
+    interfaces = local_interfaces()
     print("This PC:")
-    for iface in found:
-        print(f"  {iface.address}  on  {iface.network}"
-              + ("   (mask assumed, not read)" if iface.assumed else ""))
-    if not found:
+    for interface in interfaces:
+        print(f"  {interface.address}  on  {interface.network}"
+              + ("   (mask assumed, not read)" if interface.assumed else ""))
+    if not interfaces:
         print("  (could not read this machine's addresses)")
 
-    result = diagnose(args[0], found)
+    diagnosis = diagnose(args[0], interfaces)
     print()
-    if result is None:
+    if diagnosis is None:
         print(f"No opinion about {args[0]!r} -- it is not an IPv4 address, or this "
               f"machine's own addresses could not be read.")
         return 2
-    if result.same_network:
-        print(f"{result.target} is on this PC's network. If it still isn't answering, "
+    if diagnosis.same_network:
+        print(f"{diagnosis.target} is on this PC's network. If it still isn't answering, "
               f"the network layout is not the reason.")
         return 0
-    print(result.message)
+    print(diagnosis.message)
     return 1
 
 

@@ -245,6 +245,9 @@ released. Every push to this repository carries this file.
   - Internal names in the SDK's write path (commands, config, share,
     DroboApps, DroboSync and Identify modules, the envelope and the older
     client and framing code); no behaviour changes
+  - Internal names in the SDK's read side (the status greeting, system
+    information, event log, discovery, firmware, model and network-check
+    modules); no behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

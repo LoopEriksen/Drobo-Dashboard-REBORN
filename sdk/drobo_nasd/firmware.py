@@ -116,18 +116,19 @@ def assess(version: str) -> Advisory:
     that comments on healthy firmware trains people to ignore it, and there is
     nothing to say about 4.2.2 beyond the number already on screen.
     """
-    parsed = parse_version(version)
+    release_numbers = parse_version(version)
 
-    if parsed is None:
+    if release_numbers is None:
         return Advisory(
             version=version or "", release_numbers=None, risk=RISK_UNKNOWN,
             headline="", detail="",
         )
 
-    if parsed in WITHDRAWN_RELEASES:
-        release = ".".join(str(n) for n in parsed)
+    if release_numbers in WITHDRAWN_RELEASES:
+        release = ".".join(str(n) for n in release_numbers)
         return Advisory(
-            version=version, release_numbers=parsed, risk=RISK_WITHDRAWN,
+            version=version, release_numbers=release_numbers,
+            risk=RISK_WITHDRAWN,
             headline=f"This Drobo runs firmware {release}, which Drobo withdrew.",
             detail=(
                 f"{release} was pulled by Drobo's own engineers shortly after "
@@ -146,5 +147,5 @@ def assess(version: str) -> Advisory:
             ),
         )
 
-    return Advisory(version=version, release_numbers=parsed, risk=RISK_NONE,
-                    headline="", detail="")
+    return Advisory(version=version, release_numbers=release_numbers,
+                    risk=RISK_NONE, headline="", detail="")

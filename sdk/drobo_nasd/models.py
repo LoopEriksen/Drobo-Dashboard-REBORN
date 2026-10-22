@@ -84,9 +84,9 @@ class Capacity:
         return self.used_bytes / self.usable_bytes
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["used_fraction"] = round(self.used_fraction, 4)
-        return d
+        serialized = asdict(self)
+        serialized["used_fraction"] = round(self.used_fraction, 4)
+        return serialized
 
 
 @dataclass
@@ -176,9 +176,9 @@ class EventLogEntry:
     message: str
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["ts_iso"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.ts))
-        return d
+        serialized = asdict(self)
+        serialized["ts_iso"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.ts))
+        return serialized
 
 
 @dataclass

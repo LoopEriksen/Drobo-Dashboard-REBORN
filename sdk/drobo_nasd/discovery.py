@@ -34,11 +34,11 @@ here is deception (fake health readings reaching the dashboard), not data
 theft, and this agent never writes to the device. Comments below repeat this
 where it is easy to forget.
 
-The mDNS piece (_encode_name, _decode_name, _build_query, parse_mdns_response,
-discover_mdns) is implemented from the specifications, not borrowed from any
-library: DNS message format and name compression are RFC 1035 section 4.1,
-multicast DNS is RFC 6762. Stdlib socket/struct only -- no dnspython, no
-zeroconf.
+The mDNS piece (_encode_dns_name, _decode_dns_name, _build_mdns_query,
+parse_mdns_response, discover_mdns) is implemented from the
+specifications, not borrowed from any library: DNS message format and
+name compression are RFC 1035 section 4.1, multicast DNS is RFC 6762.
+Stdlib socket/struct only -- no dnspython, no zeroconf.
 """
 
 from __future__ import annotations
@@ -74,22 +74,22 @@ RECORD_TYPE_SRV = 33
 # ---------------------------------------------------------------------------
 
 
-def _encode_name(name: str) -> bytes:
-    out = b""
+def _encode_dns_name(name: str) -> bytes:
+    encoded = b""
     for label in name.split("."):
         if label:
-            out += bytes([len(label)]) + label.encode("utf-8")
-    return out + b"\x00"
+            encoded += bytes([len(label)]) + label.encode("utf-8")
+    return encoded + b"\x00"
 
 
-def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
+def _decode_dns_name(data: bytes, offset: int) -> tuple[str, int]:
     """Decode a (possibly compressed, RFC 1035 sec 4.1.4) DNS name."""
     labels: list[str] = []
     jumped = False
-    resume = offset
-    guard = 0
-    while offset < len(data) and guard < 128:
-        guard += 1
+    resume_offset = offset
+    iterations = 0
+    while offset < len(data) and iterations < 128:
+        iterations += 1
         length = data[offset]
         if length == 0:
             offset += 1
@@ -99,21 +99,23 @@ def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
                 break
             pointer = struct.unpack("!H", data[offset : offset + 2])[0] & 0x3FFF
             if not jumped:
-                resume = offset + 2
+                resume_offset = offset + 2
             jumped = True
             offset = pointer
             continue
         offset += 1
         labels.append(data[offset : offset + length].decode("utf-8", "replace"))
         offset += length
-    return ".".join(labels), (resume if jumped else offset)
+    return ".".join(labels), (resume_offset if jumped else offset)
 
 
-def _build_query(qname: str, qtype: int = RECORD_TYPE_PTR) -> bytes:
+def _build_mdns_query(question_name: str,
+                      question_type: int = RECORD_TYPE_PTR) -> bytes:
     header = struct.pack("!HHHHHH", 0, 0, 1, 0, 0, 0)
     # qclass 0x8001 = IN with the "unicast response please" bit set, so a
     # responder answers straight back to us instead of multicasting.
-    return header + _encode_name(qname) + struct.pack("!HH", qtype, 0x8001)
+    return (header + _encode_dns_name(question_name)
+            + struct.pack("!HH", question_type, 0x8001))
 
 
 def parse_mdns_response(data: bytes) -> list[dict]:
@@ -124,38 +126,39 @@ def parse_mdns_response(data: bytes) -> list[dict]:
     packets and hand them straight to this function, so the parsing logic is
     exercised without opening a socket or touching a LAN.
 
-    Each record is {"name": ..., "type": <int qtype>, "value": ...}; SRV
+    Each record is {"name": ..., "type": <int record type>, "value": ...}; SRV
     records additionally carry "port".
     """
     records: list[dict] = []
     if len(data) < 12:
         return records
-    _id, _flags, qd, an, ns, ar = struct.unpack("!HHHHHH", data[:12])
+    (_message_id, _flags, question_count, answer_count, authority_count,
+     additional_count) = struct.unpack("!HHHHHH", data[:12])
     offset = 12
-    for _ in range(qd):
-        _, offset = _decode_name(data, offset)
+    for _ in range(question_count):
+        _, offset = _decode_dns_name(data, offset)
         offset += 4  # qtype + qclass
-    for _ in range(an + ns + ar):
+    for _ in range(answer_count + authority_count + additional_count):
         if offset >= len(data):
             break
-        name, offset = _decode_name(data, offset)
+        name, offset = _decode_dns_name(data, offset)
         if offset + 10 > len(data):
             break
-        rtype, _rclass, _ttl, rdlen = struct.unpack("!HHIH", data[offset : offset + 10])
+        record_type, _record_class, _time_to_live, record_data_length = struct.unpack("!HHIH", data[offset : offset + 10])
         offset += 10
-        rdata = data[offset : offset + rdlen]
-        rec: dict = {"name": name, "type": rtype}
-        if rtype == RECORD_TYPE_PTR:
-            rec["value"], _ = _decode_name(data, offset)
-        elif rtype == RECORD_TYPE_A and rdlen == 4:
-            rec["value"] = socket.inet_ntoa(rdata)
-        elif rtype == RECORD_TYPE_SRV and rdlen >= 6:
-            _pri, _wt, port = struct.unpack("!HHH", rdata[:6])
-            target, _ = _decode_name(data, offset + 6)
-            rec["value"] = target
-            rec["port"] = port
-        records.append(rec)
-        offset += rdlen
+        record_data = data[offset : offset + record_data_length]
+        record: dict = {"name": name, "type": record_type}
+        if record_type == RECORD_TYPE_PTR:
+            record["value"], _ = _decode_dns_name(data, offset)
+        elif record_type == RECORD_TYPE_A and record_data_length == 4:
+            record["value"] = socket.inet_ntoa(record_data)
+        elif record_type == RECORD_TYPE_SRV and record_data_length >= 6:
+            _priority, _weight, port = struct.unpack("!HHH", record_data[:6])
+            target, _ = _decode_dns_name(data, offset + 6)
+            record["value"] = target
+            record["port"] = port
+        records.append(record)
+        offset += record_data_length
     return records
 
 
@@ -186,34 +189,35 @@ def discover_mdns(timeout: float = 3.0) -> list[Candidate]:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
     sock.settimeout(0.5)
-    found: dict[str, Candidate] = {}
+    candidates_by_host: dict[str, Candidate] = {}
     try:
         try:
-            sock.sendto(_build_query(NASD_SERVICE, RECORD_TYPE_PTR), (MDNS_MULTICAST_ADDRESS, MDNS_PORT))
+            sock.sendto(_build_mdns_query(NASD_SERVICE, RECORD_TYPE_PTR), (MDNS_MULTICAST_ADDRESS, MDNS_PORT))
         except OSError:
             return []
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
-                data, addr = sock.recvfrom(9000)
+                packet, sender_address = sock.recvfrom(9000)
             except socket.timeout:
                 continue
             except OSError:
                 break
-            records = parse_mdns_response(data)
+            records = parse_mdns_response(packet)
             if not records:
                 continue
             port = esatm.DEFAULT_PORT
-            for rec in records:
-                if rec["type"] == RECORD_TYPE_SRV:
-                    port = rec["port"]
-            found.setdefault(addr[0], Candidate(addr[0], port, "mdns"))
-            for rec in records:
-                if rec["type"] == RECORD_TYPE_A:
-                    found.setdefault(rec["value"], Candidate(rec["value"], port, "mdns"))
+            for record in records:
+                if record["type"] == RECORD_TYPE_SRV:
+                    port = record["port"]
+            candidates_by_host.setdefault(
+                sender_address[0], Candidate(sender_address[0], port, "mdns"))
+            for record in records:
+                if record["type"] == RECORD_TYPE_A:
+                    candidates_by_host.setdefault(record["value"], Candidate(record["value"], port, "mdns"))
     finally:
         sock.close()
-    return list(found.values())
+    return list(candidates_by_host.values())
 
 
 def _is_link_local(host: str) -> bool:
@@ -246,14 +250,14 @@ def resolve_hostname(hostname: str, port: int = esatm.DEFAULT_PORT) -> Candidate
 
 
 def _local_ipv4() -> str:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("8.8.8.8", 53))
-        return s.getsockname()[0]
+        probe_socket.connect(("8.8.8.8", 53))
+        return probe_socket.getsockname()[0]
     except OSError:
         return "127.0.0.1"
     finally:
-        s.close()
+        probe_socket.close()
 
 
 def sweep_subnet(
@@ -272,26 +276,27 @@ def sweep_subnet(
     """
     if cidr is None:
         cidr = str(ipaddress.ip_network(_local_ipv4() + "/24", strict=False))
-    net = ipaddress.ip_network(cidr, strict=False)
-    ips = [str(h) for h in net.hosts()]
-    if not ips:
+    network = ipaddress.ip_network(cidr, strict=False)
+    host_addresses = [str(h) for h in network.hosts()]
+    if not host_addresses:
         return []
-    rounds = max(1, -(-len(ips) // workers))  # ceil(len(ips) / workers)
+    # ceil(len(host_addresses) / workers)
+    rounds = max(1, -(-len(host_addresses) // workers))
     per_host_timeout = max(0.05, time_budget / rounds)
 
-    def probe(ip: str) -> bool:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(per_host_timeout)
+    def accepts_connection(ip: str) -> bool:
+        probe_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe_socket.settimeout(per_host_timeout)
         try:
-            return s.connect_ex((ip, port)) == 0
+            return probe_socket.connect_ex((ip, port)) == 0
         except OSError:
             return False
         finally:
-            s.close()
+            probe_socket.close()
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = pool.map(probe, ips)
-        return [Candidate(ip, port, "sweep") for ip, ok in zip(ips, results) if ok]
+        answered_flags = pool.map(accepts_connection, host_addresses)
+        return [Candidate(ip, port, "sweep") for ip, answered in zip(host_addresses, answered_flags) if answered]
 
 
 # ---------------------------------------------------------------------------
@@ -349,18 +354,18 @@ def _read_arp_table_text(timeout: float = 2.0) -> str | None:
     absent (see mac_for_ip). Nothing here should ever make the agent unusable
     because 'arp' isn't on PATH or the platform is unfamiliar.
     """
-    commands = [["arp", "-a"]] if sys.platform.startswith("win") else [["arp", "-n"], ["arp", "-a"]]
-    for cmd in commands:
+    arp_commands = [["arp", "-a"]] if sys.platform.startswith("win") else [["arp", "-n"], ["arp", "-a"]]
+    for arp_command in arp_commands:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(arp_command, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired, ValueError):
             continue
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
     if not sys.platform.startswith("win"):
         try:
-            with open("/proc/net/arp", "r", encoding="utf-8") as f:
-                return f.read()
+            with open("/proc/net/arp", "r", encoding="utf-8") as arp_file:
+                return arp_file.read()
         except OSError:
             pass
     return None
@@ -386,7 +391,7 @@ def mac_for_ip(ip: str, timeout: float = 2.0) -> str | None:
 
 def _in_allowed_subnets(host: str, allowed_subnets: list[str]) -> bool:
     try:
-        addr = ipaddress.ip_address(host)
+        address = ipaddress.ip_address(host)
     except ValueError:
         # Not a bare IP (shouldn't happen -- resolve_hostname already
         # resolves to one). Don't block on something we can't evaluate;
@@ -394,7 +399,7 @@ def _in_allowed_subnets(host: str, allowed_subnets: list[str]) -> bool:
         return True
     for cidr in allowed_subnets:
         try:
-            if addr in ipaddress.ip_network(cidr, strict=False):
+            if address in ipaddress.ip_network(cidr, strict=False):
                 return True
         except ValueError:
             continue
@@ -411,8 +416,8 @@ def filter_allowed_subnets(
         return list(candidates), []
     allowed: list[Candidate] = []
     rejected: list[Candidate] = []
-    for cand in candidates:
-        (allowed if _in_allowed_subnets(cand.host, allowed_subnets) else rejected).append(cand)
+    for candidate in candidates:
+        (allowed if _in_allowed_subnets(candidate.host, allowed_subnets) else rejected).append(candidate)
     return allowed, rejected
 
 
@@ -499,19 +504,19 @@ def verify_candidate(
 
     mac = mac_for_ip(candidate.host)
     if expected_mac:
-        expected_norm = _normalize_mac(expected_mac)
+        normalized_expected_mac = _normalize_mac(expected_mac)
         if mac is None:
             warnings.warn(
                 f"could not confirm MAC address for {candidate.host} (expected "
-                f"{expected_norm}) -- local ARP table unavailable or unreadable, so "
+                f"{normalized_expected_mac}) -- local ARP table unavailable or unreadable, so "
                 f"MAC corroboration is skipped this time. Proceeding on esa_id alone.",
                 RuntimeWarning,
                 stacklevel=2,
             )
-        elif mac != expected_norm:
+        elif mac != normalized_expected_mac:
             raise IdentityMismatchError(
                 f"refusing {candidate.host}:{candidate.port} -- its MAC address is "
-                f"{mac}, expected {expected_norm}. esa_id matched (esa_id={esa_id!r}), "
+                f"{mac}, expected {normalized_expected_mac}. esa_id matched (esa_id={esa_id!r}), "
                 f"but the link-layer address changed -- usually this means the Drobo's "
                 f"network adapter or cable was swapped (or you moved to a different "
                 f"unit that happens to share the pinned esa_id by coincidence). If this "
@@ -556,10 +561,10 @@ def _gather_candidates(
     typing an address gets that address TRIED, never trusted.
     """
     candidates: list[Candidate] = []
-    for manual in manual_ips or []:
-        manual = (manual or "").strip()
-        if manual:
-            candidates.append(Candidate(manual, port, "manual"))
+    for typed_address in manual_ips or []:
+        typed_address = (typed_address or "").strip()
+        if typed_address:
+            candidates.append(Candidate(typed_address, port, "manual"))
     candidates.extend(discover_mdns(mdns_timeout))
     hostname_candidate = resolve_hostname(hostname, port)
     if hostname_candidate:
@@ -571,12 +576,12 @@ def _gather_candidates(
 
     seen: set[tuple[str, int]] = set()
     ordered: list[Candidate] = []
-    for cand in candidates:
-        key = (cand.host, cand.port)
+    for candidate in candidates:
+        key = (candidate.host, candidate.port)
         if key in seen:
             continue
         seen.add(key)
-        ordered.append(cand)
+        ordered.append(candidate)
     ordered.sort(key=lambda c: _is_link_local(c.host))
     return ordered
 
@@ -625,10 +630,10 @@ def resolve(
     mismatches: list[str] = []
     if allowed_subnets:
         candidates, rejected = filter_allowed_subnets(candidates, allowed_subnets)
-        mismatches.extend(_subnet_reject_message(cand, allowed_subnets) for cand in rejected)
-    for cand in candidates:
+        mismatches.extend(_subnet_reject_message(candidate, allowed_subnets) for candidate in rejected)
+    for candidate in candidates:
         try:
-            return verify_candidate(cand, expected_esa_id, expected_mac, timeout)
+            return verify_candidate(candidate, expected_esa_id, expected_mac, timeout)
         except IdentityMismatchError as exc:
             mismatches.append(str(exc))
             continue
