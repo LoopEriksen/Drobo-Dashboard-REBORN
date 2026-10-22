@@ -128,7 +128,9 @@ def _login_payload(esa_id: str) -> bytes:
     return bytes(login_bytes)
 
 
-def _receive_exactly(sock: socket.socket, byte_count: int, deadline: float | None = None) -> bytes:
+def _receive_exactly(
+        sock: socket.socket, byte_count: int,
+        deadline: float | None = None) -> bytes:
     """
     Read exactly byte_count bytes, or as many as arrive before the socket
     gives up.
@@ -171,7 +173,8 @@ def _receive_exactly(sock: socket.socket, byte_count: int, deadline: float | Non
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
                     raise ConfigError(
-                        f"timed out reading frame: got {len(received)} of {byte_count} bytes")
+                        f"timed out reading frame: got {len(received)} of "
+                        f"{byte_count} bytes")
                 # Shrink the per-recv wait as the budget runs down, or the very
                 # last recv could still overshoot by a full socket timeout.
                 sock.settimeout(remaining_seconds)
@@ -382,7 +385,8 @@ def get_config(host: str, esa_id: str, section: str = "network",
     parse_config_result.
     """
     if section not in SECTIONS:
-        raise ConfigError(f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
+        raise ConfigError(
+            f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
     command_name = "eCmdGetConfig"
     if command_name in _commands.DO_NOT_SEND:
@@ -623,7 +627,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
     try:
         root_element = ElementTree.fromstring(section_document)
     except ElementTree.ParseError as exc:
-        raise ConfigWriteError(f"the document to write is not valid XML: {exc}") from exc
+        raise ConfigWriteError(
+            f"the document to write is not valid XML: {exc}") from exc
     expected_root_tag = SECTIONS[section]
     if root_element.tag != expected_root_tag:
         raise ConfigWriteError(
@@ -637,14 +642,18 @@ def _send_section_document(host: str, esa_id: str, section: str,
     # than write a mask over a real value.
     if _REDACTION_SENTINEL in section_document:
         raise ConfigWriteError(
-            f"the document to write contains the redaction sentinel {_REDACTION_SENTINEL!r}; "
-            f"refusing -- a masked value must never be written back to the device")
+            "the document to write contains the redaction sentinel "
+            f"{_REDACTION_SENTINEL!r}; "
+            "refusing -- a masked value must never be written back to the "
+            f"device")
 
     # The device escapes the inner document into <Params>. quote=False so only
     # &lt; &gt; &amp; are produced -- the only escaping the capture confirmed;
     # emitting &#x27;/&quot; for an apostrophe in a device or share name is not
     # something the wire format was ever observed to accept.
-    escaped_document = html.escape(f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>", quote=False)
+    escaped_document = html.escape(
+        f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>",
+        quote=False)
     request_payload = (
         f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
         f"<Params>{escaped_document}</Params></TMCmd>").encode() + b"\x00"
@@ -656,7 +665,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
-        raise ConfigWriteError(f"could not reach the command port: {exc}") from exc
+        raise ConfigWriteError(
+            f"could not reach the command port: {exc}") from exc
     sock.settimeout(timeout)
     # The transport error that ate the result frame, if one does.
     acknowledgement_error = None
@@ -667,9 +677,11 @@ def _send_section_document(host: str, esa_id: str, section: str,
         # as sending the command frame.
         try:
             sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-            frame_type, _ = _read_frame(sock, deadline=time.monotonic() + timeout)
+            frame_type, _ = _read_frame(
+                sock, deadline=time.monotonic() + timeout)
         except (OSError, ConfigError) as exc:
-            raise ConfigWriteError(f"could not log in to write: {exc}") from exc
+            raise ConfigWriteError(
+                f"could not log in to write: {exc}") from exc
         if frame_type != TYPE_LOGIN_OK:
             raise ConfigWriteError(f"login refused (type 0x{frame_type:02x})")
 
@@ -691,7 +703,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
             # case below, now reached in bounded time rather than never: the
             # budget runs out, the ConfigError lands here, and the read-back
             # settles the outcome exactly as it does for a dropped connection.
-            frame_type, body = _read_frame(sock, deadline=time.monotonic() + timeout)
+            frame_type, body = _read_frame(
+                sock, deadline=time.monotonic() + timeout)
         except (OSError, ConfigError) as exc:
             # The device hung up (or went silent) before answering. Not an
             # answer of "no" -- no answer at all.
@@ -763,10 +776,13 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
     """
     if readback is None:
         raise ConfigWriteOutcomeUnknownError(
-            f"the write to section {section!r} WAS sent, then the device closed "
-            f"the connection without answering ({type(cause).__name__}: {cause}), "
+            f"the write to section {section!r} WAS sent, then the device "
+            f"closed "
+            f"the connection without answering ({type(cause).__name__}: "
+            f"{cause}), "
             f"and no read-back was available to settle it. The write MAY have "
-            f"applied -- a device that hangs up after a write has been measured "
+            "applied -- a device that hangs up after a write has been "
+            f"measured "
             f"to apply it anyway. Re-read the configuration before deciding "
             f"anything, and do NOT simply retry the write.") from cause
 
@@ -779,10 +795,13 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
         # letting its exception escape would surface as a failed write. The
         # cause chain keeps a genuine bug in the arbiter findable.
         raise ConfigWriteOutcomeUnknownError(
-            f"the write to section {section!r} WAS sent, then the device closed "
-            f"the connection without answering ({type(cause).__name__}: {cause}), "
+            f"the write to section {section!r} WAS sent, then the device "
+            f"closed "
+            f"the connection without answering ({type(cause).__name__}: "
+            f"{cause}), "
             f"and the read-back that would settle it could not be completed "
-            f"either ({type(exc).__name__}: {exc}). The write MAY have applied. "
+            f"either ({type(exc).__name__}: {exc}). The write MAY have "
+            f"applied. "
             f"Re-read the configuration before deciding anything, and do NOT "
             f"simply retry the write.") from exc
 
@@ -818,7 +837,8 @@ def get_config_element(host: str, esa_id: str, section: str,
     never returned to a UI, never logged.
     """
     if section not in SECTIONS:
-        raise ConfigError(f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
+        raise ConfigError(
+            f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
     command_name = "eCmdGetConfig"
     command_id = _commands.COMMANDS.get(command_name)
@@ -913,7 +933,8 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
     if command_id is None:
         raise ConfigWriteError(f"{command_name} has no confirmed command id")
 
-    element = get_config_element(host, esa_id, section, port=port, timeout=timeout)
+    element = get_config_element(
+        host, esa_id, section, port=port, timeout=timeout)
     replacement = edit(element)
     if replacement is None:
         section_document = ElementTree.tostring(element, encoding="unicode")

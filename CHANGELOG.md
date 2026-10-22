@@ -262,6 +262,14 @@ released. Every push to this repository carries this file.
   - Internal names in the repository's scripts (the privacy scanner, its
     pre-commit hook's notes and the version checker) and the Windows
     app's icon generator; no behaviour changes
+- **Code fits in 79 columns and comments in 72 (PEP 8); no behaviour
+  changes.** Long lines are wrapped and long comments and docstrings
+  reflowed, and the remaining style-checker findings are cleared. Nothing
+  sent to a Drobo, no agent route or JSON key and no text the software
+  shows changes, and every suite keeps its check counts. Done so far
+  (2026-10-19):
+  - The SDK's config and share-write modules (`config_cmd.py`,
+    `sharewrite.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in
