@@ -87,14 +87,14 @@ DEFAULTS: dict = {
 }
 
 
-def _merge(base: dict, override: dict) -> dict:
-    out = copy.deepcopy(base)
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = copy.deepcopy(base)
     for key, value in (override or {}).items():
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
-            out[key] = _merge(out[key], value)
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
         else:
-            out[key] = value
-    return out
+            merged[key] = value
+    return merged
 
 
 def load(path: str) -> dict:
@@ -107,9 +107,9 @@ def load(path: str) -> dict:
         # this file by hand on Windows produces a config the plain reader
         # rejected with a raw JSONDecodeError traceback and no hint of the
         # cause. Hit for real on 2026-08-07 by exactly that route.
-        with open(path, "r", encoding="utf-8-sig") as fh:
+        with open(path, "r", encoding="utf-8-sig") as config_file:
             try:
-                on_disk = json.load(fh)
+                on_disk = json.load(config_file)
             except json.JSONDecodeError as exc:
                 # A config file the user probably just edited. Say where and
                 # what, rather than unwinding a stack from json's internals.
@@ -130,23 +130,23 @@ def load(path: str) -> dict:
                     f"and try again.\n"
                     f"[config] Nothing was changed."
                 ) from None
-    cfg = _merge(DEFAULTS, on_disk)
+    merged_config = _deep_merge(DEFAULTS, on_disk)
 
     # Generate an access token on first run and write it back, so the value is
     # stable across restarts and the apps can be configured once.
-    if not cfg["agent"]["token"]:
-        cfg["agent"]["token"] = secrets.token_urlsafe(24)
-        save(path, cfg)
+    if not merged_config["agent"]["token"]:
+        merged_config["agent"]["token"] = secrets.token_urlsafe(24)
+        save(path, merged_config)
         print(f"[config] generated a new access token and saved it to {path}")
 
-    return cfg
+    return merged_config
 
 
-def save(path: str, cfg: dict) -> None:
+def save(path: str, config_data: dict) -> None:
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, indent=2)
-    os.replace(tmp, path)
+    temporary_path = path + ".tmp"
+    with open(temporary_path, "w", encoding="utf-8") as config_file:
+        json.dump(config_data, config_file, indent=2)
+    os.replace(temporary_path, path)

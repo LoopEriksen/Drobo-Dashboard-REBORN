@@ -63,6 +63,6 @@ class Alert:
         return self.cleared_at is None
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["active"] = self.active
-        return d
+        alert_dict = asdict(self)
+        alert_dict["active"] = self.active
+        return alert_dict

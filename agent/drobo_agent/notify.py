@@ -12,7 +12,6 @@ password and don't put anything sensitive in the message text.
 
 from __future__ import annotations
 
-import json
 import urllib.error
 import urllib.request
 
@@ -41,8 +40,9 @@ class NtfyNotifier(Notifier):
     name = "ntfy"
 
     # ntfy priorities: 1 min .. 5 max
-    _PRIORITY = {SEVERITY_CRITICAL: "5", SEVERITY_WARNING: "4"}
-    _TAGS = {SEVERITY_CRITICAL: "rotating_light", SEVERITY_WARNING: "warning"}
+    _PRIORITY_BY_SEVERITY = {SEVERITY_CRITICAL: "5", SEVERITY_WARNING: "4"}
+    _TAGS_BY_SEVERITY = {SEVERITY_CRITICAL: "rotating_light",
+                         SEVERITY_WARNING: "warning"}
 
     def __init__(self, server: str, topic: str):
         self.server = (server or "https://ntfy.sh").rstrip("/")
@@ -51,19 +51,19 @@ class NtfyNotifier(Notifier):
     def send(self, title: str, message: str, severity: str) -> None:
         if not self.topic:
             return
-        req = urllib.request.Request(
+        request = urllib.request.Request(
             f"{self.server}/{self.topic}",
             data=message.encode("utf-8"),
             method="POST",
             headers={
                 "Title": title,
-                "Priority": self._PRIORITY.get(severity, "3"),
-                "Tags": self._TAGS.get(severity, "floppy_disk"),
+                "Priority": self._PRIORITY_BY_SEVERITY.get(severity, "3"),
+                "Tags": self._TAGS_BY_SEVERITY.get(severity, "floppy_disk"),
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                resp.read()
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
         except (urllib.error.URLError, OSError) as exc:
             # Never let a failed notification take the agent down -- the whole
             # point is that it keeps watching the array.
@@ -99,7 +99,7 @@ class EmailNotifier(Notifier):
 
     #: SMTP is slow and this runs on the alerting path. Bounded so a mail
     #: server that has gone away cannot hold up a poll cycle.
-    TIMEOUT = 15.0
+    TIMEOUT_SECONDS = 15.0
 
     def __init__(self, host: str, port: int, username: str, password: str,
                  sender: str, recipients: list[str], use_tls: bool = True):
@@ -130,13 +130,13 @@ class EmailNotifier(Notifier):
 
         try:
             if self.use_tls:
-                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT) as smtp:
+                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT_SECONDS) as smtp:
                     smtp.starttls()
                     if self.username:
                         smtp.login(self.username, self._password)
                     smtp.send_message(mail)
             else:
-                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT) as smtp:
+                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT_SECONDS) as smtp:
                     if self.username:
                         smtp.login(self.username, self._password)
                     smtp.send_message(mail)
@@ -163,40 +163,41 @@ class NotifierGroup(Notifier):
                 print(f"[notify] backend {member.name} failed: {exc}", flush=True)
 
 
-def build(cfg: dict) -> Notifier:
+def build(notify_config: dict) -> Notifier:
     members: list[Notifier] = []
-    for backend in cfg.get("backends", ["console"]):
+    for backend in notify_config.get("backends", ["console"]):
         if backend == "console":
             members.append(ConsoleNotifier())
         elif backend == "ntfy":
-            ntfy = cfg.get("ntfy", {})
-            if not ntfy.get("topic"):
+            ntfy_config = notify_config.get("ntfy", {})
+            if not ntfy_config.get("topic"):
                 print("[notify] ntfy is enabled but no topic is set -- skipping", flush=True)
                 continue
-            members.append(NtfyNotifier(ntfy.get("server", ""), ntfy["topic"]))
+            members.append(NtfyNotifier(ntfy_config.get("server", ""),
+                                        ntfy_config["topic"]))
         elif backend == "email":
-            email = cfg.get("email", {})
+            email_config = notify_config.get("email", {})
             # Every one of these is required, and a partial configuration is
             # reported rather than half-used: an alert that silently fails to
             # send is worse than one that was never configured, because you
             # believe you are covered.
-            missing = [k for k in ("host", "to") if not email.get(k)]
+            missing = [k for k in ("host", "to") if not email_config.get(k)]
             if missing:
                 print(f"[notify] email is enabled but {', '.join(missing)} "
                       f"{'is' if len(missing) == 1 else 'are'} not set -- skipping",
                       flush=True)
                 continue
-            recipients = email["to"]
+            recipients = email_config["to"]
             if isinstance(recipients, str):
-                recipients = [r.strip() for r in recipients.split(",") if r.strip()]
+                recipients = [address.strip() for address in recipients.split(",") if address.strip()]
             members.append(EmailNotifier(
-                host=email["host"],
-                port=int(email.get("port", 587)),
-                username=email.get("username", ""),
-                password=email.get("password", ""),
-                sender=email.get("from", ""),
+                host=email_config["host"],
+                port=int(email_config.get("port", 587)),
+                username=email_config.get("username", ""),
+                password=email_config.get("password", ""),
+                sender=email_config.get("from", ""),
                 recipients=recipients,
-                use_tls=bool(email.get("use_tls", True)),
+                use_tls=bool(email_config.get("use_tls", True)),
             ))
         else:
             print(f"[notify] unknown backend {backend!r} -- ignoring", flush=True)

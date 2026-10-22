@@ -34,11 +34,12 @@ __version__ = "1.1.0"
 import os as _os
 import sys as _sys
 
-_sdk = _os.path.abspath(
+_sibling_sdk_dir = _os.path.abspath(
     _os.path.join(_os.path.dirname(__file__), "..", "..", "sdk"))
-if _os.path.isdir(_os.path.join(_sdk, "drobo_nasd")):
-    if _sdk in _sys.path:
-        _sys.path.remove(_sdk)
-    _sys.path.insert(0, _sdk)  # ahead of site-packages, not merely present
+if _os.path.isdir(_os.path.join(_sibling_sdk_dir, "drobo_nasd")):
+    if _sibling_sdk_dir in _sys.path:
+        _sys.path.remove(_sibling_sdk_dir)
+    # ahead of site-packages, not merely present
+    _sys.path.insert(0, _sibling_sdk_dir)
 else:  # no checkout beside us; an installed copy is the only option
-    import drobo_nasd as _probe  # noqa: F401
+    import drobo_nasd as _installed_drobo_nasd  # noqa: F401

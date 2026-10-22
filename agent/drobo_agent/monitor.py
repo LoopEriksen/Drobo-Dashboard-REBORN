@@ -15,7 +15,7 @@ from collections import deque
 
 from drobo_nasd import discovery, esatm, firmware, netcheck
 
-from . import drivers as drivers_mod
+from . import drivers
 from .models import (
     SEVERITY_CRITICAL,
     SEVERITY_INFO,
@@ -40,12 +40,12 @@ _PACK_STATUS_BASELINE = {
 }
 
 
-def _human_bytes(n: float) -> str:
+def _format_size(size: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
-        if abs(n) < 1000 or unit == "PB":
-            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
-        n /= 1000.0
-    return f"{n:.1f} PB"
+        if abs(size) < 1000 or unit == "PB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1000.0
+    return f"{size:.1f} PB"
 
 
 class Monitor:
@@ -54,12 +54,12 @@ class Monitor:
     #: couple of seconds -- spawning a process that often to re-learn something
     #: that changes when you join a different Wi-Fi network would be silly.
     #: Short enough that reconnecting clears the warning within half a minute.
-    NETWORK_HINT_TTL = 30.0
+    NETWORK_HINT_TTL_SECONDS = 30.0
 
     def __init__(self, config: dict, notifier):
         self.config = config
         self.notifier = notifier
-        self.driver = drivers_mod.build(config["drobo"])
+        self.driver = drivers.build(config["drobo"])
 
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
@@ -68,7 +68,7 @@ class Monitor:
         self.latest: Snapshot | None = None
         self.history: deque[Snapshot] = deque(maxlen=int(config["agent"]["history_length"]))
         self.alerts: dict[str, Alert] = {}
-        self._last_sent: dict[str, float] = {}
+        self._last_sent_at: dict[str, float] = {}
         self._subscribers: list[queue.Queue] = []
         self.started_at = time.time()
 
@@ -81,7 +81,7 @@ class Monitor:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        poll = self.config["agent"]["poll_seconds"]
+        poll_seconds = self.config["agent"]["poll_seconds"]
         try:
             self.driver.connect()
         except discovery.IdentityMismatchError as exc:
@@ -99,7 +99,7 @@ class Monitor:
                 'the "drobo" block of config.json to the serial it reports (or '
                 "remove it to pair with the next Drobo found), then start the "
                 "agent again.\n") from exc
-        except drivers_mod.DroboNotFoundError as exc:
+        except drivers.DroboNotFoundError as exc:
             # Discovery ran and nothing answered. Until 2026-09-26 this exited
             # the agent, under a comment calling it "a programming/config
             # error, not a network condition". That was true when it was
@@ -121,7 +121,7 @@ class Monitor:
             print(f"[monitor] no Drobo found yet. {exc}", flush=True)
             print(f"[monitor] starting anyway: the dashboard stays up, the "
                   f"'cannot reach' alert is raised, and discovery runs again "
-                  f"every {poll}s.", flush=True)
+                  f"every {poll_seconds}s.", flush=True)
         except esatm.FrameError as exc:
             # Only reachable with a fixed address -- discovery absorbs this
             # per candidate. Something at that address replied with bytes
@@ -135,7 +135,7 @@ class Monitor:
             where = self.driver.target_host() or "the configured address"
             print(f"[monitor] the reply from {where} was not a Drobo status "
                   f"message ({exc}). Starting anyway and will keep trying "
-                  f"every {poll}s.", flush=True)
+                  f"every {poll_seconds}s.", flush=True)
         except OSError as exc:
             # The Drobo is not answering right now. That is NOT a reason to
             # refuse to start.
@@ -153,10 +153,11 @@ class Monitor:
             # through the normal path. If the Drobo comes back, the next poll
             # picks it up with no restart.
             print(f"[monitor] cannot reach the Drobo yet ({exc}). Starting "
-                  f"anyway and will keep trying every {poll}s.", flush=True)
+                  f"anyway and will keep trying every {poll_seconds}s.",
+                  flush=True)
         self._poll_thread = threading.Thread(target=self._poll_loop, name="drobo-monitor", daemon=True)
         self._poll_thread.start()
-        print(f"[monitor] polling every {poll}s via the {self.driver.name!r} driver",
+        print(f"[monitor] polling every {poll_seconds}s via the {self.driver.name!r} driver",
               flush=True)
 
     def stop(self) -> None:
@@ -166,42 +167,43 @@ class Monitor:
         self.driver.close()
 
     def _poll_loop(self) -> None:
-        interval = float(self.config["agent"]["poll_seconds"])
+        poll_seconds = float(self.config["agent"]["poll_seconds"])
         while not self._stop_requested.is_set():
             self.poll_once()
-            self._stop_requested.wait(interval)
+            self._stop_requested.wait(poll_seconds)
 
     # -- polling -----------------------------------------------------------
 
     def poll_once(self) -> Snapshot:
         try:
-            snap = self.driver.read_snapshot()
+            snapshot = self.driver.read_snapshot()
         except Exception as exc:  # noqa: BLE001 - any driver failure means "unreachable"
-            snap = Snapshot(reachable=False, source=self.driver.name, error=str(exc))
+            snapshot = Snapshot(reachable=False, source=self.driver.name, error=str(exc))
 
         # Worked out BEFORE the lock is taken: this can shell out to `ipconfig`,
         # and no /api/status reader should ever be made to wait behind a
         # subprocess. Only asked for when the Drobo didn't answer -- when it
         # did, the network layout is not the story and nothing needs explaining.
-        hint = self._network_hint() if not snap.reachable else None
+        hint = self._network_hint() if not snapshot.reachable else None
 
         with self._lock:
-            self.latest = snap
+            self.latest = snapshot
             self.network_hint = hint
-            self.history.append(snap)
-            fired = self._evaluate_alerts(snap, hint)
+            self.history.append(snapshot)
+            fired_alerts = self._evaluate_alerts(snapshot, hint)
             # Built here, from the same helper /api/status uses, rather than
-            # from snap.to_dict() directly. The web dashboard is driven by this
-            # stream and not by polling /api/status, so a field added to one and
-            # not the other reaches half the front-ends and no test -- which is
-            # exactly how the network banner came to be missing from the very UI
-            # it was written for while the REST endpoint served it correctly.
+            # from snapshot.to_dict() directly. The web dashboard is driven by
+            # this stream and not by polling /api/status, so a field added to
+            # one and not the other reaches half the front-ends and no test --
+            # which is exactly how the network banner came to be missing from
+            # the very UI it was written for while the REST endpoint served it
+            # correctly.
             payload = self._snapshot_payload()
 
         self._broadcast({"type": "snapshot", "data": payload})
-        for alert in fired:
+        for alert in fired_alerts:
             self._dispatch(alert)
-        return snap
+        return snapshot
 
     # -- why we can't reach it ---------------------------------------------
 
@@ -224,8 +226,8 @@ class Monitor:
         prove -- it is an explanation for a failure that already happened, never
         a prediction, and never a reason not to keep trying.
 
-        Cached per target for NETWORK_HINT_TTL so a fast poll loop doesn't run
-        `ipconfig` every tick.
+        Cached per target for NETWORK_HINT_TTL_SECONDS so a fast poll
+        loop doesn't run `ipconfig` every tick.
         """
         target = self.driver.target_host()
         if not target:
@@ -233,30 +235,31 @@ class Monitor:
 
         now = time.time()
         cached = self._hint_cache
-        if cached and cached[0] == target and now - cached[1] < self.NETWORK_HINT_TTL:
+        if cached and cached[0] == target and now - cached[1] < self.NETWORK_HINT_TTL_SECONDS:
             return cached[2]
 
         try:
-            result = netcheck.diagnose(target)
+            diagnosis = netcheck.diagnose(target)
         except Exception:  # noqa: BLE001 - a diagnosis must never break a poll
             # Nothing in netcheck is supposed to raise, but this runs on every
             # failed poll on somebody's storage monitor. A bug in the
             # explanation must not cost them the alert it was explaining.
-            result = None
+            diagnosis = None
 
-        hint = result.to_dict() if result and not result.same_network else None
+        hint = (diagnosis.to_dict()
+                if diagnosis and not diagnosis.same_network else None)
         self._hint_cache = (target, now, hint)
         return hint
 
     # -- alert rules -------------------------------------------------------
 
-    def _evaluate_alerts(self, snap: Snapshot, network_hint: dict | None = None) -> list[Alert]:
+    def _evaluate_alerts(self, snapshot: Snapshot, network_hint: dict | None = None) -> list[Alert]:
         """Work out which conditions hold right now. Returns newly-fired alerts."""
-        acfg = self.config["alerts"]
+        alert_config = self.config["alerts"]
         seen: dict[str, tuple[str, str]] = {}  # key -> (severity, message)
 
-        if not snap.reachable:
-            error = " ".join((snap.error or "no response").split())
+        if not snapshot.reachable:
+            error = " ".join((snapshot.error or "no response").split())
             if network_hint:
                 # Kept as ONE alert rather than raised as a second: there is a
                 # single problem here, and a critical "cannot reach" sitting
@@ -278,7 +281,7 @@ class Monitor:
                 message = f"Cannot reach the Drobo: {error}"
             seen["unreachable"] = (SEVERITY_CRITICAL, message)
         else:
-            for drive in snap.drives:
+            for drive in snapshot.drives:
                 if not drive.present:
                     continue
                 where = f"bay {drive.bay}"
@@ -301,18 +304,22 @@ class Monitor:
                         f"Drive in {where} has reported {drive.error_count} error(s) "
                         f"({drive.model or 'unknown model'}).",
                     )
-                temp = drive.temperature_c
-                if temp is not None:
-                    if temp >= acfg["temperature_critical_c"]:
+                drive_temperature_c = drive.temperature_c
+                if drive_temperature_c is not None:
+                    if (drive_temperature_c
+                            >= alert_config["temperature_critical_c"]):
                         seen[f"temp-critical-{drive.bay}"] = (
                             SEVERITY_CRITICAL,
-                            f"Drive in {where} is {temp:.1f} C -- above the "
-                            f"{acfg['temperature_critical_c']:.0f} C critical threshold.",
+                            f"Drive in {where} is {drive_temperature_c:.1f} C "
+                            f"-- above the "
+                            f"{alert_config['temperature_critical_c']:.0f} C critical threshold.",
                         )
-                    elif temp >= acfg["temperature_warning_c"]:
+                    elif (drive_temperature_c
+                          >= alert_config["temperature_warning_c"]):
                         seen[f"temp-warning-{drive.bay}"] = (
                             SEVERITY_WARNING,
-                            f"Drive in {where} is running warm at {temp:.1f} C.",
+                            f"Drive in {where} is running warm at "
+                            f"{drive_temperature_c:.1f} C.",
                         )
 
             # Chassis temperature, from eCmdGetSysInfo on the command port.
@@ -327,23 +334,27 @@ class Monitor:
             # Same thresholds as the per-drive rule. They are a whole-box
             # reading rather than a per-disk one, so the wording says so; a
             # 5N in a cupboard on a warm day is the case this is for.
-            chassis = snap.device.temperature_c
-            if chassis is not None:
-                if chassis >= acfg["temperature_critical_c"]:
+            chassis_temperature_c = snapshot.device.temperature_c
+            if chassis_temperature_c is not None:
+                if (chassis_temperature_c
+                        >= alert_config["temperature_critical_c"]):
                     seen["chassis-temp-critical"] = (
                         SEVERITY_CRITICAL,
-                        f"The Drobo is {chassis} C inside -- above the "
-                        f"{acfg['temperature_critical_c']:.0f} C critical threshold. "
+                        f"The Drobo is {chassis_temperature_c} C inside -- "
+                        f"above the "
+                        f"{alert_config['temperature_critical_c']:.0f} C critical threshold. "
                         "Check it has room to breathe and that the fan is running.",
                     )
-                elif chassis >= acfg["temperature_warning_c"]:
+                elif (chassis_temperature_c
+                      >= alert_config["temperature_warning_c"]):
                     seen["chassis-temp-warning"] = (
                         SEVERITY_WARNING,
-                        f"The Drobo is running warm at {chassis} C inside. "
+                        f"The Drobo is running warm at "
+                        f"{chassis_temperature_c} C inside. "
                         "Worth checking it has space around it and clear vents.",
                     )
 
-            battery = snap.battery
+            battery = snapshot.battery
             if battery.state == STATE_FAILED:
                 seen["battery-failed"] = (
                     SEVERITY_CRITICAL,
@@ -363,7 +374,7 @@ class Monitor:
             # failing power supply. On a real 5N these sensors do not report
             # (the commands time out), so STATE_UNKNOWN is the everyday value
             # and must stay silent; only a positive failed/warning state alerts.
-            power = snap.power
+            power = snapshot.power
             if power.state == STATE_FAILED:
                 seen["power-failed"] = (
                     SEVERITY_CRITICAL,
@@ -375,7 +386,7 @@ class Monitor:
                     f"Power supply reports a problem. {power.note}".strip(),
                 )
 
-            fan = snap.fan
+            fan = snapshot.fan
             if fan.state == STATE_FAILED:
                 seen["fan-failed"] = (
                     SEVERITY_CRITICAL,
@@ -388,58 +399,58 @@ class Monitor:
                     "A cooling fan reports a problem.",
                 )
 
-            ph = snap.pack_health
+            pack_health = snapshot.pack_health
 
-            frac = snap.capacity.used_fraction
-            free = _human_bytes(snap.capacity.free_bytes)
+            used_fraction = snapshot.capacity.used_fraction
+            free_space_text = _format_size(snapshot.capacity.free_bytes)
             # Prefer the device's OWN capacity alert levels (mRedThreshold /
             # mYellowThreshold) when the greeting reports them -- we'd then be
             # alerting on exactly the same levels the original Dashboard
             # does. Fall back to our config defaults when absent (e.g. the
             # mock driver, which doesn't set pack_health thresholds).
-            crit_fraction = ph.red_threshold_fraction
-            if crit_fraction is None:
-                crit_fraction = acfg["capacity_critical_fraction"]
-            warn_fraction = ph.yellow_threshold_fraction
-            if warn_fraction is None:
-                warn_fraction = acfg["capacity_warning_fraction"]
-            if frac >= crit_fraction:
+            critical_fraction = pack_health.red_threshold_fraction
+            if critical_fraction is None:
+                critical_fraction = alert_config["capacity_critical_fraction"]
+            warning_fraction = pack_health.yellow_threshold_fraction
+            if warning_fraction is None:
+                warning_fraction = alert_config["capacity_warning_fraction"]
+            if used_fraction >= critical_fraction:
                 seen["capacity-critical"] = (
                     SEVERITY_CRITICAL,
-                    f"Only {free} free ({frac:.0%} used). The array is nearly full.",
+                    f"Only {free_space_text} free ({used_fraction:.0%} used). The array is nearly full.",
                 )
-            elif frac >= warn_fraction:
+            elif used_fraction >= warning_fraction:
                 seen["capacity-warning"] = (
                     SEVERITY_WARNING,
-                    f"{frac:.0%} used, {free} free.",
+                    f"{used_fraction:.0%} used, {free_space_text} free.",
                 )
 
             # -- pack-level health the greeting already sends ----------
-            if ph.double_degraded_count > 0:
+            if pack_health.double_degraded_count > 0:
                 seen["double-degraded"] = (
                     SEVERITY_CRITICAL,
-                    f"Double-degraded count is {ph.double_degraded_count} -- two "
+                    f"Double-degraded count is {pack_health.double_degraded_count} -- two "
                     "drives were degraded at once; the array's protection may "
                     "have been exhausted.",
                 )
-            if ph.relayout_count > 0:
+            if pack_health.relayout_count > 0:
                 seen["relayout"] = (
                     SEVERITY_INFO,
-                    f"Relayout count is {ph.relayout_count} -- rebuilding, this "
+                    f"Relayout count is {pack_health.relayout_count} -- rebuilding, this "
                     "is normal after a drive change.",
                 )
-            for attr, baseline in _PACK_STATUS_BASELINE.items():
-                current = getattr(ph, attr)
+            for pack_status_field, baseline in _PACK_STATUS_BASELINE.items():
+                current = getattr(pack_health, pack_status_field)
                 if current is not None and current != baseline:
-                    seen[f"pack-status-{attr}"] = (
+                    seen[f"pack-status-{pack_status_field}"] = (
                         SEVERITY_WARNING,
-                        f"{attr} changed from the healthy baseline ({baseline}) "
+                        f"{pack_status_field} changed from the healthy baseline ({baseline}) "
                         f"to {current}. We don't know what this code means -- "
                         "just that it's different from before.",
                     )
 
         now = time.time()
-        fired: list[Alert] = []
+        fired_alerts: list[Alert] = []
 
         for key, (severity, message) in seen.items():
             existing = self.alerts.get(key)
@@ -447,29 +458,30 @@ class Monitor:
                 existing.last_seen = now
                 existing.message = message
                 # Re-send long-running problems occasionally so they aren't forgotten.
-                if now - self._last_sent.get(key, 0) >= acfg["resend_seconds"]:
-                    fired.append(existing)
+                if (now - self._last_sent_at.get(key, 0)
+                        >= alert_config["resend_seconds"]):
+                    fired_alerts.append(existing)
             else:
                 alert = Alert(key=key, severity=severity, message=message)
                 self.alerts[key] = alert
-                fired.append(alert)
+                fired_alerts.append(alert)
 
         # Anything that was active but isn't in `seen` any more has cleared.
         for key, alert in self.alerts.items():
             if alert.active and key not in seen:
                 alert.cleared_at = now
-                self._last_sent.pop(key, None)
+                self._last_sent_at.pop(key, None)
                 cleared = Alert(
                     key=key + "-cleared",
                     severity=SEVERITY_INFO,
                     message=f"Resolved: {alert.message}",
                 )
-                fired.append(cleared)
+                fired_alerts.append(cleared)
 
-        return fired
+        return fired_alerts
 
     def _dispatch(self, alert: Alert) -> None:
-        self._last_sent[alert.key] = time.time()
+        self._last_sent_at[alert.key] = time.time()
         title = {
             SEVERITY_CRITICAL: "Drobo: action needed",
             SEVERITY_WARNING: "Drobo: warning",
@@ -480,22 +492,22 @@ class Monitor:
     # -- live event stream (used by /api/events) ---------------------------
 
     def subscribe(self) -> queue.Queue:
-        q: queue.Queue = queue.Queue(maxsize=64)
+        subscriber_queue: queue.Queue = queue.Queue(maxsize=64)
         with self._lock:
-            self._subscribers.append(q)
-        return q
+            self._subscribers.append(subscriber_queue)
+        return subscriber_queue
 
-    def unsubscribe(self, q: queue.Queue) -> None:
+    def unsubscribe(self, subscriber_queue: queue.Queue) -> None:
         with self._lock:
-            if q in self._subscribers:
-                self._subscribers.remove(q)
+            if subscriber_queue in self._subscribers:
+                self._subscribers.remove(subscriber_queue)
 
     def _broadcast(self, payload: dict) -> None:
         with self._lock:
-            targets = list(self._subscribers)
-        for q in targets:
+            subscribers = list(self._subscribers)
+        for subscriber_queue in subscribers:
             try:
-                q.put_nowait(payload)
+                subscriber_queue.put_nowait(payload)
             except queue.Full:
                 pass  # a slow client just misses updates; it can re-read /api/status
 
@@ -557,20 +569,21 @@ class Monitor:
     def history_dicts(self, limit: int = 720) -> list[dict]:
         """Trimmed history for graphing -- just the numbers, not whole snapshots."""
         with self._lock:
-            items = list(self.history)[-limit:]
-        out = []
-        for snap in items:
-            temps = [d.temperature_c for d in snap.drives if d.temperature_c is not None]
-            out.append(
+            recent_snapshots = list(self.history)[-limit:]
+        points = []
+        for snapshot in recent_snapshots:
+            drive_temperatures = [d.temperature_c for d in snapshot.drives if d.temperature_c is not None]
+            points.append(
                 {
-                    "t": round(snap.taken_at, 1),
-                    "reachable": snap.reachable,
-                    "state": snap.overall_state,
-                    "used_bytes": snap.capacity.used_bytes,
-                    "free_bytes": snap.capacity.free_bytes,
-                    "max_temp_c": max(temps) if temps else None,
-                    "read_mb_per_s": snap.performance.read_mb_per_s,
-                    "write_mb_per_s": snap.performance.write_mb_per_s,
+                    "t": round(snapshot.taken_at, 1),
+                    "reachable": snapshot.reachable,
+                    "state": snapshot.overall_state,
+                    "used_bytes": snapshot.capacity.used_bytes,
+                    "free_bytes": snapshot.capacity.free_bytes,
+                    "max_temp_c": (max(drive_temperatures)
+                                   if drive_temperatures else None),
+                    "read_mb_per_s": snapshot.performance.read_mb_per_s,
+                    "write_mb_per_s": snapshot.performance.write_mb_per_s,
                 }
             )
-        return out
+        return points

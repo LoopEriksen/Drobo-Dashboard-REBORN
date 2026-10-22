@@ -250,6 +250,9 @@ released. Every push to this repository carries this file.
     modules); no behaviour changes
   - Internal names in the SDK's sixteen test suites (their fake Drobos,
     fixtures, reply builders and local variables); no behaviour changes
+  - Internal names in the agent's core (its configuration, driver,
+    model, monitor and notification modules, and the agent's start-up
+    script); no behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in
