@@ -248,6 +248,8 @@ released. Every push to this repository carries this file.
   - Internal names in the SDK's read side (the status greeting, system
     information, event log, discovery, firmware, model and network-check
     modules); no behaviour changes
+  - Internal names in the SDK's sixteen test suites (their fake Drobos,
+    fixtures, reply builders and local variables); no behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

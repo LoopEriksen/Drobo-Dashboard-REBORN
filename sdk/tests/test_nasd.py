@@ -8,12 +8,14 @@ Drobo -- this only exercises commands.py, envelope.py, and framing.py.
 Run this after changing anything under drobo_nasd/.
 """
 import os
+import socket
 import sys
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import client, commands, envelope, framing
+from drobo_nasd import client, commands, envelope, esatm, framing  # noqa: E402
+from drobo_nasd.models import DriveSlot  # noqa: E402
 
 failures = []
 
@@ -34,7 +36,7 @@ check(
     sorted(commands.COMMANDS.values()) == list(range(103)),
 )
 
-spot_checks = {
+expected_command_ids = {
     "eCmdSetAdmin": 0,
     "eCmdGetAdmin": 1,
     "eCmdGetVersion": 7,
@@ -49,13 +51,13 @@ spot_checks = {
     "eCmdRunCommand": 89,
     "eCmdGetNASUsernamePassword": 102,
 }
-for name, expected in spot_checks.items():
+for name, expected in expected_command_ids.items():
     check(f"spot id {name} == {expected}", commands.COMMANDS.get(name) == expected, commands.COMMANDS.get(name))
 
-check("ID_TO_NAME is the exact inverse", all(commands.ID_TO_NAME[i] == n for n, i in commands.COMMANDS.items()))
+check("ID_TO_NAME is the exact inverse", all(commands.ID_TO_NAME[command_id] == command_name for command_name, command_id in commands.COMMANDS.items()))
 
 print("\n== commands.py: DO-NOT-SEND group ==")
-expected_hatches = {
+expected_escape_hatches = {
     "eCmdRunESACommand",
     "eCmdRunCommand",
     "eCmdSendTMCommand",
@@ -64,7 +66,7 @@ expected_hatches = {
     "eCmdWriteHostBuffer",
 }
 check("the six escape hatches are exactly as documented",
-      commands.ESCAPE_HATCHES == frozenset(expected_hatches))
+      commands.ESCAPE_HATCHES == frozenset(expected_escape_hatches))
 check("DO_NOT_SEND is both groups combined",
       commands.DO_NOT_SEND == commands.ESCAPE_HATCHES | commands.DESTRUCTIVE)
 check("the two groups don't overlap",
@@ -135,7 +137,7 @@ print("\n== envelope.py: build/parse round trip ==")
 # ---------------------------------------------------------------------------
 
 # a spread of commands: no params, flat params, nested params
-cases = [
+envelope_cases = [
     ("eCmdGetVersion", None),
     ("eCmdGetAllDevicesStatusXML", {"Verbose": 1}),
     # Note: "Name" is deliberately non-numeric text -- envelope.py's wire
@@ -145,21 +147,22 @@ cases = [
     # comparison meaningful instead of exercising that documented ambiguity.
     ("eCmdGetSysInfo", {"Name": "unit-test", "Count": 5, "Nested": {"A": "alpha", "B": 2}}),
 ]
-for name, params in cases:
+for name, params in envelope_cases:
     xml_text = envelope.build_command("ESA-1234", name, params)
     check(f"{name}: build() produced the exact XML declaration", xml_text.startswith('<?xml version="1.0"?>\n'))
     check(f"{name}: build() produced a DRINETTM root", "<DRINETTM>" in xml_text)
 
-    env = envelope.parse(xml_text)
-    check(f"{name}: round-trip esa_id", env.esa_id == "ESA-1234", env.esa_id)
-    check(f"{name}: round-trip command_name", env.command_name == name, env.command_name)
-    check(f"{name}: round-trip command_id", env.command_id == commands.COMMANDS[name], env.command_id)
-    check(f"{name}: round-trip params", env.params == (params or {}), env.params)
+    parsed_envelope = envelope.parse(xml_text)
+    check(f"{name}: round-trip esa_id", parsed_envelope.esa_id == "ESA-1234",
+          parsed_envelope.esa_id)
+    check(f"{name}: round-trip command_name", parsed_envelope.command_name == name, parsed_envelope.command_name)
+    check(f"{name}: round-trip command_id", parsed_envelope.command_id == commands.COMMANDS[name], parsed_envelope.command_id)
+    check(f"{name}: round-trip params", parsed_envelope.params == (params or {}), parsed_envelope.params)
 
 # building by numeric id instead of name should resolve the same way
 xml_by_id = envelope.build_command("ESA-1", commands.COMMANDS["eCmdGetVersion"], None)
-env_by_id = envelope.parse(xml_by_id)
-check("build by numeric id resolves command_name", env_by_id.command_name == "eCmdGetVersion")
+envelope_by_id = envelope.parse(xml_by_id)
+check("build by numeric id resolves command_name", envelope_by_id.command_name == "eCmdGetVersion")
 
 # unknown command name must be rejected, not silently accepted
 try:
@@ -169,15 +172,15 @@ except KeyError:
     check("unknown command name raises KeyError", True)
 
 print("\n== envelope.py: response build/parse (Error / Result) ==")
-resp_xml = envelope.build_response("ESA-9", "eCmdGetVersion", error=0, result="4.2.1")
-resp_env = envelope.parse(resp_xml)
-check("response error round-trips as int 0", resp_env.error == 0, resp_env.error)
-check("response result round-trips", resp_env.result == "4.2.1", resp_env.result)
+response_xml = envelope.build_response("ESA-9", "eCmdGetVersion", error=0, result="4.2.1")
+response_envelope = envelope.parse(response_xml)
+check("response error round-trips as int 0", response_envelope.error == 0, response_envelope.error)
+check("response result round-trips", response_envelope.result == "4.2.1", response_envelope.result)
 
-resp_xml_err = envelope.build_response("ESA-9", "eCmdGetVersion", error=1, result_details={"Reason": "denied"})
-resp_env_err = envelope.parse(resp_xml_err)
-check("response error round-trips as int 1", resp_env_err.error == 1, resp_env_err.error)
-check("response result_details round-trips", resp_env_err.result_details == {"Reason": "denied"}, resp_env_err.result_details)
+error_response_xml = envelope.build_response("ESA-9", "eCmdGetVersion", error=1, result_details={"Reason": "denied"})
+error_response_envelope = envelope.parse(error_response_xml)
+check("response error round-trips as int 1", error_response_envelope.error == 1, error_response_envelope.error)
+check("response result_details round-trips", error_response_envelope.result_details == {"Reason": "denied"}, error_response_envelope.result_details)
 
 print("\n== envelope.py: malformed input is rejected ==")
 try:
@@ -224,23 +227,27 @@ except framing.FramingError:
     check("truncated payload raises FramingError", True)
 
 # two frames back to back decode in sequence
-frame1 = framing.encode_frame(b"first")
-frame2 = framing.encode_frame(b"second")
-payload_a, rest = framing.decode_frame(frame1 + frame2)
-payload_b, rest2 = framing.decode_frame(rest)
-check("first of two concatenated frames", payload_a == b"first", payload_a)
-check("second of two concatenated frames", payload_b == b"second", payload_b)
-check("nothing left after both frames", rest2 == b"")
+first_frame = framing.encode_frame(b"first")
+second_frame = framing.encode_frame(b"second")
+first_payload, remainder_after_first = framing.decode_frame(first_frame
+                                                            + second_frame)
+second_payload, remainder_after_second = framing.decode_frame(
+    remainder_after_first)
+check("first of two concatenated frames", first_payload == b"first",
+      first_payload)
+check("second of two concatenated frames", second_payload == b"second",
+      second_payload)
+check("nothing left after both frames", remainder_after_second == b"")
 
 print("\n== framing.py: FrameAssembler handles fragmented delivery ==")
 assembler = framing.FrameAssembler()
-whole = framing.encode_frame(b"fragmented-payload")
+whole_frame = framing.encode_frame(b"fragmented-payload")
 # split the frame into three arbitrary chunks, as a real socket.recv() would
 chunk_points = [3, 9]
 chunks = [
-    whole[: chunk_points[0]],
-    whole[chunk_points[0] : chunk_points[1]],
-    whole[chunk_points[1] :],
+    whole_frame[: chunk_points[0]],
+    whole_frame[chunk_points[0] : chunk_points[1]],
+    whole_frame[chunk_points[1] :],
 ]
 collected = []
 for chunk in chunks:
@@ -248,21 +255,22 @@ for chunk in chunks:
 check("fragmented frame reassembled into exactly one payload", collected == [b"fragmented-payload"], collected)
 check("assembler has no leftover bytes buffered", assembler.pending_bytes() == 0, assembler.pending_bytes())
 
-multi = framing.encode_frame(b"one") + framing.encode_frame(b"two") + framing.encode_frame(b"three")
-assembler2 = framing.FrameAssembler()
-multi_result = assembler2.feed(multi)
-check("assembler yields multiple frames fed at once", multi_result == [b"one", b"two", b"three"], multi_result)
+three_frames = framing.encode_frame(b"one") + framing.encode_frame(b"two") + framing.encode_frame(b"three")
+multi_frame_assembler = framing.FrameAssembler()
+multi_frame_payloads = multi_frame_assembler.feed(three_frames)
+check("assembler yields multiple frames fed at once", multi_frame_payloads == [b"one", b"two", b"three"], multi_frame_payloads)
 
 
 print("\n== framing.py: NasdHeader candidates are internally self-consistent ==")
 # This does NOT prove any candidate matches a real Drobo -- see NasdHeader's
 # docstring. It only proves each candidate's own encode/decode pair agrees
 # with itself, which is what client.py depends on structurally.
-for cand_name, (encoder, decoder) in framing.NasdHeader.CANDIDATES.items():
+for candidate_name, (encoder,
+                     decoder) in framing.NasdHeader.CANDIDATES.items():
     header_bytes = encoder(42)
-    sig, length = decoder(header_bytes)
-    check(f"NasdHeader.{cand_name}: encode/decode agree on length", length == 42, length)
-    check(f"NasdHeader.{cand_name}: header is 12 bytes", len(header_bytes) == 12, len(header_bytes))
+    _signature, length = decoder(header_bytes)
+    check(f"NasdHeader.{candidate_name}: encode/decode agree on length", length == 42, length)
+    check(f"NasdHeader.{candidate_name}: header is 12 bytes", len(header_bytes) == 12, len(header_bytes))
 
 check(
     "NasdHeader.SIGNATURE_V4 matches the firmware string 'DRINASD4'",
@@ -274,18 +282,19 @@ check(
 print("\n== client.py: state machine guards (no socket touched) ==")
 # ---------------------------------------------------------------------------
 
-c = client.NasdClient("192.0.2.1", esa_id="ESA-1")  # TEST-NET-1, never dialled
+nasd_client = client.NasdClient("192.0.2.1",
+                                esa_id="ESA-1")  # TEST-NET-1, never dialled
 check("client starts in state NEW",
-      c.state == client.ConnectionState.NEW, c.state)
+      nasd_client.state == client.ConnectionState.NEW, nasd_client.state)
 
 try:
-    c.login()
+    nasd_client.login()
     check("login() before connect() raises NotConnectedError", False)
 except client.NotConnectedError:
     check("login() before connect() raises NotConnectedError", True)
 
 try:
-    c.send_command("eCmdGetVersion")
+    nasd_client.send_command("eCmdGetVersion")
     check("send_command() before login() raises NotConnectedError", False)
 except client.NotConnectedError:
     check("send_command() before login() raises NotConnectedError", True)
@@ -299,17 +308,16 @@ except NotImplementedError:
 # Fake being logged in with a real (but unconnected-to-anything-real) socket
 # object, so this genuinely proves the DO_NOT_SEND guard fires before any
 # send-side code runs -- not just before a None-socket check would have.
-import socket as _socket
 
-c.state = client.ConnectionState.LOGGED_IN
-c._sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+nasd_client.state = client.ConnectionState.LOGGED_IN
+nasd_client._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
-    c.send_command("eCmdRunESACommand")
+    nasd_client.send_command("eCmdRunESACommand")
     check("send_command() refuses DO_NOT_SEND commands", False)
 except client.DangerousCommandError:
     check("send_command() refuses DO_NOT_SEND commands", True)
 finally:
-    c._sock.close()
+    nasd_client._sock.close()
 
 
 # ---------------------------------------------------------------------------
@@ -322,70 +330,77 @@ finally:
 # ---------------------------------------------------------------------------
 print("\n== esatm.py: real Drobo 5N greeting ==")
 
-from drobo_nasd import esatm as _esatm
-from drobo_nasd.models import DriveSlot as _DS
+FIXTURE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "fixtures", "esatm-sample.xml")
 
-_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "fixtures", "esatm-sample.xml")
-
-if not os.path.exists(_FIXTURE):
-    check("real-greeting fixture present", False, _FIXTURE)
+if not os.path.exists(FIXTURE_PATH):
+    check("real-greeting fixture present", False, FIXTURE_PATH)
 else:
-    _payload = open(_FIXTURE, "rb").read()
-    snap = _esatm.parse_esatm(_payload)
+    greeting_payload = open(FIXTURE_PATH, "rb").read()
+    snapshot = esatm.parse_esatm(greeting_payload)
 
     check("payload is NUL-terminated (protocol detail)",
-          _payload.rstrip().endswith(b"\x00"))
-    check("parses despite the trailing NUL", snap.reachable is True)
-    check("device name read", snap.device.name == "TestDrobo", snap.device.name)
-    check("firmware read", snap.device.firmware.startswith("4.3.1"),
-          snap.device.firmware)
+          greeting_payload.rstrip().endswith(b"\x00"))
+    check("parses despite the trailing NUL", snapshot.reachable is True)
+    check("device name read", snapshot.device.name == "TestDrobo", snapshot.device.name)
+    check("firmware read", snapshot.device.firmware.startswith("4.3.1"),
+          snapshot.device.firmware)
 
     # The device reports mSlotCountExp=6, but a 5N has five physical bays.
-    check("phantom 6th bay trimmed", len(snap.drives) == 5, len(snap.drives))
+    check("phantom 6th bay trimmed", len(snapshot.drives) == 5,
+          len(snapshot.drives))
     check("bays numbered 1..5",
-          [d.bay for d in snap.drives] == [1, 2, 3, 4, 5],
-          [d.bay for d in snap.drives])
-    check("all five bays populated", all(d.present for d in snap.drives),
-          [(d.bay, d.present) for d in snap.drives])
-    check("every drive healthy", all(d.state == "ok" for d in snap.drives),
-          [(d.bay, d.state) for d in snap.drives])
-    check("drive models parsed", all("WD" in d.model for d in snap.drives),
-          [d.model for d in snap.drives])
-    check("serials parsed", all(d.serial.startswith("WD-") for d in snap.drives),
-          [d.serial for d in snap.drives])
+          [drive.bay for drive in snapshot.drives] == [1, 2, 3, 4, 5],
+          [drive.bay for drive in snapshot.drives])
+    check("all five bays populated",
+          all(drive.present for drive in snapshot.drives),
+          [(drive.bay, drive.present) for drive in snapshot.drives])
+    check("every drive healthy",
+          all(drive.state == "ok" for drive in snapshot.drives),
+          [(drive.bay, drive.state) for drive in snapshot.drives])
+    check("drive models parsed",
+          all("WD" in drive.model for drive in snapshot.drives),
+          [drive.model for drive in snapshot.drives])
+    check("serials parsed", all(drive.serial.startswith("WD-") for drive in snapshot.drives),
+          [drive.serial for drive in snapshot.drives])
 
     # mTemperature is 0 on this hardware. It must read as "unknown", never as a
     # literal 0 C, or the alert rules would treat a healthy array as freezing.
     check("temperature reported as unknown, not 0 C",
-          all(d.temperature_c is None for d in snap.drives),
-          [d.temperature_c for d in snap.drives])
+          all(drive.temperature_c is None for drive in snapshot.drives),
+          [drive.temperature_c for drive in snapshot.drives])
 
     check("capacity usable > used",
-          snap.capacity.usable_bytes > snap.capacity.used_bytes)
+          snapshot.capacity.usable_bytes > snapshot.capacity.used_bytes)
     check("raw capacity is the sum of the disks",
-          snap.capacity.raw_bytes == sum(d.capacity_bytes for d in snap.drives),
-          (snap.capacity.raw_bytes, sum(d.capacity_bytes for d in snap.drives)))
-    check("array reads healthy overall", snap.overall_state == "ok",
-          snap.overall_state)
+          snapshot.capacity.raw_bytes == sum(drive.capacity_bytes for drive in snapshot.drives),
+          (snapshot.capacity.raw_bytes, sum(drive.capacity_bytes for drive in snapshot.drives)))
+    check("array reads healthy overall", snapshot.overall_state == "ok",
+          snapshot.overall_state)
 
 # Safety: the trim must never hide a slot that actually holds a disk.
-_over = [_DS(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(6)]
-_esatm._trim_phantom_slots(_over, "Drobo 5N")
-check("trim never hides a populated slot", len(_over) == 6, len(_over))
+_six_populated_slots = [DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(6)]
+esatm._trim_phantom_slots(_six_populated_slots, "Drobo 5N")
+check("trim never hides a populated slot", len(_six_populated_slots) == 6,
+      len(_six_populated_slots))
 
-_mixed = [_DS(bay=1, present=True, state="ok", capacity_bytes=1),
-          _DS(bay=2, present=False, state="empty")]
-_esatm._trim_phantom_slots(_mixed, "Unknown Model")
-check("trim is a no-op for unknown models", len(_mixed) == 2, len(_mixed))
+_unknown_model_slots = [
+    DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1),
+    DriveSlot(bay=2, present=False, state="empty")]
+esatm._trim_phantom_slots(_unknown_model_slots, "Unknown Model")
+check("trim is a no-op for unknown models", len(_unknown_model_slots) == 2,
+      len(_unknown_model_slots))
 
-_five = [_DS(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(5)]
-_five.append(_DS(bay=6, present=False, state="empty"))
-_esatm._trim_phantom_slots(_five, "Drobo 5N")
-check("trailing empty phantom slot is removed", len(_five) == 5, len(_five))
+_five_populated_plus_phantom_slots = [DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(5)]
+_five_populated_plus_phantom_slots.append(
+    DriveSlot(bay=6, present=False, state="empty"))
+esatm._trim_phantom_slots(_five_populated_plus_phantom_slots, "Drobo 5N")
+check("trailing empty phantom slot is removed",
+      len(_five_populated_plus_phantom_slots) == 5,
+      len(_five_populated_plus_phantom_slots))
 
 print(f"\n{'ALL PASS' if not failures else f'{len(failures)} FAILED'}")
 if failures:
-    for f in failures:
-        print(f"  - {f}")
+    for failure in failures:
+        print(f"  - {failure}")
     sys.exit(1)

@@ -10,6 +10,7 @@ weeks.
 
     py test_sysinfo.py
 """
+import html
 import os
 import sys
 import warnings
@@ -17,7 +18,10 @@ import warnings
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import sysinfo
+from drobo_nasd import commands  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
+from drobo_nasd import droboapps  # noqa: E402
+from drobo_nasd import sysinfo  # noqa: E402
 
 failures = []
 
@@ -31,7 +35,7 @@ def check(label, condition, failure_detail=""):
 
 
 # The real thing, as it comes off the wire.
-REAL = b"""<?xml version="1.0" encoding="UTF-8"?>
+REAL_SYSINFO_REPLY = b"""<?xml version="1.0" encoding="UTF-8"?>
 
 <TMCmd>
     <CmdID>61</CmdID>
@@ -46,25 +50,28 @@ REAL = b"""<?xml version="1.0" encoding="UTF-8"?>
 </TMCmd>\x00"""
 
 print("== the real device reply ==")
-got = sysinfo.parse_sysinfo(REAL)
-check("temperature read through the escaping", got["temperature_c"] == 36, got)
-check("uptime read through the escaping", got["uptime_seconds"] == 1209645, got)
+sysinfo_reading = sysinfo.parse_sysinfo(REAL_SYSINFO_REPLY)
+check("temperature read through the escaping",
+      sysinfo_reading["temperature_c"] == 36, sysinfo_reading)
+check("uptime read through the escaping", sysinfo_reading["uptime_seconds"] == 1209645, sysinfo_reading)
 
 print("\n== the other shape, in case firmware ever changes its mind ==")
-PLAIN = (b"<TMCmd><CmdID>61</CmdID><ResultDetails><SysInfo>"
-         b"<UpTime>42</UpTime><Temperature>31</Temperature>"
-         b"</SysInfo></ResultDetails></TMCmd>\x00")
-plain = sysinfo.parse_sysinfo(PLAIN)
-check("unescaped children parse too", plain == {"temperature_c": 31,
-                                                "uptime_seconds": 42}, plain)
+PLAIN_SYSINFO_REPLY = (b"<TMCmd><CmdID>61</CmdID><ResultDetails><SysInfo>"
+                       b"<UpTime>42</UpTime><Temperature>31</Temperature>"
+                       b"</SysInfo></ResultDetails></TMCmd>\x00")
+plain_sysinfo_reading = sysinfo.parse_sysinfo(PLAIN_SYSINFO_REPLY)
+check("unescaped children parse too",
+      plain_sysinfo_reading == {"temperature_c": 31,
+                                "uptime_seconds": 42}, plain_sysinfo_reading)
 
 print("\n== a value we don't believe is not shown at all ==")
-for bogus in (b"0", b"-5", b"250", b"not-a-number"):
-    doc = (b"<TMCmd><ResultDetails><SysInfo><Temperature>" + bogus +
-           b"</Temperature></SysInfo></ResultDetails></TMCmd>\x00")
-    out = sysinfo.parse_sysinfo(doc)
-    check(f"temperature {bogus.decode()!r} is rejected, not displayed",
-          out["temperature_c"] is None, out)
+for bogus_temperature in (b"0", b"-5", b"250", b"not-a-number"):
+    sysinfo_reply = (b"<TMCmd><ResultDetails><SysInfo><Temperature>"
+                     + bogus_temperature +
+                     b"</Temperature></SysInfo></ResultDetails></TMCmd>\x00")
+    reading = sysinfo.parse_sysinfo(sysinfo_reply)
+    check(f"temperature {bogus_temperature.decode()!r} is rejected, "
+          "not displayed", reading["temperature_c"] is None, reading)
 
 check("a believable low reading IS kept",
       sysinfo.parse_sysinfo(
@@ -76,11 +83,11 @@ check("a believable high reading IS kept",
           b"</SysInfo></ResultDetails></TMCmd>\x00")["temperature_c"] == 95)
 
 print("\n== missing data is 'unknown', never zero ==")
-none_doc = b"<TMCmd><ResultDetails><SysInfo></SysInfo></ResultDetails></TMCmd>\x00"
+empty_sysinfo_reply = b"<TMCmd><ResultDetails><SysInfo></SysInfo></ResultDetails></TMCmd>\x00"
 check("no fields -> both None, no exception",
-      sysinfo.parse_sysinfo(none_doc) == {"temperature_c": None,
-                                          "uptime_seconds": None},
-      sysinfo.parse_sysinfo(none_doc))
+      sysinfo.parse_sysinfo(empty_sysinfo_reply) == {"temperature_c": None,
+                                                     "uptime_seconds": None},
+      sysinfo.parse_sysinfo(empty_sysinfo_reply))
 check("empty payload -> both None",
       sysinfo.parse_sysinfo(b"\x00") == {"temperature_c": None,
                                          "uptime_seconds": None})
@@ -95,25 +102,25 @@ check("empty <ResultDetails> is not an error",
       == {"temperature_c": None, "uptime_seconds": None})
 
 print("\n== malformed input raises, it doesn't return nonsense ==")
-for bad, label in ((b"<not xml\x00", "malformed outer XML"),
-                   (b"<TMCmd><CmdID>61</CmdID></TMCmd>\x00", "no ResultDetails"),
-                   (b"<TMCmd><ResultDetails>&lt;SysInfo&gt;&lt;/Sys&gt;"
-                    b"</ResultDetails></TMCmd>\x00", "malformed inner XML")):
+for bad_reply, label in ((b"<not xml\x00", "malformed outer XML"),
+                         (b"<TMCmd><CmdID>61</CmdID></TMCmd>\x00", "no ResultDetails"),
+                         (b"<TMCmd><ResultDetails>&lt;SysInfo&gt;&lt;/Sys&gt;"
+                          b"</ResultDetails></TMCmd>\x00",
+                          "malformed inner XML")):
     try:
-        sysinfo.parse_sysinfo(bad)
+        sysinfo.parse_sysinfo(bad_reply)
         check(f"{label} raises", False)
     except sysinfo.SysInfoError:
         check(f"{label} raises SysInfoError", True)
 
 print("\n== safety ==")
-from drobo_nasd import commands
 check("eCmdGetSysInfo has a confirmed id", commands.COMMANDS.get("eCmdGetSysInfo") == 61,
       commands.COMMANDS.get("eCmdGetSysInfo"))
 check("eCmdGetSysInfo is not on the do-not-send list",
       not commands.is_dangerous("eCmdGetSysInfo"))
 check("SysInfoError is catchable as ConfigError (callers already handle that)",
       issubclass(sysinfo.SysInfoError,
-                 __import__("drobo_nasd.config_cmd", fromlist=["x"]).ConfigError))
+                 config_cmd.ConfigError))
 
 
 # ---------------------------------------------------------------------------
@@ -124,45 +131,48 @@ check("SysInfoError is catchable as ConfigError (callers already handle that)",
 # ---------------------------------------------------------------------------
 print("\n== eCmdGetPerformance ==")
 
-import html as _html  # noqa: E402
-
-_PERF_INNER = ("<Performance><Iops>12</Iops><ReadThroughout>3456</ReadThroughout>"
-               "<WriteThroughout>789</WriteThroughout><TierIOps>4</TierIOps></Performance>")
+_PERFORMANCE_INNER_XML = ("<Performance><Iops>12</Iops><ReadThroughout>3456</ReadThroughout>"
+                          "<WriteThroughout>789</WriteThroughout><TierIOps>4</TierIOps></Performance>")
 
 
-def _perf_result(inner: str) -> bytes:
+def _performance_reply(inner_xml: str) -> bytes:
     return (b"<TMCmd><CmdID>62</CmdID><ResultDetails>"
-            + _html.escape(inner).encode() + b"</ResultDetails></TMCmd>\x00")
+            + html.escape(inner_xml).encode()
+            + b"</ResultDetails></TMCmd>\x00")
 
 
-p = sysinfo.parse_performance(_perf_result(_PERF_INNER))
-check("read throughput parsed", p["read_mb_per_s"] == 3456, p)
-check("write throughput parsed", p["write_mb_per_s"] == 789, p)
-check("iops parsed", p["iops"] == 12, p)
-check("tier iops parsed", p["tier_iops"] == 4, p)
+performance = sysinfo.parse_performance(
+    _performance_reply(_PERFORMANCE_INNER_XML))
+check("read throughput parsed", performance["read_mb_per_s"] == 3456,
+      performance)
+check("write throughput parsed", performance["write_mb_per_s"] == 789,
+      performance)
+check("iops parsed", performance["iops"] == 12, performance)
+check("tier iops parsed", performance["tier_iops"] == 4, performance)
 
 # An idle array really does send all zeros. That is a READING, not a gap --
 # the driver relies on being able to tell those apart.
-z = sysinfo.parse_performance(_perf_result(
+idle_performance = sysinfo.parse_performance(_performance_reply(
     "<Performance><Iops>0</Iops><ReadThroughout>0</ReadThroughout>"
     "<WriteThroughout>0</WriteThroughout><TierIOps>0</TierIOps></Performance>"))
 check("an idle array's zeros parse as 0, not None",
-      z["iops"] == 0 and z["read_mb_per_s"] == 0, z)
+      idle_performance["iops"] == 0 and idle_performance["read_mb_per_s"] == 0,
+      idle_performance)
 
 # The device also sometimes answers with real child elements rather than an
 # escaped document; both shapes must work.
-plain = sysinfo.parse_performance(
+plain_performance = sysinfo.parse_performance(
     b"<TMCmd><ResultDetails><Performance><Iops>7</Iops>"
     b"<ReadThroughout>10</ReadThroughout></Performance></ResultDetails></TMCmd>\x00")
-check("unescaped shape parses too", plain["iops"] == 7 and plain["read_mb_per_s"] == 10, plain)
+check("unescaped shape parses too", plain_performance["iops"] == 7 and plain_performance["read_mb_per_s"] == 10, plain_performance)
 
-missing = sysinfo.parse_performance(_perf_result("<Performance><Iops>5</Iops></Performance>"))
-check("a missing field is None, not 0", missing["write_mb_per_s"] is None, missing)
-check("...while the field that IS present still reads", missing["iops"] == 5, missing)
+partial_performance = sysinfo.parse_performance(_performance_reply("<Performance><Iops>5</Iops></Performance>"))
+check("a missing field is None, not 0", partial_performance["write_mb_per_s"] is None, partial_performance)
+check("...while the field that IS present still reads", partial_performance["iops"] == 5, partial_performance)
 
-neg = sysinfo.parse_performance(_perf_result(
+negative_rate_performance = sysinfo.parse_performance(_performance_reply(
     "<Performance><ReadThroughout>-1</ReadThroughout></Performance>"))
-check("a negative rate is rejected rather than shown", neg["read_mb_per_s"] is None, neg)
+check("a negative rate is rejected rather than shown", negative_rate_performance["read_mb_per_s"] is None, negative_rate_performance)
 
 check("empty payload gives all-None rather than raising",
       sysinfo.parse_performance(b"\x00")["iops"] is None)
@@ -181,35 +191,37 @@ print("\n== eCmdGetDemoModeInfo: is this unit showing fabricated capacity? ==")
 # having for exactly one reason: a Drobo left in shop-display mode reports
 # capacity it does not have, and every number this project shows would be a
 # lie with nothing else to catch it.
-from drobo_nasd import droboapps as _apps
 
 
-def _demo(inner: str) -> bytes:
-    return (f"<Result><ResultDetails>{inner}</ResultDetails></Result>").encode() + b"\x00"
+def _result_reply(inner_xml: str) -> bytes:
+    return (f"<Result><ResultDetails>{inner_xml}</ResultDetails></Result>").encode() + b"\x00"
 
 
-off = _apps.parse_demo_mode(_demo(
+demo_off_reading = droboapps.parse_demo_mode(_result_reply(
     "&lt;FirmwareInfo&gt;<DemoMode>0</DemoMode><ScaleFactor>1</ScaleFactor>&lt;/FirmwareInfo&gt;"))
-check("a normal unit reports demo mode off", off["demo_mode"] is False, off)
-check("-- with its scale factor", off["scale_factor"] == 1, off)
+check("a normal unit reports demo mode off",
+      demo_off_reading["demo_mode"] is False, demo_off_reading)
+check("-- with its scale factor", demo_off_reading["scale_factor"] == 1,
+      demo_off_reading)
 
-on = _apps.parse_demo_mode(_demo(
+demo_on_reading = droboapps.parse_demo_mode(_result_reply(
     "&lt;FirmwareInfo&gt;<DemoMode>1</DemoMode><ScaleFactor>16</ScaleFactor>&lt;/FirmwareInfo&gt;"))
-check("a shop-display unit reports demo mode ON", on["demo_mode"] is True, on)
-check("-- and the multiplier it invents capacity with", on["scale_factor"] == 16, on)
+check("a shop-display unit reports demo mode ON",
+      demo_on_reading["demo_mode"] is True, demo_on_reading)
+check("-- and the multiplier it invents capacity with", demo_on_reading["scale_factor"] == 16, demo_on_reading)
 
 # "Didn't say" is not "off". Defaulting an absent field to False would quietly
 # assert a unit is genuine when we simply have not been told.
-for payload in (b"", _demo(""), _demo("&lt;FirmwareInfo&gt;&lt;/FirmwareInfo&gt;")):
-    got = _apps.parse_demo_mode(payload)
+for payload in (b"", _result_reply(""), _result_reply("&lt;FirmwareInfo&gt;&lt;/FirmwareInfo&gt;")):
+    demo_reading = droboapps.parse_demo_mode(payload)
     check(f"{payload[:24]!r} leaves demo mode UNKNOWN, not False",
-          got["demo_mode"] is None, got)
+          demo_reading["demo_mode"] is None, demo_reading)
 
-odd = _apps.parse_demo_mode(_demo(
+unexpected_demo_reading = droboapps.parse_demo_mode(_result_reply(
     "&lt;FirmwareInfo&gt;<DemoMode>yes</DemoMode>&lt;/FirmwareInfo&gt;"))
 check("an unexpected value is unknown rather than coerced to true",
-      odd["demo_mode"] is None, odd)
-bad_scale = _apps.parse_demo_mode(_demo(
+      unexpected_demo_reading["demo_mode"] is None, unexpected_demo_reading)
+bad_scale = droboapps.parse_demo_mode(_result_reply(
     "&lt;FirmwareInfo&gt;<DemoMode>0</DemoMode><ScaleFactor>lots</ScaleFactor>&lt;/FirmwareInfo&gt;"))
 check("a non-numeric scale factor is dropped, not guessed",
       bad_scale["scale_factor"] is None and bad_scale["demo_mode"] is False, bad_scale)
@@ -220,7 +232,7 @@ print("\n== an Element's truth value is never relied on ==")
 # 3.12+ warns on every such test. With that warning made an error,
 # every shape must still parse, to the same values.
 STRICT_CASES = (
-    ("unescaped <SysInfo>", sysinfo.parse_sysinfo, PLAIN,
+    ("unescaped <SysInfo>", sysinfo.parse_sysinfo, PLAIN_SYSINFO_REPLY,
      {"temperature_c": 31, "uptime_seconds": 42}),
     ("an empty <SysInfo> inside a wrapper", sysinfo.parse_sysinfo,
      b"<TMCmd><ResultDetails>&lt;Wrap&gt;&lt;SysInfo/&gt;&lt;/Wrap&gt;"
@@ -231,12 +243,13 @@ STRICT_CASES = (
      b"</Performance></ResultDetails></TMCmd>\x00",
      {"read_mb_per_s": None, "write_mb_per_s": None, "iops": 7,
       "tier_iops": None}),
-    ("unescaped <FirmwareInfo>", _apps.parse_demo_mode,
-     _demo("<FirmwareInfo><DemoMode>0</DemoMode></FirmwareInfo>"),
+    ("unescaped <FirmwareInfo>", droboapps.parse_demo_mode,
+     _result_reply("<FirmwareInfo><DemoMode>0</DemoMode></FirmwareInfo>"),
      {"demo_mode": False, "scale_factor": None}),
-    ("unescaped <DroboApps>", _apps.parse_droboapps,
-     _demo("<DroboApps><App><Name>rsync</Name><Stopped>0</Stopped></App>"
-           "</DroboApps>"),
+    ("unescaped <DroboApps>", droboapps.parse_droboapps,
+     _result_reply(
+         "<DroboApps><App><Name>rsync</Name><Stopped>0</Stopped></App>"
+         "</DroboApps>"),
      {"sdk_version": "",
       "apps": [{"name": "rsync", "version": "", "description": "",
                 "running": True, "status": "", "has_web_ui": False}]}),
@@ -245,20 +258,20 @@ for label, parse, payload, expected in STRICT_CASES:
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         try:
-            got = parse(payload)
+            parse_outcome = parse(payload)
         except DeprecationWarning as exc:
-            got = exc
+            parse_outcome = exc
     check(f"{label} parses with DeprecationWarning made an error",
-          got == expected, got)
+          parse_outcome == expected, parse_outcome)
 
 print("\n== eCmdGetDimming: the reading that had no way out ==")
 # Parser existed and worked since 2026-07-26; nothing exposed it until
 # 2026-07-28. A measurement nobody can see is not a feature.
-check("the live device's reading parses", _apps.parse_dimming(_demo("59")) == 59)
-check("zero is a real brightness, not 'no reading'", _apps.parse_dimming(_demo("0")) == 0)
-check("no reading is None, distinct from zero", _apps.parse_dimming(_demo("")) is None)
-check("an empty payload is None", _apps.parse_dimming(b"") is None)
-check("a non-numeric reading is None", _apps.parse_dimming(_demo("bright")) is None)
+check("the live device's reading parses", droboapps.parse_dimming(_result_reply("59")) == 59)
+check("zero is a real brightness, not 'no reading'", droboapps.parse_dimming(_result_reply("0")) == 0)
+check("no reading is None, distinct from zero", droboapps.parse_dimming(_result_reply("")) is None)
+check("an empty payload is None", droboapps.parse_dimming(b"") is None)
+check("a non-numeric reading is None", droboapps.parse_dimming(_result_reply("bright")) is None)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import commands, drobosync
+from drobo_nasd import commands, drobosync, sysinfo  # noqa: E402
 
 failures = []
 
@@ -26,8 +26,8 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-def result(details_inner: str) -> bytes:
-    return (f"<Result><ResultDetails>{details_inner}</ResultDetails></Result>").encode() + b"\x00"
+def _result_reply(details_xml: str) -> bytes:
+    return (f"<Result><ResultDetails>{details_xml}</ResultDetails></Result>").encode() + b"\x00"
 
 
 print("\n== the reply we have actually seen: empty ==")
@@ -35,23 +35,25 @@ print("\n== the reply we have actually seen: empty ==")
 # empty. That is CORRECT for a device with no sync partner, and must not be
 # reported as a failure -- a red error for a perfectly healthy machine is worse
 # than saying nothing.
-for payload in (b"", b"\x00", result(""), b"   \x00"):
+for payload in (b"", b"\x00", _result_reply(""), b"   \x00"):
     parsed = drobosync.parse_sync_reply(payload)
     check(f"{payload!r} parses as not-configured", parsed["configured"] is False, parsed)
     check(f"{payload!r} raises nothing", isinstance(parsed, dict))
 
-empty = drobosync.parse_sync_reply(b"")
-check("an empty reply carries no invented fields", empty["fields"] == {}, empty)
-check("-- and no raw document", empty["raw_xml"] == "", empty)
+parsed_empty_reply = drobosync.parse_sync_reply(b"")
+check("an empty reply carries no invented fields", parsed_empty_reply["fields"] == {}, parsed_empty_reply)
+check("-- and no raw document", parsed_empty_reply["raw_xml"] == "",
+      parsed_empty_reply)
 
 print("\n== a populated reply, whose real shape nobody here has seen ==")
 # So the parser stays GENERIC on purpose: it reports the leaf elements it found
 # rather than mapping them onto field names we would be guessing at. If this
 # ever runs against a real second Drobo, raw_xml is what tells us the truth.
-inner = ("&lt;DroboSync&gt;<Enabled>1</Enabled>"
-         "<TargetName>Upstairs Drobo</TargetName>"
-         "<LastRun>2026-07-20 03:00</LastRun>&lt;/DroboSync&gt;")
-populated = drobosync.parse_sync_reply(result(inner))
+populated_details_xml = (
+    "&lt;DroboSync&gt;<Enabled>1</Enabled>"
+    "<TargetName>Upstairs Drobo</TargetName>"
+    "<LastRun>2026-07-20 03:00</LastRun>&lt;/DroboSync&gt;")
+populated = drobosync.parse_sync_reply(_result_reply(populated_details_xml))
 check("a reply with content is configured", populated["configured"] is True, populated)
 check("leaf values are carried under their own tags",
       populated["fields"].get("TargetName") == "Upstairs Drobo", populated["fields"])
@@ -62,7 +64,7 @@ print("\n== escaped nesting is unwrapped, as everywhere else in this firmware ==
 # Reading these as opaque strings is the mistake that made temperature and the
 # performance counters look unobtainable for weeks.
 nested = drobosync.parse_sync_reply(
-    result("&lt;DroboSync&gt;&lt;Enabled&gt;1&lt;/Enabled&gt;&lt;/DroboSync&gt;"))
+    _result_reply("&lt;DroboSync&gt;&lt;Enabled&gt;1&lt;/Enabled&gt;&lt;/DroboSync&gt;"))
 check("a fully-escaped document is parsed, not treated as text",
       nested["fields"].get("Enabled") == "1", nested)
 check("-- and the raw document is kept for whoever sees the first real one",
@@ -75,8 +77,7 @@ try:
 except drobosync.DroboSyncError:
     check("malformed XML raises DroboSyncError", True)
 check("DroboSyncError is catchable as SysInfoError, so existing handlers work",
-      issubclass(drobosync.DroboSyncError, __import__(
-          "drobo_nasd.sysinfo", fromlist=["SysInfoError"]).SysInfoError))
+      issubclass(drobosync.DroboSyncError, sysinfo.SysInfoError))
 
 print("\n== an unknown read is rejected before any socket is opened ==")
 try:
@@ -102,49 +103,53 @@ check("no DroboSync write ever became a SAFE_WRITE",
       not (set(drobosync.WRITE_COMMANDS) & commands.SAFE_WRITES))
 
 print("\n== summary(): what a front-end renders when there is one Drobo ==")
-_orig = drobosync.read
-_asked: list[str] = []
+_original_read = drobosync.read
+_reads_asked: list[str] = []
 
 
-def _fake_read(host, esa_id, what, port=None, timeout=None):
-    _asked.append(what)
+def _unconfigured_read(host, esa_id, what, port=None, timeout=None):
+    _reads_asked.append(what)
     return {"configured": False, "raw_xml": "", "fields": {}, "what": what}
 
 
-drobosync.read = _fake_read
+drobosync.read = _unconfigured_read
 try:
-    s = drobosync.summary("10.0.0.50", "drbTEST")
-    check("summary reports not configured", s["configured"] is False, s)
+    sync_summary = drobosync.summary("10.0.0.50", "drbTEST")
+    check("summary reports not configured",
+          sync_summary["configured"] is False, sync_summary)
     check("all four reads are represented in the answer",
-          set(s["reads"]) == set(drobosync.READ_COMMANDS), s["reads"])
+          set(sync_summary["reads"]) == set(drobosync.READ_COMMANDS),
+          sync_summary["reads"])
 
     # Each read costs its own connection, and this device's command port stops
     # answering after roughly ninety connections in an hour. Spending four on a
     # switched-off feature every time a page refreshes would be actively
     # harmful to a box that tires easily -- and with no partner configured
     # there are no logs to fetch by definition.
-    check("only settings is actually asked when sync is off", _asked == ["settings"], _asked)
+    check("only settings is actually asked when sync is off", _reads_asked == ["settings"], _reads_asked)
     check("the three skipped reads say they were not asked",
-          all(s["reads"][w]["asked"] is False
-              for w in ("summary_log", "detailed_log", "log")), s["reads"])
+          all(sync_summary["reads"][read_name]["asked"] is False
+              for read_name in ("summary_log", "detailed_log", "log")),
+          sync_summary["reads"])
     check("-- while settings records that it WAS asked",
-          s["reads"]["settings"]["asked"] is True, s["reads"]["settings"])
+          sync_summary["reads"]["settings"]["asked"] is True,
+          sync_summary["reads"]["settings"])
 
     # The note is the whole point of shipping this dormant: explain, don't fail.
     check("it explains WHY rather than showing four empty panels",
-          "needs two" in s["note"], s["note"])
+          "needs two" in sync_summary["note"], sync_summary["note"])
     check("it says the work is already done and waiting",
-          "built and waiting" in s["note"], s["note"])
-    check("it does not read as an error", "error" not in s["note"].lower(), s["note"])
+          "built and waiting" in sync_summary["note"], sync_summary["note"])
+    check("it does not read as an error", "error" not in sync_summary["note"].lower(), sync_summary["note"])
 finally:
-    drobosync.read = _orig
+    drobosync.read = _original_read
 
 print("\n== when a partner IS configured, the logs are fetched ==")
-_asked.clear()
+_reads_asked.clear()
 
 
 def _configured_read(host, esa_id, what, port=None, timeout=None):
-    _asked.append(what)
+    _reads_asked.append(what)
     if what == "settings":
         return {"configured": True, "raw_xml": "<DroboSync/>",
                 "fields": {"Enabled": "1"}, "what": what}
@@ -153,33 +158,35 @@ def _configured_read(host, esa_id, what, port=None, timeout=None):
 
 drobosync.read = _configured_read
 try:
-    s = drobosync.summary("10.0.0.50", "drbTEST")
-    check("a configured device reports configured", s["configured"] is True, s)
-    check("-- and the logs ARE asked for", sorted(_asked) ==
-          ["detailed_log", "log", "settings", "summary_log"], _asked)
+    sync_summary = drobosync.summary("10.0.0.50", "drbTEST")
+    check("a configured device reports configured",
+          sync_summary["configured"] is True, sync_summary)
+    check("-- and the logs ARE asked for", sorted(_reads_asked) ==
+          ["detailed_log", "log", "settings", "summary_log"], _reads_asked)
     check("-- and the explanatory note is dropped, since it no longer applies",
-          s["note"] == "", s["note"])
+          sync_summary["note"] == "", sync_summary["note"])
 finally:
-    drobosync.read = _orig
+    drobosync.read = _original_read
 
 print("\n== a read that fails is contained, not fatal to the others ==")
 
 
-def _one_boom(host, esa_id, what, port=None, timeout=None):
+def _read_with_failing_settings(host, esa_id, what, port=None, timeout=None):
     if what == "settings":
         raise drobosync.DroboSyncError("simulated: device stopped answering")
     return {"configured": False, "raw_xml": "", "fields": {}, "what": what}
 
 
-drobosync.read = _one_boom
+drobosync.read = _read_with_failing_settings
 try:
-    s = drobosync.summary("10.0.0.50", "drbTEST")
-    check("a failing read still returns all four entries", len(s["reads"]) == 4, s["reads"])
+    sync_summary = drobosync.summary("10.0.0.50", "drbTEST")
+    check("a failing read still returns all four entries", len(sync_summary["reads"]) == 4, sync_summary["reads"])
     check("the failure is recorded against the read it belongs to",
-          "error" in s["reads"]["settings"], s["reads"]["settings"])
-    check("a failure is not mistaken for 'configured'", s["configured"] is False, s)
+          "error" in sync_summary["reads"]["settings"],
+          sync_summary["reads"]["settings"])
+    check("a failure is not mistaken for 'configured'", sync_summary["configured"] is False, sync_summary)
 finally:
-    drobosync.read = _orig
+    drobosync.read = _original_read
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
