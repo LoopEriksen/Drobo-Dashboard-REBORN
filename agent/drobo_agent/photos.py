@@ -29,9 +29,9 @@ ALLOWED_EXTENSIONS = {
     ".mov", ".mp4", ".m4v", ".avi", ".hevc",
 }
 
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
-_INDEX_NAME = ".drobo-agent-photo-index.json"
-_SESSION_DIR = ".drobo-agent-uploads"
+_UNSAFE_FILENAME_CHARACTERS_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_INDEX_FILENAME = ".drobo-agent-photo-index.json"
+_UPLOAD_SESSION_DIRNAME = ".drobo-agent-uploads"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -45,33 +45,34 @@ def safe_filename(name: str) -> str:
     directory. Strips any path components, then anything exotic.
     """
     name = os.path.basename(name.replace("\\", "/")).strip()
-    name = _SAFE_NAME.sub("_", name)
+    name = _UNSAFE_FILENAME_CHARACTERS_RE.sub("_", name)
     name = name.lstrip(".") or "photo"
     return name[:180]
 
 
 class PhotoStore:
-    def __init__(self, cfg: dict):
-        self.enabled = bool(cfg.get("enabled", True))
-        self.target_dir = cfg.get("target_dir") or ""
-        self.organize = bool(cfg.get("organize_by_date", True))
+    def __init__(self, config: dict):
+        self.enabled = bool(config.get("enabled", True))
+        self.target_dir = config.get("target_dir") or ""
+        self.organize_by_date = bool(config.get("organize_by_date", True))
         # Single-shot POST limit. Anything larger must use the chunked session
         # API -- see begin()/append()/finish() below.
-        self.max_bytes = int(cfg.get("max_upload_mb", 512)) * 1024 * 1024
+        self.max_single_upload_bytes = (
+            int(config.get("max_upload_mb", 512)) * 1024 * 1024)
         # Ceiling for a chunked upload. iPhone 4K video runs to several GB.
-        self.max_file_bytes = int(cfg.get("max_file_gb", 32)) * 1024 * 1024 * 1024
+        self.max_chunked_file_bytes = int(config.get("max_file_gb", 32)) * 1024 * 1024 * 1024
 
         self._lock = threading.Lock()
         self._index: dict[str, str] = {}  # sha256 -> relative path
-        self._dirty = False
-        self._last_save = 0.0
+        self._index_dirty = False
+        self._last_index_save_at = 0.0
         self._loaded = False
 
     # -- index -------------------------------------------------------------
 
     @property
     def index_path(self) -> str:
-        return os.path.join(self.target_dir, _INDEX_NAME)
+        return os.path.join(self.target_dir, _INDEX_FILENAME)
 
     def load(self) -> None:
         if not self.enabled:
@@ -89,8 +90,9 @@ class PhotoStore:
         had_index = os.path.exists(self.index_path)
         if had_index:
             try:
-                with open(self.index_path, "r", encoding="utf-8") as fh:
-                    self._index = json.load(fh)
+                with open(self.index_path, "r",
+                          encoding="utf-8") as index_file:
+                    self._index = json.load(index_file)
             except (OSError, ValueError) as exc:
                 print(f"[photos] index unreadable: {exc}", flush=True)
                 self._index = {}
@@ -135,11 +137,13 @@ class PhotoStore:
         the kind of quiet corruption this whole module exists to avoid.
         """
         for root, dirs, names in os.walk(self.target_dir):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            keep = [n for n in names
-                    if not n.startswith(".")
-                    and os.path.splitext(n)[1].lower() in ALLOWED_EXTENSIONS]
-            yield root, dirs, keep
+            dirs[:] = [directory_name for directory_name in dirs
+                       if not directory_name.startswith(".")]
+            photo_names = [file_name for file_name in names
+                           if not file_name.startswith(".")
+                           and os.path.splitext(file_name)[1].lower()
+                           in ALLOWED_EXTENSIONS]
+            yield root, dirs, photo_names
 
     def rescan(self) -> dict:
         """
@@ -162,53 +166,53 @@ class PhotoStore:
         found = 0
         for root, _dirs, names in self._walk():
             for name in names:
-                full = os.path.join(root, name)
+                full_path = os.path.join(root, name)
                 try:
-                    digest = self._hash_file(full)
+                    digest = self._hash_file(full_path)
                 except OSError:
                     # Unreadable right now (SMB hiccup, a lock). Skip it rather
                     # than treat it as absent -- see the merge below, which is
                     # why a skipped file does not get dropped from the index.
                     continue
                 found += 1
-                rebuilt[digest] = os.path.relpath(full, self.target_dir).replace("\\", "/")
+                rebuilt[digest] = os.path.relpath(full_path, self.target_dir).replace("\\", "/")
 
         with self._lock:
-            before = set(self._index)
-            now = set(rebuilt)
+            indexed_digests = set(self._index)
+            found_digests = set(rebuilt)
             # A hash we already knew whose file is genuinely gone gets dropped;
             # one we simply could not read stays, because "I could not open it"
             # is not evidence of absence.
-            added = now - before
-            dropped = before - now
+            added = found_digests - indexed_digests
+            dropped = indexed_digests - found_digests
             self._index = rebuilt
-            self._dirty = True
+            self._index_dirty = True
             self._save_index(force=True)
 
         return {"found": found, "added": len(added), "dropped": len(dropped),
-                "unchanged": len(before & now)}
+                "unchanged": len(indexed_digests & found_digests)}
 
     @staticmethod
     def _hash_file(path: str) -> str:
         hasher = hashlib.sha256()
-        with open(path, "rb") as fh:
-            for block in iter(lambda: fh.read(1024 * 1024), b""):
+        with open(path, "rb") as photo_file:
+            for block in iter(lambda: photo_file.read(1024 * 1024), b""):
                 hasher.update(block)
         return hasher.hexdigest()
 
     def _save_index(self, force: bool = False) -> None:
         """Throttled so a burst of uploads doesn't rewrite the index every time."""
-        if not self._dirty:
+        if not self._index_dirty:
             return
-        if not force and time.time() - self._last_save < 5.0:
+        if not force and time.time() - self._last_index_save_at < 5.0:
             return
-        tmp = self.index_path + ".tmp"
+        temporary_path = self.index_path + ".tmp"
         try:
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._index, fh)
-            os.replace(tmp, self.index_path)
-            self._dirty = False
-            self._last_save = time.time()
+            with open(temporary_path, "w", encoding="utf-8") as index_file:
+                json.dump(self._index, index_file)
+            os.replace(temporary_path, self.index_path)
+            self._index_dirty = False
+            self._last_index_save_at = time.time()
         except OSError as exc:
             # A sync-client or SMB lock is transient -- keep the in-memory index and
             # try again on the next upload.
@@ -223,7 +227,8 @@ class PhotoStore:
     def missing(self, hashes: list[str]) -> list[str]:
         """Given hashes the phone holds, return the ones we don't have."""
         with self._lock:
-            return [h for h in hashes if h and h not in self._index]
+            return [digest for digest in hashes
+                    if digest and digest not in self._index]
 
     def stats(self) -> dict:
         with self._lock:
@@ -231,18 +236,19 @@ class PhotoStore:
                 "enabled": self.enabled,
                 "target_dir": self.target_dir,
                 "files_stored": len(self._index),
-                "organize_by_date": self.organize,
-                "max_upload_mb": self.max_bytes // (1024 * 1024),
+                "organize_by_date": self.organize_by_date,
+                "max_upload_mb": self.max_single_upload_bytes // (1024 * 1024),
             }
 
     # -- ingest ------------------------------------------------------------
 
-    def _destination(self, filename: str, taken_at: float) -> str:
-        if not self.organize:
+    def _relative_destination(self, filename: str, taken_at: float) -> str:
+        if not self.organize_by_date:
             return filename
-        stamp = time.localtime(taken_at)
+        local_capture_time = time.localtime(taken_at)
         return os.path.join(
-            time.strftime("%Y", stamp), time.strftime("%Y-%m", stamp), filename
+            time.strftime("%Y", local_capture_time),
+            time.strftime("%Y-%m", local_capture_time), filename
         )
 
     # -- chunked, resumable upload ----------------------------------------
@@ -259,7 +265,7 @@ class PhotoStore:
 
     @property
     def session_dir(self) -> str:
-        return os.path.join(self.target_dir, _SESSION_DIR)
+        return os.path.join(self.target_dir, _UPLOAD_SESSION_DIRNAME)
 
     def _session_paths(self, digest: str) -> tuple[str, str]:
         return (os.path.join(self.session_dir, digest + ".part"),
@@ -276,15 +282,16 @@ class PhotoStore:
         self._require_ready(digest)
         if total_bytes <= 0:
             raise PhotoStoreError("size must be positive")
-        if total_bytes > self.max_file_bytes:
+        if total_bytes > self.max_chunked_file_bytes:
             raise PhotoStoreError(
                 f"{total_bytes} bytes is over the "
-                f"{self.max_file_bytes // (1024**3)} GB per-file limit")
+                f"{self.max_chunked_file_bytes // (1024**3)} GB per-file "
+                f"limit")
 
         name = safe_filename(filename)
-        ext = os.path.splitext(name)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            raise PhotoStoreError(f"file type {ext or '(none)'} is not accepted")
+        extension = os.path.splitext(name)[1].lower()
+        if extension not in ALLOWED_EXTENSIONS:
+            raise PhotoStoreError(f"file type {extension or '(none)'} is not accepted")
 
         with self._lock:
             if digest in self._index:
@@ -292,12 +299,13 @@ class PhotoStore:
                         "path": self._index[digest]}
 
             os.makedirs(self.session_dir, exist_ok=True)
-            part, meta = self._session_paths(digest)
-            received = os.path.getsize(part) if os.path.exists(part) else 0
+            partial_path, metadata_path = self._session_paths(digest)
+            received = (os.path.getsize(partial_path)
+                        if os.path.exists(partial_path) else 0)
             if received > total_bytes:      # stale or corrupt; start over
                 received = 0
                 try:
-                    os.remove(part)
+                    os.remove(partial_path)
                 except OSError:
                     pass
 
@@ -305,16 +313,17 @@ class PhotoStore:
             # only sends taken_at on the first begin(); if we overwrote it here
             # every interrupted upload would end up filed under today.
             capture_time = taken_at
-            if capture_time is None and os.path.exists(meta):
+            if capture_time is None and os.path.exists(metadata_path):
                 try:
-                    capture_time = json.load(open(meta, encoding="utf-8")).get("taken_at")
+                    capture_time = json.load(open(metadata_path, encoding="utf-8")).get("taken_at")
                 except (OSError, ValueError):
                     capture_time = None
-            with open(meta, "w", encoding="utf-8") as fh:
+            with open(metadata_path, "w", encoding="utf-8") as metadata_file:
                 json.dump({"filename": name, "total": total_bytes,
-                           "taken_at": capture_time or time.time()}, fh)
-            if not os.path.exists(part):
-                open(part, "wb").close()
+                           "taken_at": capture_time or time.time()},
+                          metadata_file)
+            if not os.path.exists(partial_path):
+                open(partial_path, "wb").close()
             return {"status": "ready", "sha256": digest,
                     "received": received, "total": total_bytes}
 
@@ -323,38 +332,38 @@ class PhotoStore:
         if not chunk:
             raise PhotoStoreError("empty chunk")
         with self._lock:
-            part, meta = self._session_paths(digest)
-            if not os.path.exists(meta):
+            partial_path, metadata_path = self._session_paths(digest)
+            if not os.path.exists(metadata_path):
                 raise PhotoStoreError("no upload session; call begin first")
-            info = json.load(open(meta, encoding="utf-8"))
-            received = os.path.getsize(part)
+            session_metadata = json.load(open(metadata_path, encoding="utf-8"))
+            received = os.path.getsize(partial_path)
             if offset != received:
                 # Not an error the phone can't recover from -- tell it where we are.
                 return {"status": "offset-mismatch", "received": received,
-                        "total": info["total"]}
-            if received + len(chunk) > info["total"]:
+                        "total": session_metadata["total"]}
+            if received + len(chunk) > session_metadata["total"]:
                 raise PhotoStoreError("chunk would exceed the declared size")
-            with open(part, "r+b") as fh:
-                fh.seek(offset)
-                fh.write(chunk)
-                fh.flush()
-                os.fsync(fh.fileno())
+            with open(partial_path, "r+b") as part_file:
+                part_file.seek(offset)
+                part_file.write(chunk)
+                part_file.flush()
+                os.fsync(part_file.fileno())
             received += len(chunk)
-            return {"status": "ok", "received": received, "total": info["total"],
-                    "complete": received >= info["total"]}
+            return {"status": "ok", "received": received, "total": session_metadata["total"],
+                    "complete": received >= session_metadata["total"]}
 
-    def session(self, digest: str) -> dict:
+    def session_progress(self, digest: str) -> dict:
         self._require_ready(digest)
         with self._lock:
             if digest in self._index:
                 return {"status": "duplicate", "path": self._index[digest]}
-            part, meta = self._session_paths(digest)
-            if not os.path.exists(meta):
+            partial_path, metadata_path = self._session_paths(digest)
+            if not os.path.exists(metadata_path):
                 return {"status": "none", "received": 0}
-            info = json.load(open(meta, encoding="utf-8"))
+            session_metadata = json.load(open(metadata_path, encoding="utf-8"))
             return {"status": "ready",
-                    "received": os.path.getsize(part) if os.path.exists(part) else 0,
-                    "total": info["total"]}
+                    "received": os.path.getsize(partial_path) if os.path.exists(partial_path) else 0,
+                    "total": session_metadata["total"]}
 
     def finish(self, digest: str) -> dict:
         """Verify the assembled file really is what was promised, then file it."""
@@ -363,31 +372,33 @@ class PhotoStore:
             if digest in self._index:
                 return {"status": "duplicate", "sha256": digest,
                         "path": self._index[digest]}
-            part, meta = self._session_paths(digest)
-            if not os.path.exists(meta) or not os.path.exists(part):
+            partial_path, metadata_path = self._session_paths(digest)
+            if (not os.path.exists(metadata_path)
+                    or not os.path.exists(partial_path)):
                 raise PhotoStoreError("no upload session to finish")
-            info = json.load(open(meta, encoding="utf-8"))
-            size = os.path.getsize(part)
-            if size != info["total"]:
+            session_metadata = json.load(open(metadata_path, encoding="utf-8"))
+            size = os.path.getsize(partial_path)
+            if size != session_metadata["total"]:
                 return {"status": "incomplete", "received": size,
-                        "total": info["total"]}
+                        "total": session_metadata["total"]}
 
             # Never trust the declared hash -- recompute before filing anything.
             hasher = hashlib.sha256()
-            with open(part, "rb") as fh:
-                for block in iter(lambda: fh.read(1024 * 1024), b""):
+            with open(partial_path, "rb") as part_file:
+                for block in iter(lambda: part_file.read(1024 * 1024), b""):
                     hasher.update(block)
             if hasher.hexdigest() != digest:
-                os.remove(part)
-                os.remove(meta)
+                os.remove(partial_path)
+                os.remove(metadata_path)
                 raise PhotoStoreError(
                     "content does not match the declared sha256; upload discarded")
 
             relative = self._move_into_library(
-                info["filename"], info["taken_at"], part)
-            os.remove(meta)
+                session_metadata["filename"], session_metadata["taken_at"],
+                partial_path)
+            os.remove(metadata_path)
             self._index[digest] = relative
-            self._dirty = True
+            self._index_dirty = True
             self._save_index(force=True)
             return {"status": "stored", "sha256": digest, "path": relative,
                     "bytes": size}
@@ -395,7 +406,7 @@ class PhotoStore:
     def _move_into_library(self, name: str, taken_at: float,
                            source_path: str) -> str:
         """Move a completed upload into the library. Caller holds the lock."""
-        relative = self._destination(name, taken_at)
+        relative = self._relative_destination(name, taken_at)
         absolute = os.path.join(self.target_dir, relative)
         os.makedirs(os.path.dirname(absolute), exist_ok=True)
         stem, suffix = os.path.splitext(absolute)
@@ -417,18 +428,18 @@ class PhotoStore:
             raise PhotoStoreError("photo backup is disabled")
         if not self._loaded:
             raise PhotoStoreError("photo store not ready")
-        if len(data) > self.max_bytes:
+        if len(data) > self.max_single_upload_bytes:
             raise PhotoStoreError(
                 f"file is {len(data)} bytes, over the "
-                f"{self.max_bytes // (1024 * 1024)} MB limit"
+                f"{self.max_single_upload_bytes // (1024 * 1024)} MB limit"
             )
         if not data:
             raise PhotoStoreError("empty file")
 
         name = safe_filename(filename)
-        ext = os.path.splitext(name)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            raise PhotoStoreError(f"file type {ext or '(none)'} is not accepted")
+        extension = os.path.splitext(name)[1].lower()
+        if extension not in ALLOWED_EXTENSIONS:
+            raise PhotoStoreError(f"file type {extension or '(none)'} is not accepted")
 
         digest = hashlib.sha256(data).hexdigest()
         taken_at = taken_at or time.time()
@@ -441,7 +452,7 @@ class PhotoStore:
                     "path": self._index[digest],
                 }
 
-            relative = self._destination(name, taken_at)
+            relative = self._relative_destination(name, taken_at)
             absolute = os.path.join(self.target_dir, relative)
             os.makedirs(os.path.dirname(absolute), exist_ok=True)
 
@@ -454,16 +465,16 @@ class PhotoStore:
                 absolute = f"{stem}~{attempt}{suffix}"
             relative = os.path.relpath(absolute, self.target_dir)
 
-            tmp = absolute + ".part"
+            temporary_path = absolute + ".part"
             try:
-                with open(tmp, "wb") as fh:
-                    fh.write(data)
-                    fh.flush()
-                    os.fsync(fh.fileno())
-                os.replace(tmp, absolute)
+                with open(temporary_path, "wb") as part_file:
+                    part_file.write(data)
+                    part_file.flush()
+                    os.fsync(part_file.fileno())
+                os.replace(temporary_path, absolute)
             except OSError as exc:
                 try:
-                    os.remove(tmp)
+                    os.remove(temporary_path)
                 except OSError:
                     pass
                 raise PhotoStoreError(f"could not write to the Drobo: {exc}") from exc
@@ -474,7 +485,7 @@ class PhotoStore:
                 pass
 
             self._index[digest] = relative.replace("\\", "/")
-            self._dirty = True
+            self._index_dirty = True
             self._save_index()
 
             return {

@@ -253,6 +253,9 @@ released. Every push to this repository carries this file.
   - Internal names in the agent's core (its configuration, driver,
     model, monitor and notification modules, and the agent's start-up
     script); no behaviour changes
+  - Internal names in the agent's API and its helpers (the backup,
+    photo-upload, QR-code and update-check modules); no behaviour
+    changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

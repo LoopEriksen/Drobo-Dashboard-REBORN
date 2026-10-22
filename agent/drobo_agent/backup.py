@@ -70,7 +70,7 @@ class BackupError(Exception):
     that ran and reported problems -- that comes back as a result."""
 
 
-def interpret_exit_code(code: int) -> tuple[bool, str]:
+def interpret_exit_code(exit_code: int) -> tuple[bool, str]:
     """
     Turn a robocopy exit code into (ok, plain English).
 
@@ -78,15 +78,15 @@ def interpret_exit_code(code: int) -> tuple[bool, str]:
     as its own function precisely so it can be tested against every value
     without running a copy.
     """
-    if code < 0:
-        return False, f"robocopy did not run properly (exit {code})"
-    ok = (code & FAILED_BITS) == 0
-    if code == 0:
+    if exit_code < 0:
+        return False, f"robocopy did not run properly (exit {exit_code})"
+    ok = (exit_code & FAILED_BITS) == 0
+    if exit_code == 0:
         return True, "Nothing needed copying -- the backup was already up to date."
-    parts = [text for bit, text in _BIT_MEANINGS if code & bit]
-    if not parts:
-        return ok, f"robocopy exited {code}"
-    return ok, "; ".join(parts) + "."
+    meanings = [text for bit, text in _BIT_MEANINGS if exit_code & bit]
+    if not meanings:
+        return ok, f"robocopy exited {exit_code}"
+    return ok, "; ".join(meanings) + "."
 
 
 @dataclass
@@ -118,7 +118,7 @@ class BackupPlan:
         }
 
 
-def _norm(path: str) -> str:
+def _normalised_path(path: str) -> str:
     """Absolute, normalised, trailing separator removed, case-folded for
     comparison on a filesystem that does not care about case."""
     return os.path.normcase(os.path.abspath(path)).rstrip("\\/")
@@ -126,8 +126,10 @@ def _norm(path: str) -> str:
 
 def _is_within(child: str, parent: str) -> bool:
     """True if `child` is `parent` or sits inside it."""
-    c, p = _norm(child), _norm(parent)
-    return c == p or c.startswith(p + os.sep)
+    normalised_child, normalised_parent = (_normalised_path(child),
+                                           _normalised_path(parent))
+    return (normalised_child == normalised_parent
+            or normalised_child.startswith(normalised_parent + os.sep))
 
 
 def check_destination(source: str, destination: str) -> list[str]:
@@ -146,13 +148,14 @@ def check_destination(source: str, destination: str) -> list[str]:
     if problems:
         return problems
 
-    src, dst = _norm(source), _norm(destination)
+    normalised_source, normalised_destination = (
+        _normalised_path(source), _normalised_path(destination))
 
-    if src == dst:
+    if normalised_source == normalised_destination:
         problems.append("The source and the destination are the same folder.")
 
     # Copying a folder into itself makes robocopy walk its own output forever.
-    if _is_within(dst, src):
+    if _is_within(normalised_destination, normalised_source):
         problems.append(
             "The destination is inside the source. Copying a folder into itself "
             "never finishes -- it keeps finding the copies it just made.")
@@ -160,15 +163,16 @@ def check_destination(source: str, destination: str) -> list[str]:
     # The reverse is the dangerous one, and only with /MIR: mirroring onto a
     # parent of the source would delete everything in that parent that is not
     # in the source.
-    if _is_within(src, dst) and src != dst:
+    if (_is_within(normalised_source, normalised_destination)
+            and normalised_source != normalised_destination):
         problems.append(
             "The source is inside the destination. Backing up into a parent of "
             "the folder you are backing up is almost never what anyone means.")
 
     # A drive root is where people accidentally point things, and mirroring
     # onto C:\ would try to delete Windows.
-    drive, tail = os.path.splitdrive(dst)
-    if drive and tail in ("", os.sep):
+    drive, path_after_drive = os.path.splitdrive(normalised_destination)
+    if drive and path_after_drive in ("", os.sep):
         problems.append(
             f"The destination is the root of {drive} itself. Pick a folder on "
             f"the drive -- for example {drive}\\DroboBackup -- so the backup "
@@ -184,30 +188,32 @@ def plan(source: str, destination: str, mirror: bool = False) -> BackupPlan:
     Always call this first. It is the half that catches a destination typo
     before the typo matters.
     """
-    p = BackupPlan(source=source, destination=destination, mirror=mirror)
-    p.refusals = check_destination(source, destination)
+    backup_plan = BackupPlan(source=source, destination=destination,
+                             mirror=mirror)
+    backup_plan.refusals = check_destination(source, destination)
 
     if not os.path.isdir(source) and not source.startswith("\\\\"):
         # A UNC path may be perfectly valid and simply not mounted yet, so it
         # is a warning; a local path that does not exist is a refusal.
-        p.refusals.append(f"The source folder does not exist: {source}")
+        backup_plan.refusals.append(
+            f"The source folder does not exist: {source}")
 
-    if p.refusals:
-        return p
+    if backup_plan.refusals:
+        return backup_plan
 
     if not os.path.exists(destination):
-        p.warnings.append(
+        backup_plan.warnings.append(
             f"The destination folder does not exist yet and will be created: {destination}")
 
     if mirror:
-        p.warnings.append(
+        backup_plan.warnings.append(
             "MIRROR IS ON. Anything in the backup that is no longer on the Drobo "
             "will be DELETED from the backup. If you delete a photo by accident "
             "and then run this, the backup copy goes too. Leave mirroring off "
             "unless you specifically want the backup to forget things.")
 
-    p.command = _build_command(source, destination, mirror)
-    return p
+    backup_plan.command = _build_command(source, destination, mirror)
+    return backup_plan
 
 
 def _build_command(source: str, destination: str, mirror: bool) -> list[str]:
@@ -225,12 +231,16 @@ def _build_command(source: str, destination: str, mirror: bool) -> list[str]:
           are parsing this output
     /TEE  write to the console as well as the log, so progress is pollable
     """
-    args = ["robocopy", source, destination, "/E", "/Z", "/DCOPY:DAT",
-            "/R:2", "/W:5", "/NP", "/TEE"]
+    command = ["robocopy", source, destination, "/E", "/Z", "/DCOPY:DAT",
+               "/R:2", "/W:5", "/NP", "/TEE"]
     if mirror:
         # /MIR implies /E and adds /PURGE, which is the deleting half.
-        args.append("/MIR")
-    return args
+        command.append("/MIR")
+    return command
+
+
+#: How many of a job's last output lines its to_dict() reports.
+SERIALIZED_TAIL_LINES = 12
 
 
 @dataclass
@@ -263,7 +273,7 @@ class BackupJob:
             "ok": self.ok,
             "summary": self.summary,
             "error": self.error,
-            "tail": self.tail[-12:],
+            "tail": self.tail[-SERIALIZED_TAIL_LINES:],
         }
 
 
@@ -277,7 +287,7 @@ class BackupRunner:
 
     #: How many output lines to keep. Enough to show progress, bounded so a
     #: multi-hour copy of a full array cannot grow this without limit.
-    TAIL_LINES = 200
+    MAX_TAIL_LINES = 200
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -300,11 +310,11 @@ class BackupRunner:
             if self._job is not None and self._job.running:
                 raise BackupError("A backup is already running.")
 
-            p = plan(source, destination, mirror)
-            if not p.allowed:
-                raise BackupError(" ".join(p.refusals))
+            backup_plan = plan(source, destination, mirror)
+            if not backup_plan.allowed:
+                raise BackupError(" ".join(backup_plan.refusals))
 
-            job = BackupJob(plan=p, started_at=time.time())
+            job = BackupJob(plan=backup_plan, started_at=time.time())
             self._job = job
 
         self._thread = threading.Thread(
@@ -315,22 +325,23 @@ class BackupRunner:
     def _run(self, job: BackupJob) -> None:
         try:
             os.makedirs(job.plan.destination, exist_ok=True)
-            proc = subprocess.Popen(
-                job.plan.command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            robocopy_process = subprocess.Popen(
+                job.plan.command, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace", bufsize=1)
-            assert proc.stdout is not None
-            for line in proc.stdout:
+            assert robocopy_process.stdout is not None
+            for line in robocopy_process.stdout:
                 line = line.rstrip()
                 if not line:
                     continue
                 with self._lock:
                     job.tail.append(line)
-                    if len(job.tail) > self.TAIL_LINES:
-                        del job.tail[: len(job.tail) - self.TAIL_LINES]
-            code = proc.wait()
-            ok, summary = interpret_exit_code(code)
+                    if len(job.tail) > self.MAX_TAIL_LINES:
+                        del job.tail[: len(job.tail) - self.MAX_TAIL_LINES]
+            exit_code = robocopy_process.wait()
+            ok, summary = interpret_exit_code(exit_code)
             with self._lock:
-                job.exit_code, job.ok, job.summary = code, ok, summary
+                job.exit_code, job.ok, job.summary = exit_code, ok, summary
         except FileNotFoundError:
             with self._lock:
                 job.ok, job.error = False, (

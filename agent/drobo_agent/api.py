@@ -118,9 +118,9 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import backup, drivers, notify, qr, updates, webui
-from drobo_nasd import shares as shares_mod
+from drobo_nasd import shares as nasd_shares
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
-                        identify as identify_cmd, netcheck, sharewrite, sysinfo)
+                        identify as nasd_identify, netcheck, sharewrite, sysinfo)
 from drobo_nasd.shareedit import ShareEditError
 from .drivers import MockDriver, SimulatedWriteUnconfirmedError
 from .photos import PhotoStoreError
@@ -129,10 +129,11 @@ from .photos import PhotoStoreError
 #: the same destination would interleave and neither result would be
 #: trustworthy, so the runner is a module-level singleton rather than
 #: per-request.
-_BACKUP = backup.BackupRunner()
+_BACKUP_RUNNER = backup.BackupRunner()
 
 VERSION = "1.1.0"
-MAX_JSON_BODY = 4 * 1024 * 1024
+MAX_JSON_BODY_BYTES = 4 * 1024 * 1024
+MAX_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024
 
 #: The live 5N reports its LED brightness as 59. The firmware command table
 #: names eCmdGetDimming and gives its id, and documents NOTHING about the
@@ -278,16 +279,16 @@ def _identify_message(interval, simulated: bool = False) -> str:
     this project's own guess, the second claim is untrue, and the first has
     never been observed on this unit.
     """
-    who = "Simulated Drobo" if simulated else "The Drobo"
-    if interval == identify_cmd.STOP_INTERVAL:
-        return f"Stop sent. {who}'s lights should go back to normal."
+    device_label = "Simulated Drobo" if simulated else "The Drobo"
+    if interval == nasd_identify.STOP_INTERVAL:
+        return f"Stop sent. {device_label}'s lights should go back to normal."
     if interval is None:
         return ("Sent with no interval -- the control case. If the lights stay "
                 "still now but blink when an interval is sent, that settles "
                 "what the parameter does.")
-    return (f"Sent. {who}'s lights should be blinking now. The original "
-            f"Dashboard used this value and blinked for 15 minutes, so use "
-            f"Stop when you have found the box.")
+    return (f"Sent. {device_label}'s lights should be blinking now. "
+            f"The original Dashboard used this value and blinked for 15 "
+            f"minutes, so use Stop when you have found the box.")
 
 
 def _app_action_message(name: str, action: str, read_back: dict | None,
@@ -303,14 +304,14 @@ def _app_action_message(name: str, action: str, read_back: dict | None,
     their Stop failed when the service is halfway down invites a retry of a
     write that already took.
     """
-    who = "The simulated Drobo" if simulated else "The Drobo"
+    device_label = "The simulated Drobo" if simulated else "The Drobo"
     if read_back is None:
         return (f"{action} was accepted, but {name!r}'s state could not be "
                 f"re-read to confirm it -- refresh the app list in a moment "
                 f"to see where it landed.")
     state = "running" if read_back.get("running") else "stopped"
     if read_back.get("running") == (action == "Start"):
-        return f"{action} sent. {who} now reports {name!r} {state}."
+        return f"{action} sent. {device_label} now reports {name!r} {state}."
     return (f"{action} sent and accepted, but the device still reports "
             f"{name!r} {state}. Apps take a moment to change state -- "
             f"refresh the list shortly.")
@@ -322,7 +323,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     # /api/droboconfig opens a second connection to the device's command port.
     # Bounded so a slow or sulking Drobo can't stall an API worker thread.
-    CONFIG_TIMEOUT = 8.0
+    COMMAND_TIMEOUT_SECONDS = 8.0
 
     # How long a /api/shares answer stays good for.
     #
@@ -356,7 +357,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     # injected by serve()
     monitor = None
-    photos = None
+    photo_store = None
     token = ""
 
     # -- plumbing ----------------------------------------------------------
@@ -365,7 +366,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     #: carry one. Scrubbed before anything is printed: see log_message.
     _TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s\"]*", re.I)
 
-    def log_message(self, fmt: str, *args) -> None:  # quieter default logging
+    def log_message(self, message_format: str,
+                    *args) -> None:  # quieter default logging
         # getattr, not self.path: http.server logs a timeout BEFORE it has read
         # a request line, and at that point the handler has no path attribute
         # at all. A client that opens a spare keep-alive connection and never
@@ -386,7 +388,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # on an EventSource and the phone pairing flow depends on the URL
         # form. Everything else takes the header only (see _authorised); the
         # token still works here, it just stops being written down.
-        line = self._TOKEN_IN_URL.sub(r"\1<redacted>", fmt % args)
+        line = self._TOKEN_IN_URL.sub(r"\1<redacted>", message_format % args)
         print(f"[api] {self.address_string()} {line}", flush=True)
 
     def _authorised(self, params: dict, *, allow_query: bool = False) -> bool:
@@ -424,16 +426,16 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return False
         return secrets.compare_digest(offered, self.token.encode("utf-8"))
 
-    def _send_401(self, params: dict) -> None:
+    def _send_unauthorised(self, params: dict) -> None:
         # ?token= used to be accepted everywhere. Somebody's bookmark, curl
         # one-liner or phone client was very likely built from the pairing
         # URL, and a bare "invalid token" would send them hunting for a typo
         # in a token that is perfectly good. Say what actually changed.
-        msg = "missing or invalid X-Agent-Token"
+        message = "missing or invalid X-Agent-Token"
         if params.get("token"):
-            msg += ("; ?token= is accepted on /api/events only -- send the "
-                    "token as the X-Agent-Token header")
-        return self._send_json({"error": msg}, 401)
+            message += ("; ?token= is accepted on /api/events only -- "
+                        "send the token as the X-Agent-Token header")
+        return self._send_json({"error": message}, 401)
 
     def _send_json(self, payload, status: int = 200) -> None:
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -444,10 +446,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_text(self, text: str, status: int = 200, ctype: str = "text/plain") -> None:
+    def _send_text(self, text: str, status: int = 200, content_type: str = "text/plain") -> None:
         body = text.encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -498,10 +500,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # arrives from the authenticated API below -- so it is served without a
         # token. That lets you bookmark it and be prompted for the token once.
         if path == "/":
-            return self._send_text(webui.PAGE, ctype="text/html")
+            return self._send_text(webui.PAGE, content_type="text/html")
 
         if not self._authorised(params, allow_query=(path == "/api/events")):
-            return self._send_401(params)
+            return self._send_unauthorised(params)
         if path == "/api/status":
             return self._send_json(self.monitor.snapshot_dict())
         if path == "/api/device":
@@ -511,9 +513,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # what Windows shows as drive letters. Read straight from the
             # status greeting, so this costs no extra command and no extra
             # connection to a device that tires easily.
-            snap = self.monitor.snapshot_dict()
-            return self._send_json({"volumes": snap.get("volumes", []),
-                                    "max_volumes": snap.get("max_volumes")})
+            snapshot = self.monitor.snapshot_dict()
+            return self._send_json({
+                "volumes": snapshot.get("volumes", []),
+                "max_volumes": snapshot.get("max_volumes")})
         if path == "/api/drives":
             return self._send_json({"drives": self.monitor.snapshot_dict().get("drives", [])})
         if path == "/api/capacity":
@@ -537,14 +540,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     })
                 except ValueError as exc:
                     return self._send_json({"error": str(exc), "section": section}, 400)
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             try:
                 return self._send_json({
                     "section": section,
-                    "config": config_cmd.get_config(host, esa, section,
-                                                    timeout=self.CONFIG_TIMEOUT),
+                    "config": config_cmd.get_config(host, esa_id, section,
+                                                    timeout=self.COMMAND_TIMEOUT_SECONDS),
                 })
             except config_cmd.ConfigError as exc:
                 return self._send_json({"error": str(exc), "section": section}, 502)
@@ -552,11 +555,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json(
                     {"error": f"could not reach the command port: {exc}"}, 502)
         if path == "/api/shares":
-            return self._shares()
+            return self._serve_shares()
         if path == "/api/discover":
-            return self._discover((params.get("host") or [""])[0])
+            return self._serve_discovery((params.get("host") or [""])[0])
         if path == "/api/netcheck":
-            return self._netcheck((params.get("host") or [""])[0])
+            return self._serve_netcheck((params.get("host") or [""])[0])
         if path == "/api/droboapps":
             # What's installed ON the Drobo. On-demand, not polled: the app
             # list changes when someone installs something, which is roughly
@@ -564,12 +567,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json({**driver.get_droboapps(), "simulated": True})
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             try:
                 return self._send_json(
-                    droboapps.get_droboapps(host, esa, timeout=self.CONFIG_TIMEOUT))
+                    droboapps.get_droboapps(host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS))
             except (sysinfo.SysInfoError, OSError) as exc:
                 return self._send_json({"error": str(exc), "apps": []}, 502)
 
@@ -583,8 +586,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # ends up serving the manifest.
             with _ApiRequestHandler._update_lock:
                 cached = _ApiRequestHandler._update_cache
-                ttl = float(self.monitor.config.get("updates", {}).get("check_seconds", 86400))
-                if cached and time.time() - cached[0] < ttl:
+                cache_seconds = float(self.monitor.config.get("updates", {}).get("check_seconds", 86400))
+                if cached and time.time() - cached[0] < cache_seconds:
                     return self._send_json(cached[1])
                 status = updates.check(self.monitor.config.get("updates", {}), VERSION)
                 payload = status.to_dict()
@@ -612,19 +615,19 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     "scale_note": DIMMING_SCALE_NOTE,
                     "simulated": True,
                 })
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             payload: dict = {"scale_note": DIMMING_SCALE_NOTE}
             try:
                 payload["dimming"] = droboapps.get_dimming(
-                    host, esa, timeout=self.CONFIG_TIMEOUT)
+                    host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS)
             except (sysinfo.SysInfoError, OSError) as exc:
                 payload["dimming"] = None
                 payload["error"] = str(exc)
             try:
                 payload.update(droboapps.get_demo_mode(
-                    host, esa, timeout=self.CONFIG_TIMEOUT))
+                    host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS))
             except (sysinfo.SysInfoError, OSError):
                 # Best-effort. A missing demo-mode read must not cost the
                 # brightness reading, which is the half anyone came for.
@@ -644,9 +647,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json({**driver.get_spindown(),
                                         "delay_note": SPINDOWN_UNIT_NOTE,
                                         "simulated": True})
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             # One device read serves both facts. The SDK's public
             # get_spindown() returns only the delay, and "enabled" is the
             # FeatureStates bit beside it (measured 2026-08-12) -- so the
@@ -655,8 +658,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # its private constants, rather than second-guessing the wrapper
             # shape here.
             try:
-                block = droboapps._extract_general_block(config_cmd.get_config(
-                    host, esa, "general", timeout=self.CONFIG_TIMEOUT))
+                general_block = droboapps._extract_general_block(
+                    config_cmd.get_config(
+                        host, esa_id, "general",
+                        timeout=self.COMMAND_TIMEOUT_SECONDS))
             except config_cmd.ConfigError as exc:
                 # Covers the whole family: SysInfoError and the SDK's
                 # unrecognised-block refusal both subclass ConfigError.
@@ -664,18 +669,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             except OSError as exc:
                 return self._send_json(
                     {"error": f"could not reach the command port: {exc}"}, 502)
-            fs = self._int_or_none(block.get("FeatureStates"))
+            feature_states = self._int_or_none(
+                general_block.get("FeatureStates"))
             return self._send_json({
                 # null means "the field would not parse", which is not the
                 # same claim as off/0 -- same rule as parse_dimming.
-                "enabled": (None if fs is None
-                            else bool(fs & droboapps._SPINDOWN_ENABLED_BIT)),
-                "delay": self._int_or_none(block.get("SpindownDelay")),
+                "enabled": (None if feature_states is None
+                            else bool(feature_states
+                                      & droboapps._SPINDOWN_ENABLED_BIT)),
+                "delay": self._int_or_none(general_block.get("SpindownDelay")),
                 "delay_note": SPINDOWN_UNIT_NOTE,
             })
 
         if path == "/api/backup/status":
-            job = _BACKUP.job
+            job = _BACKUP_RUNNER.job
             return self._send_json(job.to_dict() if job else
                                    {"running": False, "summary": "No backup has been run."})
 
@@ -685,10 +692,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # its Preferences tab; it must be able to say "configured" without
             # being told the password, which is why this reports a summary
             # rather than the config block.
-            email = self.monitor.config.get("notify", {}).get("email", {})
+            email_config = self.monitor.config.get("notify", {}).get(
+                "email", {})
             enabled = "email" in self.monitor.config.get("notify", {}).get("backends", [])
-            configured = bool(enabled and email.get("host") and email.get("to"))
-            recipients = email.get("to", "")
+            configured = bool(enabled and email_config.get("host")
+                              and email_config.get("to"))
+            recipients = email_config.get("to", "")
             if isinstance(recipients, list):
                 recipients = ", ".join(recipients)
             return self._send_json({
@@ -697,9 +706,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 # Host and recipients are not secrets and are the two things
                 # somebody needs to confirm they set it up the way they meant.
                 # The password is never included, at any verbosity.
-                "host": email.get("host", ""),
+                "host": email_config.get("host", ""),
                 "to": recipients,
-                "summary": (f"Sending to {recipients} via {email.get('host','')}."
+                "summary": (f"Sending to {recipients} via {email_config.get('host','')}."
                             if configured else
                             "Not configured."),
             })
@@ -711,12 +720,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json({**driver.get_drobosync(), "simulated": True})
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             try:
-                return self._send_json(drobosync.summary(host, esa,
-                                                         timeout=self.CONFIG_TIMEOUT))
+                return self._send_json(drobosync.summary(host, esa_id,
+                                                         timeout=self.COMMAND_TIMEOUT_SECONDS))
             except (drobosync.DroboSyncError, OSError) as exc:
                 return self._send_json({"error": str(exc), "configured": False,
                                         "reads": {}}, 502)
@@ -736,12 +745,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 limit = 720
             return self._send_json({"points": self.monitor.history_dicts(max(1, min(limit, 20000)))})
         if path == "/api/photos/stats":
-            return self._send_json(self.photos.stats())
+            return self._send_json(self.photo_store.stats())
         if path == "/api/photos/session":
             digest = ((params.get("id") or [""])[0]
                       or self.headers.get("X-Upload-Id") or "").lower()
             try:
-                return self._send_json(self.photos.session(digest))
+                return self._send_json(
+                    self.photo_store.session_progress(digest))
             except PhotoStoreError as exc:
                 return self._send_json({"error": str(exc)}, 400)
         if path == "/api/pair":
@@ -750,13 +760,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 "agent": "drobo-agent", "version": VERSION,
                 "url": self._pair_url(),
                 "token": self.token,
-                "photos_enabled": self.photos.enabled,
+                "photos_enabled": self.photo_store.enabled,
             })
         if path == "/api/pair.svg":
             # Carries the token, so this stays behind auth like everything else.
             return self._send_text(
                 qr.svg(f"{self._pair_url()}/?token={self.token}"),
-                ctype="image/svg+xml")
+                content_type="image/svg+xml")
         if path == "/api/events":
             return self._stream_events()
 
@@ -777,14 +787,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # error instead of a clean 401 with a reason. Found by the config-
             # write tests; it affected every unauthenticated POST.
             try:
-                self._read_body(MAX_JSON_BODY)
+                self._read_body(MAX_JSON_BODY_BYTES)
             except Exception:  # noqa: BLE001 - the answer is 401 regardless
                 pass
-            return self._send_401(params)
+            return self._send_unauthorised(params)
 
         if path in ("/api/backup/plan", "/api/backup/start"):
             try:
-                body = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+                body = json.loads(
+                    self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
             except (ValueError, UnicodeDecodeError) as exc:
                 return self._send_json({"error": f"bad JSON: {exc}"}, 400)
             source = str(body.get("source", "")).strip()
@@ -806,7 +817,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                               "/api/backup/plan first and show the user what it "
                               "says -- especially the mirror warning."}, 400)
             try:
-                job = _BACKUP.start(source, destination, mirror)
+                job = _BACKUP_RUNNER.start(source, destination, mirror)
             except backup.BackupError as exc:
                 return self._send_json({"error": str(exc)}, 409)
             return self._send_json(job.to_dict())
@@ -815,13 +826,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # POST, not GET: this sends real mail, and a GET must never have a
             # side effect -- browsers and link prefetchers will happily follow
             # one. Same rule that put /api/identify on POST.
-            notify_cfg = self.monitor.config.get("notify", {})
-            if "email" not in notify_cfg.get("backends", []):
+            notify_config = self.monitor.config.get("notify", {})
+            if "email" not in notify_config.get("backends", []):
                 return self._send_json(
                     {"error": "Email alerts are not switched on. Add \"email\" to the "
                               "notify backends in the agent's config.json."}, 409)
-            mailer = notify.build({**notify_cfg, "backends": ["email"]})
-            members = [m for m in getattr(mailer, "members", []) if m.name == "email"]
+            mailer = notify.build({**notify_config, "backends": ["email"]})
+            members = [notifier for notifier in getattr(mailer, "members", []) if notifier.name == "email"]
             if not members:
                 return self._send_json(
                     {"error": "Email is switched on but incompletely configured -- "
@@ -846,19 +857,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # otherwise the index still lists them, `have` answers "already got
             # it", and the phone never re-sends. See PhotoStore.rescan.
             try:
-                return self._send_json(self.photos.rescan())
+                return self._send_json(self.photo_store.rescan())
             except PhotoStoreError as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
         if path == "/api/photos/have":
             try:
-                payload = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+                payload = json.loads(
+                    self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
             except (ValueError, UnicodeDecodeError) as exc:
                 return self._send_json({"error": f"bad JSON: {exc}"}, 400)
             hashes = payload.get("hashes")
             if not isinstance(hashes, list):
                 return self._send_json({"error": "expected {\"hashes\": [...]}"}, 400)
-            return self._send_json({"missing": self.photos.missing([str(h) for h in hashes])})
+            return self._send_json({"missing": self.photo_store.missing([str(h) for h in hashes])})
 
         if path == "/api/photos":
             return self._receive_photo()
@@ -866,14 +878,17 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # Chunked upload -- the path videos take.
         if path == "/api/photos/begin":
             try:
-                p = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+                begin_request = json.loads(
+                    self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
             except (ValueError, UnicodeDecodeError) as exc:
                 return self._send_json({"error": f"bad JSON: {exc}"}, 400)
             try:
-                return self._send_json(self.photos.begin(
-                    str(p.get("filename", "")), int(p.get("size", 0)),
-                    str(p.get("sha256", "")).lower(),
-                    float(p["taken_at"]) if p.get("taken_at") else None))
+                return self._send_json(self.photo_store.begin(
+                    str(begin_request.get("filename", "")),
+                    int(begin_request.get("size", 0)),
+                    str(begin_request.get("sha256", "")).lower(),
+                    float(begin_request["taken_at"])
+                    if begin_request.get("taken_at") else None))
             except (PhotoStoreError, ValueError, TypeError) as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
@@ -887,18 +902,18 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json(
                     {"error": "X-Upload-Id and X-Offset headers are required"}, 400)
             try:
-                chunk = self._read_body(64 * 1024 * 1024)
+                chunk = self._read_body(MAX_UPLOAD_CHUNK_BYTES)
             except ValueError as exc:
                 return self._send_json({"error": str(exc)}, 413)
             try:
-                return self._send_json(self.photos.append(digest, offset, chunk))
+                return self._send_json(self.photo_store.append(digest, offset, chunk))
             except PhotoStoreError as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
         if path == "/api/photos/finish":
             digest = (self.headers.get("X-Upload-Id") or "").lower()
             try:
-                return self._send_json(self.photos.finish(digest))
+                return self._send_json(self.photo_store.finish(digest))
             except PhotoStoreError as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
@@ -912,17 +927,17 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # for proving the interval is what makes the lights move. Exposed
             # here rather than kept internal precisely so that comparison can
             # be run without editing code.
-            raw = (params.get("interval") or [""])[0].strip().lower()
-            if not raw:
-                interval = identify_cmd.DEFAULT_INTERVAL
-            elif raw == "none":
+            interval_text = (params.get("interval") or [""])[0].strip().lower()
+            if not interval_text:
+                interval = nasd_identify.DEFAULT_INTERVAL
+            elif interval_text == "none":
                 interval = None
             else:
                 try:
-                    interval = int(raw)
+                    interval = int(interval_text)
                 except ValueError:
                     return self._send_json(
-                        {"error": f"interval must be a whole number or 'none', got {raw!r}"},
+                        {"error": f"interval must be a whole number or 'none', got {interval_text!r}"},
                         400)
 
             # Checked HERE, before the simulated/real fork, so both arms
@@ -930,8 +945,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # bind the hardware path, and a simulator that accepts what the
             # device rejects certifies things that do not work.
             try:
-                identify_cmd.validate_interval(interval)
-            except identify_cmd.IdentifyParameterError as exc:
+                nasd_identify.validate_interval(interval)
+            except nasd_identify.IdentifyParameterError as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
             driver = self.monitor.driver
@@ -944,17 +959,18 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 driver.identify(interval)
                 return self._send_json({"ok": True, "simulated": True, "interval": interval,
                                         "message": _identify_message(interval, simulated=True)})
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
             try:
-                result = identify_cmd.identify(host, esa, timeout=self.CONFIG_TIMEOUT,
-                                               interval=interval)
-            except identify_cmd.IdentifyParameterError as exc:
+                result = nasd_identify.identify(
+                    host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS,
+                    interval=interval)
+            except nasd_identify.IdentifyParameterError as exc:
                 # Caller asked for something we will not send. Must be 400 and
                 # not 502 -- checked before IdentifyError, which it subclasses.
                 return self._send_json({"error": str(exc)}, 400)
-            except identify_cmd.IdentifyError as exc:
+            except nasd_identify.IdentifyError as exc:
                 return self._send_json({"error": str(exc)}, 502)
             except OSError as exc:
                 return self._send_json(
@@ -980,9 +996,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # _config_write for the four it can hold.
         if path == "/api/config/brightness":
             return self._config_write(
-                lambda body: self._want_int(body, "value"),
-                lambda host, esa, value: droboapps.set_dimming(
-                    host, esa, value, timeout=self.CONFIG_TIMEOUT),
+                lambda body: self._parse_whole_number_field(body, "value"),
+                lambda host, esa_id, value: droboapps.set_dimming(
+                    host, esa_id, value, timeout=self.COMMAND_TIMEOUT_SECONDS),
                 simulate=lambda driver, value: driver.set_dimming(value),
                 describe=lambda value: f"LED brightness set to {value}.")
 
@@ -991,25 +1007,36 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # off); {"enabled": false} disables it. The SDK refuses a bare
             # delay of 0 because the device coerces it -- measured 2026-08-12.
             return self._config_write(
-                lambda body: self._want_spindown(body),
-                lambda host, esa, spec: (
-                    droboapps.disable_spindown(host, esa, timeout=self.CONFIG_TIMEOUT)
-                    if spec is None else
-                    droboapps.set_spindown(host, esa, spec, timeout=self.CONFIG_TIMEOUT)),
-                simulate=lambda driver, spec: driver.set_spindown(spec),
-                describe=lambda spec: ("Drive spin-down turned off." if spec is None
-                                       else f"Drive spin-down delay set to {spec}."))
+                lambda body: self._parse_spindown_request(body),
+                lambda host, esa_id, parsed_request: (
+                    droboapps.disable_spindown(
+                        host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS)
+                    if parsed_request is None else
+                    droboapps.set_spindown(
+                        host, esa_id, parsed_request,
+                        timeout=self.COMMAND_TIMEOUT_SECONDS)),
+                simulate=lambda driver, parsed_request: driver.set_spindown(
+                    parsed_request),
+                describe=lambda parsed_request: (
+                    "Drive spin-down turned off." if parsed_request is None
+                    else f"Drive spin-down delay set to {parsed_request}."))
 
         if path == "/api/config/share-access":
             # {"share": name, "user": name, "access": "0"|"1"} -- one user's
             # access on one share. The SDK refuses an unconfirmed code and
             # refuses ambiguous (case-colliding) share or user names.
             return self._config_write(
-                lambda body: self._want_share_access(body),
-                lambda host, esa, spec: sharewrite.set_share_user_access(
-                    host, esa, spec[0], spec[1], spec[2], timeout=self.CONFIG_TIMEOUT),
-                simulate=lambda driver, spec: driver.set_share_access(*spec),
-                describe=lambda spec: f"{spec[1]!r} on {spec[0]!r} set to access {spec[2]}.")
+                lambda body: self._parse_share_access_request(body),
+                lambda host, esa_id, parsed_request: (
+                    sharewrite.set_share_user_access(
+                        host, esa_id, parsed_request[0], parsed_request[1],
+                        parsed_request[2],
+                        timeout=self.COMMAND_TIMEOUT_SECONDS)),
+                simulate=lambda driver, parsed_request: (
+                    driver.set_share_access(*parsed_request)),
+                describe=lambda parsed_request: (
+                    f"{parsed_request[1]!r} on {parsed_request[0]!r} "
+                    f"set to access {parsed_request[2]}."))
 
         if path == "/api/shares/create":
             # {"name": ...} -- create one share. The SDK write mirrors the
@@ -1020,10 +1047,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # the parse step as well as by the SDK/mock, so the simulated and
             # hardware paths refuse identical requests with identical codes.
             return self._config_write(
-                self._want_new_share_name,
-                lambda host, esa, name: sharewrite.create_share(
-                    host, esa, name, volume=self._new_share_volume(),
-                    timeout=self.CONFIG_TIMEOUT),
+                self._parse_new_share_name,
+                lambda host, esa_id, name: sharewrite.create_share(
+                    host, esa_id, name, volume=self._new_share_volume(),
+                    timeout=self.COMMAND_TIMEOUT_SECONDS),
                 simulate=lambda driver, name: driver.create_share(name),
                 describe=lambda name: (f"Share {name!r} created. It starts "
                                        f"with no access for anyone."))
@@ -1037,9 +1064,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # SDK write mirrors the 2026-08-25 capture: the config resent with
             # the share's node absent plus <ShareDeleteConfirm>Y</...> appended.
             return self._config_write(
-                self._want_share_delete,
-                lambda host, esa, name: sharewrite.delete_share(
-                    host, esa, name, timeout=self.CONFIG_TIMEOUT),
+                self._parse_share_delete_request,
+                lambda host, esa_id, name: sharewrite.delete_share(
+                    host, esa_id, name, timeout=self.COMMAND_TIMEOUT_SECONDS),
                 simulate=lambda driver, name: driver.delete_share(name),
                 describe=lambda name: (f"Share {name!r} deleted, along with "
                                        f"everything it held."))
@@ -1053,7 +1080,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # list. But the read-back is REPORTED, not asserted: a service
             # takes a moment to change state, so an immediate re-read can
             # honestly still say "stopped" right after an accepted Start.
-            return self._droboapps_action()
+            return self._serve_droboapps_action()
 
         if path == "/api/mock/sign-in":
             return self._mock_sign_in()
@@ -1092,22 +1119,24 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         WRITE_* constants above -- so neither UI has to infer any of this from
         the wording, and 502 alone never has to mean "red".
 
-        `parse(body) -> spec` validates the JSON and returns the typed
-        argument(s); raising ValueError is the 400 path. `perform(host, esa,
-        spec)` is the real SDK write. `simulate(driver, spec)` is the mock
-        driver's stand-in, so the whole UI path can be exercised without
-        hardware -- and it is given the SAME validated spec, so a value the
-        device would refuse is refused here too. Both return the SDK's result
-        shape and raise the SDK's exception types, so the classification below
-        runs once for both rather than as two sets of rules that can drift.
-        `describe(spec)` is the human sentence for success.
+        `parse(body) -> parsed_request` validates the JSON and returns
+        the typed argument(s); raising ValueError is the 400 path.
+        `perform(host, esa_id, parsed_request)` is the real SDK write.
+        `simulate(driver, parsed_request)` is the mock driver's stand-in,
+        so the whole UI path can be exercised without hardware -- and it
+        is given the SAME validated request, so a value the device would
+        refuse is refused here too. Both return the SDK's result shape
+        and raise the SDK's exception types, so the classification below
+        runs once for both rather than as two sets of rules that can
+        drift. `describe(parsed_request)` is the human sentence for
+        success.
         """
         try:
-            body = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+            body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
         except (ValueError, UnicodeDecodeError) as exc:
             return self._send_json({"error": f"bad JSON: {exc}"}, 400)
         try:
-            spec = parse(body)
+            parsed_request = parse(body)
         except (ValueError, TypeError) as exc:
             return self._send_json({"error": str(exc)}, 400)
 
@@ -1115,14 +1144,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         simulated = bool(getattr(driver, "simulate_config", False))
         if simulated:
             def attempt():
-                return simulate(driver, spec)
+                return simulate(driver, parsed_request)
         else:
-            host, esa, err = self._command_target()
-            if err:
-                return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+            if unavailable_body:
+                return self._send_json(unavailable_body, 503)
 
             def attempt():
-                return perform(host, esa, spec)
+                return perform(host, esa_id, parsed_request)
 
         try:
             result = attempt()
@@ -1156,10 +1185,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # too -- asking to edit or delete a share the device does not
             # list -- and the pinned share create/delete contract makes that
             # a 400.
-            msg = str(exc).lower()
-            code = 400 if ("refus" in msg or "must" in msg
-                           or "no share named" in msg) else 502
-            return self._write_problem(str(exc), code, simulated)
+            lowered_reason = str(exc).lower()
+            http_status = 400 if ("refus" in lowered_reason
+                                  or "must" in lowered_reason
+                                  or "no share named" in lowered_reason
+                                  ) else 502
+            return self._write_problem(str(exc), http_status, simulated)
         except config_cmd.ConfigWriteError as exc:
             # The SDK's "the device said no" -- a refusal, an unreachable
             # command port, or a write its own read-back proved did not land.
@@ -1195,7 +1226,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 "the Drobo took the write and then read back unchanged. "
                 "Received, not applied.", 502, simulated)
 
-        message = describe(spec)
+        message = describe(parsed_request)
         if outcome == WRITE_UNACKNOWLEDGED:
             message += "  " + UNACKNOWLEDGED_WRITE_NOTE
         if simulated:
@@ -1204,27 +1235,30 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # NOTHING (already set that way) reports null rather than claiming an
         # acknowledgement nobody ever gave. Only the classification above needs
         # that reduced to a bool.
-        out = {"ok": True, "outcome": outcome, "message": message,
-               "acknowledged": result.get("acknowledged", acknowledged)}
+        response_body = {
+            "ok": True, "outcome": outcome, "message": message,
+            "acknowledged": result.get("acknowledged", acknowledged)}
         if simulated:
-            out["simulated"] = True
-        for k in ("verified", "read_back", "result_code", "unchanged"):
-            if k in result:
-                out[k] = result[k]
+            response_body["simulated"] = True
+        for field_name in ("verified", "read_back", "result_code",
+                           "unchanged"):
+            if field_name in result:
+                response_body[field_name] = result[field_name]
         self._invalidate_shares_cache()
-        return self._send_json(out)
+        return self._send_json(response_body)
 
-    def _write_problem(self, detail: str, code: int, simulated: bool):
+    def _write_problem(self, detail: str, http_status: int, simulated: bool):
         """
         A write that changed nothing: the agent's own outcome flag beside the
         SDK's plain-English reason, so a UI never has to read the prose to
-        choose between red and amber. `code` is whatever it was before this
-        helper existed -- 400 the caller's fault, 502 the device's.
+        choose between red and amber. `http_status` is whatever it was
+        before this helper existed -- 400 the caller's fault, 502 the
+        device's.
         """
         body = {"error": detail, "outcome": WRITE_FAILED}
         if simulated:
             body["simulated"] = True
-        return self._send_json(body, code)
+        return self._send_json(body, http_status)
 
     def _write_unsettled(self, detail: str, simulated: bool):
         """
@@ -1264,24 +1298,24 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             cls._shares_cache = None
 
     @staticmethod
-    def _want_int(body, key):
-        v = body.get(key)
-        if isinstance(v, bool) or not isinstance(v, int):
+    def _parse_whole_number_field(body, key):
+        value = body.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("expected {\"" + key + "\": <whole number>}")
-        return v
+        return value
 
     @staticmethod
-    def _want_spindown(body):
+    def _parse_spindown_request(body):
         """Returns None to mean 'disable', or a positive int delay."""
         if body.get("enabled") is False:
             return None
-        d = body.get("delay")
-        if isinstance(d, bool) or not isinstance(d, int) or d <= 0:
+        delay = body.get("delay")
+        if isinstance(delay, bool) or not isinstance(delay, int) or delay <= 0:
             raise ValueError("expected {\"delay\": <positive whole number>} or {\"enabled\": false}")
-        return d
+        return delay
 
     @staticmethod
-    def _want_share_access(body):
+    def _parse_share_access_request(body):
         share = str(body.get("share", "")).strip()
         user = str(body.get("user", "")).strip()
         access = str(body.get("access", "")).strip()
@@ -1290,7 +1324,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         return (share, user, access)
 
     @staticmethod
-    def _want_new_share_name(body):
+    def _parse_new_share_name(body):
         """The new share's name, held to the SDK's own rule HERE as well as in
         the SDK and the mock, so the simulated and hardware paths refuse
         identical requests with identical codes. Borrows the SDK's pattern
@@ -1312,7 +1346,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         return name
 
     @staticmethod
-    def _want_share_delete(body):
+    def _parse_share_delete_request(body):
         """The name of the share to delete, but only once confirm_name repeats
         it EXACTLY -- case-sensitive, untrimmed. Deleting a share destroys
         everything stored in it, so a failed confirmation must be refused here
@@ -1351,20 +1385,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         volumes = self.monitor.snapshot_dict().get("volumes") or []
         if len(volumes) != 1:
             return None
-        vol = volumes[0]
-        name = (vol.get("name") or "").strip()
+        volume = volumes[0]
+        name = (volume.get("name") or "").strip()
         if name:
             return name
-        lun = vol.get("lun")
+        lun = volume.get("lun")
         return f"Volume{lun + 1}" if isinstance(lun, int) else None
 
     @staticmethod
-    def _int_or_none(raw) -> int | None:
+    def _int_or_none(field_text) -> int | None:
         """A device config field as a number, or None when it will not parse.
         None is 'the device did not say', which is a different claim from 0 --
         the same rule parse_dimming follows for brightness."""
         try:
-            return int(raw) if isinstance(raw, str) else None
+            return int(field_text) if isinstance(field_text, str) else None
         except ValueError:
             return None
 
@@ -1373,13 +1407,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """One app's row out of an app-list read -- the read-back for
         /api/droboapps/action. None when the list no longer carries the name,
         which the caller reports as unconfirmed rather than inventing a state."""
-        for a in listing.get("apps", []):
-            if a.get("name") == name:
-                return {"name": a["name"], "running": a.get("running"),
-                        "status": a.get("status", "")}
+        for app in listing.get("apps", []):
+            if app.get("name") == name:
+                return {"name": app["name"], "running": app.get("running"),
+                        "status": app.get("status", "")}
         return None
 
-    def _droboapps_action(self):
+    def _serve_droboapps_action(self):
         """
         POST /api/droboapps/action {"name": ..., "action": "Start"|"Stop"}.
 
@@ -1396,7 +1430,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         unconfirmed", never as a failure that tempts a retry.
         """
         try:
-            body = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+            body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
         except (ValueError, UnicodeDecodeError) as exc:
             return self._send_json({"error": f"bad JSON: {exc}"}, 400)
         name = str(body.get("name", "")).strip()
@@ -1423,26 +1457,28 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 "message": _app_action_message(name, action, read_back,
                                                simulated=True)})
 
-        host, esa, err = self._command_target()
-        if err:
-            return self._send_json(err, 503)
+        host, esa_id, unavailable_body = self._command_target()
+        if unavailable_body:
+            return self._send_json(unavailable_body, 503)
         try:
             installed = droboapps.get_droboapps(
-                host, esa, timeout=self.CONFIG_TIMEOUT).get("apps", [])
+                host, esa_id,
+                timeout=self.COMMAND_TIMEOUT_SECONDS).get("apps", [])
         except (sysinfo.SysInfoError, OSError) as exc:
             return self._send_json(
                 {"error": f"could not read the app list to check {name!r} "
                           f"against: {exc}"}, 502)
-        if name not in {a["name"] for a in installed}:
+        if name not in {app["name"] for app in installed}:
             return self._send_json(
                 {"error": f"{name!r} is not an installed DroboApp on this "
                           f"device (installed: "
-                          f"{sorted(a['name'] for a in installed)}); refusing "
-                          f"to act on a name the device did not report"}, 400)
+                          f"{sorted(app['name'] for app in installed)}); "
+                          f"refusing to act on a name the device did not "
+                          f"report"}, 400)
         try:
             result = droboapps.droboapps_action(
-                host, esa, name, action, timeout=self.CONFIG_TIMEOUT,
-                check_installed=False)
+                host, esa_id, name, action,
+                timeout=self.COMMAND_TIMEOUT_SECONDS, check_installed=False)
         except droboapps.DroboAppsActionError as exc:
             # Verb and name were validated above, so whatever is left is the
             # device refusing, unreachable, or answering with the wrong code.
@@ -1453,18 +1489,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
         listing = None
         try:
-            listing = droboapps.get_droboapps(host, esa, timeout=self.CONFIG_TIMEOUT)
+            listing = droboapps.get_droboapps(
+                host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS)
         except (sysinfo.SysInfoError, OSError):
             pass  # accepted, unconfirmed -- the message says exactly that
         read_back = self._app_state(listing, name) if listing else None
-        out = {"ok": True, "name": name, "action": action,
-               "result_code": result.get("result_code"),
-               "read_back": read_back,
-               "message": _app_action_message(name, action, read_back)}
+        response_body = {
+            "ok": True, "name": name, "action": action,
+            "result_code": result.get("result_code"),
+            "read_back": read_back,
+            "message": _app_action_message(name, action, read_back)}
         if listing is not None:
-            out["apps"] = listing.get("apps", [])
-            out["sdk_version"] = listing.get("sdk_version", "")
-        return self._send_json(out)
+            response_body["apps"] = listing.get("apps", [])
+            response_body["sdk_version"] = listing.get("sdk_version", "")
+        return self._send_json(response_body)
 
     def _command_target(self):
         """
@@ -1477,16 +1515,16 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         driver = self.monitor.driver
         host = getattr(driver, "_resolved_host", "") or getattr(driver, "host", "")
-        esa = getattr(driver, "_known_esa_id", "")
-        if not host or not esa or host in ("auto", ""):
+        esa_id = getattr(driver, "_known_esa_id", "")
+        if not host or not esa_id or host in ("auto", ""):
             return "", "", {
                 "error": "no live Drobo connection yet -- the command port needs "
                          "the device's address and serial, which come from a "
                          "successful status read first"
             }
-        return host, esa, None
+        return host, esa_id, None
 
-    def _netcheck(self, host: str) -> None:
+    def _serve_netcheck(self, host: str) -> None:
         """
         Is this PC even on the same network as the Drobo?
 
@@ -1530,7 +1568,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "hint": None if result.same_network else result.to_dict(),
         })
 
-    def _discover(self, manual_host: str = "") -> None:
+    def _serve_discovery(self, manual_host: str = "") -> None:
         """
         Every Drobo we can see on this network, already identified.
 
@@ -1599,30 +1637,30 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                         port=getattr(driver, "_resolved_port", esatm.DEFAULT_PORT),
                         source="in-use"))
 
-            for cand in candidates:
-                if cand.host in seen:
+            for candidate in candidates:
+                if candidate.host in seen:
                     continue
-                seen.add(cand.host)
+                seen.add(candidate.host)
                 try:
                     # No expected_esa_id: we are listing what's out there, not
                     # asserting which one is yours. Identity pinning still
                     # happens in the driver when you actually connect.
-                    v = discovery.verify_candidate(cand, timeout=self.DISCOVERY_LISTEN_SECONDS)
+                    verified_candidate = discovery.verify_candidate(candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
                 except (OSError, discovery.IdentityMismatchError, esatm.FrameError):
                     continue  # answered badly or not at all; not a Drobo we can use
-                ident = v.identity
+                identity = verified_candidate.identity
                 found.append({
-                    "host": cand.host,
-                    "port": cand.port,
-                    "found_by": cand.source,
-                    "name": ident.get("name", ""),
-                    "model": ident.get("model", ""),
-                    "firmware": ident.get("firmware", ""),
+                    "host": candidate.host,
+                    "port": candidate.port,
+                    "found_by": candidate.source,
+                    "name": identity.get("name", ""),
+                    "model": identity.get("model", ""),
+                    "firmware": identity.get("firmware", ""),
                     # The serial identifies the box permanently and is what
                     # pins a future connection to THIS device. It is not a
                     # secret -- the Drobo hands it to anyone who connects.
-                    "esa_id": ident.get("esa_id", ""),
-                    "is_current": cand.host == current,
+                    "esa_id": identity.get("esa_id", ""),
+                    "is_current": candidate.host == current,
                 })
 
             # The simulated Drobo has no address, so there is nothing on the
@@ -1640,15 +1678,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # Flagged `simulated` so a front-end can label it honestly rather
             # than letting anyone believe they are looking at a real array.
             if isinstance(driver, MockDriver) and not manual_host:
-                dev = self.monitor.snapshot_dict().get("device", {})
+                device = self.monitor.snapshot_dict().get("device", {})
                 found.append({
                     "host": "simulated",
                     "port": 0,
                     "found_by": "mock driver",
-                    "name": dev.get("name", "MockDrobo"),
-                    "model": dev.get("model", "Drobo 5N"),
-                    "firmware": dev.get("firmware", ""),
-                    "esa_id": dev.get("esa_id", "") or "simulated-device",
+                    "name": device.get("name", "MockDrobo"),
+                    "model": device.get("model", "Drobo 5N"),
+                    "firmware": device.get("firmware", ""),
+                    "esa_id": device.get("esa_id", "") or "simulated-device",
                     "is_current": True,
                     "simulated": True,
                 })
@@ -1676,7 +1714,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             _ApiRequestHandler._discover_cache = (time.time(), payload)
         return self._send_json(payload)
 
-    def _shares(self) -> None:
+    def _serve_shares(self) -> None:
         """
         The shares, ready to open.
 
@@ -1695,11 +1733,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # that jumps over those paths quietly stops testing them.
         simulated = getattr(self.monitor.driver, "simulate_config", False)
         if simulated:
-            host, esa, err = "10.0.0.5", "", None
+            host, esa_id, unavailable_body = "10.0.0.5", "", None
         else:
-            host, esa, err = self._command_target()
-        if err:
-            return self._send_json(err, 503)
+            host, esa_id, unavailable_body = self._command_target()
+        if unavailable_body:
+            return self._send_json(unavailable_body, 503)
 
         # One caller at a time, and everyone else gets the cached answer. Two
         # browser tabs refreshing must not become four connections to a 2013
@@ -1710,22 +1748,25 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json(cached[1])
 
             try:
-                raw = (self.monitor.driver.get_config("shares") if simulated
-                       else config_cmd.get_config(host, esa, "shares",
-                                                  timeout=self.CONFIG_TIMEOUT))
+                shares_config = (
+                    self.monitor.driver.get_config("shares") if simulated
+                    else config_cmd.get_config(
+                        host, esa_id, "shares",
+                        timeout=self.COMMAND_TIMEOUT_SECONDS))
             except config_cmd.ConfigError as exc:
                 return self._send_json({"error": str(exc)}, 502)
             except OSError as exc:
                 return self._send_json(
                     {"error": f"could not reach the command port: {exc}"}, 502)
 
-            listed = shares_mod.summarize(raw, host)
+            share_summaries = nasd_shares.summarize(shares_config, host)
             link = {}
             try:
-                link = shares_mod.link_health(
+                link = nasd_shares.link_health(
                     self.monitor.driver.get_config("network") if simulated
-                    else config_cmd.get_config(host, esa, "network",
-                                               timeout=self.CONFIG_TIMEOUT))
+                    else config_cmd.get_config(
+                        host, esa_id, "network",
+                        timeout=self.COMMAND_TIMEOUT_SECONDS))
             except (config_cmd.ConfigError, OSError):
                 pass
 
@@ -1734,13 +1775,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # two reads could disagree with each other if a write landed in
             # between. Returns None when the list is present but unreadable,
             # which access_advice treats as "don't know" rather than "none".
-            accounts = shares_mod.user_accounts(raw)
+            accounts = nasd_shares.user_accounts(shares_config)
 
             payload = {
                 "host": host,
-                "shares": listed,
+                "shares": share_summaries,
                 "accounts": accounts,
-                "advice": shares_mod.access_advice(listed, accounts),
+                "advice": nasd_shares.access_advice(share_summaries, accounts),
                 "link": link,
             }
             _ApiRequestHandler._shares_cache = (time.time(), payload)
@@ -1751,18 +1792,19 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if not filename:
             return self._send_json({"error": "X-Filename header is required"}, 400)
         taken_at = None
-        raw_taken = self.headers.get("X-Taken-At", "")
-        if raw_taken:
+        taken_at_header = self.headers.get("X-Taken-At", "")
+        if taken_at_header:
             try:
-                taken_at = float(raw_taken)  # unix seconds
+                taken_at = float(taken_at_header)  # unix seconds
             except ValueError:
                 return self._send_json({"error": "X-Taken-At must be unix seconds"}, 400)
         try:
-            data = self._read_body(self.photos.max_bytes + 1024)
+            data = self._read_body(
+                self.photo_store.max_single_upload_bytes + 1024)
         except ValueError as exc:
             return self._send_json({"error": str(exc)}, 413)
         try:
-            return self._send_json(self.photos.ingest(filename, data, taken_at))
+            return self._send_json(self.photo_store.ingest(filename, data, taken_at))
         except PhotoStoreError as exc:
             return self._send_json({"error": str(exc)}, 400)
 
@@ -1778,7 +1820,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         driver = self.monitor.driver
         try:
-            body = json.loads(self._read_body(MAX_JSON_BODY) or b"{}")
+            body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
         except (ValueError, UnicodeDecodeError) as exc:
             return self._send_json({"error": f"bad JSON: {exc}"}, 400)
         if not isinstance(driver, MockDriver):
@@ -1798,22 +1840,22 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         driver = self.monitor.driver
         if not isinstance(driver, MockDriver):
             return self._send_json({"error": "mock controls need the mock driver"}, 409)
-        parts = path.split("/")[3:]  # after /api/mock/
-        action = parts[0] if parts else ""
-        bay = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+        path_segments = path.split("/")[3:]  # after /api/mock/
+        action = path_segments[0] if path_segments else ""
+        bay = int(path_segments[1]) if len(path_segments) > 1 and path_segments[1].isdigit() else None
         if action == "reset":
             driver.reset()
         elif action in ("fail", "warn", "pull") and bay:
             {"fail": driver.fail_bay, "warn": driver.warn_bay, "pull": driver.pull_bay}[action](bay)
-        elif action == "battery" and len(parts) > 1 and parts[1] in ("warning", "failed"):
-            driver.fail_battery(parts[1])
-        elif action == "power" and len(parts) > 1 and parts[1] in ("warning", "failed"):
-            driver.fail_power(parts[1])
-        elif action == "write" and len(parts) > 1 and parts[1] in drivers.WRITE_FAULTS:
+        elif action == "battery" and len(path_segments) > 1 and path_segments[1] in ("warning", "failed"):
+            driver.fail_battery(path_segments[1])
+        elif action == "power" and len(path_segments) > 1 and path_segments[1] in ("warning", "failed"):
+            driver.fail_power(path_segments[1])
+        elif action == "write" and len(path_segments) > 1 and path_segments[1] in drivers.WRITE_FAULTS:
             # Arms how the simulator ENDS a config write, so both UIs can be
             # driven through all four outcomes -- including the one measured on
             # hardware, where the device applies the change and never answers.
-            driver.fail_write(parts[1])
+            driver.fail_write(path_segments[1])
         else:
             return self._send_json(
                 {"error": "use /api/mock/fail/<bay>, warn/<bay>, pull/<bay>, "
@@ -1822,12 +1864,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                           "or /api/mock/reset"},
                 400,
             )
-        snap = self.monitor.poll_once()  # apply immediately so alerts fire now
+        # apply immediately so alerts fire now
+        snapshot = self.monitor.poll_once()
         return self._send_json({"ok": True, "action": action, "bay": bay,
-                                "state": snap.overall_state})
+                                "state": snapshot.overall_state})
 
     def _stream_events(self) -> None:
-        q = self.monitor.subscribe()
+        event_queue = self.monitor.subscribe()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -1835,30 +1878,30 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             # Send the current state immediately so a new client isn't blank.
-            self._sse({"type": "snapshot", "data": self.monitor.snapshot_dict()})
+            self._send_server_sent_event({"type": "snapshot", "data": self.monitor.snapshot_dict()})
             while True:
                 try:
-                    self._sse(q.get(timeout=15))
+                    self._send_server_sent_event(event_queue.get(timeout=15))
                 except queue.Empty:
                     self.wfile.write(b": keep-alive\n\n")  # comment frame
                     self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
-            self.monitor.unsubscribe(q)
+            self.monitor.unsubscribe(event_queue)
 
-    def _sse(self, payload: dict) -> None:
+    def _send_server_sent_event(self, payload: dict) -> None:
         body = json.dumps(payload)
         self.wfile.write(f"event: {payload.get('type','message')}\ndata: {body}\n\n".encode())
         self.wfile.flush()
 
 
-def serve(cfg: dict, monitor, photos):
+def serve(config: dict, monitor, photo_store):
     _ApiRequestHandler.monitor = monitor
-    _ApiRequestHandler.photos = photos
-    _ApiRequestHandler.token = cfg["agent"]["token"]
-    bind = cfg["agent"]["bind"]
-    port = int(cfg["agent"]["port"])
-    httpd = ThreadingHTTPServer((bind, port), _ApiRequestHandler)
+    _ApiRequestHandler.photo_store = photo_store
+    _ApiRequestHandler.token = config["agent"]["token"]
+    bind_address = config["agent"]["bind"]
+    port = int(config["agent"]["port"])
+    httpd = ThreadingHTTPServer((bind_address, port), _ApiRequestHandler)
     httpd.daemon_threads = True
     return httpd

@@ -11,6 +11,7 @@ Implemented from the specification, ISO/IEC 18004 -- nobody's source code was
 read to write this. The Reed-Solomon error correction below runs over
 GF(256) with primitive polynomial 0x11D; that polynomial and the GF
 arithmetic are the standard's own mathematics, not anyone's implementation.
+EC = error correction.
 
     from drobo_agent import qr
     svg = qr.svg("http://10.0.0.50:7420/?token=...")
@@ -22,52 +23,63 @@ should be typing a 32-character token on a phone keyboard.
 
 from __future__ import annotations
 
+
 # --------------------------------------------------------------------------
 # GF(256) arithmetic, primitive polynomial 0x11D
 # --------------------------------------------------------------------------
-_EXP = [0] * 512
-_LOG = [0] * 256
-_x = 1
-for _i in range(255):
-    _EXP[_i] = _x
-    _LOG[_x] = _i
-    _x <<= 1
-    if _x & 0x100:
-        _x ^= 0x11D
-for _i in range(255, 512):
-    _EXP[_i] = _EXP[_i - 255]
+def _build_gf_tables() -> tuple[list[int], list[int]]:
+    """The antilog (alpha^i) and log tables. The antilog table holds 512
+    entries so _gf_multiply can index it with a sum of two logs."""
+    antilog_table = [0] * 512
+    log_table = [0] * 256
+    element = 1
+    for exponent in range(255):
+        antilog_table[exponent] = element
+        log_table[element] = exponent
+        element <<= 1
+        if element & 0x100:
+            element ^= 0x11D
+    for exponent in range(255, 512):
+        antilog_table[exponent] = antilog_table[exponent - 255]
+    return antilog_table, log_table
 
 
-def _mul(a: int, b: int) -> int:
-    if a == 0 or b == 0:
+_GF_ANTILOG_TABLE, _GF_LOG_TABLE = _build_gf_tables()
+
+
+def _gf_multiply(left: int, right: int) -> int:
+    if left == 0 or right == 0:
         return 0
-    return _EXP[_LOG[a] + _LOG[b]]
+    return _GF_ANTILOG_TABLE[_GF_LOG_TABLE[left] + _GF_LOG_TABLE[right]]
 
 
-def _generator_polynomial(nsym: int) -> list[int]:
+def _generator_polynomial(ec_codeword_count: int) -> list[int]:
     """
-    Product of (x - alpha^i) for i in 0..nsym-1, highest degree first so that
-    g[0] == 1. _ec_codewords below depends on that ordering.
+    Product of (x - alpha^i) for i in 0..ec_codeword_count-1, highest
+    degree first so that polynomial[0] == 1. _ec_codewords below depends
+    on that ordering.
     """
-    g = [1]
-    for i in range(nsym):
-        out = [0] * (len(g) + 1)
-        for j, c in enumerate(g):
-            out[j] ^= c                       # c * x
-            out[j + 1] ^= _mul(c, _EXP[i])    # c * alpha^i
-        g = out
-    return g
+    polynomial = [1]
+    for i in range(ec_codeword_count):
+        product = [0] * (len(polynomial) + 1)
+        for term_index, coefficient in enumerate(polynomial):
+            product[term_index] ^= coefficient          # c * x
+            product[term_index + 1] ^= _gf_multiply(    # c * alpha^i
+                coefficient, _GF_ANTILOG_TABLE[i])
+        polynomial = product
+    return polynomial
 
 
-def _ec_codewords(data: list[int], nsym: int) -> list[int]:
-    gen = _generator_polynomial(nsym)
-    res = list(data) + [0] * nsym
+def _ec_codewords(data: list[int], ec_codeword_count: int) -> list[int]:
+    generator = _generator_polynomial(ec_codeword_count)
+    remainder = list(data) + [0] * ec_codeword_count
     for i in range(len(data)):
-        coef = res[i]
-        if coef:
-            for j in range(1, len(gen)):
-                res[i + j] ^= _mul(gen[j], coef)
-    return res[len(data):]
+        lead_coefficient = remainder[i]
+        if lead_coefficient:
+            for j in range(1, len(generator)):
+                remainder[i + j] ^= _gf_multiply(generator[j],
+                                                 lead_coefficient)
+    return remainder[len(data):]
 
 
 # --------------------------------------------------------------------------
@@ -88,33 +100,36 @@ _LEVEL_M_BLOCK_LAYOUT = {
     10: (26, 4, 43, 1, 44),
 }
 
-_ALIGN = {
+_ALIGNMENT_PATTERN_CENTRES = {
     1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
     6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
 }
 
-_ECL_BITS = 0b00          # level M
+_LEVEL_M_INDICATOR_BITS = 0b00          # level M
 _FORMAT_INFO_MASK = 0b101010000010010
 
 
-def _capacity(version: int) -> int:
-    ec, b1, d1, b2, d2 = _LEVEL_M_BLOCK_LAYOUT[version]
-    return b1 * d1 + b2 * d2
+def _data_codeword_capacity(version: int) -> int:
+    (ec_per_block, group1_blocks, group1_data_codewords,
+     group2_blocks, group2_data_codewords) = _LEVEL_M_BLOCK_LAYOUT[version]
+    return (group1_blocks * group1_data_codewords
+            + group2_blocks * group2_data_codewords)
 
 
 # What version 10 holds: its data codewords, less byte mode's 4-bit
 # indicator and 16-bit count. ISO/IEC 18004 tabulates 213 for 10-M.
-MAX_PAYLOAD_BYTES = (_capacity(10) * 8 - 4 - 16) // 8
+MAX_PAYLOAD_BYTES = (_data_codeword_capacity(10) * 8 - 4 - 16) // 8
 
 
-def _pick_version(nbytes: int) -> int:
-    for v in range(1, 11):
+def _pick_version(payload_length: int) -> int:
+    for version in range(1, 11):
         # 4 bits mode + count field + payload, rounded up to whole codewords
-        count_bits = 8 if v < 10 else 16
-        need = (4 + count_bits + nbytes * 8 + 7) // 8
-        if need <= _capacity(v):
-            return v
-    raise ValueError(f"payload too long for this encoder: {nbytes} bytes, "
+        count_bits = 8 if version < 10 else 16
+        needed_codewords = (4 + count_bits + payload_length * 8 + 7) // 8
+        if needed_codewords <= _data_codeword_capacity(version):
+            return version
+    raise ValueError(f"payload too long for this encoder: "
+                     f"{payload_length} bytes, "
                      f"the most it holds is {MAX_PAYLOAD_BYTES}")
 
 
@@ -125,49 +140,54 @@ def _encode_data(payload: bytes, version: int) -> list[int]:
     count_bits = 8 if version < 10 else 16
     bits: list[int] = []
 
-    def put(value: int, length: int) -> None:
+    def append_bits(value: int, length: int) -> None:
         for i in range(length - 1, -1, -1):
             bits.append((value >> i) & 1)
 
-    put(0b0100, 4)                      # byte mode
-    put(len(payload), count_bits)
+    append_bits(0b0100, 4)                      # byte mode
+    append_bits(len(payload), count_bits)
     for byte in payload:
-        put(byte, 8)
+        append_bits(byte, 8)
 
-    total = _capacity(version) * 8
-    put(0, min(4, total - len(bits)))   # terminator
+    capacity_bits = _data_codeword_capacity(version) * 8
+    append_bits(0, min(4, capacity_bits - len(bits)))   # terminator
     while len(bits) % 8:
         bits.append(0)
 
     codewords = [int("".join(str(b) for b in bits[i:i + 8]), 2)
                  for i in range(0, len(bits), 8)]
-    pad = [0xEC, 0x11]
+    pad_codewords = [0xEC, 0x11]
     i = 0
-    while len(codewords) < _capacity(version):
-        codewords.append(pad[i % 2])
+    while len(codewords) < _data_codeword_capacity(version):
+        codewords.append(pad_codewords[i % 2])
         i += 1
     return codewords
 
 
 def _interleave(codewords: list[int], version: int) -> list[int]:
-    ec, b1, d1, b2, d2 = _LEVEL_M_BLOCK_LAYOUT[version]
-    blocks, ecblocks, pos = [], [], 0
-    for _ in range(b1):
-        blocks.append(codewords[pos:pos + d1]); pos += d1
-    for _ in range(b2):
-        blocks.append(codewords[pos:pos + d2]); pos += d2
-    for blk in blocks:
-        ecblocks.append(_ec_codewords(blk, ec))
+    (ec_per_block, group1_blocks, group1_data_codewords,
+     group2_blocks, group2_data_codewords) = _LEVEL_M_BLOCK_LAYOUT[version]
+    data_blocks, ec_blocks, position = [], [], 0
+    for _ in range(group1_blocks):
+        data_blocks.append(
+            codewords[position:position + group1_data_codewords])
+        position += group1_data_codewords
+    for _ in range(group2_blocks):
+        data_blocks.append(
+            codewords[position:position + group2_data_codewords])
+        position += group2_data_codewords
+    for block in data_blocks:
+        ec_blocks.append(_ec_codewords(block, ec_per_block))
 
-    out: list[int] = []
-    for i in range(max(len(b) for b in blocks)):
-        for blk in blocks:
-            if i < len(blk):
-                out.append(blk[i])
-    for i in range(ec):
-        for blk in ecblocks:
-            out.append(blk[i])
-    return out
+    interleaved: list[int] = []
+    for i in range(max(len(b) for b in data_blocks)):
+        for block in data_blocks:
+            if i < len(block):
+                interleaved.append(block[i])
+    for i in range(ec_per_block):
+        for block in ec_blocks:
+            interleaved.append(block[i])
+    return interleaved
 
 
 # --------------------------------------------------------------------------
@@ -175,83 +195,89 @@ def _interleave(codewords: list[int], version: int) -> list[int]:
 # --------------------------------------------------------------------------
 def _new_matrix(version: int):
     size = version * 4 + 17
-    mod = [[None] * size for _ in range(size)]
+    module_grid = [[None] * size for _ in range(size)]
 
-    def finder(r0, c0):
-        for r in range(-1, 8):
-            for c in range(-1, 8):
-                rr, cc = r0 + r, c0 + c
-                if not (0 <= rr < size and 0 <= cc < size):
+    def draw_finder_pattern(top, left):
+        for row_offset in range(-1, 8):
+            for column_offset in range(-1, 8):
+                row, column = top + row_offset, left + column_offset
+                if not (0 <= row < size and 0 <= column < size):
                     continue
-                inside = (0 <= r < 7 and 0 <= c < 7)
-                on = inside and (r in (0, 6) or c in (0, 6) or
-                                 (2 <= r <= 4 and 2 <= c <= 4))
-                mod[rr][cc] = 1 if on else 0
+                inside = (0 <= row_offset < 7 and 0 <= column_offset < 7)
+                is_dark = inside and (row_offset in (0, 6)
+                                      or column_offset in (0, 6)
+                                      or (2 <= row_offset <= 4
+                                          and 2 <= column_offset <= 4))
+                module_grid[row][column] = 1 if is_dark else 0
 
-    finder(0, 0)
-    finder(0, size - 7)
-    finder(size - 7, 0)
+    draw_finder_pattern(0, 0)
+    draw_finder_pattern(0, size - 7)
+    draw_finder_pattern(size - 7, 0)
 
     for i in range(8, size - 8):          # timing patterns
         bit = 1 if i % 2 == 0 else 0
-        mod[6][i] = bit
-        mod[i][6] = bit
+        module_grid[6][i] = bit
+        module_grid[i][6] = bit
 
-    centres = _ALIGN[version]
-    for r in centres:
-        for c in centres:
-            if (r < 8 and c < 8) or (r < 8 and c > size - 9) or (r > size - 9 and c < 8):
+    centres = _ALIGNMENT_PATTERN_CENTRES[version]
+    for centre_row in centres:
+        for centre_column in centres:
+            if (centre_row < 8 and centre_column < 8) or (centre_row < 8 and centre_column > size - 9) or (centre_row > size - 9 and centre_column < 8):
                 continue
-            for dr in range(-2, 3):
-                for dc in range(-2, 3):
-                    mod[r + dr][c + dc] = 1 if (max(abs(dr), abs(dc)) != 1) else 0
+            for row_offset in range(-2, 3):
+                for column_offset in range(-2, 3):
+                    module_grid[centre_row + row_offset][centre_column + column_offset] = 1 if (max(abs(row_offset), abs(column_offset)) != 1) else 0
 
-    mod[size - 8][8] = 1                  # dark module
+    module_grid[size - 8][8] = 1                  # dark module
 
     for i in range(9):                    # reserve format areas
-        if mod[8][i] is None: mod[8][i] = 0
-        if mod[i][8] is None: mod[i][8] = 0
+        if module_grid[8][i] is None: module_grid[8][i] = 0
+        if module_grid[i][8] is None: module_grid[i][8] = 0
     for i in range(8):
-        if mod[8][size - 1 - i] is None: mod[8][size - 1 - i] = 0
-        if mod[size - 1 - i][8] is None: mod[size - 1 - i][8] = 0
+        if module_grid[8][size - 1 - i] is None:
+            module_grid[8][size - 1 - i] = 0
+        if module_grid[size - 1 - i][8] is None:
+            module_grid[size - 1 - i][8] = 0
 
     if version >= 7:
         # Reserve the two 6x3 version-information blocks, or data placement
         # would run straight through them.
         for i in range(18):
             r, c = i // 3, i % 3
-            mod[size - 11 + c][r] = 0
-            mod[r][size - 11 + c] = 0
+            module_grid[size - 11 + c][r] = 0
+            module_grid[r][size - 11 + c] = 0
 
-    return mod, size
+    return module_grid, size
 
 
 def _function_pattern_cells(version: int, size: int):
     """Which cells are function patterns (and so not data)."""
-    mod, _ = _new_matrix(version)
-    return [[mod[r][c] is not None for c in range(size)] for r in range(size)]
+    module_grid, _ = _new_matrix(version)
+    return [[module_grid[r][c] is not None for c in range(size)]
+            for r in range(size)]
 
 
-def _place(mod, reserved, data: list[int], size: int):
+def _place_data_bits(module_grid, reserved, data: list[int], size: int):
     bits = []
-    for cw in data:
+    for codeword in data:
         for i in range(7, -1, -1):
-            bits.append((cw >> i) & 1)
-    idx = 0
+            bits.append((codeword >> i) & 1)
+    bit_index = 0
     upward = True
-    col = size - 1
-    while col > 0:
-        if col == 6:
-            col -= 1                       # skip the vertical timing column
+    column = size - 1
+    while column > 0:
+        if column == 6:
+            column -= 1                       # skip the vertical timing column
         rows = range(size - 1, -1, -1) if upward else range(size)
         for row in rows:
-            for c in (col, col - 1):
+            for c in (column, column - 1):
                 if not reserved[row][c]:
-                    mod[row][c] = bits[idx] if idx < len(bits) else 0
-                    idx += 1
+                    module_grid[row][c] = (bits[bit_index]
+                                           if bit_index < len(bits) else 0)
+                    bit_index += 1
         upward = not upward
-        col -= 2
-    return mod
+        column -= 2
+    return module_grid
 
 
 _MASK_PATTERNS = [
@@ -268,87 +294,87 @@ _MASK_PATTERNS = [
 
 def _format_bits(mask: int) -> int:
     """15-bit format info: 5 data bits, BCH(15,5) remainder, then the spec XOR."""
-    value = (_ECL_BITS << 3) | mask
-    rem = value << 10
-    gen = 0b10100110111
+    value = (_LEVEL_M_INDICATOR_BITS << 3) | mask
+    remainder = value << 10
+    bch_generator = 0b10100110111
     for i in range(14, 9, -1):
-        if rem & (1 << i):
-            rem ^= gen << (i - 10)
-    return ((value << 10) | rem) ^ _FORMAT_INFO_MASK
+        if remainder & (1 << i):
+            remainder ^= bch_generator << (i - 10)
+    return ((value << 10) | remainder) ^ _FORMAT_INFO_MASK
 
 
-def _apply_format(mod, size: int, mask: int):
+def _apply_format(module_grid, size: int, mask: int):
     bits = _format_bits(mask)
     for i in range(15):
         bit = (bits >> i) & 1
         if i < 6:
-            mod[8][i] = bit
+            module_grid[8][i] = bit
         elif i == 6:
-            mod[8][7] = bit
+            module_grid[8][7] = bit
         elif i == 7:
-            mod[8][8] = bit
+            module_grid[8][8] = bit
         elif i == 8:
-            mod[7][8] = bit
+            module_grid[7][8] = bit
         else:
-            mod[14 - i][8] = bit
+            module_grid[14 - i][8] = bit
         if i < 8:
-            mod[size - 1 - i][8] = bit
+            module_grid[size - 1 - i][8] = bit
         else:
-            mod[8][size - 15 + i] = bit
-    mod[size - 8][8] = 1
+            module_grid[8][size - 15 + i] = bit
+    module_grid[size - 8][8] = 1
 
 
 def _version_bits(version: int) -> int:
-    rem = version << 12
-    gen = 0b1111100100101
+    remainder = version << 12
+    bch_generator = 0b1111100100101
     for i in range(17, 11, -1):
-        if rem & (1 << i):
-            rem ^= gen << (i - 12)
-    return (version << 12) | rem
+        if remainder & (1 << i):
+            remainder ^= bch_generator << (i - 12)
+    return (version << 12) | remainder
 
 
-def _apply_version(mod, size: int, version: int):
+def _apply_version(module_grid, size: int, version: int):
     if version < 7:
         return
     bits = _version_bits(version)
     for i in range(18):
         bit = (bits >> i) & 1
         r, c = i // 3, i % 3
-        mod[size - 11 + c][r] = bit
-        mod[r][size - 11 + c] = bit
+        module_grid[size - 11 + c][r] = bit
+        module_grid[r][size - 11 + c] = bit
 
 
-def _penalty(mod, size: int) -> int:
+def _mask_penalty(module_grid, size: int) -> int:
     score = 0
     # rule 1: runs of five or more
-    for line in list(mod) + [list(col) for col in zip(*mod)]:
-        run, prev = 1, line[0]
+    for line in list(module_grid) + [list(col) for col in zip(*module_grid)]:
+        run_length, previous_cell = 1, line[0]
         for cell in line[1:]:
-            if cell == prev:
-                run += 1
+            if cell == previous_cell:
+                run_length += 1
             else:
-                if run >= 5:
-                    score += 3 + (run - 5)
-                run, prev = 1, cell
-        if run >= 5:
-            score += 3 + (run - 5)
+                if run_length >= 5:
+                    score += 3 + (run_length - 5)
+                run_length, previous_cell = 1, cell
+        if run_length >= 5:
+            score += 3 + (run_length - 5)
     # rule 2: 2x2 blocks
     for r in range(size - 1):
         for c in range(size - 1):
-            if mod[r][c] == mod[r][c + 1] == mod[r + 1][c] == mod[r + 1][c + 1]:
+            if module_grid[r][c] == module_grid[r][c + 1] == module_grid[r + 1][c] == module_grid[r + 1][c + 1]:
                 score += 3
     # rule 3: finder-like patterns
-    pat1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
-    pat2 = list(reversed(pat1))
-    for line in list(mod) + [list(col) for col in zip(*mod)]:
+    finder_like_run = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
+    finder_like_run_reversed = list(reversed(finder_like_run))
+    for line in list(module_grid) + [list(col) for col in zip(*module_grid)]:
         for i in range(size - 10):
             window = line[i:i + 11]
-            if window == pat1 or window == pat2:
+            if window == finder_like_run or window == finder_like_run_reversed:
                 score += 40
     # rule 4: dark/light balance
-    dark = sum(sum(row) for row in mod)
-    pct = dark * 100 // (size * size)
-    score += 10 * (abs(pct - 50) // 5)
+    dark = sum(sum(row) for row in module_grid)
+    dark_percent = dark * 100 // (size * size)
+    score += 10 * (abs(dark_percent - 50) // 5)
     return score
 
 
@@ -358,46 +384,48 @@ def matrix(text: str) -> list[list[int]]:
     version = _pick_version(len(payload))
     data = _interleave(_encode_data(payload, version), version)
 
-    best, best_score = None, None
+    best_grid, best_score = None, None
     for mask in range(8):
-        mod, size = _new_matrix(version)
+        module_grid, size = _new_matrix(version)
         reserved = _function_pattern_cells(version, size)
-        _place(mod, reserved, data, size)
+        _place_data_bits(module_grid, reserved, data, size)
         for r in range(size):
             for c in range(size):
                 if not reserved[r][c] and _MASK_PATTERNS[mask](r, c):
-                    mod[r][c] ^= 1
-        _apply_format(mod, size, mask)
-        _apply_version(mod, size, version)
-        grid = [[cell or 0 for cell in row] for row in mod]
-        score = _penalty(grid, size)
+                    module_grid[r][c] ^= 1
+        _apply_format(module_grid, size, mask)
+        _apply_version(module_grid, size, version)
+        grid = [[cell or 0 for cell in row] for row in module_grid]
+        score = _mask_penalty(grid, size)
         if best_score is None or score < best_score:
-            best, best_score = grid, score
-    return best
+            best_grid, best_score = grid, score
+    return best_grid
 
 
-def svg(text: str, scale: int = 6, quiet: int = 4) -> str:
+def svg(text: str, pixels_per_module: int = 6,
+        quiet_zone_modules: int = 4) -> str:
     """Render as a self-contained SVG. currentColor so it follows the theme."""
     grid = matrix(text)
     size = len(grid)
-    total = (size + quiet * 2) * scale
+    image_size = (size + quiet_zone_modules * 2) * pixels_per_module
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total}" height="{total}" '
-        f'viewBox="0 0 {total} {total}" role="img" aria-label="Pairing QR code">',
-        f'<rect width="{total}" height="{total}" fill="#fff"/>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{image_size}" height="{image_size}" '
+        f'viewBox="0 0 {image_size} {image_size}" role="img" aria-label="Pairing QR code">',
+        f'<rect width="{image_size}" height="{image_size}" fill="#fff"/>',
         '<g fill="#000">',
     ]
-    for r, row in enumerate(grid):
-        c = 0
-        while c < size:
-            if row[c]:
-                start = c
-                while c < size and row[c]:
-                    c += 1
+    for row_index, row in enumerate(grid):
+        column = 0
+        while column < size:
+            if row[column]:
+                start = column
+                while column < size and row[column]:
+                    column += 1
                 parts.append(
-                    f'<rect x="{(start + quiet) * scale}" y="{(r + quiet) * scale}" '
-                    f'width="{(c - start) * scale}" height="{scale}"/>')
+                    f'<rect x="{(start + quiet_zone_modules) * pixels_per_module}" y="{(row_index + quiet_zone_modules) * pixels_per_module}" '
+                    f'width="{(column - start) * pixels_per_module}" '
+                    f'height="{pixels_per_module}"/>')
             else:
-                c += 1
+                column += 1
     parts.append("</g></svg>")
     return "".join(parts)

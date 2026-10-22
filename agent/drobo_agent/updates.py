@@ -73,14 +73,14 @@ MAX_MANIFEST_BYTES = 64 * 1024
 
 #: How long to wait on the network. Short: this runs on a timer and a hung
 #: update check must never be why a status poll is late.
-DEFAULT_TIMEOUT = 10.0
+DEFAULT_TIMEOUT_SECONDS = 10.0
 
 STATE_DISABLED = "disabled"      # no channel configured -- the shipping default
 STATE_CURRENT = "current"        # checked, nothing newer
 STATE_AVAILABLE = "available"    # checked, there is a newer version
 STATE_ERROR = "error"            # tried, could not tell
 
-_VERSION_PART = re.compile(r"\d+")
+_DIGIT_RUN_RE = re.compile(r"\d+")
 
 
 @dataclass(frozen=True)
@@ -138,8 +138,8 @@ def parse_version(version: str) -> tuple[int, ...] | None:
     """
     if not version:
         return None
-    head = version.strip().split("-")[0].split("+")[0]
-    parts = _VERSION_PART.findall(head)
+    release_part = version.strip().split("-")[0].split("+")[0]
+    parts = _DIGIT_RUN_RE.findall(release_part)
     if not parts:
         return None
     return tuple(int(p) for p in parts)
@@ -155,13 +155,15 @@ def is_newer(candidate: str, current: str) -> bool:
     available", because that is the direction that gets someone to install
     something.
     """
-    a, b = parse_version(candidate), parse_version(current)
-    if a is None or b is None:
+    candidate_parts, current_parts = (parse_version(candidate),
+                                      parse_version(current))
+    if candidate_parts is None or current_parts is None:
         return False
-    width = max(len(a), len(b))
-    a = a + (0,) * (width - len(a))
-    b = b + (0,) * (width - len(b))
-    return a > b
+    width = max(len(candidate_parts), len(current_parts))
+    candidate_parts = (candidate_parts
+                       + (0,) * (width - len(candidate_parts)))
+    current_parts = current_parts + (0,) * (width - len(current_parts))
+    return candidate_parts > current_parts
 
 
 def _read_release(manifest: dict) -> Release | None:
@@ -216,23 +218,25 @@ def _read_release(manifest: dict) -> Release | None:
     )
 
 
-def _validate_url(url: str, what: str = "manifest") -> str:
+def _url_problem(url: str, url_role: str = "manifest") -> str:
     """
     Return "" if the URL is acceptable, else why it isn't.
 
-    `what` names the thing being checked, because this guards both the feed URL
-    and the download link and a message saying "manifest" while rejecting a
-    download link sends the reader to the wrong setting.
+    `url_role` names the thing being checked, because this guards both
+    the feed URL and the download link and a message saying "manifest"
+    while rejecting a download link sends the reader to the wrong
+    setting.
     """
     if not url:
-        return f"no {what} URL configured"
+        return f"no {url_role} URL configured"
     if not url.lower().startswith("https://"):
-        return (f"{what} URLs must be https:// -- an update announcement over "
-                f"plaintext can be tampered with in transit")
+        return (f"{url_role} URLs must be https:// -- an update "
+                f"announcement over plaintext can be tampered with in "
+                f"transit")
     return ""
 
 
-def _fetch(url: str, timeout: float) -> dict:
+def _fetch_manifest(url: str, timeout: float) -> dict:
     """Fetch and decode the manifest. Raises on anything unexpected."""
     request = urllib.request.Request(
         url, headers={"Accept": "application/json",
@@ -240,14 +244,15 @@ def _fetch(url: str, timeout: float) -> dict:
     with urllib.request.urlopen(request, timeout=timeout) as response:
         # Read one byte more than the cap so an over-long body is detected
         # rather than silently truncated into something that might still parse.
-        raw = response.read(MAX_MANIFEST_BYTES + 1)
-    if len(raw) > MAX_MANIFEST_BYTES:
+        body = response.read(MAX_MANIFEST_BYTES + 1)
+    if len(body) > MAX_MANIFEST_BYTES:
         raise ValueError(f"manifest larger than {MAX_MANIFEST_BYTES} bytes; refusing it")
-    return json.loads(raw.decode("utf-8"))
+    return json.loads(body.decode("utf-8"))
 
 
 def check(config: dict, current_version: str,
-          timeout: float = DEFAULT_TIMEOUT, fetch=None) -> UpdateStatus:
+          timeout: float = DEFAULT_TIMEOUT_SECONDS,
+          fetch=None) -> UpdateStatus:
     """
     Ask whether a newer version exists.
 
@@ -266,14 +271,14 @@ def check(config: dict, current_version: str,
             reason="Update checking is switched off. Nothing is contacted.")
 
     url = (config.get("manifest_url") or "").strip()
-    problem = _validate_url(url)
+    problem = _url_problem(url)
     if problem:
         # Enabled but unusable is a configuration mistake worth surfacing, not
         # a silent no-op -- somebody turned this on and expects it to work.
         return UpdateStatus(STATE_DISABLED, current_version, reason=problem)
 
     try:
-        manifest = (fetch or _fetch)(url, timeout)
+        manifest = (fetch or _fetch_manifest)(url, timeout)
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
         return UpdateStatus(STATE_ERROR, current_version,
                             reason=f"Could not check for updates: {exc}")
@@ -309,7 +314,7 @@ def check(config: dict, current_version: str,
     # An https:// link is required either way -- an update announcement over
     # plaintext can be rewritten in transit, and that is the one failure this
     # refuses outright rather than annotates.
-    download_problem = _validate_url(download_url, "download link")
+    download_problem = _url_problem(download_url, "download link")
     if download_problem:
         return UpdateStatus(
             STATE_ERROR, current_version, latest=release,
@@ -353,7 +358,7 @@ def check(config: dict, current_version: str,
 # looks like -- which is exactly what it was until these were merged.
 # ---------------------------------------------------------------------------
 
-def _installed_version(install_dir: str) -> str:
+def _installed_version(agent_dir: str) -> str:
     """
     The version the installer recorded, falling back to the package's own.
 
@@ -371,13 +376,13 @@ def _installed_version(install_dir: str) -> str:
     when you are not.
     """
     candidates = (
-        os.path.join(install_dir, "version.txt"),               # dev checkout
-        os.path.join(os.path.dirname(install_dir), "version.txt"),  # installed
+        os.path.join(agent_dir, "version.txt"),                 # dev checkout
+        os.path.join(os.path.dirname(agent_dir), "version.txt"),    # installed
     )
     for path in candidates:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
-                recorded = fh.read().strip()
+            with open(path, "r", encoding="utf-8") as version_file:
+                recorded = version_file.read().strip()
                 if recorded:
                     return recorded
         except OSError:
@@ -401,17 +406,20 @@ def main(argv: list[str] | None = None) -> int:
     0 up to date or disabled, 1 an update is available, 2 could not tell.
     """
     import argparse
-    from . import config as config_mod
+    from . import config
 
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ap = argparse.ArgumentParser(description="Check for a newer Drobo Dashboard REBORN.")
-    ap.add_argument("--config", default=os.path.join(here, "config.json"))
-    ap.add_argument("--quiet", action="store_true",
-                    help="print nothing when there is no update (for shortcuts)")
-    args = ap.parse_args(argv)
+    agent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    parser = argparse.ArgumentParser(
+        description="Check for a newer Drobo Dashboard REBORN.")
+    parser.add_argument("--config",
+                        default=os.path.join(agent_dir, "config.json"))
+    parser.add_argument("--quiet", action="store_true",
+                        help="print nothing when there is no update "
+                             "(for shortcuts)")
+    args = parser.parse_args(argv)
 
     try:
-        cfg = config_mod.load(args.config)
+        agent_config = config.load(args.config)
     except Exception:
         # Neither a missing config nor a broken one lands here.
         # load() creates a missing file from the defaults, and stops
@@ -423,10 +431,10 @@ def main(argv: list[str] | None = None) -> int:
         # read (permissions), JSON of the wrong shape, or a new token
         # it cannot save -- and that is read as an empty config, so
         # update checks are off.
-        cfg = {}
+        agent_config = {}
 
-    version = _installed_version(here)
-    status = check(cfg.get("updates", {}), version)
+    version = _installed_version(agent_dir)
+    status = check(agent_config.get("updates", {}), version)
 
     if status.state == STATE_AVAILABLE:
         print(f"A newer version is available: {status.latest.version} "
