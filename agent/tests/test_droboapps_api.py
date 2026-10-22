@@ -50,31 +50,31 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-tmp = tempfile.mkdtemp(prefix="droboapps-api-")
+temp_dir = tempfile.mkdtemp(prefix="droboapps-api-")
 # Removed when the script exits, however it exits: a failed check or an
 # exception as well as a clean pass. Until 2026-09-16 every run left this
 # folder behind in TEMP.
-atexit.register(shutil.rmtree, tmp, ignore_errors=True)
-cfg_path = os.path.join(tmp, "config.json")
+atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
+config_path = os.path.join(temp_dir, "config.json")
 PORT = 7438
-BASE = f"http://127.0.0.1:{PORT}"
+BASE_URL = f"http://127.0.0.1:{PORT}"
 
-with open(cfg_path, "w") as fh:
+with open(config_path, "w") as config_file:
     json.dump({
         "agent": {"bind": "127.0.0.1", "port": PORT, "poll_seconds": 1},
         "drobo": {"driver": "mock", "simulate_config": True},
         "photos": {"enabled": False},
-    }, fh)
+    }, config_file)
 
-cfg = config.load(cfg_path)
-TOKEN = cfg["agent"]["token"]
+agent_config = config.load(config_path)
+TOKEN = agent_config["agent"]["token"]
 
-mon = Monitor(cfg, notify.build(cfg["notify"]))
-photos = PhotoStore(cfg["photos"])
-photos.load()
-mon.start()
-httpd = api.serve(cfg, mon, photos)
-threading.Thread(target=httpd.serve_forever, daemon=True).start()
+monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
+photo_store = PhotoStore(agent_config["photos"])
+photo_store.load()
+monitor.start()
+http_server = api.serve(agent_config, monitor, photo_store)
+threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.0)
 
 
@@ -84,110 +84,124 @@ def call(path, body=None, method=None, token=TOKEN):
     if body is not None:
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(BASE + path, data=data, headers=headers,
-                                 method=method or ("POST" if data is not None else "GET"))
+    request = urllib.request.Request(
+        BASE_URL + path, data=data, headers=headers,
+        method=method or ("POST" if data is not None else "GET"))
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status, json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as http_error:
+        return http_error.code, json.loads(http_error.read())
 
 
-driver = mon.driver
+driver = monitor.driver
 check("the simulated driver is the one under test",
       getattr(driver, "simulate_config", False) is True, type(driver).__name__)
 
 try:
     print("\n== GET /api/spindown: both halves of the state ==")
-    s, b = call("/api/spindown")
-    check("spindown 200", s == 200, (s, b))
-    check("reported as simulated", b.get("simulated") is True, b)
+    status, reply = call("/api/spindown")
+    check("spindown 200", status == 200, (status, reply))
+    check("reported as simulated", reply.get("simulated") is True, reply)
     check("enabled by default (the mock mirrors the real unit)",
-          b.get("enabled") is True, b)
-    check("delay is the real unit's default, 14", b.get("delay") == 14, b)
+          reply.get("enabled") is True, reply)
+    check("delay is the real unit's default, 14", reply.get("delay") == 14,
+          reply)
     check("the unconfirmed unit is admitted, not papered over",
-          "never says what the unit is" in b.get("delay_note", ""), b.get("delay_note"))
+          "never says what the unit is" in reply.get("delay_note", ""), reply.get("delay_note"))
 
     print("\n== the spindown read reflects the spindown write ==")
-    s, b = call("/api/config/spindown", body={"enabled": False})
-    check("disable accepted", s == 200 and b.get("ok"), (s, b))
-    s, b = call("/api/spindown")
-    check("read-back after disable: enabled false", b.get("enabled") is False, b)
+    status, reply = call("/api/config/spindown", body={"enabled": False})
+    check("disable accepted", status == 200 and reply.get("ok"),
+          (status, reply))
+    status, reply = call("/api/spindown")
+    check("read-back after disable: enabled false", reply.get("enabled") is False, reply)
     check("read-back after disable: delay zeroed (both halves move together)",
-          b.get("delay") == 0, b)
+          reply.get("delay") == 0, reply)
 
-    s, b = call("/api/config/spindown", body={"delay": 30})
-    check("a new delay accepted", s == 200 and b.get("ok"), (s, b))
-    s, b = call("/api/spindown")
-    check("read-back after set: enabled true again", b.get("enabled") is True, b)
-    check("read-back after set: delay 30", b.get("delay") == 30, b)
+    status, reply = call("/api/config/spindown", body={"delay": 30})
+    check("a new delay accepted", status == 200 and reply.get("ok"),
+          (status, reply))
+    status, reply = call("/api/spindown")
+    check("read-back after set: enabled true again", reply.get("enabled") is True, reply)
+    check("read-back after set: delay 30", reply.get("delay") == 30, reply)
 
     print("\n== POST /api/droboapps/action: Start, with the re-read as read-back ==")
-    s, b = call("/api/droboapps", token=TOKEN)
-    pix = [a for a in b.get("apps", []) if a["name"] == "AlphaApp"]
+    status, reply = call("/api/droboapps", token=TOKEN)
+    alpha_app_rows = [app for app in reply.get("apps", []) if app["name"]
+                      == "AlphaApp"]
     check("AlphaApp is in the simulated app list and stopped",
-          pix and pix[0]["running"] is False, b.get("apps"))
+          alpha_app_rows and alpha_app_rows[0]["running"] is False,
+          reply.get("apps"))
 
-    s, b = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Start"})
-    check("Start 200 with ok", s == 200 and b.get("ok") is True, (s, b))
-    check("reported as simulated", b.get("simulated") is True, b)
+    status, reply = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Start"})
+    check("Start 200 with ok", status == 200 and reply.get("ok") is True,
+          (status, reply))
+    check("reported as simulated", reply.get("simulated") is True, reply)
     check("read_back names the app and reports it running",
-          b.get("read_back", {}).get("name") == "AlphaApp"
-          and b.get("read_back", {}).get("running") is True, b.get("read_back"))
+          reply.get("read_back", {}).get("name") == "AlphaApp"
+          and reply.get("read_back", {}).get("running") is True, reply.get("read_back"))
     check("the full re-read app list rides along (so a UI needs no extra fetch)",
-          any(a["name"] == "AlphaApp" and a["running"]
-              for a in b.get("apps", [])), b.get("apps"))
+          any(app["name"] == "AlphaApp" and app["running"]
+              for app in reply.get("apps", [])), reply.get("apps"))
     check("the message reports the device's answer",
-          "running" in b.get("message", ""), b.get("message"))
+          "running" in reply.get("message", ""), reply.get("message"))
 
-    s, b = call("/api/droboapps")
+    status, reply = call("/api/droboapps")
     check("a later /api/droboapps read agrees",
-          [a["running"] for a in b["apps"] if a["name"] == "AlphaApp"] == [True], b)
+          [app["running"] for app in reply["apps"] if app["name"] == "AlphaApp"] == [True], reply)
 
-    s, b = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Stop"})
+    status, reply = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Stop"})
     check("Stop 200 and read_back stopped",
-          s == 200 and b.get("read_back", {}).get("running") is False, (s, b))
+          status == 200 and reply.get("read_back", {}).get("running") is False,
+          (status, reply))
 
     print("\n== refusals are the caller's fault, said before anything is sent ==")
-    s, b = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "start"})
-    check("lowercase 'start' refused with 400", s == 400, (s, b))
-    check("-- naming the case-sensitivity", "case-sensitive" in b.get("error", ""), b)
+    status, reply = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "start"})
+    check("lowercase 'start' refused with 400", status == 400, (status, reply))
+    check("-- naming the case-sensitivity", "case-sensitive" in reply.get("error", ""), reply)
 
-    s, b = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Restart"})
-    check("an uncaptured verb is refused with 400", s == 400, (s, b))
+    status, reply = call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Restart"})
+    check("an uncaptured verb is refused with 400", status == 400,
+          (status, reply))
 
-    s, b = call("/api/droboapps/action", body={"name": "NotInstalled", "action": "Start"})
-    check("an unknown app is refused with 400", s == 400, (s, b))
+    status, reply = call("/api/droboapps/action", body={"name": "NotInstalled", "action": "Start"})
+    check("an unknown app is refused with 400", status == 400, (status, reply))
     check("-- and the error lists what IS installed",
-          "AlphaApp" in b.get("error", ""), b.get("error"))
+          "AlphaApp" in reply.get("error", ""), reply.get("error"))
 
-    s, b = call("/api/droboapps/action", body={"action": "Start"})
-    check("a missing name is refused with 400", s == 400, (s, b))
+    status, reply = call("/api/droboapps/action", body={"action": "Start"})
+    check("a missing name is refused with 400", status == 400, (status, reply))
 
-    s, b = call("/api/droboapps/action", body=b"{not json")
-    check("malformed JSON is refused with 400", s == 400, (s, b))
-    check("-- and says so", "bad JSON" in b.get("error", ""), b)
+    status, reply = call("/api/droboapps/action", body=b"{not json")
+    check("malformed JSON is refused with 400", status == 400, (status, reply))
+    check("-- and says so", "bad JSON" in reply.get("error", ""), reply)
 
-    s, b = call("/api/droboapps")
+    status, reply = call("/api/droboapps")
     check("no refused request changed anything",
-          [a["running"] for a in b["apps"] if a["name"] == "AlphaApp"] == [False], b)
+          [app["running"] for app in reply["apps"] if app["name"] == "AlphaApp"] == [False], reply)
 
     print("\n== auth: 401s are clean even with a request body ==")
     # The 401 path must DRAIN the body before answering (see do_POST) --
     # without that, Windows aborts the keep-alive socket and the client sees
     # a connection error instead of this parseable answer.
-    s, b = call("/api/droboapps/action",
-                body={"name": "AlphaApp", "action": "Start"}, token="")
-    check("unauthenticated POST answers a clean 401", s == 401, (s, b))
-    check("-- with the reason in the body", "X-Agent-Token" in b.get("error", ""), b)
-    s, b = call("/api/droboapps/action",
-                body={"name": "AlphaApp", "action": "Start"}, token="wrong")
-    check("wrong-token POST answers a clean 401", s == 401, (s, b))
-    s, b = call("/api/spindown", token="")
-    check("unauthenticated GET /api/spindown answers 401", s == 401, (s, b))
-    s, b = call("/api/droboapps")
+    status, reply = call("/api/droboapps/action",
+                         body={"name": "AlphaApp", "action": "Start"},
+                         token="")
+    check("unauthenticated POST answers a clean 401", status == 401,
+          (status, reply))
+    check("-- with the reason in the body", "X-Agent-Token" in reply.get("error", ""), reply)
+    status, reply = call("/api/droboapps/action",
+                         body={"name": "AlphaApp", "action": "Start"},
+                         token="wrong")
+    check("wrong-token POST answers a clean 401", status == 401,
+          (status, reply))
+    status, reply = call("/api/spindown", token="")
+    check("unauthenticated GET /api/spindown answers 401", status == 401,
+          (status, reply))
+    status, reply = call("/api/droboapps")
     check("...and none of those reached the driver",
-          [a["running"] for a in b["apps"] if a["name"] == "AlphaApp"] == [False], b)
+          [app["running"] for app in reply["apps"] if app["name"] == "AlphaApp"] == [False], reply)
 
     print("\n== the write outcomes are not a share-only vocabulary ==")
     # Share writes get the same treatment in test_shares_api.py. This proves it
@@ -196,46 +210,47 @@ try:
     # the awkward one still moves the device while the answer stays silent.
     call("/api/config/spindown", body={"delay": 14})
     call("/api/mock/write/hangs_up", method="POST")
-    s, b = call("/api/config/spindown", body={"delay": 21})
+    status, reply = call("/api/config/spindown", body={"delay": 21})
     check("an unacknowledged spin-down write is a success",
-          s == 200 and b.get("ok") is True, (s, b))
+          status == 200 and reply.get("ok") is True, (status, reply))
     check("-- with the same outcome label the share writes use",
-          b.get("outcome") == "verified_unacknowledged", b)
-    check("-- and acknowledged false", b.get("acknowledged") is False, b)
-    s, b = call("/api/spindown")
-    check("-- and the device really did take the new delay", b.get("delay") == 21, b)
+          reply.get("outcome") == "verified_unacknowledged", reply)
+    check("-- and acknowledged false", reply.get("acknowledged") is False,
+          reply)
+    status, reply = call("/api/spindown")
+    check("-- and the device really did take the new delay", reply.get("delay") == 21, reply)
 
     call("/api/mock/write/unconfirmable", method="POST")
-    s, b = call("/api/config/spindown", body={"delay": 30})
+    status, reply = call("/api/config/spindown", body={"delay": 30})
     check("an unsettleable spin-down write is 502 and labelled unknown",
-          s == 502 and b.get("outcome") == "unknown", (s, b))
+          status == 502 and reply.get("outcome") == "unknown", (status, reply))
     check("-- worded as 'may have applied', never as 'nothing happened'",
-          "may well have been" in b.get("error", ""), b.get("error"))
-    s, b = call("/api/spindown")
+          "may well have been" in reply.get("error", ""), reply.get("error"))
+    status, reply = call("/api/spindown")
     check("-- while the device did in fact take it, which is why it says that",
-          b.get("delay") == 30, b)
+          reply.get("delay") == 30, reply)
 
     call("/api/mock/write/refused", method="POST")
-    s, b = call("/api/config/spindown", body={"delay": 45})
+    status, reply = call("/api/config/spindown", body={"delay": 45})
     check("a refused spin-down write is 502 and labelled failed",
-          s == 502 and b.get("outcome") == "failed", (s, b))
-    s, b = call("/api/spindown")
-    check("-- and the delay did not move", b.get("delay") == 30, b)
+          status == 502 and reply.get("outcome") == "failed", (status, reply))
+    status, reply = call("/api/spindown")
+    check("-- and the delay did not move", reply.get("delay") == 30, reply)
     call("/api/mock/reset", method="POST")
 
     print("\n== the simulator mutates per-instance state only ==")
     call("/api/droboapps/action", body={"name": "AlphaApp", "action": "Start"})
-    fresh = MockDriver({"simulate_config": True})
+    fresh_driver = MockDriver({"simulate_config": True})
     check("a fresh MockDriver still has AlphaApp stopped",
-          [a["running"] for a in fresh.get_droboapps()["apps"]
-           if a["name"] == "AlphaApp"] == [False])
+          [app["running"] for app in fresh_driver.get_droboapps()["apps"]
+           if app["name"] == "AlphaApp"] == [False])
     check("the class-level pristine table is untouched",
-          [a["running"] for a in MockDriver._MOCK_DROBOAPPS["apps"]
-           if a["name"] == "AlphaApp"] == [False])
+          [app["running"] for app in MockDriver._MOCK_DROBOAPPS["apps"]
+           if app["name"] == "AlphaApp"] == [False])
 finally:
-    httpd.shutdown()
-    mon.stop()
-    httpd.server_close()
+    http_server.shutdown()
+    monitor.stop()
+    http_server.server_close()
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

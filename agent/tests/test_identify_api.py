@@ -56,89 +56,92 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-tmp = tempfile.mkdtemp(prefix="identify-api-")
+temp_dir = tempfile.mkdtemp(prefix="identify-api-")
 # Removed when the script exits, however it exits: a failed check or an
 # exception as well as a clean pass. Until 2026-09-16 every run left this
 # folder behind in TEMP.
-atexit.register(shutil.rmtree, tmp, ignore_errors=True)
-cfg_path = os.path.join(tmp, "config.json")
+atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
+config_path = os.path.join(temp_dir, "config.json")
 PORT = 7437
-BASE = f"http://127.0.0.1:{PORT}"
+BASE_URL = f"http://127.0.0.1:{PORT}"
 
-with open(cfg_path, "w") as fh:
+with open(config_path, "w") as config_file:
     json.dump({
         "agent": {"bind": "127.0.0.1", "port": PORT, "poll_seconds": 1},
         "drobo": {"driver": "mock", "simulate_config": True},
         "photos": {"enabled": False},
-    }, fh)
+    }, config_file)
 
-cfg = config.load(cfg_path)
-TOKEN = cfg["agent"]["token"]
+agent_config = config.load(config_path)
+TOKEN = agent_config["agent"]["token"]
 
-mon = Monitor(cfg, notify.build(cfg["notify"]))
-photos = PhotoStore(cfg["photos"])
-photos.load()
-mon.start()
-httpd = api.serve(cfg, mon, photos)
-threading.Thread(target=httpd.serve_forever, daemon=True).start()
+monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
+photo_store = PhotoStore(agent_config["photos"])
+photo_store.load()
+monitor.start()
+http_server = api.serve(agent_config, monitor, photo_store)
+threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.0)
 
 
 def post(path):
-    req = urllib.request.Request(BASE + path, data=b"",
-                                 headers={"X-Agent-Token": TOKEN}, method="POST")
+    request = urllib.request.Request(BASE_URL + path, data=b"",
+                                     headers={"X-Agent-Token": TOKEN},
+                                     method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status, json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as http_error:
+        return http_error.code, json.loads(http_error.read())
 
 
-driver = mon.driver
+driver = monitor.driver
 check("the simulated driver is the one under test",
       getattr(driver, "simulate_config", False) is True, type(driver).__name__)
 
 try:
     print("\n== the interval reaches the driver ==")
 
-    status, body = post("/api/identify")
-    check("a plain identify succeeds", status == 200 and body.get("ok"), (status, body))
-    check("it is reported as simulated", body.get("simulated") is True, body)
+    status, reply = post("/api/identify")
+    check("a plain identify succeeds", status == 200 and reply.get("ok"), (status, reply))
+    check("it is reported as simulated", reply.get("simulated") is True, reply)
     check("the default interval is applied, not left empty",
-          body.get("interval") == identify.DEFAULT_INTERVAL, body)
+          reply.get("interval") == identify.DEFAULT_INTERVAL, reply)
     check("the driver actually received it",
           driver._identify_last_interval == identify.DEFAULT_INTERVAL,
           driver._identify_last_interval)
 
-    status, body = post("/api/identify?interval=45")
-    check("a chosen interval is accepted", status == 200, (status, body))
+    status, reply = post("/api/identify?interval=45")
+    check("a chosen interval is accepted", status == 200, (status, reply))
     check("...and arrives at the driver unchanged",
           driver._identify_last_interval == 45, driver._identify_last_interval)
 
     # Zero is the stop guess, and it is falsy -- exactly the value an
     # `if interval:` somewhere in the chain would quietly turn into "unset".
-    status, body = post("/api/identify?interval=0")
-    check("zero is accepted rather than treated as absent", status == 200, (status, body))
+    status, reply = post("/api/identify?interval=0")
+    check("zero is accepted rather than treated as absent", status == 200, (status, reply))
     check("zero arrives as zero, not as the default",
           driver._identify_last_interval == 0, driver._identify_last_interval)
-    check("...and is reported back as zero", body.get("interval") == 0, body)
+    check("...and is reported back as zero", reply.get("interval") == 0, reply)
 
     # The control case: what this module sent for months.
-    status, body = post("/api/identify?interval=none")
-    check("'none' is accepted", status == 200, (status, body))
+    status, reply = post("/api/identify?interval=none")
+    check("'none' is accepted", status == 200, (status, reply))
     check("'none' reaches the driver as None, not the string",
           driver._identify_last_interval is None, driver._identify_last_interval)
 
     print("\n== a bad interval is the caller's fault, not the Drobo's ==")
-    before = driver._identify_count
-    for bad, why in (("-1", "negative"), ("abc", "not a number"),
-                     (str(identify.MAX_INTERVAL + 1),
-                      "beyond the sanity limit")):
-        status, body = post(f"/api/identify?interval={bad}")
-        check(f"{why} is refused with 400", status == 400, (bad, status, body))
-        check(f"{why} says why", "error" in body, body)
+    identify_count_before = driver._identify_count
+    for bad_interval, reason in (("-1", "negative"), ("abc", "not a number"),
+                                 (str(identify.MAX_INTERVAL + 1),
+                                  "beyond the sanity limit")):
+        status, reply = post(f"/api/identify?interval={bad_interval}")
+        check(f"{reason} is refused with 400", status == 400,
+              (bad_interval, status, reply))
+        check(f"{reason} says why", "error" in reply, reply)
     check("no refused request reached the driver",
-          driver._identify_count == before, (before, driver._identify_count))
+          driver._identify_count == identify_count_before,
+          (identify_count_before, driver._identify_count))
 
     print("\n== the simulator is not more permissive than the hardware ==")
     # If these two ever disagree, the simulator starts certifying intervals
@@ -162,9 +165,9 @@ try:
     check("...and as ValueError, for callers that never heard of this module",
           issubclass(identify.IdentifyParameterError, ValueError))
 finally:
-    httpd.shutdown()
-    mon.stop()
-    httpd.server_close()
+    http_server.shutdown()
+    monitor.stop()
+    http_server.server_close()
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

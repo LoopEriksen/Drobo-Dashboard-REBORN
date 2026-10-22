@@ -33,22 +33,23 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-tmp = tempfile.mkdtemp(prefix="drobobackup-")
+temp_dir = tempfile.mkdtemp(prefix="drobobackup-")
 # Removed when the script exits, however it exits: a failed check or an
 # exception as well as a clean pass. Until 2026-09-16 every run left this
 # folder behind in TEMP.
-atexit.register(shutil.rmtree, tmp, ignore_errors=True)
-src = os.path.join(tmp, "source")
-dst = os.path.join(tmp, "backup")
-os.makedirs(os.path.join(src, "Photos", "2026"), exist_ok=True)
+atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
+source_dir = os.path.join(temp_dir, "source")
+destination_dir = os.path.join(temp_dir, "backup")
+os.makedirs(os.path.join(source_dir, "Photos", "2026"), exist_ok=True)
 for name in ("a.jpg", "b.jpg"):
-    with open(os.path.join(src, "Photos", "2026", name), "w") as fh:
-        fh.write("pretend photo " + name)
+    with open(os.path.join(source_dir, "Photos", "2026", name),
+              "w") as photo_file:
+        photo_file.write("pretend photo " + name)
 
 print("\n== robocopy exit codes: success is NOT zero ==")
 # The classic bug in every script that wraps robocopy. Reading these as Unix
 # exit codes reports every successful backup as a failure.
-for code, expect_ok, note in [
+for code, expected_ok, note in [
     (0, True, "nothing to copy"),
     (1, True, "files copied"),
     (2, True, "extra files in destination"),
@@ -61,67 +62,78 @@ for code, expect_ok, note in [
     (24, False, "8+16"),
 ]:
     ok, summary = backup.interpret_exit_code(code)
-    check(f"exit {code:<2} -> {'ok' if expect_ok else 'FAILURE'}  ({note})", ok == expect_ok,
+    check(f"exit {code:<2} -> {'ok' if expected_ok else 'FAILURE'}  ({note})", ok == expected_ok,
           f"got ok={ok} {summary}")
 
-ok0, sum0 = backup.interpret_exit_code(0)
+_, up_to_date_summary = backup.interpret_exit_code(0)
 check("exit 0 says there was nothing to do, not 'success'",
-      "already up to date" in sum0, sum0)
-_, sum8 = backup.interpret_exit_code(8)
-check("a failure names itself loudly", "COULD NOT BE COPIED" in sum8, sum8)
+      "already up to date" in up_to_date_summary, up_to_date_summary)
+_, failure_summary = backup.interpret_exit_code(8)
+check("a failure names itself loudly",
+      "COULD NOT BE COPIED" in failure_summary, failure_summary)
 check("a negative code is a failure, not a bitmask",
       backup.interpret_exit_code(-1)[0] is False)
 
 print("\n== destinations that must be refused ==")
 # Each of these is a way to lose data or hang forever.
-inside = os.path.join(src, "nested")
+nested_dir = os.path.join(source_dir, "nested")
 check("copying a folder into itself is refused",
-      any("never finishes" in r for r in backup.check_destination(src, inside)),
-      backup.check_destination(src, inside))
+      any("never finishes" in refusal for refusal in backup.check_destination(source_dir, nested_dir)),
+      backup.check_destination(source_dir, nested_dir))
 check("source == destination is refused",
-      any("same folder" in r for r in backup.check_destination(src, src)))
+      any("same folder" in refusal
+          for refusal in backup.check_destination(source_dir, source_dir)))
 check("backing up into a parent of the source is refused",
-      any("parent of" in r for r in backup.check_destination(inside, src)),
-      backup.check_destination(inside, src))
+      any("parent of" in refusal
+          for refusal in backup.check_destination(nested_dir, source_dir)),
+      backup.check_destination(nested_dir, source_dir))
 # Mirroring onto C:\ would try to delete Windows.
-root_refusals = backup.check_destination(src, "C:\\")
-check("a bare drive root is refused", any("root of" in r for r in root_refusals), root_refusals)
-check("-- and it suggests a folder instead", any("DroboBackup" in r for r in root_refusals))
-check("an empty destination is refused", backup.check_destination(src, "") != [])
-check("an empty source is refused", backup.check_destination("", dst) != [])
-check("a sensible destination is allowed", backup.check_destination(src, dst) == [],
-      backup.check_destination(src, dst))
+root_refusals = backup.check_destination(source_dir, "C:\\")
+check("a bare drive root is refused", any("root of" in refusal for refusal in root_refusals), root_refusals)
+check("-- and it suggests a folder instead", any("DroboBackup" in refusal for refusal in root_refusals))
+check("an empty destination is refused", backup.check_destination(source_dir, "") != [])
+check("an empty source is refused",
+      backup.check_destination("", destination_dir) != [])
+check("a sensible destination is allowed", backup.check_destination(source_dir, destination_dir) == [],
+      backup.check_destination(source_dir, destination_dir))
 
 print("\n== plan() describes, and copies NOTHING ==")
-p = backup.plan(src, dst)
-check("the plan is allowed", p.allowed, p.refusals)
+default_plan = backup.plan(source_dir, destination_dir)
+check("the plan is allowed", default_plan.allowed, default_plan.refusals)
 check("it warns that the destination will be created",
-      any("does not exist yet" in w for w in p.warnings), p.warnings)
-check("robocopy is the command", p.command[0] == "robocopy", p.command)
+      any("does not exist yet" in warning
+          for warning in default_plan.warnings), default_plan.warnings)
+check("robocopy is the command", default_plan.command[0] == "robocopy",
+      default_plan.command)
 check("restartable mode is on, so a Wi-Fi blip does not restart a big file",
-      "/Z" in p.command, p.command)
+      "/Z" in default_plan.command, default_plan.command)
 check("retries are bounded -- robocopy's default is a MILLION",
-      "/R:2" in p.command, p.command)
-check("mirroring is NOT on by default", "/MIR" not in p.command, p.command)
+      "/R:2" in default_plan.command, default_plan.command)
+check("mirroring is NOT on by default", "/MIR" not in default_plan.command,
+      default_plan.command)
 # The actual proof:
-check("planning wrote nothing to disk", not os.path.exists(dst))
+check("planning wrote nothing to disk", not os.path.exists(destination_dir))
 
 print("\n== mirroring is opt-in and says what it will delete ==")
-m = backup.plan(src, dst, mirror=True)
-check("/MIR appears only when asked for", "/MIR" in m.command, m.command)
-warn = " ".join(m.warnings)
-check("the warning says DELETED in plain words", "DELETED" in warn, warn)
+mirror_plan = backup.plan(source_dir, destination_dir, mirror=True)
+check("/MIR appears only when asked for", "/MIR" in mirror_plan.command,
+      mirror_plan.command)
+mirror_warning_text = " ".join(mirror_plan.warnings)
+check("the warning says DELETED in plain words",
+      "DELETED" in mirror_warning_text, mirror_warning_text)
 check("-- and gives the scenario that matters",
-      "delete a photo by accident" in warn, warn)
+      "delete a photo by accident" in mirror_warning_text, mirror_warning_text)
 
 print("\n== a missing source is refused before anything runs ==")
-gone = backup.plan(os.path.join(tmp, "no-such-folder"), dst)
-check("a nonexistent local source is refused", not gone.allowed, gone.refusals)
+missing_source_plan = backup.plan(os.path.join(temp_dir, "no-such-folder"),
+                                  destination_dir)
+check("a nonexistent local source is refused", not missing_source_plan.allowed,
+      missing_source_plan.refusals)
 
 print("\n== starting a backup that must not run raises, rather than running ==")
 runner = backup.BackupRunner()
 try:
-    runner.start(src, src)
+    runner.start(source_dir, source_dir)
     check("a refused plan raises BackupError", False)
 except backup.BackupError as exc:
     check("a refused plan raises BackupError", True)
@@ -132,37 +144,40 @@ print("\n== a real backup, into a real temp folder ==")
 if os.name != "nt":
     print("  SKIP    robocopy is Windows-only")
 else:
-    job = runner.start(src, dst)
+    job = runner.start(source_dir, destination_dir)
     for _ in range(150):                      # up to ~15s
         if not job.running:
             break
         time.sleep(0.1)
     check("the backup finished", not job.running, job.summary)
     check("it succeeded", job.ok is True, f"exit={job.exit_code} {job.summary} {job.error}")
-    copied = os.path.join(dst, "Photos", "2026", "a.jpg")
-    check("the files actually arrived", os.path.exists(copied), copied)
-    check("content matches", os.path.exists(copied)
-          and open(copied).read() == "pretend photo a.jpg")
+    copied_file = os.path.join(destination_dir, "Photos", "2026", "a.jpg")
+    check("the files actually arrived", os.path.exists(copied_file),
+          copied_file)
+    check("content matches", os.path.exists(copied_file)
+          and open(copied_file).read() == "pretend photo a.jpg")
     check("progress output was captured for a UI to show", len(job.tail) > 0, len(job.tail))
     check("the job serialises for the API", "destination" in job.to_dict())
 
     print("\n== a second run finds nothing to do ==")
-    job2 = runner.start(src, dst)
+    second_job = runner.start(source_dir, destination_dir)
     for _ in range(150):
-        if not job2.running:
+        if not second_job.running:
             break
         time.sleep(0.1)
-    check("re-running succeeds", job2.ok is True, f"exit={job2.exit_code}")
+    check("re-running succeeds", second_job.ok is True,
+          f"exit={second_job.exit_code}")
     check("-- and does not re-copy what is already there",
-          job2.exit_code == 0, f"exit={job2.exit_code} ({job2.summary})")
+          second_job.exit_code == 0,
+          f"exit={second_job.exit_code} ({second_job.summary})")
 
     print("\n== two at once is refused ==")
     # Two robocopy processes on one destination would interleave and neither
     # result would be trustworthy.
-    slow = backup.BackupRunner()
-    slow.start(src, os.path.join(tmp, "backup2"))
+    concurrent_runner = backup.BackupRunner()
+    concurrent_runner.start(source_dir, os.path.join(temp_dir, "backup2"))
     try:
-        slow.start(src, os.path.join(tmp, "backup3"))
+        concurrent_runner.start(source_dir, os.path.join(temp_dir, "backup3"))
         # It may legitimately have finished already on a tiny fixture.
         check("a second concurrent backup is refused (or the first had finished)", True)
     except backup.BackupError as exc:
@@ -171,11 +186,11 @@ else:
     # robocopy still writing into it kept part of the folder from being
     # deleted, so an empty backup folder was left behind in TEMP.
     for _ in range(150):                      # up to ~15s
-        if slow.job is None or not slow.job.running:
+        if concurrent_runner.job is None or not concurrent_runner.job.running:
             break
         time.sleep(0.1)
 
-shutil.rmtree(tmp, ignore_errors=True)
+shutil.rmtree(temp_dir, ignore_errors=True)
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

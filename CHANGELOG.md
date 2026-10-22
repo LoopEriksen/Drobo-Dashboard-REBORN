@@ -256,6 +256,9 @@ released. Every push to this repository carries this file.
   - Internal names in the agent's API and its helpers (the backup,
     photo-upload, QR-code and update-check modules); no behaviour
     changes
+  - Internal names in the agent's ten test suites (their shared harness,
+    stand-ins for the SDK and discovery, and local variables); no
+    behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

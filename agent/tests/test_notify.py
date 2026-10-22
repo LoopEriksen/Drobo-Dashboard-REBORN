@@ -35,18 +35,20 @@ def check(label, condition, failure_detail=""):
 SECRET = "hunter2-do-not-leak"
 
 
-def email_cfg(**over):
-    base = {"host": "smtp.example.invalid", "port": 587, "username": "me@example.invalid",
-            "password": SECRET, "from": "me@example.invalid", "to": "you@example.invalid"}
-    base.update(over)
-    return {"backends": ["email"], "email": base}
+def email_config(**overrides):
+    email_settings = {"host": "smtp.example.invalid", "port": 587, "username": "me@example.invalid",
+                      "password": SECRET, "from": "me@example.invalid",
+                      "to": "you@example.invalid"}
+    email_settings.update(overrides)
+    return {"backends": ["email"], "email": email_settings}
 
 
 print("\n== the existing backends still behave ==")
-out = io.StringIO()
-with contextlib.redirect_stdout(out):
+captured_stdout = io.StringIO()
+with contextlib.redirect_stdout(captured_stdout):
     notify.build({"backends": ["console"]}).send("T", "hello", "critical")
-check("console still prints", "hello" in out.getvalue(), out.getvalue())
+check("console still prints", "hello" in captured_stdout.getvalue(),
+      captured_stdout.getvalue())
 check("an empty backend list falls back to console",
       notify.build({}).members[0].name == "console")
 check("an unknown backend is ignored, not fatal",
@@ -55,13 +57,13 @@ check("an unknown backend is ignored, not fatal",
 print("\n== a config with no email never loads smtplib ==")
 # Not "does not send" -- does not IMPORT. Proven by replacing the module with
 # something that explodes on any attribute access.
-class _Exploding:
+class _ExplodingModule:
     def __getattr__(self, name):
         raise AssertionError(f"smtplib was touched ({name}) with email not configured")
 
 
-_real = sys.modules.get("smtplib")
-sys.modules["smtplib"] = _Exploding()
+_real_smtplib = sys.modules.get("smtplib")
+sys.modules["smtplib"] = _ExplodingModule()
 try:
     with contextlib.redirect_stdout(io.StringIO()):
         notify.build({"backends": ["console"]}).send("T", "m", "info")
@@ -70,8 +72,8 @@ try:
 except AssertionError as exc:
     check("console and a disabled ntfy touch smtplib not at all", False, exc)
 finally:
-    if _real is not None:
-        sys.modules["smtplib"] = _real
+    if _real_smtplib is not None:
+        sys.modules["smtplib"] = _real_smtplib
     else:
         del sys.modules["smtplib"]
 
@@ -79,55 +81,58 @@ print("\n== a half-configured email backend is refused, not half-used ==")
 # An alert that silently fails to send is worse than one never configured,
 # because you believe you are covered.
 for missing, label in ((["host"], "no host"), (["to"], "no recipient")):
-    cfg = email_cfg()
-    for k in missing:
-        cfg["email"][k] = ""
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out):
-        group = notify.build(cfg)
+    notify_config = email_config()
+    for field_name in missing:
+        notify_config["email"][field_name] = ""
+    captured_stdout = io.StringIO()
+    with contextlib.redirect_stdout(captured_stdout):
+        notifier_group = notify.build(notify_config)
     check(f"{label} -> email backend not built",
-          all(m.name != "email" for m in group.members), [m.name for m in group.members])
-    check(f"{label} -> and it says so on stdout", "skipping" in out.getvalue(), out.getvalue())
+          all(member.name != "email" for member in notifier_group.members), [member.name for member in notifier_group.members])
+    check(f"{label} -> and it says so on stdout", "skipping" in captured_stdout.getvalue(), captured_stdout.getvalue())
 
 print("\n== a complete config does build the backend ==")
-group = notify.build(email_cfg())
-mailer = [m for m in group.members if m.name == "email"]
-check("the email backend is present", len(mailer) == 1, [m.name for m in group.members])
+notifier_group = notify.build(email_config())
+email_backends = [member for member in notifier_group.members if member.name
+                  == "email"]
+check("the email backend is present", len(email_backends) == 1, [member.name for member in notifier_group.members])
 check("a comma-separated recipient list is split",
-      notify.build(email_cfg(to="a@x.invalid, b@x.invalid")).members[0].recipients
+      notify.build(email_config(to="a@x.invalid, b@x.invalid")).members[0].recipients
       == ["a@x.invalid", "b@x.invalid"])
-check("a single recipient still works", mailer[0].recipients == ["you@example.invalid"])
+check("a single recipient still works", email_backends[0].recipients == ["you@example.invalid"])
 check("'from' defaults to the username when unset",
-      notify.build(email_cfg(**{"from": ""})).members[0].sender == "me@example.invalid")
+      notify.build(email_config(**{"from": ""})).members[0].sender == "me@example.invalid")
 
 print("\n== THE PASSWORD NEVER ESCAPES ==")
 # A rejected SMTP login habitually echoes the credentials back in the server's
 # response text. That text must never reach a log line or an exception.
-m = mailer[0]
+email_backend = email_backends[0]
 check("it is not a public attribute", not any(
-    getattr(m, a, None) == SECRET for a in dir(m) if not a.startswith("_")))
-check("repr() does not contain it", SECRET not in repr(m))
+    getattr(email_backend, attribute, None) == SECRET
+    for attribute in dir(email_backend) if not attribute.startswith("_")))
+check("repr() does not contain it", SECRET not in repr(email_backend))
 check("vars() does not expose it under a public name",
-      not any(v == SECRET for k, v in vars(m).items() if not k.startswith("_")))
+      not any(value == SECRET for name, value in vars(email_backend).items() if not name.startswith("_")))
 
 # Force a failure and check what comes out of it.
-class _RudeSMTP:
-    def __init__(self, *a, **kw): pass
+class _CredentialEchoingSMTP:
+    def __init__(self, *args, **kwargs): pass
     def __enter__(self): return self
-    def __exit__(self, *a): return False
+    def __exit__(self, *exc_info): return False
     def starttls(self): pass
-    def login(self, u, p):
-        raise RuntimeError(f"535 auth failed for user={u} pass={p}")
-    def send_message(self, msg): pass
+    def login(self, user, password):
+        raise RuntimeError(f"535 auth failed for user={user} pass={password}")
+    def send_message(self, message): pass
 
 
-import smtplib as _smtplib
-_orig_smtp = _smtplib.SMTP
-_smtplib.SMTP = _RudeSMTP
+import smtplib
+_original_smtp_class = smtplib.SMTP
+smtplib.SMTP = _CredentialEchoingSMTP
 try:
     raised = None
     try:
-        m.send("Drobo: action needed", "a drive failed", "critical")
+        email_backend.send("Drobo: action needed", "a drive failed",
+                           "critical")
     except Exception as exc:
         raised = exc
     check("a delivery failure raises", raised is not None)
@@ -141,14 +146,14 @@ try:
           raised is not None and "RuntimeError" in str(raised), str(raised))
 
     # A failing backend must not stop the others -- NotifierGroup's contract.
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out):
-        notify.build({**email_cfg(), "backends": ["console", "email"]}).send("T", "m", "critical")
-    printed = out.getvalue()
+    captured_stdout = io.StringIO()
+    with contextlib.redirect_stdout(captured_stdout):
+        notify.build({**email_config(), "backends": ["console", "email"]}).send("T", "m", "critical")
+    printed = captured_stdout.getvalue()
     check("a broken email backend does not stop the console one", "m" in printed, printed)
     check("-- and the failure notice carries no password", SECRET not in printed, printed)
 finally:
-    _smtplib.SMTP = _orig_smtp
+    smtplib.SMTP = _original_smtp_class
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
