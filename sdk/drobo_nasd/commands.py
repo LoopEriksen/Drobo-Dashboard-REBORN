@@ -299,8 +299,8 @@ def _self_check() -> None:
     """
     assert len(COMMANDS) == 103, f"expected 103 commands, got {len(COMMANDS)}"
 
-    ids = sorted(COMMANDS.values())
-    assert ids == list(range(103)), "command ids must be exactly 0..102, each used once"
+    sorted_ids = sorted(COMMANDS.values())
+    assert sorted_ids == list(range(103)), "command ids must be exactly 0..102, each used once"
 
     # spot-check a handful of ids against docs/protocol-map.md by hand
     spot_checks = {

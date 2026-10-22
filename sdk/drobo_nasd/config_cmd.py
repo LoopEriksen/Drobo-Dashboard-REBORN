@@ -118,13 +118,14 @@ def _build_frame(frame_type: int, payload: bytes) -> bytes:
 
 
 def _login_payload(esa_id: str) -> bytes:
-    raw = esa_id.encode("ascii", "ignore")
-    if not raw or len(raw) > _LOGIN_SLOT_BYTES:
+    serial_bytes = esa_id.encode("ascii", "ignore")
+    if not serial_bytes or len(serial_bytes) > _LOGIN_SLOT_BYTES:
         raise ConfigError(f"implausible device serial {esa_id!r}")
-    buf = bytearray(LOGIN_PAYLOAD_BYTES)
-    buf[0:len(raw)] = raw
-    buf[_LOGIN_SLOT_BYTES:_LOGIN_SLOT_BYTES + len(raw)] = raw
-    return bytes(buf)
+    login_bytes = bytearray(LOGIN_PAYLOAD_BYTES)
+    login_bytes[0:len(serial_bytes)] = serial_bytes
+    login_bytes[_LOGIN_SLOT_BYTES:
+                _LOGIN_SLOT_BYTES + len(serial_bytes)] = serial_bytes
+    return bytes(login_bytes)
 
 
 def _receive_exactly(sock: socket.socket, byte_count: int, deadline: float | None = None) -> bytes:
@@ -200,12 +201,13 @@ def _read_frame(sock: socket.socket,
     together; see _receive_exactly for why a socket timeout alone is not a
     bound. Keyword-optional so existing callers keep working unchanged.
     """
-    head = _receive_exactly(sock, HEADER_BYTES, deadline)
-    if len(head) < HEADER_BYTES:
-        raise ConfigError(f"short header: {len(head)} of {HEADER_BYTES} bytes")
-    if head[:8] != SIGNATURE:
-        raise ConfigError(f"bad signature {head[:8]!r}")
-    length = struct.unpack(">I", head[12:16])[0]
+    header = _receive_exactly(sock, HEADER_BYTES, deadline)
+    if len(header) < HEADER_BYTES:
+        raise ConfigError(
+            f"short header: {len(header)} of {HEADER_BYTES} bytes")
+    if header[:8] != SIGNATURE:
+        raise ConfigError(f"bad signature {header[:8]!r}")
+    length = struct.unpack(">I", header[12:16])[0]
     if length > MAX_PAYLOAD_BYTES:
         raise ConfigError(f"implausible payload length {length}")
     body = _receive_exactly(sock, length, deadline)
@@ -216,7 +218,7 @@ def _read_frame(sock: socket.socket,
         # command was sent", which is the outcome-unknown case a caller must
         # treat differently (do not blindly retry a write).
         raise ConfigError(f"short payload: {len(body)} of {length} bytes")
-    return head[8], body
+    return header[8], body
 
 
 def _strip_secrets(node: ElementTree.Element) -> None:
@@ -282,28 +284,28 @@ def _redact_escaped_document(node: ElementTree.Element) -> None:
         # never matched a single real document.)
         if not text or "<" not in text:
             continue
-        inner = html.unescape(text).strip()
-        if not inner.startswith("<"):
+        unescaped_text = html.unescape(text).strip()
+        if not unescaped_text.startswith("<"):
             continue
         # Drop an inner <?xml ...?> declaration; ElementTree rejects one that
         # isn't at the very start of the string it is handed.
-        body = inner
-        if body.startswith("<?xml"):
-            end = body.find("?>")
+        document_text = unescaped_text
+        if document_text.startswith("<?xml"):
+            end = document_text.find("?>")
             if end != -1:
-                body = body[end + 2:].strip()
+                document_text = document_text[end + 2:].strip()
         try:
-            sub = ElementTree.fromstring(body)
+            inner_root = ElementTree.fromstring(document_text)
         except ElementTree.ParseError:
             # Unparseable but XML-shaped. Refuse to pass it on.
             if _CREDENTIAL_NAME_RE.search(text):
                 child.text = _REDACTION_SENTINEL
             continue
-        if _CREDENTIAL_NAME_RE.search(sub.tag):
+        if _CREDENTIAL_NAME_RE.search(inner_root.tag):
             child.text = _REDACTION_SENTINEL
             continue
-        _strip_secrets(sub)
-        child.text = ElementTree.tostring(sub, encoding="unicode")
+        _strip_secrets(inner_root)
+        child.text = ElementTree.tostring(inner_root, encoding="unicode")
 
 
 def _element_to_dict(node: ElementTree.Element):
@@ -311,16 +313,16 @@ def _element_to_dict(node: ElementTree.Element):
     children = list(node)
     if not children:
         return (node.text or "").strip()
-    out: dict = {}
+    converted: dict = {}
     for child in children:
         value = _element_to_dict(child)
-        if child.tag in out:
-            if not isinstance(out[child.tag], list):
-                out[child.tag] = [out[child.tag]]
-            out[child.tag].append(value)
+        if child.tag in converted:
+            if not isinstance(converted[child.tag], list):
+                converted[child.tag] = [converted[child.tag]]
+            converted[child.tag].append(value)
         else:
-            out[child.tag] = value
-    return out
+            converted[child.tag] = value
+    return converted
 
 
 def parse_config_result(payload: bytes, redact: bool = True) -> dict:
@@ -389,10 +391,11 @@ def get_config(host: str, esa_id: str, section: str = "network",
     if command_id is None:
         raise ConfigError(f"{command_name} has no confirmed command id")
 
-    tag = SECTIONS[section]
+    section_tag = SECTIONS[section]
     request_payload = (
         f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
+        f"<Params><{section_tag}>{section_tag}</{section_tag}>"
+        f"</Params></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -550,10 +553,10 @@ def set_config(host: str, esa_id: str, section: str, build_section_document,
     # field it does not change, and get_config's normal masking of credential
     # fields would otherwise write the literal "[redacted]" over a real
     # password. This document is strictly local: never returned, never logged.
-    before = get_config(host, esa_id, section, port=port, timeout=timeout,
-                        redact=False)
+    current_section = get_config(host, esa_id, section, port=port,
+                                 timeout=timeout, redact=False)
 
-    section_document = build_section_document(before)
+    section_document = build_section_document(current_section)
     if not isinstance(section_document, str) or not section_document.strip():
         raise ConfigWriteError(
             "build_section_document must return a non-empty document string")
@@ -618,15 +621,15 @@ def _send_section_document(host: str, esa_id: str, section: str,
     # wipe every share. Parse it and require its root to be the section's own
     # element.
     try:
-        root_el = ElementTree.fromstring(section_document)
+        root_element = ElementTree.fromstring(section_document)
     except ElementTree.ParseError as exc:
         raise ConfigWriteError(f"the document to write is not valid XML: {exc}") from exc
-    expected_root = SECTIONS[section]
-    if root_el.tag != expected_root:
+    expected_root_tag = SECTIONS[section]
+    if root_element.tag != expected_root_tag:
         raise ConfigWriteError(
-            f"the document root is <{root_el.tag}> but section {section!r} "
-            f"writes <{expected_root}>; refusing a document that does not match "
-            f"the section it was built from")
+            f"the document root is <{root_element.tag}> but section "
+            f"{section!r} writes <{expected_root_tag}>; refusing a document "
+            f"that does not match the section it was built from")
 
     # Belt and braces for the redaction fix: a real write document must never
     # carry the sentinel. If it does -- a device that literally stored
@@ -641,10 +644,10 @@ def _send_section_document(host: str, esa_id: str, section: str,
     # &lt; &gt; &amp; are produced -- the only escaping the capture confirmed;
     # emitting &#x27;/&quot; for an apostrophe in a device or share name is not
     # something the wire format was ever observed to accept.
-    escaped = html.escape(f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>", quote=False)
+    escaped_document = html.escape(f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>", quote=False)
     request_payload = (
         f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params>{escaped}</Params></TMCmd>").encode() + b"\x00"
+        f"<Params>{escaped_document}</Params></TMCmd>").encode() + b"\x00"
 
     # Everything from here to the sendall below is the "nothing happened" half
     # of the write. A refused connection, a rejected login, a login reply we
@@ -655,7 +658,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
     except OSError as exc:
         raise ConfigWriteError(f"could not reach the command port: {exc}") from exc
     sock.settimeout(timeout)
-    unacknowledged = None  # the transport error that ate the result frame
+    # The transport error that ate the result frame, if one does.
+    acknowledgement_error = None
     try:
         # Typed as a write failure rather than left as a bare transport error.
         # The layers above read an untyped ConfigError as "the write may have
@@ -691,9 +695,9 @@ def _send_section_document(host: str, esa_id: str, section: str,
         except (OSError, ConfigError) as exc:
             # The device hung up (or went silent) before answering. Not an
             # answer of "no" -- no answer at all.
-            unacknowledged = exc
+            acknowledgement_error = exc
 
-        if unacknowledged is None:
+        if acknowledgement_error is None:
             # The device answered. This is the path that already worked, and it
             # is deliberately unchanged: a real result frame still decides the
             # outcome on its own, with no read-back involved.
@@ -702,32 +706,33 @@ def _send_section_document(host: str, esa_id: str, section: str,
                 # no more an answer of "no" than silence is, and the command
                 # frame is already on the wire either way -- so the read-back
                 # settles it, exactly as it does when nothing comes back.
-                unacknowledged = ConfigError(
+                acknowledgement_error = ConfigError(
                     f"unexpected reply type 0x{frame_type:02x}")
             else:
-                code = _parse_result_code(body or b"")
-                if code != RESULT_ACCEPTED:
+                result_code = _parse_result_code(body or b"")
+                if result_code != RESULT_ACCEPTED:
                     raise ConfigWriteError(
                         f"the device did not accept the write "
-                        f"(Result {code!r}, expected {RESULT_ACCEPTED}). "
+                        f"(Result {result_code!r}, "
+                        f"expected {RESULT_ACCEPTED}). "
                         f"Nothing is confirmed changed.")
                 # NOT the document itself: for a secret-bearing section (rename
                 # carries password fields) that would hand the un-redacted
                 # baseline -- which this function promises to keep strictly
                 # local -- straight to the caller. A size and root are enough
                 # to log or display.
-                return {"section": section, "sent_root": root_el.tag,
+                return {"section": section, "sent_root": root_element.tag,
                         "sent_bytes": len(section_document),
-                        "result_code": code,
+                        "result_code": result_code,
                         "acknowledged": True}
     finally:
         sock.close()
 
     # Reached only when the frame went out and the acknowledgement did not come
     # back. The socket is closed first so the arbitrating read starts clean.
-    return _arbitrate_unacknowledged(section, root_el.tag,
+    return _arbitrate_unacknowledged(section, root_element.tag,
                                      len(section_document),
-                                     readback, unacknowledged)
+                                     readback, acknowledgement_error)
 
 
 def decided_by_readback(result: dict) -> bool:
@@ -819,10 +824,11 @@ def get_config_element(host: str, esa_id: str, section: str,
     command_id = _commands.COMMANDS.get(command_name)
     if command_id is None:
         raise ConfigError(f"{command_name} has no confirmed command id")
-    tag = SECTIONS[section]
+    section_tag = SECTIONS[section]
     request_payload = (
         f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params><{tag}>{tag}</{tag}></Params></TMCmd>").encode() + b"\x00"
+        f"<Params><{section_tag}>{section_tag}</{section_tag}>"
+        f"</Params></TMCmd>").encode() + b"\x00"
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -847,20 +853,24 @@ def get_config_element(host: str, esa_id: str, section: str,
         raise ConfigError("result carried no <ResultDetails>")
     # The section element may be a direct child of ResultDetails, nested under a
     # <DRINASConfig> wrapper (which is what the real 5N sends -- measured
-    # 2026-08-10), or an escaped inner document in the text. `.iter(tag)` finds
-    # it at any depth in the first two cases; the escaped case is handled below.
+    # 2026-08-10), or an escaped inner document in the text.
+    # `.iter(section_tag)` finds it at any depth in the first two cases;
+    # the escaped case is handled below.
     # An earlier version used details.find(tag), which only searches direct
     # children and so missed the wrapper the device actually uses.
-    found = next(iter(details.iter(tag)), None)
-    if found is not None:
-        return found
+    section_element = next(iter(details.iter(section_tag)), None)
+    if section_element is not None:
+        return section_element
     text = (details.text or "").strip()
     if text and "<" in html.unescape(text):
-        sub = ElementTree.fromstring(html.unescape(text))
-        nested = sub if sub.tag == tag else next(iter(sub.iter(tag)), None)
-        if nested is not None:
-            return nested
-    raise ConfigError(f"reply for {section!r} contained no <{tag}> element")
+        inner_root = ElementTree.fromstring(html.unescape(text))
+        escaped_section_element = (
+            inner_root if inner_root.tag == section_tag
+            else next(iter(inner_root.iter(section_tag)), None))
+        if escaped_section_element is not None:
+            return escaped_section_element
+    raise ConfigError(
+        f"reply for {section!r} contained no <{section_tag}> element")
 
 
 def set_config_raw(host: str, esa_id: str, section: str, edit,

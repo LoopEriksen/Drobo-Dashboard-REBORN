@@ -242,6 +242,9 @@ released. Every push to this repository carries this file.
     `_extract_general_block`, `identify._interval_xml` ->
     `_interval_params_xml`, `models.Volume._SCHEMES` ->
     `_PARTITION_SCHEME_NAMES`
+  - Internal names in the SDK's write path (commands, config, share,
+    DroboApps, DroboSync and Identify modules, the envelope and the older
+    client and framing code); no behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

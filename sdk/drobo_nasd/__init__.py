@@ -10,8 +10,9 @@ Standard library only. No dependencies to rot.
 
     from drobo_nasd import esatm
 
-    snap = esatm.read_snapshot("10.0.0.5")
-    print(snap.device.name, snap.capacity.used_bytes, len(snap.drives))
+    snapshot = esatm.read_snapshot("10.0.0.5")
+    print(snapshot.device.name, snapshot.capacity.used_bytes,
+          len(snapshot.drives))
 
 Two channels, both solved:
 

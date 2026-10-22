@@ -109,11 +109,6 @@ import time
 
 from . import commands as _commands
 from . import envelope as _envelope
-
-#: Pulled with a regex rather than an XML parse: this runs on a reply that may
-#: be empty or truncated, and a parse failure there must not turn "the lights
-#: may or may not be blinking" into an exception.
-_RESULT_RE = re.compile(r"<Result>\s*(-?\d+)\s*</Result>")
 from .config_cmd import (
     ConfigError,
     DEFAULT_PORT,
@@ -125,6 +120,11 @@ from .config_cmd import (
     _login_payload,
     _read_frame,
 )
+
+#: Pulled with a regex rather than an XML parse: this runs on a reply that may
+#: be empty or truncated, and a parse failure there must not turn "the lights
+#: may or may not be blinking" into an exception.
+_RESULT_RE = re.compile(r"<Result>\s*(-?\d+)\s*</Result>")
 
 COMMAND_NAME = "eCmdIdentify"
 
@@ -282,9 +282,9 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
     # Validated BEFORE the socket is opened. A bad interval is a programming
     # error, and it should surface as one rather than as a connection that was
     # made, logged and then abandoned.
-    params = _interval_params_xml(interval)
+    params_xml = _interval_params_xml(interval)
 
-    request_payload = (f"<TMCmd><CmdID>{command_id}</CmdID>{params}"
+    request_payload = (f"<TMCmd><CmdID>{command_id}</CmdID>{params_xml}"
                        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
 
     try:
@@ -320,7 +320,7 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
         # report -- the result is a blinking light, not a document. So we
         # deliberately do NOT treat "no payload" as failure, unlike the read
         # commands where an empty body means the question went unanswered.
-        text = (body or b"").rstrip(b"\x00").strip()
+        reply_text = (body or b"").rstrip(b"\x00").strip()
 
         # Read <Result>, which this function ignored entirely until 2026-08-07.
         # It reported {"sent": True} on the strength of a well-formed reply and
@@ -334,10 +334,10 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
         # raised no objection. Identify returns it and blinks nothing, so this
         # is not evidence the command did anything.
         result_code = None
-        match = _RESULT_RE.search(text.decode("utf-8", "replace")) if text else None
-        if match:
+        result_match = _RESULT_RE.search(reply_text.decode("utf-8", "replace")) if reply_text else None
+        if result_match:
             try:
-                result_code = int(match.group(1))
+                result_code = int(result_match.group(1))
             except ValueError:
                 result_code = None
 
@@ -352,8 +352,8 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
             # nothing without the interval that produced it, and the whole
             # point of this parameter is that it is still being pinned down.
             "interval": interval,
-            "device_replied": bool(text),
-            "reply_bytes": len(text),
+            "device_replied": bool(reply_text),
+            "reply_bytes": len(reply_text),
         }
     finally:
         sock.close()
@@ -382,67 +382,73 @@ def _main(argv: list[str] | None = None) -> int:
     """
     import argparse
 
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog="py -m drobo_nasd.identify",
         description="Make a Drobo blink its front lights, and watch what happens.")
-    ap.add_argument("host", help="the Drobo's address")
-    ap.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
-                    help=f"value for <{INTERVAL_TAG}> (default {DEFAULT_INTERVAL})")
-    ap.add_argument("--none", action="store_true",
-                    help="send an empty <Params>, as this module did before 2026-08-06")
-    ap.add_argument("--compare", action="store_true",
-                    help="send the empty form, wait, then the interval form")
-    ap.add_argument("--gap", type=float, default=20.0,
-                    help="seconds between the two halves of --compare (default 20)")
-    args = ap.parse_args(argv)
+    parser.add_argument("host", help="the Drobo's address")
+    parser.add_argument(
+        "--interval", type=int, default=DEFAULT_INTERVAL,
+        help=f"value for <{INTERVAL_TAG}> (default {DEFAULT_INTERVAL})")
+    parser.add_argument(
+        "--none", action="store_true",
+        help="send an empty <Params>, as this module did before 2026-08-06")
+    parser.add_argument(
+        "--compare", action="store_true",
+        help="send the empty form, wait, then the interval form")
+    parser.add_argument(
+        "--gap", type=float, default=20.0,
+        help="seconds between the two halves of --compare (default 20)")
+    args = parser.parse_args(argv)
 
     # Before any network contact. A usage error should be answered instantly
     # and locally, not after a connection attempt to storage hardware -- and
     # certainly not reported as "could not reach the Drobo", which is what
     # this printed until the CLI was smoke-tested.
-    wanted = None if args.none else args.interval
+    requested_interval = None if args.none else args.interval
     if not args.compare:
         try:
-            validate_interval(wanted)
+            validate_interval(requested_interval)
         except IdentifyParameterError as exc:
             print(exc)
             return 2
 
     from . import esatm
     try:
-        esa = esatm.parse_identity(esatm.fetch_greeting(args.host)).get("esa_id")
+        esa_id = esatm.parse_identity(esatm.fetch_greeting(args.host)).get("esa_id")
     except OSError as exc:
         print(f"Could not reach {args.host} on the status port: {exc}")
         return 1
-    if not esa:
+    if not esa_id:
         print(f"{args.host} answered but did not give a serial; cannot send commands.")
         return 1
 
-    def fire(interval, label):
+    def send_and_report(interval, label):
         print(f"\n  {label}")
         try:
-            res = identify(args.host, esa, interval=interval)
+            send_result = identify(args.host, esa_id, interval=interval)
         except IdentifyError as exc:
             print(f"    refused: {exc}")
             return False
-        print(f"    sent, interval={res['interval']!r}"
-              + (f", device replied {res['reply_bytes']} bytes" if res["device_replied"]
+        print(f"    sent, interval={send_result['interval']!r}"
+              + (f", device replied {send_result['reply_bytes']} bytes" if send_result["device_replied"]
                  else ", device replied with nothing (normal for this command)"))
         return True
 
     if args.compare:
         print("WATCH THE DROBO. Two sends, and only the second carries an interval.")
-        ok = fire(None, "1/2  empty <Params>  -- the old behaviour")
+        any_accepted = send_and_report(
+            None, "1/2  empty <Params>  -- the old behaviour")
         # A real gap. The device has been seen to decline a second Identify
         # shortly after the first, and a blink that started on send 1 must be
         # over before send 2 or the comparison proves nothing.
         print(f"\n  ...waiting {args.gap:g}s so the two cannot be confused...")
         time.sleep(args.gap)
-        ok = fire(DEFAULT_INTERVAL, f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or ok
+        any_accepted = send_and_report(DEFAULT_INTERVAL, f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or any_accepted
         print("\n  Which one blinked? That is the measurement.")
-        return 0 if ok else 1
+        return 0 if any_accepted else 1
 
-    return 0 if fire(wanted, f"sending interval={wanted!r}") else 1
+    label = f"sending interval={requested_interval!r}"
+    return 0 if send_and_report(requested_interval, label) else 1
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ ROOT_TAG = "DRINETTM"
 #: SOMETHING. Identify returns this value and blinks nothing at all.
 RESULT_ACCEPTED = 0x2_0000_0000  # 8589934592
 _XML_DECLARATION = '<?xml version="1.0"?>'  # exact string per protocol-map.md
-_INT_RE = re.compile(r"-?\d+")
+_INTEGER_RE = re.compile(r"-?\d+")
 _FLOAT_RE = re.compile(r"-?\d+\.\d+")
 
 
@@ -82,19 +82,19 @@ class Envelope:
 # ---------------------------------------------------------------------------
 
 
-def _text_of(value: Any) -> str:
+def _to_wire_text(value: Any) -> str:
     if isinstance(value, bool):
         return "1" if value else "0"
     return str(value)
 
 
-def _coerce(text: Optional[str]) -> Any:
+def _coerce_wire_value(text: Optional[str]) -> Any:
     """Best-effort str -> int/float, mirroring what a hand-rolled XML reader
     on the other end would need to do too -- <Error>0</Error> is a literal
     string on the wire, not a typed value."""
     if text is None:
         return ""
-    if _INT_RE.fullmatch(text):
+    if _INTEGER_RE.fullmatch(text):
         try:
             return int(text)
         except ValueError:
@@ -121,21 +121,21 @@ def _build_container(parent: ElementTree.Element, data: dict) -> None:
                 if isinstance(item, dict):
                     _build_container(child, item)
                 else:
-                    child.text = _text_of(item)
+                    child.text = _to_wire_text(item)
         else:
             child = ElementTree.SubElement(parent, key)
-            child.text = _text_of(value)
+            child.text = _to_wire_text(value)
 
 
-def _parse_container(elem: ElementTree.Element) -> dict:
+def _parse_container(element: ElementTree.Element) -> dict:
     """Inverse of _build_container. Repeated tags collapse into a list."""
     result: dict = {}
-    for child in elem:
+    for child in element:
         value: Any
         if len(child):
             value = _parse_container(child)
         else:
-            value = _coerce(child.text)
+            value = _coerce_wire_value(child.text)
         if child.tag in result:
             existing = result[child.tag]
             if isinstance(existing, list):
@@ -157,10 +157,10 @@ def _resolve_command(command: Union[int, str]) -> tuple[str, Optional[int], Opti
                 f"eCmd* name missing from the table, fix commands.py; otherwise "
                 f"this is a typo"
             )
-        cmd_id = commands.COMMANDS[command]
-        return str(cmd_id), cmd_id, command
-    cmd_id = int(command)
-    return str(cmd_id), cmd_id, commands.ID_TO_NAME.get(cmd_id)
+        command_id = commands.COMMANDS[command]
+        return str(command_id), command_id, command
+    command_id = int(command)
+    return str(command_id), command_id, commands.ID_TO_NAME.get(command_id)
 
 
 def _serialize(root: ElementTree.Element) -> str:
@@ -181,13 +181,13 @@ def build_command(esa_id: Union[str, int], command: Union[int, str], params: Opt
     commands.py. This function does NOT check commands.DO_NOT_SEND; that
     guard lives in client.py, which is the layer that actually has a socket.
     """
-    wire_text, _cmd_id, _cmd_name = _resolve_command(command)
+    wire_text, _, _ = _resolve_command(command)
     root = ElementTree.Element(ROOT_TAG)
     ElementTree.SubElement(root, "ESAID").text = str(esa_id)
     ElementTree.SubElement(root, "Command").text = wire_text
     if params:
-        params_elem = ElementTree.SubElement(root, "Params")
-        _build_container(params_elem, params)
+        params_element = ElementTree.SubElement(root, "Params")
+        _build_container(params_element, params)
     return _serialize(root)
 
 
@@ -205,26 +205,26 @@ def build_response(
     real responses come from the device -- but keeping build and parse
     symmetric is what makes the round-trip test meaningful.
     """
-    wire_text, _cmd_id, _cmd_name = _resolve_command(command)
+    wire_text, _, _ = _resolve_command(command)
     root = ElementTree.Element(ROOT_TAG)
     ElementTree.SubElement(root, "ESAID").text = str(esa_id)
     ElementTree.SubElement(root, "Command").text = wire_text
     if params:
-        params_elem = ElementTree.SubElement(root, "Params")
-        _build_container(params_elem, params)
+        params_element = ElementTree.SubElement(root, "Params")
+        _build_container(params_element, params)
     ElementTree.SubElement(root, "Error").text = str(int(error))
     if result is not None:
-        result_elem = ElementTree.SubElement(root, "Result")
+        result_element = ElementTree.SubElement(root, "Result")
         if isinstance(result, dict):
-            _build_container(result_elem, result)
+            _build_container(result_element, result)
         else:
-            result_elem.text = _text_of(result)
+            result_element.text = _to_wire_text(result)
     if result_details is not None:
-        details_elem = ElementTree.SubElement(root, "ResultDetails")
+        details_element = ElementTree.SubElement(root, "ResultDetails")
         if isinstance(result_details, dict):
-            _build_container(details_elem, result_details)
+            _build_container(details_element, result_details)
         else:
-            details_elem.text = _text_of(result_details)
+            details_element.text = _to_wire_text(result_details)
     return _serialize(root)
 
 
@@ -250,40 +250,41 @@ def parse(xml_text: str) -> Envelope:
     if root.tag != ROOT_TAG:
         raise EnvelopeError(f"expected root <{ROOT_TAG}>, got <{root.tag}>")
 
-    esaid_elem = root.find("ESAID")
-    command_elem = root.find("Command")
-    if esaid_elem is None or command_elem is None:
+    esa_id_element = root.find("ESAID")
+    command_element = root.find("Command")
+    if esa_id_element is None or command_element is None:
         raise EnvelopeError("DRINETTM message missing <ESAID> or <Command>")
 
-    esa_id = esaid_elem.text or ""
-    command_raw = command_elem.text or ""
+    esa_id = esa_id_element.text or ""
+    command_raw = command_element.text or ""
     command_id: Optional[int]
     command_name: Optional[str]
-    if _INT_RE.fullmatch(command_raw):
+    if _INTEGER_RE.fullmatch(command_raw):
         command_id = int(command_raw)
         command_name = commands.ID_TO_NAME.get(command_id)
     else:
         command_id = commands.COMMANDS.get(command_raw)
         command_name = command_raw if command_raw in commands.COMMANDS else None
 
-    params_elem = root.find("Params")
-    params = _parse_container(params_elem) if params_elem is not None else {}
+    params_element = root.find("Params")
+    params = (_parse_container(params_element)
+              if params_element is not None else {})
 
-    error_elem = root.find("Error")
-    error = int(error_elem.text) if error_elem is not None and error_elem.text else None
+    error_element = root.find("Error")
+    error = int(error_element.text) if error_element is not None and error_element.text else None
 
     # See RESULT_ACCEPTED for what the number in here means, and how little of
     # that is actually known.
-    result_elem = root.find("Result")
+    result_element = root.find("Result")
     result: Any = None
-    if result_elem is not None:
-        result = _parse_container(result_elem) if len(result_elem) else _coerce(result_elem.text)
+    if result_element is not None:
+        result = _parse_container(result_element) if len(result_element) else _coerce_wire_value(result_element.text)
 
-    details_elem = root.find("ResultDetails")
+    details_element = root.find("ResultDetails")
     result_details: Any = None
-    if details_elem is not None:
+    if details_element is not None:
         result_details = (
-            _parse_container(details_elem) if len(details_elem) else _coerce(details_elem.text)
+            _parse_container(details_element) if len(details_element) else _coerce_wire_value(details_element.text)
         )
 
     return Envelope(

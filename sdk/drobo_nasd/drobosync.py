@@ -111,20 +111,20 @@ def parse_sync_reply(payload: bytes) -> dict:
     # Same entity-escaped nesting the rest of this firmware uses. Missing it is
     # what made temperature and the performance counters look unobtainable for
     # weeks, so it is handled here before anything else looks at the content.
-    inner = _inner_document(details)
-    node = inner if inner is not None else details
+    inner_document = _inner_document(details)
+    document_root = inner_document if inner_document is not None else details
 
-    raw_xml = ElementTree.tostring(node, encoding="unicode").strip() if inner is not None else ""
+    raw_xml = ElementTree.tostring(document_root, encoding="unicode").strip() if inner_document is not None else ""
     if not raw_xml:
         raw_xml = (details.text or "").strip()
 
     fields: dict[str, str] = {}
-    for el in node.iter():
-        if len(el):
+    for element in document_root.iter():
+        if len(element):
             continue  # a container, not a value
-        value = (el.text or "").strip()
+        value = (element.text or "").strip()
         if value:
-            fields[el.tag] = value
+            fields[element.tag] = value
 
     # "Configured" means the device told us something, not that sync is
     # currently running -- we have no way to tell those apart yet, and saying
@@ -182,7 +182,8 @@ def read(host: str, esa_id: str, read_kind: str = "settings",
 #: What an unasked read looks like. Distinct from a read that happened and came
 #: back empty -- see summary(), which stops early and must not claim to have
 #: asked things it did not ask.
-_NOT_ASKED = {"configured": False, "raw_xml": "", "fields": {}, "asked": False}
+_NOT_ASKED_READ = {"configured": False, "raw_xml": "", "fields": {},
+                   "asked": False}
 
 
 def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
@@ -204,35 +205,36 @@ def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
     facts, and a UI that conflates them would be quietly lying about what was
     measured.
     """
-    out: dict = {"configured": False, "reads": {}, "note": ""}
+    sync_summary: dict = {"configured": False, "reads": {}, "note": ""}
 
-    def _read(what: str) -> dict:
+    def _read_one(read_kind: str) -> dict:
         try:
-            answer = read(host, esa_id, what, port, timeout)
+            answer = read(host, esa_id, read_kind, port, timeout)
             answer["asked"] = True
             return answer
         except (DroboSyncError, OSError) as exc:
             return {"configured": False, "error": str(exc),
                     "raw_xml": "", "fields": {}, "asked": True}
 
-    out["reads"]["settings"] = _read("settings")
-    if out["reads"]["settings"].get("configured"):
-        for what in ("summary_log", "detailed_log", "log"):
-            out["reads"][what] = _read(what)
+    sync_summary["reads"]["settings"] = _read_one("settings")
+    if sync_summary["reads"]["settings"].get("configured"):
+        for read_kind in ("summary_log", "detailed_log", "log"):
+            sync_summary["reads"][read_kind] = _read_one(read_kind)
     else:
-        for what in ("summary_log", "detailed_log", "log"):
-            out["reads"][what] = dict(_NOT_ASKED)
+        for read_kind in ("summary_log", "detailed_log", "log"):
+            sync_summary["reads"][read_kind] = dict(_NOT_ASKED_READ)
 
-    out["configured"] = any(r.get("configured") for r in out["reads"].values())
-    if not out["configured"]:
-        out["note"] = (
+    sync_summary["configured"] = any(
+        r.get("configured") for r in sync_summary["reads"].values())
+    if not sync_summary["configured"]:
+        sync_summary["note"] = (
             "This Drobo has no DroboSync partner set up. DroboSync copied one "
             "Drobo's shares to a second Drobo on a schedule, so it needs two "
             "units -- with one, there is nothing for it to do and the device "
             "correctly reports nothing. Everything needed to display it is "
             "built and waiting."
         )
-    return out
+    return sync_summary
 
 
 # Setting up or starting a replication run moves real data between two arrays.

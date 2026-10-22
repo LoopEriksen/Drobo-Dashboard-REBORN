@@ -70,7 +70,7 @@ from . import config_cmd
 from .shares import CONFIRMED_ACCESS_CODES
 from .shareedit import NO_ACCESS_CODE, ShareEditError
 
-_SECTION = "shares"
+_SHARES_SECTION = "shares"
 
 
 class ShareWriteOutcomeUnknownError(ShareEditError):
@@ -108,34 +108,42 @@ def _resolve_share(share_config: ElementTree.Element,
     the 2026-08-12 audit's confirmed high finding. Same rule as user rows.
     """
     shares = _share_elements(share_config)
-    exact = [s for s in shares if _text(s, "ShareName") == share_name]
-    if len(exact) == 1:
-        return exact[0]
-    folded = [s for s in shares if _text(s, "ShareName").lower() == share_name.lower()]
-    if len(folded) == 1:
-        return folded[0]
-    have = [n for n in (_text(s, "ShareName") for s in shares) if n]
-    if not folded:
+    exact_matches = [s for s in shares
+                     if _child_text(s, "ShareName") == share_name]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    case_folded_matches = [
+        s for s in shares
+        if _child_text(s, "ShareName").lower() == share_name.lower()]
+    if len(case_folded_matches) == 1:
+        return case_folded_matches[0]
+    existing_names = [n for n in (_child_text(s, "ShareName") for s in shares)
+                      if n]
+    if not case_folded_matches:
         raise ShareEditError(
-            f"no share named {share_name!r} on this device (have: {have})")
+            f"no share named {share_name!r} on this device "
+            f"(have: {existing_names})")
+    folded_names = [_child_text(s, "ShareName") for s in case_folded_matches]
     raise ShareEditError(
-        f"{len(folded)} shares fold to {share_name!r} ({[_text(s, 'ShareName') for s in folded]}) "
-        f"and none matches exactly. Ambiguous -- refusing rather than editing "
-        f"the first one and hoping. Give the exact name.")
+        f"{len(case_folded_matches)} shares fold to {share_name!r} "
+        f"({folded_names}) and none matches exactly. Ambiguous -- refusing "
+        f"rather than editing the first one and hoping. Give the exact name.")
 
 
 def _assert_well_formed(share: ElementTree.Element, share_name: str) -> None:
     """Refuse a share whose structure this module cannot edit unambiguously."""
-    names = share.findall("ShareName")
-    if len(names) != 1:
+    name_elements = share.findall("ShareName")
+    if len(name_elements) != 1:
         raise ShareEditError(
-            f"share {share_name!r} carries {len(names)} <ShareName> elements; "
-            f"refusing a share whose identity is not a single element.")
-    containers = share.findall("ShareUsers")
-    if len(containers) > 1:
+            f"share {share_name!r} carries {len(name_elements)} <ShareName> "
+            f"elements; refusing a share whose identity is not a single "
+            f"element.")
+    users_containers = share.findall("ShareUsers")
+    if len(users_containers) > 1:
         raise ShareEditError(
-            f"share {share_name!r} carries {len(containers)} <ShareUsers> "
-            f"containers; refusing -- a new user could land in either.")
+            f"share {share_name!r} carries {len(users_containers)} "
+            f"<ShareUsers> containers; refusing -- a new user could land in "
+            f"either.")
 
 
 def _share_elements(
@@ -149,12 +157,12 @@ def _share_elements(
 
 def _allowed_codes(share_config: ElementTree.Element) -> set[str]:
     """0, every confirmed code, and every code already present on the device."""
-    allowed = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
-    for access in share_config.iter("ShareUserAccess"):
-        code = (access.text or "").strip()
+    allowed_codes = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
+    for access_element in share_config.iter("ShareUserAccess"):
+        code = (access_element.text or "").strip()
         if code:
-            allowed.add(code)
-    return allowed
+            allowed_codes.add(code)
+    return allowed_codes
 
 
 def set_share_user_access(host: str, esa_id: str, share_name: str, username: str,
@@ -190,15 +198,15 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         raise ShareEditError(f"access code {access_code!r} is not a number")
 
     def edit(share_config: ElementTree.Element) -> None:
-        allowed = _allowed_codes(share_config)
-        if access_code not in allowed:
+        allowed_codes = _allowed_codes(share_config)
+        if access_code not in allowed_codes:
             raise ShareEditError(
                 f"access code {access_code!r} is neither confirmed nor already "
-                f"on this device (allowed: {sorted(allowed)}). This does not "
-                f"invent access codes -- an unconfirmed code is a guess and must "
-                f"not be written to someone's permissions.")
+                f"on this device (allowed: {sorted(allowed_codes)}). This "
+                f"does not invent access codes -- an unconfirmed code is a "
+                f"guess and must not be written to someone's permissions.")
 
-        before_names = [(_text(s, "ShareName")) for s in _share_elements(share_config)]
+        before_names = [(_child_text(s, "ShareName")) for s in _share_elements(share_config)]
 
         # Resolve the target share the same way user rows are resolved: an
         # exact-case match wins; otherwise the name must fold to exactly ONE
@@ -207,16 +215,17 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         # 2026-08-12 audit -- edits the wrong share, verifies the wrong share,
         # and reports success. Whether the firmware even permits two such
         # names is unmeasured; the code must not assume it cannot happen.
-        target = _resolve_share(share_config, share_name)
+        target_share = _resolve_share(share_config, share_name)
 
         # A malformed row -- two <ShareName>s, or a ShareUser carrying two
         # <ShareUserAccess> children -- would be half-edited on the wire.
         # Refuse anything that is not exactly the shape we know how to edit.
-        _assert_well_formed(target, share_name)
+        _assert_well_formed(target_share, share_name)
 
-        users_container = target.find("ShareUsers")
+        users_container = target_share.find("ShareUsers")
         if users_container is None:
-            users_container = ElementTree.SubElement(target, "ShareUsers")
+            users_container = ElementTree.SubElement(target_share,
+                                                     "ShareUsers")
 
         # Change an existing user's code -- the pure single-node edit -- or add
         # one if the user is not on this share yet.
@@ -229,33 +238,35 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         # and "everyone" as one user -- is a guess, and a guess must not decide
         # access on somebody's only copy of their data. Refuse and let a human
         # resolve it.
-        matching = [u for u in users_container.findall("ShareUser")
-                    if _text(u, "ShareUsername").lower() == username.lower()]
-        if len(matching) > 1:
+        matching_users = [
+            u for u in users_container.findall("ShareUser")
+            if _child_text(u, "ShareUsername").lower() == username.lower()]
+        if len(matching_users) > 1:
             raise ShareEditError(
-                f"share {share_name!r} has {len(matching)} user entries folding "
+                f"share {share_name!r} has {len(matching_users)} user entries folding "
                 f"to {username!r}. Duplicate or case-colliding rows are ambiguous "
                 f"to reconcile safely -- changing one and leaving the others "
                 f"would silently leave the wrong access in place. Resolve the "
                 f"duplicates on the device first.")
-        if matching:
-            accesses = matching[0].findall("ShareUserAccess")
-            if len(accesses) > 1:
+        if matching_users:
+            access_elements = matching_users[0].findall("ShareUserAccess")
+            if len(access_elements) > 1:
                 raise ShareEditError(
-                    f"user {username!r} on {share_name!r} carries {len(accesses)} "
+                    f"user {username!r} on {share_name!r} carries {len(access_elements)} "
                     f"<ShareUserAccess> elements; changing one would leave the "
                     f"other on the wire. Refusing a row this module cannot edit "
                     f"unambiguously.")
-            access = accesses[0] if accesses else None
-            if access is None:
-                access = ElementTree.SubElement(matching[0], "ShareUserAccess")
+            access_element = access_elements[0] if access_elements else None
+            if access_element is None:
+                access_element = ElementTree.SubElement(
+                    matching_users[0], "ShareUserAccess")
             # A no-op write is all risk and no change: it re-sends the entire
             # share config (TOCTOU window, whole-document replace) to set a
             # value that is already set. Signal it and let the caller skip
             # the send entirely.
-            if (access.text or "").strip() == access_code:
+            if (access_element.text or "").strip() == access_code:
                 raise _NoChangeNeeded()
-            access.text = access_code
+            access_element.text = access_code
         else:
             new_user = ElementTree.SubElement(users_container, "ShareUser")
             ElementTree.SubElement(new_user, "ShareUsername").text = username
@@ -265,7 +276,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
         # Belt and braces: surgical editing cannot drop a share, but assert it,
         # because the cost of being wrong here is a share vanishing from a
         # device that may hold the only copy of somebody's data.
-        after_names = [(_text(s, "ShareName")) for s in _share_elements(share_config)]
+        after_names = [(_child_text(s, "ShareName")) for s in _share_elements(share_config)]
         if before_names != after_names:
             raise ShareEditError(
                 "the edit changed the set of shares -- refusing. This should be "
@@ -279,15 +290,15 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
     # to pay for a confirming read on the normal path; it is not permission to
     # report a write of unknown outcome as a failure.
     try:
-        result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
+        result = config_cmd.set_config_raw(host, esa_id, _SHARES_SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_reads_back)
     except _NoChangeNeeded:
         # The row already held access_code. Nothing was sent -- and that is
         # the correct outcome, not a failure. acknowledged is None because
         # there was no write for the device to acknowledge.
-        return {"section": _SECTION, "unchanged": True, "verified": True,
-                "acknowledged": None,
+        return {"section": _SHARES_SECTION, "unchanged": True,
+                "verified": True, "acknowledged": None,
                 "note": f"{username!r} on {share_name!r} already has access "
                         f"{access_code}; nothing was written."}
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
@@ -465,15 +476,15 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
             f"refusing rather than guessing what the device's parser accepts.")
 
     def edit(share_config: ElementTree.Element) -> str:
-        before = [(e.text or "").strip() for e in share_config.iter("ShareName")]
-        clash = [n for n in before if n.lower() == name.lower()]
-        if clash:
+        names_before = [(e.text or "").strip() for e in share_config.iter("ShareName")]
+        clashing_names = [n for n in names_before if n.lower() == name.lower()]
+        if clashing_names:
             raise ShareEditError(
-                f"a share named {clash[0]!r} already exists on this device, "
-                f"and share names differing only by case could never be "
-                f"addressed apart afterwards -- refusing the duplicate.")
-        chosen = (volume if volume is not None
-                  else _derive_volume_name(share_config))
+                f"a share named {clashing_names[0]!r} already exists on this "
+                f"device, and share names differing only by case could never "
+                f"be addressed apart afterwards -- refusing the duplicate.")
+        chosen_volume = (volume if volume is not None
+                         else _derive_volume_name(share_config))
 
         # The document to send is the read reserialized -- every existing node
         # exactly as ElementTree emits it, the form the 2026-08-12 hardware
@@ -489,29 +500,32 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
                 "tag to insert before -- an empty or missing <Shares> container "
                 "is a shape no capture has shown a share appended to. Refusing "
                 "rather than guessing where the node goes.")
-        node = _NEW_SHARE_NODE.format(name=name, volume=chosen)
-        out = document.replace("</Shares>", node + "</Shares>")
+        new_share_node = _NEW_SHARE_NODE.format(name=name,
+                                                volume=chosen_volume)
+        document_to_send = document.replace("</Shares>",
+                                            new_share_node + "</Shares>")
 
         # Belt and braces: reparse what will be sent and require exactly the
         # one new name, in last place, with every existing name untouched.
-        after = [(e.text or "").strip()
-                 for e in ElementTree.fromstring(out).iter("ShareName")]
-        if after != before + [name]:
+        names_after = [(e.text or "").strip()
+                       for e in ElementTree.fromstring(
+                           document_to_send).iter("ShareName")]
+        if names_after != names_before + [name]:
             raise ShareEditError(
                 "the spliced document does not read back as the existing "
                 "shares plus the new one -- refusing. This should be "
                 "impossible and means something is wrong.")
-        return out
+        return document_to_send
 
     def _now_listed() -> bool:
-        return name in _share_names_readback(host, esa_id, port, timeout)
+        return name in _read_back_share_names(host, esa_id, port, timeout)
 
     # MEASURED 2026-08-25/26: this is the write the device took and then hung up
     # on without answering. `readback` is what stops that being reported as a
     # failure -- see config_cmd._send_section_document. Passed regardless of
     # `verify`.
     try:
-        result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
+        result = config_cmd.set_config_raw(host, esa_id, _SHARES_SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_now_listed)
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
@@ -532,7 +546,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     # Same accepted-versus-verified split as set_share_user_access: a transport
     # failure during the read-back must not read as a failed write.
     try:
-        listed = _share_names_readback(host, esa_id, port, timeout)
+        listed_names = _read_back_share_names(host, esa_id, port, timeout)
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
         raise ShareWriteOutcomeUnknownError(
@@ -541,7 +555,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
             f"({type(exc).__name__}: {exc}). The share was most likely "
             f"created. Re-read the share config before deciding anything -- "
             f"and do NOT simply retry the write.") from exc
-    result["verified"] = name in listed
+    result["verified"] = name in listed_names
     if not result["verified"]:
         raise ShareEditError(
             f"the device accepted the write but share {name!r} does not read "
@@ -583,12 +597,12 @@ def delete_share(host: str, esa_id: str, name: str,
     if not name:
         raise ShareEditError("no share name given")
 
-    resolved: dict[str, str] = {}
+    resolved_target: dict[str, str] = {}
 
     def edit(share_config: ElementTree.Element) -> None:
-        target = _resolve_share(share_config, name)
-        actual = _text(target, "ShareName")
-        resolved["name"] = actual
+        target_share = _resolve_share(share_config, name)
+        actual_name = _child_text(target_share, "ShareName")
+        resolved_target["name"] = actual_name
 
         if next(share_config.iter("ShareDeleteConfirm"), None) is not None:
             raise ShareEditError(
@@ -602,19 +616,21 @@ def delete_share(host: str, esa_id: str, name: str,
         # below relies on the container being the LAST child, so the confirm
         # element lands where the capture shows it -- after </Shares>, before
         # </DRIShareConfig> -- and nowhere else.
-        container = share_config.find("Shares")
-        if list(share_config)[-1] is not container:
+        shares_container = share_config.find("Shares")
+        if list(share_config)[-1] is not shares_container:
             raise ShareEditError(
                 "<Shares> is not the last element of the read config, so the "
                 "appended <ShareDeleteConfirm> would not land where the "
                 "capture shows it. Refusing an unobserved placement.")
 
-        before = [_text(s, "ShareName") for s in _share_elements(share_config)]
-        container.remove(target)
-        after = [_text(s, "ShareName") for s in _share_elements(share_config)]
-        expected = list(before)
-        expected.remove(actual)
-        if after != expected:
+        names_before = [_child_text(s, "ShareName")
+                        for s in _share_elements(share_config)]
+        shares_container.remove(target_share)
+        names_after = [_child_text(s, "ShareName")
+                       for s in _share_elements(share_config)]
+        expected_names = list(names_before)
+        expected_names.remove(actual_name)
+        if names_after != expected_names:
             raise ShareEditError(
                 "removing the share changed more than that one node -- "
                 "refusing. This should be impossible with a surgical edit and "
@@ -623,13 +639,14 @@ def delete_share(host: str, esa_id: str, name: str,
         ElementTree.SubElement(share_config, "ShareDeleteConfirm").text = "Y"
 
     def _now_gone() -> bool:
-        # Called only after edit() has run, so resolved["name"] is populated:
-        # the arbiter fires on the reply to a frame edit() helped build.
-        return resolved["name"] not in _share_names_readback(host, esa_id,
-                                                             port, timeout)
+        # Called only after edit() has run, so resolved_target["name"]
+        # is populated: the arbiter fires on the reply to a frame
+        # edit() helped build.
+        return resolved_target["name"] not in _read_back_share_names(
+            host, esa_id, port, timeout)
 
     try:
-        result = config_cmd.set_config_raw(host, esa_id, _SECTION, edit,
+        result = config_cmd.set_config_raw(host, esa_id, _SHARES_SECTION, edit,
                                            port=port, timeout=timeout,
                                            readback=_now_gone)
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
@@ -640,7 +657,7 @@ def delete_share(host: str, esa_id: str, name: str,
             f"held. Re-read the share config before deciding anything -- and do "
             f"NOT simply retry the delete.") from exc
 
-    target_name = resolved["name"]
+    target_name = resolved_target["name"]
     # Stop here without a fresh read in two cases: config_cmd already settled
     # this write by reading the device back (its verdict IS the verification --
     # reading again only invites a second answer), or the caller asked for no
@@ -649,7 +666,7 @@ def delete_share(host: str, esa_id: str, name: str,
         return result
 
     try:
-        listed = _share_names_readback(host, esa_id, port, timeout)
+        listed_names = _read_back_share_names(host, esa_id, port, timeout)
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
         raise ShareWriteOutcomeUnknownError(
@@ -658,7 +675,7 @@ def delete_share(host: str, esa_id: str, name: str,
             f"({type(exc).__name__}: {exc}). The share was most likely "
             f"deleted. Re-read the share config before deciding anything -- "
             f"and do NOT simply retry the write.") from exc
-    result["verified"] = target_name not in listed
+    result["verified"] = target_name not in listed_names
     if not result["verified"]:
         raise ShareEditError(
             f"the device accepted the write but share {target_name!r} still "
@@ -666,17 +683,18 @@ def delete_share(host: str, esa_id: str, name: str,
     return result
 
 
-def _text(elem: ElementTree.Element, tag: str) -> str:
-    child = elem.find(tag)
+def _child_text(element: ElementTree.Element, tag: str) -> str:
+    child = element.find(tag)
     return (child.text or "").strip() if child is not None else ""
 
 
-def _share_names_readback(host: str, esa_id: str, port: int,
-                          timeout: float) -> list[str]:
+def _read_back_share_names(host: str, esa_id: str, port: int,
+                           timeout: float) -> list[str]:
     """Re-read the share config and return the share names it now lists."""
     from .shares import summarize
-    cfg = config_cmd.get_config(host, esa_id, _SECTION, port=port, timeout=timeout)
-    return [s["name"] for s in summarize(cfg, host)]
+    shares_section = config_cmd.get_config(host, esa_id, _SHARES_SECTION,
+                                           port=port, timeout=timeout)
+    return [s["name"] for s in summarize(shares_section, host)]
 
 
 def _access_reads_back_as(host: str, esa_id: str, share_name: str,
@@ -691,23 +709,25 @@ def _access_reads_back_as(host: str, esa_id: str, share_name: str,
     access survives is exactly the failure this read-back exists to catch.
     """
     from .shares import summarize
-    cfg = config_cmd.get_config(host, esa_id, _SECTION, port=port, timeout=timeout)
-    shares = summarize(cfg, host)
+    shares_section = config_cmd.get_config(host, esa_id, _SHARES_SECTION,
+                                           port=port, timeout=timeout)
+    shares = summarize(shares_section, host)
 
     # Resolve the share exactly as edit() did: exact-case first, then a UNIQUE
     # case-insensitive fold. If two shares fold to the name and neither is an
     # exact match, verification cannot know which one edit() touched -- so it
     # must fail rather than confirm whichever comes first.
-    exact = [s for s in shares if s["name"] == share_name]
-    if len(exact) == 1:
-        share = exact[0]
+    exact_matches = [s for s in shares if s["name"] == share_name]
+    if len(exact_matches) == 1:
+        share = exact_matches[0]
     else:
-        folded = [s for s in shares if s["name"].lower() == share_name.lower()]
-        if len(folded) != 1:
+        case_folded_matches = [s for s in shares
+                               if s["name"].lower() == share_name.lower()]
+        if len(case_folded_matches) != 1:
             return False
-        share = folded[0]
+        share = case_folded_matches[0]
 
-    matches = [u for u in share["users"] if u["name"].lower() == username.lower()]
-    if not matches:
+    matching_users = [u for u in share["users"] if u["name"].lower() == username.lower()]
+    if not matching_users:
         return False
-    return all(u["access_code"] == access_code for u in matches)
+    return all(u["access_code"] == access_code for u in matching_users)

@@ -85,15 +85,15 @@ def _as_list(node):
     return node if isinstance(node, list) else [node]
 
 
-def _share_config(config: dict) -> dict:
+def _find_share_config(config: dict) -> dict:
     """Dig `DRIShareConfig` out of whatever wrapper depth it arrived in."""
     if not isinstance(config, dict):
         return {}
     if "DRIShareConfig" in config:
         return config["DRIShareConfig"] or {}
-    inner = config.get("DRINASConfig")
-    if isinstance(inner, dict):
-        return inner.get("DRIShareConfig") or {}
+    nas_config = config.get("DRINASConfig")
+    if isinstance(nas_config, dict):
+        return nas_config.get("DRIShareConfig") or {}
     return {}
 
 
@@ -106,8 +106,8 @@ def unc_path(host: str, share_name: str) -> str:
 #: UserList has never been observed -- the only device this project can read
 #: has none -- so this is a best effort across the spellings the rest of this
 #: firmware uses, not a confirmed schema.
-_USER_ELEMENTS = ("User", "ShareUser", "NasUser")
-_USERNAME_FIELDS = ("UserName", "ShareUsername", "Username", "Name")
+_USER_ELEMENT_TAGS = ("User", "ShareUser", "NasUser")
+_USERNAME_TAGS = ("UserName", "ShareUsername", "Username", "Name")
 
 
 def user_accounts(config: dict) -> list[str] | None:
@@ -125,25 +125,26 @@ def user_accounts(config: dict) -> list[str] | None:
     from "I don't know". The difference matters: the first justifies telling
     somebody to go create one, and the second does not.
     """
-    cfg = _share_config(config)
-    if "UserList" not in cfg:
+    share_config = _find_share_config(config)
+    if "UserList" not in share_config:
         return None
-    raw = cfg.get("UserList")
+    user_list = share_config.get("UserList")
 
     # The XML->dict conversion renders <UserList /> as None or "" depending on
     # which empty-element form the device sent. Both mean the same thing, and
     # both are what this project has actually measured.
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
+    if user_list is None or (isinstance(user_list, str)
+                             and not user_list.strip()):
         return []
-    if not isinstance(raw, dict):
+    if not isinstance(user_list, dict):
         return None
 
     names: list[str] = []
-    for element in _USER_ELEMENTS:
-        for entry in _as_list(raw.get(element)):
+    for user_tag in _USER_ELEMENT_TAGS:
+        for entry in _as_list(user_list.get(user_tag)):
             if isinstance(entry, dict):
-                for field in _USERNAME_FIELDS:
-                    value = (entry.get(field) or "").strip()
+                for username_tag in _USERNAME_TAGS:
+                    value = (entry.get(username_tag) or "").strip()
                     if value:
                         names.append(value)
                         break
@@ -173,30 +174,32 @@ def summarize(config: dict, host: str) -> list[dict]:
     reached by guest logon, and modern Windows blocks that.
     """
     shares = []
-    cfg = _share_config(config)
-    for raw in _as_list((cfg.get("Shares") or {}).get("Share")):
-        if not isinstance(raw, dict):
+    share_config = _find_share_config(config)
+    for share_entry in _as_list(
+            (share_config.get("Shares") or {}).get("Share")):
+        if not isinstance(share_entry, dict):
             continue
-        name = (raw.get("ShareName") or "").strip()
+        name = (share_entry.get("ShareName") or "").strip()
         if not name:
             continue
 
         users = []
         everyone = None
-        for u in _as_list((raw.get("ShareUsers") or {}).get("ShareUser")):
-            if not isinstance(u, dict):
+        for user in _as_list(
+                (share_entry.get("ShareUsers") or {}).get("ShareUser")):
+            if not isinstance(user, dict):
                 continue
-            uname = (u.get("ShareUsername") or "").strip()
-            code = str(u.get("ShareUserAccess", "")).strip()
-            described = ACCESS_LEVELS.get(code, f"unrecognised code {code}" if code else "unknown")
-            users.append({"name": uname, "access_code": code, "access": described})
-            if uname.lower() == "everyone":
-                everyone = described
+            user_name = (user.get("ShareUsername") or "").strip()
+            access_code = str(user.get("ShareUserAccess", "")).strip()
+            access_description = ACCESS_LEVELS.get(access_code, f"unrecognised code {access_code}" if access_code else "unknown")
+            users.append({"name": user_name, "access_code": access_code, "access": access_description})
+            if user_name.lower() == "everyone":
+                everyone = access_description
 
         shares.append({
             "name": name,
             "unc": unc_path(host, name) if host else "",
-            "time_machine": str(raw.get("TimeMachineEnabled", "0")).strip() == "1",
+            "time_machine": str(share_entry.get("TimeMachineEnabled", "0")).strip() == "1",
             "users": users,
             "everyone": everyone,
         })
@@ -231,8 +234,8 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
                         offering a door with nothing behind it
         accounts        the names, when known
     """
-    guest_only = [s["name"] for s in shares if s.get("everyone")]
-    if not guest_only:
+    guest_share_names = [s["name"] for s in shares if s.get("everyone")]
+    if not guest_share_names:
         return {
             "guest_shares": [],
             "headline": "",
@@ -244,14 +247,15 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
     # Every Everyone entry sitting on a code whose meaning is not confirmed.
     # Worth saying out loud, because if it turns out to mean "no access" then
     # credentials are not the problem and no amount of signing in will help.
-    unconfirmed = [s["name"] for s in shares
-                   if s.get("everyone")
-                   and any(u.get("name", "").lower() == "everyone"
-                           and u.get("access_code")
-                           not in CONFIRMED_ACCESS_CODES
-                           for u in s.get("users", []))]
+    unconfirmed_share_names = [
+        s["name"] for s in shares
+        if s.get("everyone")
+        and any(u.get("name", "").lower() == "everyone"
+                and u.get("access_code")
+                not in CONFIRMED_ACCESS_CODES
+                for u in s.get("users", []))]
 
-    windows_part = (
+    windows_explanation = (
         "The Drobo offers these shares to Everyone, which Windows treats as "
         "a guest login. Windows 11 stopped accepting guest logins to file "
         "servers, so it refuses before the Drobo is ever asked "
@@ -262,37 +266,37 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
         # Unchanged from the original: we do not know what accounts exist, so
         # we neither promise one nor deny one.
         headline = "Windows needs a username and password for these shares."
-        detail = (f"{windows_part} Nothing is wrong with the Drobo. Connect with "
+        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. Connect with "
                   "your Drobo user name and password instead and Windows will "
                   "let you straight in.")
         can_sign_in = True
     elif accounts:
-        named = ", ".join(accounts)
+        account_names_text = ", ".join(accounts)
         headline = "Windows needs a username and password for these shares."
-        detail = (f"{windows_part} Nothing is wrong with the Drobo. Sign in with "
+        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. Sign in with "
                   f"a Drobo account instead and Windows will let you straight "
-                  f"in. This Drobo has: {named}.")
+                  f"in. This Drobo has: {account_names_text}.")
         can_sign_in = True
     else:
         headline = "These shares cannot be opened from Windows yet."
         detail = (
-            f"{windows_part} The usual answer is to sign in as a named user "
-            "instead -- but this Drobo has no user accounts, so there is no "
-            "name to sign in with. Create one in Drobo Dashboard and give it "
-            "access to the share, then connect with it here."
+            f"{windows_explanation} The usual answer is to sign in as a "
+            "named user instead -- but this Drobo has no user accounts, so "
+            "there is no name to sign in with. Create one in Drobo Dashboard "
+            "and give it access to the share, then connect with it here."
         )
         can_sign_in = False
 
-    if unconfirmed:
+    if unconfirmed_share_names:
         detail += (
-            " Separately, " + _list_phrase(unconfirmed) + " currently set to an "
+            " Separately, " + _list_phrase(unconfirmed_share_names) + " currently set to an "
             "access level this project has not confirmed the meaning of. If it "
             "turns out to mean no access, permissions are a second and quite "
             "different problem, and signing in will not solve it."
         )
 
     return {
-        "guest_shares": guest_only,
+        "guest_shares": guest_share_names,
         "headline": headline,
         "detail": detail,
         "can_sign_in": can_sign_in,
@@ -317,33 +321,33 @@ def link_health(config: dict) -> dict:
     That is worth telling somebody, so it is computed here and surfaced beside
     the network settings.
     """
-    net = {}
+    network_config = {}
     if isinstance(config, dict):
-        inner = config.get("DRINASConfig")
-        net = (inner or {}).get("DRINasNetworkConfig") or config.get(
-            "DRINasNetworkConfig") or {}
+        nas_config = config.get("DRINASConfig")
+        network_config = ((nas_config or {}).get("DRINasNetworkConfig")
+                          or config.get("DRINasNetworkConfig") or {})
 
-    raw_speed = str(net.get("PortSpeed", "")).strip()
+    speed_text = str(network_config.get("PortSpeed", "")).strip()
     try:
-        speed = int(raw_speed)
+        speed_mbps = int(speed_text)
     except ValueError:
-        speed = None
+        speed_mbps = None
 
     result = {
-        "speed_mbps": speed,
-        "duplex": (net.get("PortDuplex") or "").strip(),
+        "speed_mbps": speed_mbps,
+        "duplex": (network_config.get("PortDuplex") or "").strip(),
         "degraded": False,
         "note": "",
     }
-    if speed is not None and 0 < speed < 1000:
+    if speed_mbps is not None and 0 < speed_mbps < 1000:
         result["degraded"] = True
         result["note"] = (
-            f"The Drobo's network port has connected at {speed} Mbit/s. This "
-            "model has a gigabit port, so file transfers are running at about "
-            f"{1000 // speed if speed else '?'}x slower than they could. The "
-            "usual causes are a damaged or low-grade network cable, or a "
-            "100 Mbit switch or wall socket. Swapping the cable for a Cat 5e "
-            "or better one is the first thing to try."
+            f"The Drobo's network port has connected at {speed_mbps} Mbit/s. "
+            "This model has a gigabit port, so file transfers are running at "
+            f"about {1000 // speed_mbps if speed_mbps else '?'}x slower than "
+            "they could. The usual causes are a damaged or low-grade network "
+            "cable, or a 100 Mbit switch or wall socket. Swapping the cable "
+            "for a Cat 5e or better one is the first thing to try."
         )
     if (result["duplex"] or "").lower() == "half":
         result["degraded"] = True

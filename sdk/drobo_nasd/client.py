@@ -173,9 +173,9 @@ class NasdClient:
 
         # Safety guard comes before the socket check, deliberately: refusing a
         # dangerous command must not depend on how far connection setup got.
-        name = command if isinstance(command, str) else commands.ID_TO_NAME.get(command)
-        if name is not None and name in commands.DO_NOT_SEND:
-            raise DangerousCommandError(f"refusing to send {name}: it is in commands.DO_NOT_SEND")
+        command_name = command if isinstance(command, str) else commands.ID_TO_NAME.get(command)
+        if command_name is not None and command_name in commands.DO_NOT_SEND:
+            raise DangerousCommandError(f"refusing to send {command_name}: it is in commands.DO_NOT_SEND")
 
         if self._sock is None:
             raise NotConnectedError("no socket -- call connect() and login() first")

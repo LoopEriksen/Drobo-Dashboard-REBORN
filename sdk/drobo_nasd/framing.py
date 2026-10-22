@@ -67,24 +67,25 @@ def encode_frame(payload: bytes, *, byteorder: str = "big") -> bytes:
     return _LENGTH_STRUCTS[byteorder].pack(len(payload)) + payload
 
 
-def decode_frame(buf: bytes, *, byteorder: str = "big") -> Tuple[bytes, bytes]:
+def decode_frame(data: bytes, *,
+                 byteorder: str = "big") -> Tuple[bytes, bytes]:
     """
-    Decode one frame from the front of `buf`. Returns (payload, remainder).
+    Decode one frame from the front of `data`. Returns (payload, remainder).
 
-    Raises FramingError if `buf` does not yet contain a complete frame -- the
+    Raises FramingError if `data` does not yet contain a complete frame -- the
     caller should read more bytes from the socket and retry (this is exactly
     the "Size %d, Received %d" situation the daemon logs).
     """
-    lstruct = _LENGTH_STRUCTS.get(byteorder)
-    if lstruct is None:
+    length_struct = _LENGTH_STRUCTS.get(byteorder)
+    if length_struct is None:
         raise ValueError(f"byteorder must be 'big' or 'little', got {byteorder!r}")
-    if len(buf) < lstruct.size:
-        raise FramingError(f"need {lstruct.size} bytes for the length prefix, have {len(buf)}")
-    (length,) = lstruct.unpack(buf[: lstruct.size])
-    end = lstruct.size + length
-    if len(buf) < end:
-        raise FramingError(f"incomplete frame: need {length} bytes, have {len(buf) - lstruct.size}")
-    return buf[lstruct.size : end], buf[end:]
+    if len(data) < length_struct.size:
+        raise FramingError(f"need {length_struct.size} bytes for the length prefix, have {len(data)}")
+    (length,) = length_struct.unpack(data[: length_struct.size])
+    frame_end = length_struct.size + length
+    if len(data) < frame_end:
+        raise FramingError(f"incomplete frame: need {length} bytes, have {len(data) - length_struct.size}")
+    return data[length_struct.size : frame_end], data[frame_end:]
 
 
 class FrameAssembler:
@@ -96,23 +97,23 @@ class FrameAssembler:
     """
 
     def __init__(self, byteorder: str = "big"):
-        self._buf = b""
+        self._buffer = b""
         self._byteorder = byteorder
 
     def feed(self, data: bytes) -> List[bytes]:
-        self._buf += data
+        self._buffer += data
         frames: List[bytes] = []
         while True:
             try:
-                payload, rest = decode_frame(self._buf, byteorder=self._byteorder)
+                payload, rest = decode_frame(self._buffer, byteorder=self._byteorder)
             except FramingError:
                 break
             frames.append(payload)
-            self._buf = rest
+            self._buffer = rest
         return frames
 
     def pending_bytes(self) -> int:
-        return len(self._buf)
+        return len(self._buffer)
 
 
 # ---------------------------------------------------------------------------
@@ -164,15 +165,17 @@ class NasdHeader:
     def candidate_a_signature_then_length(cls, payload_length: int, *, signature: bytes = None) -> bytes:
         """CANDIDATE A: [8-byte signature]['DRINASD4' by default][4-byte
         big-endian payload length]. UNCONFIRMED."""
-        sig = signature if signature is not None else cls.SIGNATURE_V4
-        return sig + struct.pack(">I", payload_length)
+        chosen_signature = (signature if signature is not None
+                            else cls.SIGNATURE_V4)
+        return chosen_signature + struct.pack(">I", payload_length)
 
     @classmethod
     def candidate_b_length_then_signature(cls, payload_length: int, *, signature: bytes = None) -> bytes:
         """CANDIDATE B: [4-byte little-endian payload length][8-byte
         signature]. UNCONFIRMED."""
-        sig = signature if signature is not None else cls.SIGNATURE_V4
-        return struct.pack("<I", payload_length) + sig
+        chosen_signature = (signature if signature is not None
+                            else cls.SIGNATURE_V4)
+        return struct.pack("<I", payload_length) + chosen_signature
 
     @classmethod
     def candidate_c_legacy_signature(cls, payload_length: int) -> bytes:
