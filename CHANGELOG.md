@@ -273,6 +273,7 @@ released. Every push to this repository carries this file.
   - The SDK's DroboApps, Identify, DroboSync and share modules
     (`droboapps.py`, `identify.py`, `drobosync.py`, `shares.py`,
     `shareedit.py`)
+  - The agent's HTTP API (`agent/drobo_agent/api.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in
