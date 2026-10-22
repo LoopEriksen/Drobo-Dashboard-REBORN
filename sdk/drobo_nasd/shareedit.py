@@ -132,7 +132,8 @@ def _assert_only_shares_changed(before: dict, after: dict) -> None:
             "the network.")
 
 
-def _assert_no_share_lost(before: dict, after: dict, allow_removed: str | None = None) -> None:
+def _assert_no_share_lost(before: dict, after: dict,
+                          allow_removed: str | None = None) -> None:
     """No share may disappear except the one explicitly being removed."""
     lost_share_names = set(share_names(before)) - set(share_names(after))
     if allow_removed is not None:
@@ -188,7 +189,8 @@ def set_user_access(config: dict, share_name: str, username: str,
 
     users = _user_entries(target_share)
     for user in users:
-        if (user.get("ShareUsername") or "").strip().lower() == username.strip().lower():
+        if ((user.get("ShareUsername") or "").strip().lower()
+                == username.strip().lower()):
             user["ShareUserAccess"] = str(access_code)
             break
     else:
@@ -198,7 +200,8 @@ def set_user_access(config: dict, share_name: str, username: str,
     # Normalise back to the device's own shape: one user is a dict, several a
     # list. Writing a list where the device expects a dict is exactly the kind
     # of malformed document that makes eCmdSetConfig dangerous.
-    target_share["ShareUsers"] = {"ShareUser": users[0] if len(users) == 1 else users}
+    target_share["ShareUsers"] = {
+        "ShareUser": users[0] if len(users) == 1 else users}
 
     _assert_only_shares_changed(config, edited_config)
     _assert_no_share_lost(config, edited_config)

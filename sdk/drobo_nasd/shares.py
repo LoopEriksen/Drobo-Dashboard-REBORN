@@ -191,15 +191,20 @@ def summarize(config: dict, host: str) -> list[dict]:
                 continue
             user_name = (user.get("ShareUsername") or "").strip()
             access_code = str(user.get("ShareUserAccess", "")).strip()
-            access_description = ACCESS_LEVELS.get(access_code, f"unrecognised code {access_code}" if access_code else "unknown")
-            users.append({"name": user_name, "access_code": access_code, "access": access_description})
+            access_description = ACCESS_LEVELS.get(
+                access_code,
+                f"unrecognised code {access_code}" if access_code
+                else "unknown")
+            users.append({"name": user_name, "access_code": access_code,
+                          "access": access_description})
             if user_name.lower() == "everyone":
                 everyone = access_description
 
         shares.append({
             "name": name,
             "unc": unc_path(host, name) if host else "",
-            "time_machine": str(share_entry.get("TimeMachineEnabled", "0")).strip() == "1",
+            "time_machine": str(
+                share_entry.get("TimeMachineEnabled", "0")).strip() == "1",
             "users": users,
             "everyone": everyone,
         })
@@ -208,7 +213,8 @@ def summarize(config: dict, host: str) -> list[dict]:
     return shares
 
 
-def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict:
+def access_advice(shares: list[dict],
+                  accounts: list[str] | None = None) -> dict:
     """
     What a front-end should tell the owner about opening these shares.
 
@@ -266,16 +272,17 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
         # Unchanged from the original: we do not know what accounts exist, so
         # we neither promise one nor deny one.
         headline = "Windows needs a username and password for these shares."
-        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. Connect with "
-                  "your Drobo user name and password instead and Windows will "
-                  "let you straight in.")
+        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. "
+                  "Connect with your Drobo user name and password instead "
+                  "and Windows will let you straight in.")
         can_sign_in = True
     elif accounts:
         account_names_text = ", ".join(accounts)
         headline = "Windows needs a username and password for these shares."
-        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. Sign in with "
-                  f"a Drobo account instead and Windows will let you straight "
-                  f"in. This Drobo has: {account_names_text}.")
+        detail = (f"{windows_explanation} Nothing is wrong with the Drobo. "
+                  f"Sign in with a Drobo account instead and Windows will "
+                  f"let you straight in. This Drobo has: "
+                  f"{account_names_text}.")
         can_sign_in = True
     else:
         headline = "These shares cannot be opened from Windows yet."
@@ -289,8 +296,10 @@ def access_advice(shares: list[dict], accounts: list[str] | None = None) -> dict
 
     if unconfirmed_share_names:
         detail += (
-            " Separately, " + _list_phrase(unconfirmed_share_names) + " currently set to an "
-            "access level this project has not confirmed the meaning of. If it "
+            " Separately, " + _list_phrase(unconfirmed_share_names)
+            + " currently set to an "
+            "access level this project has not confirmed the meaning of. "
+            "If it "
             "turns out to mean no access, permissions are a second and quite "
             "different problem, and signing in will not solve it."
         )

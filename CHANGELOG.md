@@ -270,6 +270,9 @@ released. Every push to this repository carries this file.
   (2026-10-19):
   - The SDK's config and share-write modules (`config_cmd.py`,
     `sharewrite.py`)
+  - The SDK's DroboApps, Identify, DroboSync and share modules
+    (`droboapps.py`, `identify.py`, `drobosync.py`, `shares.py`,
+    `shareedit.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

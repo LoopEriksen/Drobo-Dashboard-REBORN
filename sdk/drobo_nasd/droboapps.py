@@ -229,7 +229,8 @@ def _query_reply_body(host: str, esa_id: str, command_name: str,
 def get_dimming(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> int | None:
     """LED brightness as the device reports it. Read-only; see parse_dimming."""
-    return parse_dimming(_query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
+    return parse_dimming(
+        _query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
 
 
 # The fields the <General> block is known to carry, in the order the device
@@ -285,17 +286,20 @@ def _extract_general_block(before: dict) -> dict:
     if isinstance(block, dict) and "DRINASConfig" in block \
             and isinstance(block["DRINASConfig"], dict):
         block = block["DRINASConfig"]
-    if isinstance(block, dict) and "General" in block and isinstance(block["General"], dict):
+    if (isinstance(block, dict) and "General" in block
+            and isinstance(block["General"], dict)):
         block = block["General"]
     if not isinstance(block, dict) or not (set(block) & set(_GENERAL_FIELDS)):
         raise GeneralWriteError(
-            "the device's General config did not parse into the expected fields; "
-            "refusing to write a block built from an unrecognised shape "
+            "the device's General config did not parse into the expected "
+            "fields; refusing to write a block built from an unrecognised "
+            "shape "
             f"(got keys {sorted(block) if isinstance(block, dict) else type(block).__name__})")
     return block
 
 
-def _make_general_block_builder(field_name=None, new_value=None, *, changes: dict | None = None):
+def _make_general_block_builder(field_name=None, new_value=None, *,
+                                changes: dict | None = None):
     """
     Build a set_config build_section_document that changes ONLY the named
     field(s) in the <General> block and echoes every other sibling back
@@ -330,9 +334,9 @@ def _make_general_block_builder(field_name=None, new_value=None, *, changes: dic
         unrecognised_fields = set(block) - set(_GENERAL_FIELDS)
         if unrecognised_fields:
             raise GeneralWriteError(
-                f"the General block has fields this build does not know how to "
-                f"preserve ({sorted(unrecognised_fields)}); refusing to write "
-                f"rather than risk dropping them")
+                f"the General block has fields this build does not know how "
+                f"to preserve ({sorted(unrecognised_fields)}); refusing to "
+                f"write rather than risk dropping them")
         missing_fields = set(_GENERAL_FIELDS) - set(block)
         if missing_fields:
             raise GeneralWriteError(
@@ -419,8 +423,8 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
         raise DimmingWriteError(
             f"brightness {value} is outside the "
             f"{_DIMMING_MIN}-{_DIMMING_MAX} sanity "
-            f"band; the scale is unconfirmed, so a value beyond it is far more "
-            f"likely a mistake than an intention")
+            f"band; the scale is unconfirmed, so a value beyond it is far "
+            f"more likely a mistake than an intention")
 
     # The read-back doubles as config_cmd's arbiter for a write the device never
     # acknowledges: sent, socket closed, no result frame. Reporting that as a
@@ -463,7 +467,8 @@ def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     command to depend on.
     """
     from .config_cmd import get_config
-    block = _extract_general_block(get_config(host, esa_id, "general", port=port, timeout=timeout))
+    block = _extract_general_block(
+        get_config(host, esa_id, "general", port=port, timeout=timeout))
     delay_text = block.get("SpindownDelay")
     if not isinstance(delay_text, str) or not delay_text.strip():
         return None
@@ -519,7 +524,8 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
 
     if isinstance(delay, bool) or not isinstance(delay, int):
         raise SpindownWriteError(
-            f"spin-down delay must be a whole number, not {type(delay).__name__}")
+            f"spin-down delay must be a whole number, "
+            f"not {type(delay).__name__}")
     if delay == 0:
         raise SpindownWriteError(
             "a spin-down delay of 0 does not disable spin-down -- the device "
@@ -528,8 +534,8 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
     if not (_SPINDOWN_MIN < delay <= _SPINDOWN_MAX):
         raise SpindownWriteError(
             f"spin-down delay {delay} is outside the 1-{_SPINDOWN_MAX} sanity "
-            f"band; the units are unconfirmed, so a value beyond it is far more "
-            f"likely a mistake than an intention")
+            f"band; the units are unconfirmed, so a value beyond it is far "
+            f"more likely a mistake than an intention")
 
     def spindown_changes_for(before: dict) -> dict:
         block = _extract_general_block(before)
@@ -563,8 +569,8 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
     result["verified"] = read_back == delay
     if read_back != delay:
         raise SpindownWriteError(
-            f"the device accepted the write but the spin-down delay reads back "
-            f"as {read_back!r}, not {delay}. Received, not applied.")
+            f"the device accepted the write but the spin-down delay reads "
+            f"back as {read_back!r}, not {delay}. Received, not applied.")
     return result
 
 
@@ -627,7 +633,8 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
 def get_demo_mode(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
     """Whether this unit is in shop-display mode. See parse_demo_mode."""
-    return parse_demo_mode(_query_reply_body(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
+    return parse_demo_mode(
+        _query_reply_body(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
 
 
 def get_droboapps(host: str, esa_id: str, port: int = DEFAULT_PORT,
@@ -711,14 +718,16 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     if action not in _APP_ACTIONS:
         raise DroboAppsActionError(
             f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- the "
-            f"device's verbs are case-sensitive and only these two are confirmed")
+            f"device's verbs are case-sensitive and only these two are "
+            f"confirmed")
     app_name = (name or "").strip()
     if not app_name:
         raise DroboAppsActionError("no app name given")
 
     command_name = "eCmdDroboAppsAction"
     if command_name not in _commands.VETTED_WRITES:
-        raise DroboAppsActionError(f"{command_name} is not a vetted write (commands.VETTED_WRITES)")
+        raise DroboAppsActionError(
+            f"{command_name} is not a vetted write (commands.VETTED_WRITES)")
     command_id = _commands.COMMANDS.get(command_name)
     if command_id is None:
         raise DroboAppsActionError(
@@ -746,17 +755,20 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
-        raise DroboAppsActionError(f"could not reach the command port: {exc}") from exc
+        raise DroboAppsActionError(
+            f"could not reach the command port: {exc}") from exc
     sock.settimeout(timeout)
     try:
         sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
         frame_type, _ = _read_frame(sock)
         if frame_type != TYPE_LOGIN_OK:
-            raise DroboAppsActionError(f"login refused (type 0x{frame_type:02x})")
+            raise DroboAppsActionError(
+                f"login refused (type 0x{frame_type:02x})")
         sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
         frame_type, body = _read_frame(sock)
         if frame_type != TYPE_RESULT:
-            raise DroboAppsActionError(f"unexpected reply type 0x{frame_type:02x}")
+            raise DroboAppsActionError(
+                f"unexpected reply type 0x{frame_type:02x}")
         result_code = _parse_result_code(body or b"")
         if result_code != RESULT_ACCEPTED:
             raise DroboAppsActionError(

@@ -114,7 +114,9 @@ def parse_sync_reply(payload: bytes) -> dict:
     inner_document = _inner_document(details)
     document_root = inner_document if inner_document is not None else details
 
-    raw_xml = ElementTree.tostring(document_root, encoding="unicode").strip() if inner_document is not None else ""
+    raw_xml = (
+        ElementTree.tostring(document_root, encoding="unicode").strip()
+        if inner_document is not None else "")
     if not raw_xml:
         raw_xml = (details.text or "").strip()
 

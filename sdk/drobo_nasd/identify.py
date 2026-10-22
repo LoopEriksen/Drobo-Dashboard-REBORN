@@ -188,7 +188,8 @@ def validate_interval(interval: int | None) -> int | None:
             f"interval must be a whole number of units or None, not "
             f"{type(interval).__name__}")
     if interval < 0:
-        raise IdentifyParameterError(f"interval must not be negative (got {interval})")
+        raise IdentifyParameterError(
+            f"interval must not be negative (got {interval})")
     if interval > MAX_INTERVAL:
         raise IdentifyParameterError(
             f"interval {interval} is beyond the {MAX_INTERVAL} sanity limit; "
@@ -273,7 +274,8 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
         raise IdentifyError(f"{COMMAND_NAME} is on the do-not-send list")
     if not _commands.is_safe_write(COMMAND_NAME):
         raise IdentifyError(
-            f"{COMMAND_NAME} is not on the approved-write list (commands.SAFE_WRITES)")
+            f"{COMMAND_NAME} is not on the approved-write list "
+            f"(commands.SAFE_WRITES)")
 
     command_id = _commands.COMMANDS.get(COMMAND_NAME)
     if command_id is None:
@@ -300,7 +302,8 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
 
 
 def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
-               timeout: float, command_id: int, interval: int | None = None) -> dict:
+               timeout: float, command_id: int,
+               interval: int | None = None) -> dict:
     """One attempt. Connection problems propagate for the caller to retry."""
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -334,7 +337,9 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
         # raised no objection. Identify returns it and blinks nothing, so this
         # is not evidence the command did anything.
         result_code = None
-        result_match = _RESULT_RE.search(reply_text.decode("utf-8", "replace")) if reply_text else None
+        result_match = (
+            _RESULT_RE.search(reply_text.decode("utf-8", "replace"))
+            if reply_text else None)
         if result_match:
             try:
                 result_code = int(result_match.group(1))
@@ -346,7 +351,8 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
             "command": COMMAND_NAME,
             "command_id": command_id,
             "result_code": result_code,
-            "accepted": result_code == _envelope.RESULT_ACCEPTED if result_code is not None else None,
+            "accepted": (result_code == _envelope.RESULT_ACCEPTED
+                         if result_code is not None else None),
             # Reported back so a caller writing down a measurement records
             # what was actually asked for. "The lights blinked" is worth
             # nothing without the interval that produced it, and the whole
@@ -384,7 +390,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="py -m drobo_nasd.identify",
-        description="Make a Drobo blink its front lights, and watch what happens.")
+        description=("Make a Drobo blink its front lights, and watch what "
+                     "happens."))
     parser.add_argument("host", help="the Drobo's address")
     parser.add_argument(
         "--interval", type=int, default=DEFAULT_INTERVAL,
@@ -414,12 +421,14 @@ def _main(argv: list[str] | None = None) -> int:
 
     from . import esatm
     try:
-        esa_id = esatm.parse_identity(esatm.fetch_greeting(args.host)).get("esa_id")
+        esa_id = esatm.parse_identity(
+            esatm.fetch_greeting(args.host)).get("esa_id")
     except OSError as exc:
         print(f"Could not reach {args.host} on the status port: {exc}")
         return 1
     if not esa_id:
-        print(f"{args.host} answered but did not give a serial; cannot send commands.")
+        print(f"{args.host} answered but did not give a serial; "
+              "cannot send commands.")
         return 1
 
     def send_and_report(interval, label):
@@ -430,12 +439,15 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"    refused: {exc}")
             return False
         print(f"    sent, interval={send_result['interval']!r}"
-              + (f", device replied {send_result['reply_bytes']} bytes" if send_result["device_replied"]
-                 else ", device replied with nothing (normal for this command)"))
+              + (f", device replied {send_result['reply_bytes']} bytes"
+                 if send_result["device_replied"]
+                 else ", device replied with nothing (normal for this "
+                      "command)"))
         return True
 
     if args.compare:
-        print("WATCH THE DROBO. Two sends, and only the second carries an interval.")
+        print("WATCH THE DROBO. Two sends, and only the second carries an "
+              "interval.")
         any_accepted = send_and_report(
             None, "1/2  empty <Params>  -- the old behaviour")
         # A real gap. The device has been seen to decline a second Identify
@@ -443,7 +455,9 @@ def _main(argv: list[str] | None = None) -> int:
         # over before send 2 or the comparison proves nothing.
         print(f"\n  ...waiting {args.gap:g}s so the two cannot be confused...")
         time.sleep(args.gap)
-        any_accepted = send_and_report(DEFAULT_INTERVAL, f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or any_accepted
+        any_accepted = send_and_report(
+            DEFAULT_INTERVAL,
+            f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or any_accepted
         print("\n  Which one blinked? That is the measurement.")
         return 0 if any_accepted else 1
 
