@@ -304,15 +304,15 @@ class PhotoStore:
             # A resume must not clobber the original capture date. The phone
             # only sends taken_at on the first begin(); if we overwrote it here
             # every interrupted upload would end up filed under today.
-            when = taken_at
-            if when is None and os.path.exists(meta):
+            capture_time = taken_at
+            if capture_time is None and os.path.exists(meta):
                 try:
-                    when = json.load(open(meta, encoding="utf-8")).get("taken_at")
+                    capture_time = json.load(open(meta, encoding="utf-8")).get("taken_at")
                 except (OSError, ValueError):
-                    when = None
+                    capture_time = None
             with open(meta, "w", encoding="utf-8") as fh:
                 json.dump({"filename": name, "total": total_bytes,
-                           "taken_at": when or time.time()}, fh)
+                           "taken_at": capture_time or time.time()}, fh)
             if not os.path.exists(part):
                 open(part, "wb").close()
             return {"status": "ready", "sha256": digest,
@@ -383,7 +383,8 @@ class PhotoStore:
                 raise PhotoStoreError(
                     "content does not match the declared sha256; upload discarded")
 
-            relative = self._place(info["filename"], info["taken_at"], part)
+            relative = self._move_into_library(
+                info["filename"], info["taken_at"], part)
             os.remove(meta)
             self._index[digest] = relative
             self._dirty = True
@@ -391,7 +392,8 @@ class PhotoStore:
             return {"status": "stored", "sha256": digest, "path": relative,
                     "bytes": size}
 
-    def _place(self, name: str, taken_at: float, source_path: str) -> str:
+    def _move_into_library(self, name: str, taken_at: float,
+                           source_path: str) -> str:
         """Move a completed upload into the library. Caller holds the lock."""
         relative = self._destination(name, taken_at)
         absolute = os.path.join(self.target_dir, relative)

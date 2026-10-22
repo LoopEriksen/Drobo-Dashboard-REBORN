@@ -317,13 +317,13 @@ if os.path.exists(_checker_path):
     _checker = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(_checker)
 
-    _found, _unreadable = _checker.collect()
+    _found, _unreadable = _checker.collect_versions()
     check("every file that states the version could be read", _unreadable == [], _unreadable)
     check("-- and every one of them actually states it",
           all(v is not None for v in _found.values()),
           [k for k, v in _found.items() if v is None])
     check("all seven places are checked, not a subset", len(_found) == 7, sorted(_found))
-    check("every place agrees on one number", _checker.problems() == [], _checker.problems())
+    check("every place agrees on one number", _checker.find_problems() == [], _checker.find_problems())
 
     # The agent's own two copies are the pair most easily forgotten, because
     # neither is derived from the other: api.VERSION is what /api/ping and the
@@ -340,37 +340,37 @@ if os.path.exists(_checker_path):
     # entry of the rule at a place that says something else on purpose -- this
     # file's own CURRENT, which is 0.1.0 -- so the real tree is never edited to
     # test the thing that guards it.
-    _original = _checker.PLACES[:]
+    _original = _checker.VERSION_PLACES[:]
     try:
-        _checker.PLACES = _original[:-1] + [(
+        _checker.VERSION_PLACES = _original[:-1] + [(
             "a deliberately different place",
             os.path.join("agent", "tests", "test_updates.py"),
             '^CURRENT = "([^"]+)"',
         )]
-        _seeded = _checker.problems()
+        _seeded = _checker.find_problems()
     finally:
-        _checker.PLACES = _original
+        _checker.VERSION_PLACES = _original
     check("a place that disagrees is reported", len(_seeded) == 1, _seeded)
     check("-- naming what it found and what it expected",
           _seeded and CURRENT in _seeded[0] and _found["csproj <Version>"] in _seeded[0],
           _seeded)
     check("-- and the real tree is unaffected by that probe",
-          _checker.problems() == [], _checker.problems())
+          _checker.find_problems() == [], _checker.find_problems())
 
     # A four-part AssemblyVersion is checked against the three-part number, not
     # merely against the other four-part one: 1.0.0 with 1.0.1.0 twice is still
     # a release that lies about itself.
-    _original = _checker.PLACES[:]
+    _original = _checker.VERSION_PLACES[:]
     try:
-        _checker.PLACES = [
+        _checker.VERSION_PLACES = [
             (label, path, pattern) for (label, path, pattern) in _original
             if label != "csproj <AssemblyVersion>"
         ] + [("csproj <AssemblyVersion>",
               os.path.join("agent", "tests", "test_updates.py"),
               '^CURRENT = "([^"]+)"')]
-        _four = _checker.problems()
+        _four = _checker.find_problems()
     finally:
-        _checker.PLACES = _original
+        _checker.VERSION_PLACES = _original
     check("a four-part number that does not extend the three-part one is caught",
           len(_four) == 1 and "fourth field" in _four[0], _four)
 

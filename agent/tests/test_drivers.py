@@ -1,5 +1,5 @@
 """
-Tests for Drobo5NDriver -- _read_temperature(), the one part of the real
+Tests for Drobo5NDriver -- _read_sysinfo(), the one part of the real
 driver that has actually run against a live 5N (see drivers.py's docstring on
 it, 2026-07-26), and _read_event_log(), which follows its pattern.
 
@@ -75,8 +75,9 @@ print("== default rate limit is two minutes, as documented ==")
 d_default = drivers.Drobo5NDriver({"host": HOST})
 check("sysinfo_seconds defaults to 120.0", d_default.sysinfo_seconds == 120.0,
       d_default.sysinfo_seconds)
-check("no reading yet means temperature_c is None, not 0", d_default._temp_c is None)
-check("no reading yet means uptime is None, not 0", d_default._uptime is None)
+check("no reading yet means temperature_c is None, not 0", d_default._temperature_c is None)
+check("no reading yet means uptime is None, not 0",
+      d_default._uptime_seconds is None)
 
 print("\n== rate limit: a second call inside the window never reaches the device ==")
 calls = []
@@ -84,20 +85,24 @@ nasd_sysinfo.get_sysinfo_and_performance = fake_ok(calls, temperature_c=36, upti
 try:
     d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 100000})
     d._known_esa_id = ESA_ID
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
     check("first call reaches the device", len(calls) == 1, calls)
-    check("temperature cached from that call", d._temp_c == 36, d._temp_c)
-    check("uptime cached from that call", d._uptime == 1000, d._uptime)
-    first_temp_at = d._temp_at
+    check("temperature cached from that call", d._temperature_c == 36,
+          d._temperature_c)
+    check("uptime cached from that call", d._uptime_seconds == 1000,
+          d._uptime_seconds)
+    first_temp_at = d._temperature_read_at
     check("a timestamp was stamped", first_temp_at is not None)
 
-    d._read_temperature(HOST)
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
+    d._read_sysinfo(HOST)
     check("further calls inside sysinfo_seconds do not reach the device",
           len(calls) == 1, calls)
-    check("cached temperature is unchanged", d._temp_c == 36, d._temp_c)
+    check("cached temperature is unchanged", d._temperature_c == 36,
+          d._temperature_c)
     check("cached timestamp is unchanged (no fresh read happened)",
-          d._temp_at == first_temp_at, (d._temp_at, first_temp_at))
+          d._temperature_read_at == first_temp_at,
+          (d._temperature_read_at, first_temp_at))
 finally:
     nasd_sysinfo.get_sysinfo_and_performance = _orig_get_sysinfo_and_performance
 
@@ -107,13 +112,14 @@ nasd_sysinfo.get_sysinfo_and_performance = fake_ok(calls, temperature_c=40, upti
 try:
     d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.05})
     d._known_esa_id = ESA_ID
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
     check("first call reaches the device", len(calls) == 1, calls)
     time.sleep(0.08)
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
     check("a call after the window elapsed reaches the device again",
           len(calls) == 2, calls)
-    check("temperature refreshed to the new value", d._temp_c == 40, d._temp_c)
+    check("temperature refreshed to the new value", d._temperature_c == 40,
+          d._temperature_c)
 finally:
     nasd_sysinfo.get_sysinfo_and_performance = _orig_get_sysinfo_and_performance
 
@@ -125,9 +131,9 @@ try:
     # _known_esa_id left blank -- exactly the state before a status read
     # ever succeeds.
     check("starts blank", d._known_esa_id == "", d._known_esa_id)
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
     check("no esa_id means no attempt at all", calls == [], calls)
-    check("temperature stays None", d._temp_c is None, d._temp_c)
+    check("temperature stays None", d._temperature_c is None, d._temperature_c)
 finally:
     nasd_sysinfo.get_sysinfo_and_performance = _orig_get_sysinfo_and_performance
 
@@ -137,9 +143,9 @@ nasd_sysinfo.get_sysinfo_and_performance = fake_ok(calls, temperature_c=42, upti
 try:
     d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.05})
     d._known_esa_id = ESA_ID
-    d._read_temperature(HOST)
-    check("first good read cached", d._temp_c == 42, d._temp_c)
-    good_temp_at = d._temp_at
+    d._read_sysinfo(HOST)
+    check("first good read cached", d._temperature_c == 42, d._temperature_c)
+    good_temp_at = d._temperature_read_at
     time.sleep(0.08)
 
     def _unreachable(host, esa_id, port=None, timeout=8.0):
@@ -147,13 +153,14 @@ try:
         raise OSError("device unreachable (simulated)")
 
     nasd_sysinfo.get_sysinfo_and_performance = _unreachable
-    d._read_temperature(HOST)
+    d._read_sysinfo(HOST)
     check("a failed read still counts as an attempt (rate limit still applies)",
           len(calls) == 2, calls)
-    check("last known good temperature is kept, not blanked", d._temp_c == 42, d._temp_c)
+    check("last known good temperature is kept, not blanked", d._temperature_c == 42, d._temperature_c)
     check("its original timestamp is kept too -- this reading really is that old",
-          d._temp_at == good_temp_at, (d._temp_at, good_temp_at))
-    check("uptime is kept too", d._uptime == 5000, d._uptime)
+          d._temperature_read_at == good_temp_at,
+          (d._temperature_read_at, good_temp_at))
+    check("uptime is kept too", d._uptime_seconds == 5000, d._uptime_seconds)
 
     # ConfigError is the other declared failure mode (get_sysinfo_and_performance raises
     # SysInfoError, a ConfigError subclass, e.g. on a bad login/reply) and
@@ -164,14 +171,15 @@ try:
 
     nasd_sysinfo.get_sysinfo_and_performance = _refused
     time.sleep(0.08)
-    d._read_temperature(HOST)
-    check("ConfigError also leaves the cached temperature intact", d._temp_c == 42, d._temp_c)
+    d._read_sysinfo(HOST)
+    check("ConfigError also leaves the cached temperature intact", d._temperature_c == 42, d._temperature_c)
     check("ConfigError also leaves the cached timestamp intact",
-          d._temp_at == good_temp_at, (d._temp_at, good_temp_at))
+          d._temperature_read_at == good_temp_at,
+          (d._temperature_read_at, good_temp_at))
 finally:
     nasd_sysinfo.get_sysinfo_and_performance = _orig_get_sysinfo_and_performance
 
-print("\n== _read_temperature never raises on the two declared failure modes ==")
+print("\n== _read_sysinfo never raises on the two declared failure modes ==")
 for exc, name in ((OSError("boom"), "OSError"), (config_cmd.ConfigError("boom"), "ConfigError")):
     def _raiser(host, esa_id, port=None, timeout=8.0, _exc=exc):
         raise _exc
@@ -180,7 +188,7 @@ for exc, name in ((OSError("boom"), "OSError"), (config_cmd.ConfigError("boom"),
         d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.0})
         d._known_esa_id = ESA_ID
         try:
-            d._read_temperature(HOST)
+            d._read_sysinfo(HOST)
             check(f"{name} is swallowed, not propagated", True)
         except Exception as caught:  # noqa: BLE001 -- this IS the check
             check(f"{name} is swallowed, not propagated", False, caught)
@@ -199,7 +207,7 @@ try:
     d = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.0})
     d._known_esa_id = ESA_ID
     try:
-        d._read_temperature(HOST)
+        d._read_sysinfo(HOST)
         check("an unexpected exception type propagates rather than being hidden", False)
     except ValueError:
         check("an unexpected exception type propagates rather than being hidden", True)

@@ -992,7 +992,7 @@ class Drobo5NDriver(DroboDriver):
 
     Read-only, but no longer silent: as of 2026-07-26 it also asks the device
     for its chassis temperature (eCmdGetSysInfo, a query) at most once every
-    two minutes. See _read_temperature() for why it is that infrequent. Since
+    two minutes. See _read_sysinfo() for why it is that infrequent. Since
     2026-08-21 it also fetches the device's own event log
     (eCmdGetUserEventLog, another query) on its own, slower cadence -- see
     _read_event_log().
@@ -1038,23 +1038,23 @@ class Drobo5NDriver(DroboDriver):
         self._known_esa_id: str = self.expected_esa_id
 
         # Temperature comes from a command, not the status greeting, so it
-        # costs a second connection to the device. See _read_temperature().
+        # costs a second connection to the device. See _read_sysinfo().
         self.sysinfo_seconds = float(cfg.get("sysinfo_seconds", 120.0))
-        self._temp_c: int | None = None
-        self._temp_at: float | None = None
-        self._temp_tried_at: float = 0.0
+        self._temperature_c: int | None = None
+        self._temperature_read_at: float | None = None
+        self._sysinfo_tried_at: float = 0.0
         # Uptime rides the same reply but keeps its own timestamp: a
         # reply can carry either reading without the other, and each
         # must age from the moment it was actually read.
-        self._uptime: int | None = None
+        self._uptime_seconds: int | None = None
         self._uptime_read_at: float | None = None
         # Throughput/IOPS, fetched on the same connection as the temperature.
         # None until the device has answered once -- distinct from "all zeros",
         # which is what a real but idle array reports.
         self._perf: dict | None = None
-        # When `_perf` arrived -- the twin of `_temp_at`. A failed
-        # fetch keeps the old figures, so this, not the poll time, is
-        # their age.
+        # When `_perf` arrived -- the twin of `_temperature_read_at`. A
+        # failed fetch keeps the old figures, so this, not the poll
+        # time, is their age.
         self._perf_at: float | None = None
         # The device's own event log (eCmdGetUserEventLog), cached like the
         # temperature but on a slower clock: it costs its own command-port
@@ -1066,7 +1066,7 @@ class Drobo5NDriver(DroboDriver):
         self._eventlog_warned: str = ""
 
     @property
-    def _auto(self) -> bool:
+    def _uses_auto_discovery(self) -> bool:
         return not self.host or self.host.lower() == "auto"
 
     def target_host(self) -> str:
@@ -1080,7 +1080,7 @@ class Drobo5NDriver(DroboDriver):
         """
         if self._resolved_host:
             return self._resolved_host
-        return "" if self._auto else self.host
+        return "" if self._uses_auto_discovery else self.host
 
     def _remember(self, esa_id: str, host: str, port: int) -> None:
         self._resolved_host = host
@@ -1089,7 +1089,7 @@ class Drobo5NDriver(DroboDriver):
             self._known_esa_id = esa_id
 
     def _discover(self) -> discovery.VerificationResult:
-        last_known = self._resolved_host or (self.host if not self._auto else "")
+        last_known = self._resolved_host or (self.host if not self._uses_auto_discovery else "")
         try:
             verified = discovery.resolve(
                 expected_esa_id=self._known_esa_id,
@@ -1145,7 +1145,7 @@ class Drobo5NDriver(DroboDriver):
         return verified
 
     def connect(self) -> None:
-        if self._auto:
+        if self._uses_auto_discovery:
             verified = self._discover()
             print(
                 f"[drobo5n] discovered {verified.candidate.host}:{verified.candidate.port} "
@@ -1194,15 +1194,16 @@ class Drobo5NDriver(DroboDriver):
 
         self._remember(snap.device.serial, host, port)
         snap.device.ip = host
-        self._read_temperature(host)
-        snap.device.temperature_c = self._temp_c
-        snap.device.temperature_at = self._temp_at
-        if self._uptime is not None and self._uptime_read_at is not None:
+        self._read_sysinfo(host)
+        snap.device.temperature_c = self._temperature_c
+        snap.device.temperature_at = self._temperature_read_at
+        if (self._uptime_seconds is not None
+                and self._uptime_read_at is not None):
             # Uptime arrives with the temperature, then keeps counting on its
             # own -- no need to ask the device again just to watch a clock.
             seconds_since_read = time.time() - self._uptime_read_at
             snap.device.uptime_seconds = int(
-                self._uptime + seconds_since_read)
+                self._uptime_seconds + seconds_since_read)
         if self._perf is not None:
             # measured=True even when every counter is zero: an idle array
             # really does report zeros, and that is a reading, not a gap.
@@ -1222,7 +1223,7 @@ class Drobo5NDriver(DroboDriver):
 
     # -- temperature -------------------------------------------------------
 
-    def _read_temperature(self, host: str) -> None:
+    def _read_sysinfo(self, host: str) -> None:
         """
         Top up the cached chassis temperature, at most once every
         `sysinfo_seconds`. Never raises.
@@ -1258,9 +1259,9 @@ class Drobo5NDriver(DroboDriver):
         displays it can say how old it is.
         """
         now = time.time()
-        if now - self._temp_tried_at < self.sysinfo_seconds:
+        if now - self._sysinfo_tried_at < self.sysinfo_seconds:
             return
-        self._temp_tried_at = now
+        self._sysinfo_tried_at = now
         if not self._known_esa_id:
             return  # the command port needs the serial; we don't have one yet
         try:
@@ -1272,10 +1273,10 @@ class Drobo5NDriver(DroboDriver):
         except (OSError, config_cmd.ConfigError, sysinfo.SysInfoError):
             return  # unavailable right now; keep whatever we already had
         if info.get("temperature_c") is not None:
-            self._temp_c = info["temperature_c"]
-            self._temp_at = now
+            self._temperature_c = info["temperature_c"]
+            self._temperature_read_at = now
         if info.get("uptime_seconds") is not None:
-            self._uptime = info["uptime_seconds"]
+            self._uptime_seconds = info["uptime_seconds"]
             self._uptime_read_at = now
 
         perf = info.get("performance")
@@ -1290,10 +1291,10 @@ class Drobo5NDriver(DroboDriver):
         Top up the cached event log, at most once every `eventlog_seconds`.
         Never raises.
 
-        Same discipline as _read_temperature, with the clock set even slower
+        Same discipline as _read_sysinfo, with the clock set even slower
         (ten minutes by default): the fetch opens its own command-port
         connection, and that port measurably stops answering under connection
-        volume -- see _read_temperature's account of the 2026-07-26
+        volume -- see _read_sysinfo's account of the 2026-07-26
         exhaustion. A log that is minutes stale costs nothing; a command port
         sulking for half an hour costs every fresh reading this driver makes.
 

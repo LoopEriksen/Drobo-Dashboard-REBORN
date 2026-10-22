@@ -31,7 +31,7 @@ from .models import (
 # NOT a specification -- we don't know what these codes mean, only what a
 # working unit reports. A deviation is flagged as "changed, worth a look",
 # never as an assertion about what the new value means. Keyed by the
-# PackHealth attribute name so _evaluate can walk it generically.
+# PackHealth attribute name so _evaluate_alerts can walk it generically.
 _PACK_STATUS_BASELINE = {
     "disk_pack_status": 0,
     "dnas_status": 6,
@@ -56,17 +56,17 @@ class Monitor:
     #: Short enough that reconnecting clears the warning within half a minute.
     NETWORK_HINT_TTL = 30.0
 
-    def __init__(self, cfg: dict, notifier):
-        self.cfg = cfg
+    def __init__(self, config: dict, notifier):
+        self.config = config
         self.notifier = notifier
-        self.driver = drivers_mod.build(cfg["drobo"])
+        self.driver = drivers_mod.build(config["drobo"])
 
         self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._stop_requested = threading.Event()
+        self._poll_thread: threading.Thread | None = None
 
         self.latest: Snapshot | None = None
-        self.history: deque[Snapshot] = deque(maxlen=int(cfg["agent"]["history_length"]))
+        self.history: deque[Snapshot] = deque(maxlen=int(config["agent"]["history_length"]))
         self.alerts: dict[str, Alert] = {}
         self._last_sent: dict[str, float] = {}
         self._subscribers: list[queue.Queue] = []
@@ -81,7 +81,7 @@ class Monitor:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        poll = self.cfg["agent"]["poll_seconds"]
+        poll = self.config["agent"]["poll_seconds"]
         try:
             self.driver.connect()
         except discovery.IdentityMismatchError as exc:
@@ -154,22 +154,22 @@ class Monitor:
             # picks it up with no restart.
             print(f"[monitor] cannot reach the Drobo yet ({exc}). Starting "
                   f"anyway and will keep trying every {poll}s.", flush=True)
-        self._thread = threading.Thread(target=self._run, name="drobo-monitor", daemon=True)
-        self._thread.start()
+        self._poll_thread = threading.Thread(target=self._poll_loop, name="drobo-monitor", daemon=True)
+        self._poll_thread.start()
         print(f"[monitor] polling every {poll}s via the {self.driver.name!r} driver",
               flush=True)
 
     def stop(self) -> None:
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=5)
+        self._stop_requested.set()
+        if self._poll_thread:
+            self._poll_thread.join(timeout=5)
         self.driver.close()
 
-    def _run(self) -> None:
-        interval = float(self.cfg["agent"]["poll_seconds"])
-        while not self._stop.is_set():
+    def _poll_loop(self) -> None:
+        interval = float(self.config["agent"]["poll_seconds"])
+        while not self._stop_requested.is_set():
             self.poll_once()
-            self._stop.wait(interval)
+            self._stop_requested.wait(interval)
 
     # -- polling -----------------------------------------------------------
 
@@ -189,7 +189,7 @@ class Monitor:
             self.latest = snap
             self.network_hint = hint
             self.history.append(snap)
-            fired = self._evaluate(snap, hint)
+            fired = self._evaluate_alerts(snap, hint)
             # Built here, from the same helper /api/status uses, rather than
             # from snap.to_dict() directly. The web dashboard is driven by this
             # stream and not by polling /api/status, so a field added to one and
@@ -250,9 +250,9 @@ class Monitor:
 
     # -- alert rules -------------------------------------------------------
 
-    def _evaluate(self, snap: Snapshot, network_hint: dict | None = None) -> list[Alert]:
+    def _evaluate_alerts(self, snap: Snapshot, network_hint: dict | None = None) -> list[Alert]:
         """Work out which conditions hold right now. Returns newly-fired alerts."""
-        acfg = self.cfg["alerts"]
+        acfg = self.config["alerts"]
         seen: dict[str, tuple[str, str]] = {}  # key -> (severity, message)
 
         if not snap.reachable:

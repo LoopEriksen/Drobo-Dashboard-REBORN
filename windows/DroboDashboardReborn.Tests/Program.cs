@@ -111,7 +111,7 @@ Check("defaults (all off) notify about nothing", allOff.Count == 0, allOff.Count
 
 // ---------------------------------------------------------------------------
 Console.WriteLine("\n== every alert key the agent raises maps to a category ==");
-// Taken from monitor.py's _evaluate. A key that maps nowhere is silent, which
+// Taken from monitor.py's _evaluate_alerts. A key that maps nowhere is silent, which
 // is the safe direction to be wrong -- but these are the ones we know about
 // and they should all land somewhere.
 var known = new (string Key, string Expected)[]

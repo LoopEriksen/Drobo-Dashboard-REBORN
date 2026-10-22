@@ -22,8 +22,9 @@ So this test does two things the others cannot:
      whose key the notifier maps to the intended category, and that it clears
      on reset (the precondition for the "again if it returns" rule).
   2. Drives the categories the API cannot inject -- temperature, capacity,
-     unreachable, pack health -- through monitor._evaluate() with constructed
-     snapshots, and routes THOSE keys through the same category mapping.
+     unreachable, pack health -- through monitor._evaluate_alerts() with
+     constructed snapshots, and routes THOSE keys through the same
+     category mapping.
 
 The category mapping is a Python port of AlertNotifier.CategoryFor kept in
 lockstep by test #3 below, which asserts the C# source still contains every
@@ -246,7 +247,7 @@ mon2 = Monitor(cfg, notify.build(cfg["notify"]))
 
 def keys_for(snap):
     with mon2._lock:
-        return {a.key: a for a in mon2._evaluate(snap)}
+        return {a.key: a for a in mon2._evaluate_alerts(snap)}
 
 
 acfg = cfg["alerts"]

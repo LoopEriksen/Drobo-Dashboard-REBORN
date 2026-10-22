@@ -181,7 +181,7 @@ check("health double_degraded_count defaults to 0", b.get("double_degraded_count
 check("health opaque status codes default to null, not a made-up value",
       b.get("disk_pack_status") is None and b.get("device_status") is None, b)
 
-print("\n== health: alert rules via monitor._evaluate() on constructed Snapshots ==")
+print("\n== health: alert rules via monitor._evaluate_alerts() on constructed Snapshots ==")
 
 
 def make_snap(**overrides):
@@ -198,7 +198,7 @@ def make_snap(**overrides):
 
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(
+    fired = mon._evaluate_alerts(make_snap(
         drives=[DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1,
                            error_count=3, model="TestDisk")]))
 keys = [a.key for a in fired]
@@ -207,21 +207,22 @@ sev = [a.severity for a in fired if a.key == "drive-errors-1"]
 check("drive error alert severity is warning", sev == ["warning"], sev)
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(pack_health=PackHealth(double_degraded_count=2)))
+    fired = mon._evaluate_alerts(make_snap(pack_health=PackHealth(double_degraded_count=2)))
 keys = [a.key for a in fired]
 check("double_degraded_count > 0 raises a critical alert", "double-degraded" in keys, keys)
 sev = [a.severity for a in fired if a.key == "double-degraded"]
 check("double-degraded severity is critical", sev == ["critical"], sev)
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(pack_health=PackHealth(relayout_count=1)))
+    fired = mon._evaluate_alerts(
+        make_snap(pack_health=PackHealth(relayout_count=1)))
 keys = [a.key for a in fired]
 check("relayout_count > 0 raises an info alert", "relayout" in keys, keys)
 sev = [a.severity for a in fired if a.key == "relayout"]
 check("relayout alert severity is info (this is normal)", sev == ["info"], sev)
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(
+    fired = mon._evaluate_alerts(make_snap(
         pack_health=PackHealth(disk_pack_status=1, dnas_status=6, device_status=98304, status_ex=0)))
 keys = [a.key for a in fired]
 check("pack status deviating from the healthy baseline raises a warning",
@@ -233,7 +234,7 @@ check("pack status message quotes old and new values without interpreting them",
       msgs and "0" in msgs[0] and "1" in msgs[0], msgs)
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(
+    fired = mon._evaluate_alerts(make_snap(
         pack_health=PackHealth(disk_pack_status=0, dnas_status=6, device_status=98304, status_ex=0)))
 keys = [a.key for a in fired]
 # Newly-*raised* pack-status alerts, as opposed to the "...-cleared" notice
@@ -246,7 +247,7 @@ check("matching the baseline clears the previous deviation alert",
 # The device's own capacity thresholds must be preferred over our config
 # defaults (0.85/0.95) when the greeting reports them.
 with mon._lock:
-    fired = mon._evaluate(make_snap(
+    fired = mon._evaluate_alerts(make_snap(
         capacity=Capacity(usable_bytes=100, used_bytes=40),
         pack_health=PackHealth(yellow_threshold_fraction=0.3, red_threshold_fraction=0.9)))
 keys = [a.key for a in fired]
@@ -267,7 +268,7 @@ print("\n== absent pack-status fields raise no false alarm ==")
 from drobo_agent.monitor import _PACK_STATUS_BASELINE
 
 with mon._lock:
-    fired = mon._evaluate(make_snap(pack_health=PackHealth()))
+    fired = mon._evaluate_alerts(make_snap(pack_health=PackHealth()))
 bogus = [a.key for a in fired if a.key.startswith("pack-status-")]
 check("a PackHealth with nothing reported raises no pack-status alert",
       bogus == [], bogus)
@@ -275,7 +276,7 @@ check("a PackHealth with nothing reported raises no pack-status alert",
 # ...while a field that IS present and DOES deviate still fires, so the check
 # above is proving restraint rather than a broken rule.
 with mon._lock:
-    fired = mon._evaluate(make_snap(
+    fired = mon._evaluate_alerts(make_snap(
         pack_health=PackHealth(disk_pack_status=99, dnas_status=6,
                                device_status=98304, status_ex=0)))
 keys = [a.key for a in fired if a.key.startswith("pack-status-")]
@@ -291,7 +292,7 @@ check("...but a present field that deviates still does",
 # empty list and failed for exactly that reason -- the assertion was wrong,
 # not the code.
 with mon._lock:
-    fired = mon._evaluate(make_snap(pack_health=PackHealth(**_PACK_STATUS_BASELINE)))
+    fired = mon._evaluate_alerts(make_snap(pack_health=PackHealth(**_PACK_STATUS_BASELINE)))
 new_alarms = [a.key for a in fired
               if a.key.startswith("pack-status-") and not a.key.endswith("-cleared")]
 check("a pack matching the healthy baseline exactly raises no NEW alert",
@@ -313,7 +314,7 @@ _crit_c = cfg["alerts"]["temperature_critical_c"]
 def chassis_alerts(temp):
     snap = mon.driver.read_snapshot()
     snap.device.temperature_c = temp
-    return {a.key: a for a in mon._evaluate(snap) if a.key.startswith("chassis-temp")}
+    return {a.key: a for a in mon._evaluate_alerts(snap) if a.key.startswith("chassis-temp")}
 
 
 check("no reading -> no alert (never invent a temperature)",
@@ -482,10 +483,10 @@ check("pair url is not loopback", "127.0.0.1" not in b["url"] or True, b["url"])
 
 from drobo_agent import qr as _qr
 check("qr generator poly nsym=10 matches spec",
-      _qr._generator(10) == [1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193],
-      _qr._generator(10))
+      _qr._generator_polynomial(10) == [1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193],
+      _qr._generator_polynomial(10))
 check("qr generator poly nsym=7 matches spec",
-      _qr._generator(7) == [1, 127, 122, 154, 164, 11, 68, 117], _qr._generator(7))
+      _qr._generator_polynomial(7) == [1, 127, 122, 154, 164, 11, 68, 117], _qr._generator_polynomial(7))
 
 
 def _bch(v):
@@ -541,11 +542,11 @@ def qr_decode(m):
     raw = 0
     for i, (r, c) in enumerate(_FMT_POS):
         raw |= (m[r][c] & 1) << i
-    fmt = raw ^ _qr._FORMAT_XOR
+    fmt = raw ^ _qr._FORMAT_INFO_MASK
     mask = (fmt >> 10) & 0b111
 
-    reserved = _qr._reserved(version, size)
-    maskfn = _qr._MASKS[mask]
+    reserved = _qr._function_pattern_cells(version, size)
+    maskfn = _qr._MASK_PATTERNS[mask]
     grid = [[m[r][c] ^ (1 if (not reserved[r][c] and maskfn(r, c)) else 0)
              for c in range(size)] for r in range(size)]
 
@@ -563,7 +564,7 @@ def qr_decode(m):
     stream = [int("".join(str(b) for b in bits[i:i + 8]), 2)
               for i in range(0, len(bits) - len(bits) % 8, 8)]
 
-    ec, b1, d1, b2, d2 = _qr._SPEC_M[version]
+    ec, b1, d1, b2, d2 = _qr._LEVEL_M_BLOCK_LAYOUT[version]
     lengths = [d1] * b1 + [d2] * b2
     blocks = [[] for _ in lengths]
     pos = 0
@@ -674,17 +675,19 @@ try:
     check("-- and does NOT touch the device again",
           len(shares_calls) == 2, shares_calls)
 
-    # Simulate 60 real seconds passing without an actual sleep: back-date the
-    # cached timestamp past SHARES_TTL, exactly what the wall clock would do.
-    stale_ts, stale_payload = api._Handler._shares_cache
-    api._Handler._shares_cache = (stale_ts - api._Handler.SHARES_TTL - 1, stale_payload)
+    # Simulate 60 real seconds passing without an actual sleep:
+    # back-date the cached timestamp past SHARES_CACHE_SECONDS, exactly
+    # what the wall clock would do.
+    stale_ts, stale_payload = api._ApiRequestHandler._shares_cache
+    api._ApiRequestHandler._shares_cache = (stale_ts - api._ApiRequestHandler.SHARES_CACHE_SECONDS - 1, stale_payload)
     s3, b3 = call("/api/shares")
     check("once the TTL has elapsed, the device IS asked again",
           len(shares_calls) == 4, shares_calls)
     check("the refreshed payload still matches (same fake data both times)", b3 == b, b3)
 
     print("\n== shares/discovery: /api/shares (a device error does not crash the endpoint) ==")
-    api._Handler._shares_cache = None  # force a fresh (cache-miss) fetch
+    # force a fresh (cache-miss) fetch
+    api._ApiRequestHandler._shares_cache = None
 
     def _fake_get_config_refused(host, esa, section, timeout=8.0):
         raise config_cmd.ConfigError("command port refused (simulated)")
@@ -695,7 +698,7 @@ try:
           s4 == 502, (s4, b4))
 
     config_cmd.get_config = _fake_get_config
-    api._Handler._shares_cache = None
+    api._ApiRequestHandler._shares_cache = None
     s5, b5 = call("/api/shares")
     check("shares work again once the device answers", s5 == 200, (s5, b5))
 finally:
@@ -713,7 +716,7 @@ def _fake_discover_mdns_empty(timeout=3.0):
 _orig_discover_mdns = discovery.discover_mdns
 _orig_verify_candidate = discovery.verify_candidate
 discovery.discover_mdns = _fake_discover_mdns_empty
-api._Handler._discover_cache = None
+api._ApiRequestHandler._discover_cache = None
 # Nobody "in use" either, for this scenario -- restored in the finally below.
 saved_host, saved_esa = mon.driver._resolved_host, mon.driver._known_esa_id
 mon.driver._resolved_host = ""
@@ -731,15 +734,16 @@ try:
     check("the simulated Drobo is offered so demo mode isn't a dead end",
           any(d.get("simulated") for d in b.get("devices", [])), b)
     check("the search duration is reported",
-          b.get("searched_for_seconds") == api._Handler.DISCOVER_TIMEOUT, b)
+          b.get("searched_for_seconds")
+          == api._ApiRequestHandler.DISCOVERY_LISTEN_SECONDS, b)
     check("exactly one mDNS sweep happened", len(discover_calls) == 1, discover_calls)
 
     s2, b2 = call("/api/discover")
     check("a second call inside the 30s TTL returns the identical payload", b2 == b, b2)
     check("-- and does NOT sweep mDNS again", len(discover_calls) == 1, discover_calls)
 
-    stale_ts, stale_payload = api._Handler._discover_cache
-    api._Handler._discover_cache = (stale_ts - api._Handler.DISCOVER_TTL - 1, stale_payload)
+    stale_ts, stale_payload = api._ApiRequestHandler._discover_cache
+    api._ApiRequestHandler._discover_cache = (stale_ts - api._ApiRequestHandler.DISCOVERY_CACHE_SECONDS - 1, stale_payload)
     s3, b3 = call("/api/discover")
     check("once the 30s TTL has elapsed, mDNS IS swept again",
           len(discover_calls) == 2, discover_calls)
@@ -749,7 +753,7 @@ finally:
     discovery.verify_candidate = _orig_verify_candidate
 
 print("\n== shares/discovery: /api/discover (a found device, and the in-use one is marked) ==")
-api._Handler._discover_cache = None
+api._ApiRequestHandler._discover_cache = None
 
 
 def _fake_discover_mdns_found(timeout=3.0):
@@ -790,17 +794,18 @@ print("\n== /api/discover?host= : typing an address when mDNS is filtered ==")
 # Corporate networks, guest SSIDs and some consumer routers drop multicast
 # outright. On those, browsing returns nothing however long it listens, and
 # knowing the address is the only way in.
-api._Handler._discover_cache = None
+api._ApiRequestHandler._discover_cache = None
 _saved_mdns, _saved_verify = discovery.discover_mdns, discovery.verify_candidate
 _browses = []
 discovery.discover_mdns = lambda timeout=3.0: (_browses.append(1), [])[1]  # a network filtering mDNS
 discovery.verify_candidate = _fake_verify_ok              # ...but the Drobo is really there
 try:
     s, b = call("/api/discover?host=10.0.0.77")
-    # The browse is skipped, not run and discarded. It costs DISCOVER_TIMEOUT
-    # seconds, and its coming back empty is the very reason somebody resorted
-    # to typing an address -- waiting it out would spend three seconds proving
-    # the failed thing still fails.
+    # The browse is skipped, not run and discarded. It costs
+    # DISCOVERY_LISTEN_SECONDS seconds, and its coming back empty is the
+    # very reason somebody resorted to typing an address -- waiting it
+    # out would spend three seconds proving the failed thing still
+    # fails.
     check("naming a host skips the multicast browse entirely", _browses == [], _browses)
     check("-- and answers about that address alone",
           [d["host"] for d in b.get("devices", [])] == ["10.0.0.77"], b.get("devices"))
@@ -830,16 +835,17 @@ try:
 
     # The cache exists to spare a 2013 NAS repeated mDNS sweeps. A question
     # about one address must neither read nor write that shared answer.
-    api._Handler._discover_cache = None
+    api._ApiRequestHandler._discover_cache = None
     call("/api/discover?host=10.0.0.79")
     check("a manual probe is never cached as the general answer",
-          api._Handler._discover_cache is None, api._Handler._discover_cache)
+          api._ApiRequestHandler._discover_cache is None,
+          api._ApiRequestHandler._discover_cache)
 finally:
     discovery.discover_mdns, discovery.verify_candidate = _saved_mdns, _saved_verify
-    api._Handler._discover_cache = None
+    api._ApiRequestHandler._discover_cache = None
 
 print("\n== shares/discovery: /api/discover (one bad candidate doesn't sink the others) ==")
-api._Handler._discover_cache = None
+api._ApiRequestHandler._discover_cache = None
 
 
 def _fake_discover_mdns_two(timeout=3.0):
@@ -871,7 +877,7 @@ finally:
     discovery.verify_candidate = _orig_verify_candidate
 
 print("\n== shares/discovery: /api/discover (mDNS itself failing is reported, not fatal) ==")
-api._Handler._discover_cache = None
+api._ApiRequestHandler._discover_cache = None
 
 
 def _mdns_boom(timeout=3.0):
@@ -924,8 +930,8 @@ try:
     check("the hint names this PC's network", "10.9.9.0/24" in hint["message"], hint)
 
     with mon._lock:
-        fired = mon._evaluate(Snapshot(reachable=False, source="stub",
-                                       error="timed out"), hint)
+        fired = mon._evaluate_alerts(Snapshot(reachable=False, source="stub",
+                                              error="timed out"), hint)
     unreachable = [a for a in fired if a.key == "unreachable"]
     check("an unreachable Drobo still raises exactly one alert", len(unreachable) == 1, fired)
     # One problem, one alert. A separate "network" alert sitting beside the
@@ -949,8 +955,10 @@ try:
     # Multi-line driver errors (discovery writes one) get flattened: an alert
     # is a sentence, and it also travels to a phone notification.
     with mon._lock:
-        multiline = mon._evaluate(Snapshot(reachable=False, source="stub",
-                                           error="no Drobo found.\nSet host in config.json"), hint)
+        multiline = mon._evaluate_alerts(
+            Snapshot(reachable=False, source="stub",
+                     error="no Drobo found.\nSet host in config.json"),
+            hint)
     flat = [a for a in multiline if a.key == "unreachable"][0].message
     check("a multi-line driver error is flattened into one line", "\n" not in flat, flat)
 
@@ -975,8 +983,8 @@ try:
     mon._hint_cache = None
     check("a Drobo on OUR network produces no hint", mon._network_hint() is None)
     with mon._lock:
-        fired = mon._evaluate(Snapshot(reachable=False, source="stub", error="timed out"),
-                              mon._network_hint())
+        fired = mon._evaluate_alerts(Snapshot(reachable=False, source="stub", error="timed out"),
+                                     mon._network_hint())
     msg = [a for a in fired if a.key == "unreachable"][0].message
     check("-- and its alert is left alone", msg == "Cannot reach the Drobo: timed out", msg)
 
@@ -1142,12 +1150,13 @@ print("\n== the capture date reaches the file, not just the folder ==")
 # the finished video still lands under 2023/2023-11. What was NOT covered is
 # what happens to the date after the folder is chosen.
 #
-# Two gaps, both silent. _place() sets the stored file's own modification time
-# from taken_at inside a try/except OSError, so if that ever stopped working
-# every photo on the Drobo would show the day it was uploaded in Explorer and
-# every check here would still pass. And an upload that declares no date at all
-# falls back to `when or time.time()` -- a fallback that would file a whole
-# camera roll under 1970 if it ever became `when` alone.
+# Two gaps, both silent. _move_into_library() sets the stored file's own
+# modification time from taken_at inside a try/except OSError, so if
+# that ever stopped working every photo on the Drobo would show the day
+# it was uploaded in Explorer and every check here would still pass. And
+# an upload that declares no date at all falls back to `capture_time or
+# time.time()` -- a fallback that would file a whole camera roll under
+# 1970 if it ever became `capture_time` alone.
 _dated_dir = os.path.join(tmp, "DatedPhotos")
 _dated = _PS({"enabled": True, "target_dir": _dated_dir, "organize_by_date": True})
 _dated.load()
@@ -1229,8 +1238,9 @@ check("it says nothing is contacted", "Nothing is contacted" in b.get("reason", 
 check("it still reports the version we are on", b.get("current_version") == api.VERSION, b)
 # A disabled check must not be cached for a day -- flipping the setting on
 # should take effect on the next refresh, not tomorrow.
-check("a disabled answer is not cached", api._Handler._update_cache is None,
-      api._Handler._update_cache)
+check("a disabled answer is not cached",
+      api._ApiRequestHandler._update_cache is None,
+      api._ApiRequestHandler._update_cache)
 
 print("\n== DroboSync: built, dormant, and honest about why ==")
 # Needs two Drobos; only a single unit is available. Shipped built rather than
@@ -1277,7 +1287,7 @@ print("\n== the console never gets a secret or a traceback it did not earn ==")
 # has no .path attribute at all. log_message used to read self.path first and
 # raise AttributeError there: a traceback for a connection nobody used.
 import contextlib as _ctx, io as _io
-_h = object.__new__(api._Handler)
+_h = object.__new__(api._ApiRequestHandler)
 _h.client_address = ("127.0.0.1", 0)
 _buf = _io.StringIO()
 try:
@@ -1298,7 +1308,7 @@ check("-- and the timeout is still logged", "Request timed out" in _buf.getvalue
 # later edit to log_message could have put the token back in the console
 # unnoticed. The token itself is never echoed by these checks, pass or fail.
 def _logged(requestline):
-    h = object.__new__(api._Handler)
+    h = object.__new__(api._ApiRequestHandler)
     h.client_address = ("127.0.0.1", 0)
     h.requestline = requestline
     h.path = requestline.split(" ")[1]
@@ -1425,7 +1435,7 @@ try:
     _nf_rec = _Recorder()
     _nf_mon = Monitor(_nf_cfg1, _nf_rec)
     check("under test: the real driver, set to discover",
-          _nf_mon.driver.name == "drobo5n" and _nf_mon.driver._auto, _nf_mon.driver.name)
+          _nf_mon.driver.name == "drobo5n" and _nf_mon.driver._uses_auto_discovery, _nf_mon.driver.name)
 
     _out, _exc = _start(_nf_mon)
     check("discovery finding nothing at startup does not stop the agent", _exc is None, repr(_exc))
@@ -1433,7 +1443,7 @@ try:
     check("-- it says no Drobo was found, and that it is starting anyway",
           "no Drobo found yet" in _out and "starting anyway" in _out, _out)
     check("-- and the poll loop is running",
-          _nf_mon._thread is not None and _nf_mon._thread.is_alive())
+          _nf_mon._poll_thread is not None and _nf_mon._poll_thread.is_alive())
 
     _nf_httpd = api.serve(_nf_cfg1, _nf_mon, photos)
     threading.Thread(target=_nf_httpd.serve_forever, daemon=True).start()
@@ -1536,7 +1546,7 @@ check("-- with a message rather than a traceback, naming the stranger",
       isinstance(_code, str) and "drb000000OTHER" in _code, repr(_code))
 check("-- and saying what to do if the Drobo really was replaced",
       isinstance(_code, str) and "expected_esa_id" in _code, repr(_code))
-check("-- and no poll loop was started", _im_mon._thread is None)
+check("-- and no poll loop was started", _im_mon._poll_thread is None)
 
 # A reply that is not a Drobo's, at a fixed address: the poll path already
 # treats that as "not reachable, go and look", so startup does too.
@@ -1554,7 +1564,7 @@ check("a fixed address that answers with something else no longer ends in a trac
 check("-- it names the address and says it is starting anyway",
       "192.0.2.10" in _out and "starting anyway" in _out.lower(), _out)
 check("-- and the poll loop is running",
-      _fe_mon._thread is not None and _fe_mon._thread.is_alive())
+      _fe_mon._poll_thread is not None and _fe_mon._poll_thread.is_alive())
 _fe_mon.stop()
 
 # The monitor catches "not found", not LookupError: a KeyError is a LookupError
@@ -1573,7 +1583,7 @@ _kb_mon.driver = _BuggyDriver()
 _out, _exc = _start(_kb_mon)
 check("a KeyError from connect() is not mistaken for 'no Drobo found yet'",
       isinstance(_exc, KeyError), repr(_exc))
-check("-- and no poll loop was started", _kb_mon._thread is None)
+check("-- and no poll loop was started", _kb_mon._poll_thread is None)
 
 (discovery.resolve, _esatm_mod.read_snapshot,
  _sysinfo_mod.get_sysinfo_and_performance, _eventlog_mod.get_event_log) = _nf_saved

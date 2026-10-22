@@ -212,7 +212,7 @@ def _int_or_none(el, tag: str) -> int | None:
     includes non-zero values (dnas_status=6, device_status=98304), so a missing
     field defaulting to 0 would look like a *deviation* and fire a false alarm
     claiming the code "changed" -- when in truth we simply never received it.
-    None is the honest answer, and monitor._evaluate skips it.
+    None is the honest answer, and monitor._evaluate_alerts skips it.
     """
     node = el.find(tag)
     if node is None or not node.text:
@@ -225,12 +225,12 @@ def _int_or_none(el, tag: str) -> int | None:
 
 def _threshold_fraction(el, tag: str) -> float | None:
     """
-    mRedThreshold/mYellowThreshold are the Drobo's own capacity alert levels,
-    reported as hundredths of a percent (9500 == 95.00%). Observed on one
-    healthy 5N: red=9500 (95%), yellow=8500 (85%) -- the exact values this
-    project already used as hardcoded config defaults, so preferring the
-    device's own numbers when present (see monitor._evaluate) is a faithful
-    improvement, not a guess.
+    mRedThreshold/mYellowThreshold are the Drobo's own capacity alert
+    levels, reported as hundredths of a percent (9500 == 95.00%).
+    Observed on one healthy 5N: red=9500 (95%), yellow=8500 (85%) -- the
+    exact values this project already used as hardcoded config defaults,
+    so preferring the device's own numbers when present (see
+    monitor._evaluate_alerts) is a faithful improvement, not a guess.
     """
     node = el.find(tag)
     if node is None or not node.text:

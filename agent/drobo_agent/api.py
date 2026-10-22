@@ -316,7 +316,7 @@ def _app_action_message(name: str, action: str, read_back: dict | None,
             f"refresh the list shortly.")
 
 
-class _Handler(BaseHTTPRequestHandler):
+class _ApiRequestHandler(BaseHTTPRequestHandler):
     server_version = f"DroboAgent/{VERSION}"
     protocol_version = "HTTP/1.1"
 
@@ -333,7 +333,7 @@ class _Handler(BaseHTTPRequestHandler):
     # (see docs/command-surface.md). Share names and network settings change
     # roughly never, so a refreshing dashboard has no business asking again
     # every few seconds.
-    SHARES_TTL = 60.0
+    SHARES_CACHE_SECONDS = 60.0
     _shares_cache: tuple[float, dict] | None = None
     # Socket timeout for one request. Without it, a client that sends a
     # Content-Length and then stalls holds a handler thread for ever. Per
@@ -344,8 +344,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     # Network discovery costs a few seconds of listening, so the front page
     # doesn't get to re-run it on every render.
-    DISCOVER_TIMEOUT = 3.0
-    DISCOVER_TTL = 30.0
+    DISCOVERY_LISTEN_SECONDS = 3.0
+    DISCOVERY_CACHE_SECONDS = 30.0
     _discover_cache: tuple[float, dict] | None = None
     _discover_lock = threading.Lock()
 
@@ -581,18 +581,18 @@ class _Handler(BaseHTTPRequestHandler):
             # rendered on a dashboard that refreshes every few seconds. Without
             # the cache, leaving a browser tab open would hammer whatever host
             # ends up serving the manifest.
-            with _Handler._update_lock:
-                cached = _Handler._update_cache
-                ttl = float(self.monitor.cfg.get("updates", {}).get("check_seconds", 86400))
+            with _ApiRequestHandler._update_lock:
+                cached = _ApiRequestHandler._update_cache
+                ttl = float(self.monitor.config.get("updates", {}).get("check_seconds", 86400))
                 if cached and time.time() - cached[0] < ttl:
                     return self._send_json(cached[1])
-                status = updates.check(self.monitor.cfg.get("updates", {}), VERSION)
+                status = updates.check(self.monitor.config.get("updates", {}), VERSION)
                 payload = status.to_dict()
                 # A disabled check is not worth caching for a day: flipping the
                 # setting on should take effect on the next refresh, not
                 # tomorrow.
                 if status.state != updates.STATE_DISABLED:
-                    _Handler._update_cache = (time.time(), payload)
+                    _ApiRequestHandler._update_cache = (time.time(), payload)
             return self._send_json(payload)
 
         if path == "/api/leds":
@@ -685,8 +685,8 @@ class _Handler(BaseHTTPRequestHandler):
             # its Preferences tab; it must be able to say "configured" without
             # being told the password, which is why this reports a summary
             # rather than the config block.
-            email = self.monitor.cfg.get("notify", {}).get("email", {})
-            enabled = "email" in self.monitor.cfg.get("notify", {}).get("backends", [])
+            email = self.monitor.config.get("notify", {}).get("email", {})
+            enabled = "email" in self.monitor.config.get("notify", {}).get("backends", [])
             configured = bool(enabled and email.get("host") and email.get("to"))
             recipients = email.get("to", "")
             if isinstance(recipients, list):
@@ -815,7 +815,7 @@ class _Handler(BaseHTTPRequestHandler):
             # POST, not GET: this sends real mail, and a GET must never have a
             # side effect -- browsers and link prefetchers will happily follow
             # one. Same rule that put /api/identify on POST.
-            notify_cfg = self.monitor.cfg.get("notify", {})
+            notify_cfg = self.monitor.config.get("notify", {})
             if "email" not in notify_cfg.get("backends", []):
                 return self._send_json(
                     {"error": "Email alerts are not switched on. Add \"email\" to the "
@@ -1247,16 +1247,18 @@ class _Handler(BaseHTTPRequestHandler):
     @classmethod
     def _invalidate_shares_cache(cls):
         """
-        A config write just changed the device. /api/shares serves a cached
-        copy for SHARES_TTL seconds -- rightly, to keep browser refreshes from
-        becoming connection storms on a 2013 embedded box -- but after a share
-        permission write that cache is WRONG, and the Shares tab would keep
-        showing the old access for up to a minute. That looks exactly like
-        "the write did not work" (it caught this project out once: the read-back
-        said 0 after a verified write to 1). Drop the cache so the next read is live.
-        Invalidated on every config write, not just share writes -- brightness
-        and spin-down do not touch shares today, but the cost of one extra
-        read is nothing and the cost of a stale answer is a confused user.
+        A config write just changed the device. /api/shares serves a
+        cached copy for SHARES_CACHE_SECONDS seconds -- rightly, to keep
+        browser refreshes from becoming connection storms on a 2013
+        embedded box -- but after a share permission write that cache is
+        WRONG, and the Shares tab would keep showing the old access for
+        up to a minute. That looks exactly like "the write did not work"
+        (it caught this project out once: the read-back said 0 after a
+        verified write to 1). Drop the cache so the next read is live.
+        Invalidated on every config write, not just share writes --
+        brightness and spin-down do not touch shares today, but the cost
+        of one extra read is nothing and the cost of a stale answer is a
+        confused user.
         """
         with cls._shares_lock:
             cls._shares_cache = None
@@ -1381,12 +1383,13 @@ class _Handler(BaseHTTPRequestHandler):
         """
         POST /api/droboapps/action {"name": ..., "action": "Start"|"Stop"}.
 
-        The name must be an app the device CURRENTLY reports installed --
-        checked against a fresh list read here, and then the SDK write is told
-        check_installed=False, because its own check would repeat the identical
-        read and the command port measurably wears out under connection volume
-        (see SHARES_TTL). Three connections total: the list, the action, and
-        the re-read that becomes the read-back.
+        The name must be an app the device CURRENTLY reports installed
+        -- checked against a fresh list read here, and then the SDK
+        write is told check_installed=False, because its own check would
+        repeat the identical read and the command port measurably wears
+        out under connection volume (see SHARES_CACHE_SECONDS). Three
+        connections total: the list, the action, and the re-read that
+        becomes the read-back.
 
         The re-read is best-effort BY DESIGN: once the device has accepted the
         action, a failed confirmation must be reported as "accepted,
@@ -1556,9 +1559,9 @@ class _Handler(BaseHTTPRequestHandler):
         about that address.
         """
         manual_host = (manual_host or "").strip()
-        with _Handler._discover_lock:
-            cached = _Handler._discover_cache
-            if not manual_host and cached and time.time() - cached[0] < self.DISCOVER_TTL:
+        with _ApiRequestHandler._discover_lock:
+            cached = _ApiRequestHandler._discover_cache
+            if not manual_host and cached and time.time() - cached[0] < self.DISCOVERY_CACHE_SECONDS:
                 return self._send_json(cached[1])
 
             driver = self.monitor.driver
@@ -1569,18 +1572,20 @@ class _Handler(BaseHTTPRequestHandler):
             seen: set[str] = set()
 
             if manual_host:
-                # One address was named, so look at exactly that address. The
-                # multicast browse is skipped entirely rather than run and
-                # ignored: it costs DISCOVER_TIMEOUT seconds, and the whole
-                # reason somebody is typing an address is that the browse comes
-                # back empty on their network. Making them wait it out to
-                # confirm a host they already know would be three seconds spent
-                # proving the thing that failed still fails.
+                # One address was named, so look at exactly that
+                # address. The multicast browse is skipped entirely
+                # rather than run and ignored: it costs
+                # DISCOVERY_LISTEN_SECONDS seconds, and the whole reason
+                # somebody is typing an address is that the browse comes
+                # back empty on their network. Making them wait it out
+                # to confirm a host they already know would be three
+                # seconds spent proving the thing that failed still
+                # fails.
                 candidates = [discovery.Candidate(
                     host=manual_host, port=esatm.DEFAULT_PORT, source="manual")]
             else:
                 try:
-                    candidates = discovery.discover_mdns(timeout=self.DISCOVER_TIMEOUT)
+                    candidates = discovery.discover_mdns(timeout=self.DISCOVERY_LISTEN_SECONDS)
                 except OSError as exc:
                     return self._send_json(
                         {"error": f"could not search the network: {exc}",
@@ -1602,7 +1607,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # No expected_esa_id: we are listing what's out there, not
                     # asserting which one is yours. Identity pinning still
                     # happens in the driver when you actually connect.
-                    v = discovery.verify_candidate(cand, timeout=self.DISCOVER_TIMEOUT)
+                    v = discovery.verify_candidate(cand, timeout=self.DISCOVERY_LISTEN_SECONDS)
                 except (OSError, discovery.IdentityMismatchError, esatm.FrameError):
                     continue  # answered badly or not at all; not a Drobo we can use
                 ident = v.identity
@@ -1648,7 +1653,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "simulated": True,
                 })
 
-            payload = {"devices": found, "searched_for_seconds": self.DISCOVER_TIMEOUT}
+            payload = {"devices": found, "searched_for_seconds": self.DISCOVERY_LISTEN_SECONDS}
 
             if manual_host:
                 # Say plainly whether the typed address worked. Without this, a
@@ -1668,7 +1673,7 @@ class _Handler(BaseHTTPRequestHandler):
                 # to the next caller who asked a different question.
                 return self._send_json(payload)
 
-            _Handler._discover_cache = (time.time(), payload)
+            _ApiRequestHandler._discover_cache = (time.time(), payload)
         return self._send_json(payload)
 
     def _shares(self) -> None:
@@ -1699,9 +1704,9 @@ class _Handler(BaseHTTPRequestHandler):
         # One caller at a time, and everyone else gets the cached answer. Two
         # browser tabs refreshing must not become four connections to a 2013
         # embedded box.
-        with _Handler._shares_lock:
-            cached = _Handler._shares_cache
-            if cached and time.time() - cached[0] < self.SHARES_TTL:
+        with _ApiRequestHandler._shares_lock:
+            cached = _ApiRequestHandler._shares_cache
+            if cached and time.time() - cached[0] < self.SHARES_CACHE_SECONDS:
                 return self._send_json(cached[1])
 
             try:
@@ -1738,7 +1743,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "advice": shares_mod.access_advice(listed, accounts),
                 "link": link,
             }
-            _Handler._shares_cache = (time.time(), payload)
+            _ApiRequestHandler._shares_cache = (time.time(), payload)
         return self._send_json(payload)
 
     def _receive_photo(self) -> None:
@@ -1849,11 +1854,11 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(cfg: dict, monitor, photos):
-    _Handler.monitor = monitor
-    _Handler.photos = photos
-    _Handler.token = cfg["agent"]["token"]
+    _ApiRequestHandler.monitor = monitor
+    _ApiRequestHandler.photos = photos
+    _ApiRequestHandler.token = cfg["agent"]["token"]
     bind = cfg["agent"]["bind"]
     port = int(cfg["agent"]["port"])
-    httpd = ThreadingHTTPServer((bind, port), _Handler)
+    httpd = ThreadingHTTPServer((bind, port), _ApiRequestHandler)
     httpd.daemon_threads = True
     return httpd

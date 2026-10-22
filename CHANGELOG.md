@@ -215,6 +215,15 @@ released. Every push to this repository carries this file.
     `Interface` field `prefix_len` -> `prefix_length` (its place among
     the fields stays), and `Interface.holds(ip)` ->
     `network_contains(address)`
+  - agent `monitor.Monitor`'s `cfg` parameter and attribute -> `config`
+  - agent `api._Handler` -> `_ApiRequestHandler`, and its class
+    attributes `SHARES_TTL` -> `SHARES_CACHE_SECONDS`, `DISCOVER_TTL` ->
+    `DISCOVERY_CACHE_SECONDS` and `DISCOVER_TIMEOUT` ->
+    `DISCOVERY_LISTEN_SECONDS` (the `searched_for_seconds` key that
+    `/api/discover` answers with stays)
+  - `scripts/check_versions.py`: `PLACES` -> `VERSION_PLACES`, `collect`
+    -> `collect_versions` and `problems` -> `find_problems` (what it
+    prints and its exit codes stay)
   - Private helpers that scripts of your own may reach into:
     `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
     `_send_section_document`, `_recv_exact` (in `config_cmd` and

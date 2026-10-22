@@ -38,7 +38,7 @@ CSPROJ = os.path.join("windows", "DroboDashboardReborn", "DroboDashboardReborn.c
 # (label, path relative to the repo root, regex with one capturing group).
 # Order is the order they are printed in: the csproj first, because it is the
 # number a release is named by and the one a human bumps first.
-PLACES = [
+VERSION_PLACES = [
     ("csproj <Version>",        CSPROJ, r"<Version>([^<]+)</Version>"),
     ("csproj <AssemblyVersion>", CSPROJ, r"<AssemblyVersion>([^<]+)</AssemblyVersion>"),
     ("csproj <FileVersion>",    CSPROJ, r"<FileVersion>([^<]+)</FileVersion>"),
@@ -64,11 +64,11 @@ def read(path):
         return fh.read()
 
 
-def collect():
+def collect_versions():
     """{label: version-or-None}, plus a list of files that could not be read."""
     found, missing = {}, []
     cache = {}
-    for label, path, pattern in PLACES:
+    for label, path, pattern in VERSION_PLACES:
         if path not in cache:
             try:
                 cache[path] = read(path)
@@ -84,45 +84,48 @@ def collect():
     return found, missing
 
 
-def problems():
+def find_problems():
     """Every disagreement, as plain sentences. Empty means the tree is consistent."""
-    found, missing = collect()
-    out = list(missing)
+    found, missing = collect_versions()
+    problems = list(missing)
 
-    for label, path, _ in PLACES:
+    for label, path, _ in VERSION_PLACES:
         if found.get(label) is None and not any(path in m for m in missing):
-            out.append(f"{label}: no version found in {path}")
+            problems.append(f"{label}: no version found in {path}")
 
     reference = found.get(REFERENCE)
     if reference is None:
-        out.append(f"{REFERENCE} is the number everything else is compared against, "
-                   f"and it could not be read -- nothing could be checked")
-        return out
+        problems.append(
+            f"{REFERENCE} is the number everything else is compared against, "
+            f"and it could not be read -- nothing could be checked")
+        return problems
 
-    for label, path, _ in PLACES:
+    for label, path, _ in VERSION_PLACES:
         got = found.get(label)
         if got is None or label == REFERENCE:
             continue
         if label in FOUR_PART:
             parts = got.split(".")
             if len(parts) != 4 or ".".join(parts[:3]) != reference:
-                out.append(f"{label} is {got} in {path}; expected {reference} "
-                           f"plus a fourth field (for example {reference}.0)")
+                problems.append(
+                    f"{label} is {got} in {path}; expected {reference} "
+                    f"plus a fourth field (for example {reference}.0)")
         elif got != reference:
-            out.append(f"{label} is {got} in {path}; expected {reference}")
-    return out
+            problems.append(
+                f"{label} is {got} in {path}; expected {reference}")
+    return problems
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     quiet = "--quiet" in argv
 
-    found, _ = collect()
-    bad = problems()
+    found, _ = collect_versions()
+    bad = find_problems()
 
     if not quiet:
-        width = max(len(label) for label, _, _ in PLACES)
-        for label, _, _ in PLACES:
+        width = max(len(label) for label, _, _ in VERSION_PLACES)
+        for label, _, _ in VERSION_PLACES:
             got = found.get(label)
             print(f"  {label.ljust(width)}  {got if got is not None else '(not found)'}")
         print("")

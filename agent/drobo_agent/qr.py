@@ -44,7 +44,7 @@ def _mul(a: int, b: int) -> int:
     return _EXP[_LOG[a] + _LOG[b]]
 
 
-def _generator(nsym: int) -> list[int]:
+def _generator_polynomial(nsym: int) -> list[int]:
     """
     Product of (x - alpha^i) for i in 0..nsym-1, highest degree first so that
     g[0] == 1. _ec_codewords below depends on that ordering.
@@ -60,7 +60,7 @@ def _generator(nsym: int) -> list[int]:
 
 
 def _ec_codewords(data: list[int], nsym: int) -> list[int]:
-    gen = _generator(nsym)
+    gen = _generator_polynomial(nsym)
     res = list(data) + [0] * nsym
     for i in range(len(data)):
         coef = res[i]
@@ -75,7 +75,7 @@ def _ec_codewords(data: list[int], nsym: int) -> list[int]:
 #   version -> (ec per block, group1 blocks, group1 data cw,
 #                             group2 blocks, group2 data cw)
 # --------------------------------------------------------------------------
-_SPEC_M = {
+_LEVEL_M_BLOCK_LAYOUT = {
     1:  (10, 1, 16, 0, 0),
     2:  (16, 1, 28, 0, 0),
     3:  (26, 1, 44, 0, 0),
@@ -94,11 +94,11 @@ _ALIGN = {
 }
 
 _ECL_BITS = 0b00          # level M
-_FORMAT_XOR = 0b101010000010010
+_FORMAT_INFO_MASK = 0b101010000010010
 
 
 def _capacity(version: int) -> int:
-    ec, b1, d1, b2, d2 = _SPEC_M[version]
+    ec, b1, d1, b2, d2 = _LEVEL_M_BLOCK_LAYOUT[version]
     return b1 * d1 + b2 * d2
 
 
@@ -150,7 +150,7 @@ def _encode_data(payload: bytes, version: int) -> list[int]:
 
 
 def _interleave(codewords: list[int], version: int) -> list[int]:
-    ec, b1, d1, b2, d2 = _SPEC_M[version]
+    ec, b1, d1, b2, d2 = _LEVEL_M_BLOCK_LAYOUT[version]
     blocks, ecblocks, pos = [], [], 0
     for _ in range(b1):
         blocks.append(codewords[pos:pos + d1]); pos += d1
@@ -226,7 +226,7 @@ def _new_matrix(version: int):
     return mod, size
 
 
-def _reserved(version: int, size: int):
+def _function_pattern_cells(version: int, size: int):
     """Which cells are function patterns (and so not data)."""
     mod, _ = _new_matrix(version)
     return [[mod[r][c] is not None for c in range(size)] for r in range(size)]
@@ -254,7 +254,7 @@ def _place(mod, reserved, data: list[int], size: int):
     return mod
 
 
-_MASKS = [
+_MASK_PATTERNS = [
     lambda r, c: (r + c) % 2 == 0,
     lambda r, c: r % 2 == 0,
     lambda r, c: c % 3 == 0,
@@ -274,7 +274,7 @@ def _format_bits(mask: int) -> int:
     for i in range(14, 9, -1):
         if rem & (1 << i):
             rem ^= gen << (i - 10)
-    return ((value << 10) | rem) ^ _FORMAT_XOR
+    return ((value << 10) | rem) ^ _FORMAT_INFO_MASK
 
 
 def _apply_format(mod, size: int, mask: int):
@@ -361,11 +361,11 @@ def matrix(text: str) -> list[list[int]]:
     best, best_score = None, None
     for mask in range(8):
         mod, size = _new_matrix(version)
-        reserved = _reserved(version, size)
+        reserved = _function_pattern_cells(version, size)
         _place(mod, reserved, data, size)
         for r in range(size):
             for c in range(size):
-                if not reserved[r][c] and _MASKS[mask](r, c):
+                if not reserved[r][c] and _MASK_PATTERNS[mask](r, c):
                     mod[r][c] ^= 1
         _apply_format(mod, size, mask)
         _apply_version(mod, size, version)

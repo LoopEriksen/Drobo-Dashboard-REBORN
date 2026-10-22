@@ -296,7 +296,7 @@ class PackHealth:
     real_time_integrity_checking: int | None = None
     # The device's OWN capacity alert levels (mRedThreshold/mYellowThreshold),
     # as fractions (9500 -> 0.95). Prefer these over our hardcoded config
-    # defaults when present -- see monitor._evaluate.
+    # defaults when present -- see monitor._evaluate_alerts.
     red_threshold_fraction: float | None = None
     yellow_threshold_fraction: float | None = None
     total_capacity_unprotected_bytes: int = 0
