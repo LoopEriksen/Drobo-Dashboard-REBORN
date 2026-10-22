@@ -130,7 +130,7 @@ bad_email=$(printf '%s\n' "$emails" \
 #    a match the pattern is not printed -- the pattern IS the name -- only its
 #    line in the list.
 #    Lines that credit drobo-utils and its author are left out of this step
-#    only, exactly as scripts/scan_for_pii.py's ALLOW_CONTEXT does, because a
+#    only, exactly as scripts/scan_for_pii.py's CREDIT_CONTEXT does, because a
 #    public credit can share a first name with someone on the private list.
 #    Without that, the hook blocked any commit that added a credit line --
 #    including a repository's first commit -- while the scanner and CI

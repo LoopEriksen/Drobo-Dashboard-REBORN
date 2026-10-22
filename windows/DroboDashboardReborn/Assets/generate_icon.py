@@ -38,12 +38,13 @@ from __future__ import annotations
 import os
 import struct
 import zlib
+from functools import partial
 
-SIZES = [16, 32, 48, 64, 128, 256]
-SUPERSAMPLE = 4  # subsamples per axis per output pixel, for anti-aliased edges
+ICON_SIZES = [16, 32, 48, 64, 128, 256]
+SUBSAMPLES_PER_AXIS = 4  # per output pixel, for anti-aliased edges
 
 # ---- palette -----------------------------------------------------------
-ENCLOSURE = (46, 52, 61, 255)        # charcoal body
+WORDMARK_HALO = (46, 52, 61, 255)    # dark halo around the front word
 REBORN_RED = (211, 58, 46, 255)      # the REBORN stamp
 WORDMARK = (238, 242, 247, 255)      # the "drobo" lettering in front
 PLATE = (26, 30, 37, 255)            # dark plate the lockup sits on
@@ -73,58 +74,65 @@ BEHIND_WORD = "REBORN"   # large, red, behind
 FRONT_WORD = "drobo"     # lowercase, light, in front
 
 
-def word_predicate(word: str, x0: float, y0: float, cell: float):
+def word_predicate(word: str, left: float, top: float, dot_size: float):
     """
-    A predicate covering `word` rendered from FONT_5X7 at `cell` px per dot,
-    with its top-left at (x0, y0). One gap column between letters.
+    A predicate covering `word` rendered from FONT_5X7 at `dot_size` px
+    per dot, with its top-left at (left, top). One gap column between
+    letters.
     """
-    span = 5 * cell
+    letter_width = 5 * dot_size
 
-    def hit(x: float, y: float) -> bool:
-        rel_y = y - y0
-        if rel_y < 0 or rel_y >= 7 * cell:
+    def covers_point(x: float, y: float) -> bool:
+        offset_y = y - top
+        if offset_y < 0 or offset_y >= 7 * dot_size:
             return False
-        row = int(rel_y / cell)
-        if not (0 <= row < 7):
+        glyph_row = int(offset_y / dot_size)
+        if not (0 <= glyph_row < 7):
             return False
-        cursor = 0.0
-        rel_x = x - x0
-        for ch in word:
-            if cursor <= rel_x < cursor + span:
-                col = int((rel_x - cursor) / cell)
-                if 0 <= col < 5:
-                    return FONT_5X7[ch][row][col] == "1"
+        letter_left = 0.0
+        offset_x = x - left
+        for letter in word:
+            if letter_left <= offset_x < letter_left + letter_width:
+                column = int((offset_x - letter_left) / dot_size)
+                if 0 <= column < 5:
+                    return FONT_5X7[letter][glyph_row][column] == "1"
                 return False
-            cursor += span + cell
+            letter_left += letter_width + dot_size
         return False
 
-    return hit
+    return covers_point
 
 
-def word_width(word: str, cell: float) -> float:
-    """Width of `word` at `cell` px per dot, including inter-letter gaps."""
-    return len(word) * 5 * cell + (len(word) - 1) * cell
+def word_width(word: str, dot_size: float) -> float:
+    """Width of `word` at `dot_size` px per dot, including inter-letter
+    gaps."""
+    return len(word) * 5 * dot_size + (len(word) - 1) * dot_size
 
 
-def in_rounded_rect(x: float, y: float, x0: float, y0: float, x1: float, y1: float, r: float) -> bool:
-    if x < x0 or x > x1 or y < y0 or y > y1:
+def in_rounded_rectangle(x: float, y: float, left: float, top: float, right: float, bottom: float, radius: float) -> bool:
+    if x < left or x > right or y < top or y > bottom:
         return False
-    r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-    if r <= 0:
+    radius = min(radius, (right - left) / 2, (bottom - top) / 2)
+    if radius <= 0:
         return True
-    if x < x0 + r and y < y0 + r:
-        return (x - (x0 + r)) ** 2 + (y - (y0 + r)) ** 2 <= r * r
-    if x > x1 - r and y < y0 + r:
-        return (x - (x1 - r)) ** 2 + (y - (y0 + r)) ** 2 <= r * r
-    if x < x0 + r and y > y1 - r:
-        return (x - (x0 + r)) ** 2 + (y - (y1 - r)) ** 2 <= r * r
-    if x > x1 - r and y > y1 - r:
-        return (x - (x1 - r)) ** 2 + (y - (y1 - r)) ** 2 <= r * r
+    if x < left + radius and y < top + radius:
+        return ((x - (left + radius)) ** 2 + (y - (top + radius)) ** 2
+                <= radius * radius)
+    if x > right - radius and y < top + radius:
+        return ((x - (right - radius)) ** 2 + (y - (top + radius)) ** 2
+                <= radius * radius)
+    if x < left + radius and y > bottom - radius:
+        return ((x - (left + radius)) ** 2 + (y - (bottom - radius)) ** 2
+                <= radius * radius)
+    if x > right - radius and y > bottom - radius:
+        return ((x - (right - radius)) ** 2 + (y - (bottom - radius)) ** 2
+                <= radius * radius)
     return True
 
 
-def in_circle(x: float, y: float, cx: float, cy: float, r: float) -> bool:
-    return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+def in_circle(x: float, y: float, centre_x: float, centre_y: float,
+              radius: float) -> bool:
+    return (x - centre_x) ** 2 + (y - centre_y) ** 2 <= radius * radius
 
 
 def build_shapes(size: float, with_badge: bool):
@@ -143,24 +151,25 @@ def build_shapes(size: float, with_badge: bool):
     that actually identify an icon in a taskbar: its colour and its shape.
     """
     shapes = []
-    s = size
-    lockup = s >= 48
+    draw_lockup = size >= 48
 
-    if not lockup:
+    if not draw_lockup:
         # --- small: one letter, high contrast --------------------------------
-        pad = 0.08 * s
-        plate = (lambda x, y, x0=pad, y0=pad, x1=s - pad, y1=s - pad, r=0.22 * s:
-                 in_rounded_rect(x, y, x0, y0, x1, y1, r))
+        margin = 0.08 * size
+        in_plate = partial(in_rounded_rectangle, left=margin, top=margin,
+                           right=size - margin, bottom=size - margin,
+                           radius=0.22 * size)
 
-        # A "d" filling most of the plate. cell is chosen so the glyph's 5x7
+        # A "d" filling most of the plate. dot_size is chosen so the glyph's 5x7
         # box fits with a margin; the letter is what carries recognition here.
-        cell = (s * 0.52) / 7.0
-        gw = word_width("d", cell)
-        gx = (s - gw) / 2.0
-        gy = (s - 7 * cell) / 2.0
-        shapes.append((word_predicate("d", gx, gy, cell), WORDMARK))
-        shapes.append((plate, REBORN_RED))
-        return _with_badge(shapes, s, with_badge)
+        dot_size = (size * 0.52) / 7.0
+        glyph_width = word_width("d", dot_size)
+        glyph_left = (size - glyph_width) / 2.0
+        glyph_top = (size - 7 * dot_size) / 2.0
+        shapes.append((word_predicate("d", glyph_left, glyph_top, dot_size),
+                       WORDMARK))
+        shapes.append((in_plate, REBORN_RED))
+        return _add_alert_badge(shapes, size, with_badge)
 
     # --- large: the full lockup ---------------------------------------------
     # REBORN sits BEHIND, set wide across the icon. "drobo" sits in front of
@@ -171,59 +180,64 @@ def build_shapes(size: float, with_badge: bool):
     # edge, because that is what makes the overlap controllable: give them
     # centres a little apart and they interleave, give them the same centre
     # and "drobo" sits squarely across REBORN's waist.
-    def from_centre(cy: float, cell: float) -> float:
-        return cy - 3.5 * cell
+    def top_from_centre(centre_y: float, dot_size: float) -> float:
+        return centre_y - 3.5 * dot_size
 
     # REBORN: nearly the full width, so it is unmistakably the larger of the two.
-    behind_cell = (s * 0.90) / word_width(BEHIND_WORD, 1.0)
-    behind_w = word_width(BEHIND_WORD, behind_cell)
-    behind_x = (s - behind_w) / 2.0
-    behind_y = from_centre(s * 0.50, behind_cell)
+    behind_dot_size = (size * 0.90) / word_width(BEHIND_WORD, 1.0)
+    behind_width = word_width(BEHIND_WORD, behind_dot_size)
+    behind_left = (size - behind_width) / 2.0
+    behind_top = top_from_centre(size * 0.50, behind_dot_size)
 
     # drobo: narrower and set on a centre slightly below REBORN's, so it
     # crosses the lower half of the red letters. Sitting dead-centre hides
     # REBORN's midsection and makes it hard to read; a little low leaves the
     # tops of the red letters clear.
-    front_cell = (s * 0.66) / word_width(FRONT_WORD, 1.0)
-    front_w = word_width(FRONT_WORD, front_cell)
-    front_x = (s - front_w) / 2.0
-    front_y = from_centre(s * 0.60, front_cell)
+    front_dot_size = (size * 0.66) / word_width(FRONT_WORD, 1.0)
+    front_width = word_width(FRONT_WORD, front_dot_size)
+    front_left = (size - front_width) / 2.0
+    front_top = top_from_centre(size * 0.60, front_dot_size)
 
     # A soft dark plate behind everything, so the mark reads on any wallpaper
     # or title bar rather than dissolving into it.
-    pad = 0.05 * s
-    plate = (lambda x, y, x0=pad, y0=pad, x1=s - pad, y1=s - pad, r=0.20 * s:
-             in_rounded_rect(x, y, x0, y0, x1, y1, r))
+    margin = 0.05 * size
+    in_plate = partial(in_rounded_rectangle, left=margin, top=margin,
+                       right=size - margin, bottom=size - margin,
+                       radius=0.20 * size)
 
     # A thin dark outline around the front word, so "drobo" stays legible
     # exactly where it crosses the red. Cheap halo: the same glyph, grown.
-    halo = front_cell * 0.55
+    halo_offset = front_dot_size * 0.55
     shapes.append((
-        lambda x, y, p=word_predicate(FRONT_WORD, front_x, front_y, front_cell), h=halo:
-            p(x, y) or p(x - h, y) or p(x + h, y) or p(x, y - h) or p(x, y + h),
+        lambda x, y, covers_front_word=word_predicate(FRONT_WORD, front_left, front_top, front_dot_size), offset=halo_offset:
+            covers_front_word(x, y) or covers_front_word(x - offset, y) or covers_front_word(x + offset, y) or covers_front_word(x, y - offset) or covers_front_word(x, y + offset),
         None,  # placeholder, replaced below
     ))
-    shapes[-1] = (shapes[-1][0], ENCLOSURE)
+    shapes[-1] = (shapes[-1][0], WORDMARK_HALO)
 
     # ...but the letter itself must win over its own halo, so insert it first.
-    shapes.insert(0, (word_predicate(FRONT_WORD, front_x, front_y, front_cell), WORDMARK))
+    shapes.insert(0, (word_predicate(FRONT_WORD, front_left, front_top, front_dot_size), WORDMARK))
 
-    shapes.append((word_predicate(BEHIND_WORD, behind_x, behind_y, behind_cell), REBORN_RED))
-    shapes.append((plate, PLATE))
-    return _with_badge(shapes, s, with_badge)
+    shapes.append((word_predicate(BEHIND_WORD, behind_left, behind_top, behind_dot_size), REBORN_RED))
+    shapes.append((in_plate, PLATE))
+    return _add_alert_badge(shapes, size, with_badge)
 
 
-def _with_badge(shapes, s: float, with_badge: bool):
+def _add_alert_badge(shapes, size: float, with_badge: bool):
     """The critical-alert dot, sized so it signals at 16px without dominating at 256."""
     if not with_badge:
         return shapes
-    frac = 0.20 if s <= 32 else 0.15 if s <= 64 else 0.115
-    r = frac * s
-    off = 0.80 if s <= 32 else 0.835
-    cx = cy = off * s
-    ring = r + (0.045 if s <= 32 else 0.03) * s
-    shapes.insert(0, (lambda x, y, cx=cx, cy=cy, r=r: in_circle(x, y, cx, cy, r), ALERT_RED))
-    shapes.insert(1, (lambda x, y, cx=cx, cy=cy, r=ring: in_circle(x, y, cx, cy, r), ALERT_RING))
+    radius_fraction = 0.20 if size <= 32 else 0.15 if size <= 64 else 0.115
+    badge_radius = radius_fraction * size
+    centre_fraction = 0.80 if size <= 32 else 0.835
+    badge_centre = centre_fraction * size
+    ring_radius = badge_radius + (0.045 if size <= 32 else 0.03) * size
+    shapes.insert(0, (partial(in_circle, centre_x=badge_centre,
+                              centre_y=badge_centre, radius=badge_radius),
+                      ALERT_RED))
+    shapes.insert(1, (partial(in_circle, centre_x=badge_centre,
+                              centre_y=badge_centre, radius=ring_radius),
+                      ALERT_RING))
     return shapes
 
 
@@ -236,85 +250,90 @@ def sample(shapes, x: float, y: float):
 
 def render(size: int, with_badge: bool):
     shapes = build_shapes(float(size), with_badge)
-    ss = SUPERSAMPLE
-    rows = []
-    for py in range(size):
-        row = []
-        for px in range(size):
-            rs = gs = bs = asum = 0
-            for j in range(ss):
-                y = py + (j + 0.5) / ss
-                for i in range(ss):
-                    x = px + (i + 0.5) / ss
-                    r, g, b, a = sample(shapes, x, y)
-                    rs += r * a
-                    gs += g * a
-                    bs += b * a
-                    asum += a
-            n = ss * ss
-            if asum == 0:
-                row.append((0, 0, 0, 0))
+    pixel_rows = []
+    for pixel_y in range(size):
+        pixel_row = []
+        for pixel_x in range(size):
+            weighted_red = weighted_green = weighted_blue = alpha_total = 0
+            for sub_row in range(SUBSAMPLES_PER_AXIS):
+                y = pixel_y + (sub_row + 0.5) / SUBSAMPLES_PER_AXIS
+                for sub_column in range(SUBSAMPLES_PER_AXIS):
+                    x = pixel_x + (sub_column + 0.5) / SUBSAMPLES_PER_AXIS
+                    red, green, blue, alpha = sample(shapes, x, y)
+                    weighted_red += red * alpha
+                    weighted_green += green * alpha
+                    weighted_blue += blue * alpha
+                    alpha_total += alpha
+            samples_per_pixel = SUBSAMPLES_PER_AXIS * SUBSAMPLES_PER_AXIS
+            if alpha_total == 0:
+                pixel_row.append((0, 0, 0, 0))
             else:
-                row.append((rs // asum, gs // asum, bs // asum, asum // n))
-        rows.append(row)
-    return rows
+                pixel_row.append((weighted_red // alpha_total,
+                                  weighted_green // alpha_total,
+                                  weighted_blue // alpha_total,
+                                  alpha_total // samples_per_pixel))
+        pixel_rows.append(pixel_row)
+    return pixel_rows
 
 
 # ---- minimal PNG encoder (stdlib zlib only) -----------------------------
 
-def _chunk(tag: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
 
 
 def encode_png(pixels) -> bytes:
     height = len(pixels)
     width = len(pixels[0]) if height else 0
-    raw = bytearray()
-    for row in pixels:
-        raw.append(0)  # filter type: None
-        for (r, g, b, a) in row:
-            raw += bytes((r, g, b, a))
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)  # 8-bit RGBA
-    idat = zlib.compress(bytes(raw), 9)
-    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+    scanlines = bytearray()
+    for pixel_row in pixels:
+        scanlines.append(0)  # filter type: None
+        for (red, green, blue, alpha) in pixel_row:
+            scanlines += bytes((red, green, blue, alpha))
+    image_header = struct.pack(">IIBBBBB", width, height,
+                               8, 6, 0, 0, 0)  # 8-bit RGBA
+    compressed_scanlines = zlib.compress(bytes(scanlines), 9)
+    return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", image_header) + _png_chunk(b"IDAT", compressed_scanlines) + _png_chunk(b"IEND", b"")
 
 
 # ---- minimal ICO container (PNG-compressed frames, one per size) --------
 
-def write_ico(path: str, size_png_pairs) -> None:
-    count = len(size_png_pairs)
-    header = struct.pack("<HHH", 0, 1, count)
-    entries = bytearray()
-    data = bytearray()
-    offset = 6 + 16 * count
-    for size, png in size_png_pairs:
-        wh = size if size < 256 else 0  # 0 means 256 per the ICO spec
-        entry = struct.pack("<BBBBHHII", wh, wh, 0, 0, 1, 32, len(png), offset)
-        entries += entry
-        data += png
-        offset += len(png)
-    with open(path, "wb") as f:
-        f.write(header + bytes(entries) + bytes(data))
+def write_ico(path: str, frames) -> None:
+    frame_count = len(frames)
+    ico_header = struct.pack("<HHH", 0, 1, frame_count)
+    directory_entries = bytearray()
+    image_data = bytearray()
+    image_offset = 6 + 16 * frame_count
+    for size, png in frames:
+        # 0 means 256 per the ICO spec
+        dimension_byte = size if size < 256 else 0
+        directory_entry = struct.pack("<BBBBHHII", dimension_byte, dimension_byte, 0, 0, 1, 32, len(png), image_offset)
+        directory_entries += directory_entry
+        image_data += png
+        image_offset += len(png)
+    with open(path, "wb") as ico_file:
+        ico_file.write(ico_header + bytes(directory_entries)
+                       + bytes(image_data))
 
 
-def build(with_badge: bool):
-    pairs = []
-    for size in SIZES:
+def build_frames(with_badge: bool):
+    frames = []
+    for size in ICON_SIZES:
         pixels = render(size, with_badge)
-        pairs.append((size, encode_png(pixels)))
-    return pairs
+        frames.append((size, encode_png(pixels)))
+    return frames
 
 
 def main():
-    out_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.dirname(os.path.abspath(__file__))
 
-    normal = build(with_badge=False)
-    write_ico(os.path.join(out_dir, "AppIcon.ico"), normal)
-    print("Wrote AppIcon.ico (%d frames: %s)" % (len(normal), ", ".join(str(s) for s, _ in normal)))
+    normal_frames = build_frames(with_badge=False)
+    write_ico(os.path.join(output_dir, "AppIcon.ico"), normal_frames)
+    print("Wrote AppIcon.ico (%d frames: %s)" % (len(normal_frames), ", ".join(str(size) for size, _ in normal_frames)))
 
-    alert = build(with_badge=True)
-    write_ico(os.path.join(out_dir, "AppIconAlert.ico"), alert)
-    print("Wrote AppIconAlert.ico (%d frames: %s)" % (len(alert), ", ".join(str(s) for s, _ in alert)))
+    alert_frames = build_frames(with_badge=True)
+    write_ico(os.path.join(output_dir, "AppIconAlert.ico"), alert_frames)
+    print("Wrote AppIconAlert.ico (%d frames: %s)" % (len(alert_frames), ", ".join(str(size) for size, _ in alert_frames)))
 
 
 if __name__ == "__main__":

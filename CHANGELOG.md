@@ -259,6 +259,9 @@ released. Every push to this repository carries this file.
   - Internal names in the agent's ten test suites (their shared harness,
     stand-ins for the SDK and discovery, and local variables); no
     behaviour changes
+  - Internal names in the repository's scripts (the privacy scanner, its
+    pre-commit hook's notes and the version checker) and the Windows
+    app's icon generator; no behaviour changes
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

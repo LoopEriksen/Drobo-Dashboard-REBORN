@@ -31,17 +31,20 @@ import os
 import re
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-CSPROJ = os.path.join("windows", "DroboDashboardReborn", "DroboDashboardReborn.csproj")
+APP_CSPROJ_PATH = os.path.join("windows", "DroboDashboardReborn", "DroboDashboardReborn.csproj")
 
 # (label, path relative to the repo root, regex with one capturing group).
 # Order is the order they are printed in: the csproj first, because it is the
 # number a release is named by and the one a human bumps first.
 VERSION_PLACES = [
-    ("csproj <Version>",        CSPROJ, r"<Version>([^<]+)</Version>"),
-    ("csproj <AssemblyVersion>", CSPROJ, r"<AssemblyVersion>([^<]+)</AssemblyVersion>"),
-    ("csproj <FileVersion>",    CSPROJ, r"<FileVersion>([^<]+)</FileVersion>"),
+    ("csproj <Version>",        APP_CSPROJ_PATH,
+     r"<Version>([^<]+)</Version>"),
+    ("csproj <AssemblyVersion>", APP_CSPROJ_PATH,
+     r"<AssemblyVersion>([^<]+)</AssemblyVersion>"),
+    ("csproj <FileVersion>",    APP_CSPROJ_PATH,
+     r"<FileVersion>([^<]+)</FileVersion>"),
     ("agent api.VERSION",       os.path.join("agent", "drobo_agent", "api.py"),
      r"^VERSION\s*=\s*[\"']([^\"']+)[\"']"),
     ("agent __version__",       os.path.join("agent", "drobo_agent", "__init__.py"),
@@ -54,65 +57,69 @@ VERSION_PLACES = [
 
 # The two that carry a fourth field. Checked against the three-part number
 # rather than against each other, so "1.0.0 vs 1.0.1.0" is caught too.
-FOUR_PART = {"csproj <AssemblyVersion>", "csproj <FileVersion>"}
+FOUR_PART_LABELS = {"csproj <AssemblyVersion>", "csproj <FileVersion>"}
 
-REFERENCE = "csproj <Version>"
+REFERENCE_LABEL = "csproj <Version>"
 
 
-def read(path):
-    with io.open(os.path.join(REPO, path), encoding="utf-8-sig") as fh:
-        return fh.read()
+def read_repo_file(path):
+    with io.open(os.path.join(REPO_ROOT, path),
+                 encoding="utf-8-sig") as text_file:
+        return text_file.read()
 
 
 def collect_versions():
     """{label: version-or-None}, plus a list of files that could not be read."""
-    found, missing = {}, []
-    cache = {}
+    found, unreadable = {}, []
+    text_by_path = {}
     for label, path, pattern in VERSION_PLACES:
-        if path not in cache:
+        if path not in text_by_path:
             try:
-                cache[path] = read(path)
+                text_by_path[path] = read_repo_file(path)
             except OSError as exc:
-                cache[path] = None
-                missing.append(f"{path}: {exc.strerror or exc}")
-        text = cache[path]
+                text_by_path[path] = None
+                unreadable.append(f"{path}: {exc.strerror or exc}")
+        text = text_by_path[path]
         if text is None:
             found[label] = None
             continue
         match = re.search(pattern, text, re.MULTILINE)
         found[label] = match.group(1).strip() if match else None
-    return found, missing
+    return found, unreadable
 
 
 def find_problems():
     """Every disagreement, as plain sentences. Empty means the tree is consistent."""
-    found, missing = collect_versions()
-    problems = list(missing)
+    found, unreadable = collect_versions()
+    problems = list(unreadable)
 
     for label, path, _ in VERSION_PLACES:
-        if found.get(label) is None and not any(path in m for m in missing):
+        if found.get(label) is None and not any(path in m for m in unreadable):
             problems.append(f"{label}: no version found in {path}")
 
-    reference = found.get(REFERENCE)
-    if reference is None:
+    reference_version = found.get(REFERENCE_LABEL)
+    if reference_version is None:
         problems.append(
-            f"{REFERENCE} is the number everything else is compared against, "
-            f"and it could not be read -- nothing could be checked")
+            f"{REFERENCE_LABEL} is the number everything else is compared "
+            f"against, and it could not be read -- nothing could be checked")
         return problems
 
     for label, path, _ in VERSION_PLACES:
-        got = found.get(label)
-        if got is None or label == REFERENCE:
+        stated_version = found.get(label)
+        if stated_version is None or label == REFERENCE_LABEL:
             continue
-        if label in FOUR_PART:
-            parts = got.split(".")
-            if len(parts) != 4 or ".".join(parts[:3]) != reference:
+        if label in FOUR_PART_LABELS:
+            version_fields = stated_version.split(".")
+            if (len(version_fields) != 4
+                    or ".".join(version_fields[:3]) != reference_version):
                 problems.append(
-                    f"{label} is {got} in {path}; expected {reference} "
-                    f"plus a fourth field (for example {reference}.0)")
-        elif got != reference:
+                    f"{label} is {stated_version} in {path}; expected "
+                    f"{reference_version} plus a fourth field (for example "
+                    f"{reference_version}.0)")
+        elif stated_version != reference_version:
             problems.append(
-                f"{label} is {got} in {path}; expected {reference}")
+                f"{label} is {stated_version} in {path}; expected "
+                f"{reference_version}")
     return problems
 
 
@@ -121,26 +128,28 @@ def main(argv=None):
     quiet = "--quiet" in argv
 
     found, _ = collect_versions()
-    bad = find_problems()
+    problems = find_problems()
 
     if not quiet:
-        width = max(len(label) for label, _, _ in VERSION_PLACES)
+        label_width = max(len(label) for label, _, _ in VERSION_PLACES)
         for label, _, _ in VERSION_PLACES:
-            got = found.get(label)
-            print(f"  {label.ljust(width)}  {got if got is not None else '(not found)'}")
+            stated_version = found.get(label)
+            shown_version = (stated_version if stated_version is not None
+                             else "(not found)")
+            print(f"  {label.ljust(label_width)}  {shown_version}")
         print("")
 
-    if bad:
+    if problems:
         print("FAIL: the release version does not agree with itself.")
-        for line in bad:
-            print(f"  - {line}")
+        for problem in problems:
+            print(f"  - {problem}")
         print("")
         print("Fix every place listed under \"Versioning\" in windows/README.md,")
         print("then re-run. Do not guess which one is right.")
         return 1
 
     if not quiet:
-        print(f"PASS: every place says {found[REFERENCE]}.")
+        print(f"PASS: every place says {found[REFERENCE_LABEL]}.")
     return 0
 
 

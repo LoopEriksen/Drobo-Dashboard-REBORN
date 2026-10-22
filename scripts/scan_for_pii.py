@@ -31,7 +31,7 @@ import re
 import subprocess
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Generic patterns — no hardcoded personal identifiers.
 # A real user-profile path, but not the placeholders documentation is
@@ -45,8 +45,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # an earlier version with \b on both forms silently failed to exclude every
 # "C:\Users\<you>\..." in the docs. Bare words still need the boundary, or
 # "name" would also swallow a real user called "nameless".
-_PLACEHOLDER = (r"(?!(?:<[^>\\/]{1,24}>"
-                r"|(?:you|your-?name|username|name|user|Public|All\sUsers)\b))")
+_PLACEHOLDER_EXCLUSION = (
+    r"(?!(?:<[^>\\/]{1,24}>"
+    r"|(?:you|your-?name|username|name|user|Public|All\sUsers)\b))")
 
 # The account name after Users\ is part of the match, not just the prefix.
 # Matching only "C:\Users\" said a path existed but not whose, so every hit
@@ -57,11 +58,12 @@ _PLACEHOLDER = (r"(?!(?:<[^>\\/]{1,24}>"
 # a list of letters, because account names are not ASCII-only, and a
 # letters-first class does not match a name like "Ölaf" at all. redact()
 # masks the name before anything is printed.
-_ACCOUNT = r"""[^\\/\s"'`]+"""
+_ACCOUNT_NAME_PATTERN = r"""[^\\/\s"'`]+"""
 
-PATTERNS = [
+BUILTIN_PATTERNS = [
     ("absolute Windows user path",
-     re.compile(r"C:[\\/]+Users[\\/]+" + _PLACEHOLDER + _ACCOUNT, re.I)),
+     re.compile(r"C:[\\/]+Users[\\/]+" + _PLACEHOLDER_EXCLUSION
+                + _ACCOUNT_NAME_PATTERN, re.I)),
     ("email address",
      re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")),
     # The two shapes that identify the unit itself, and that must never reach
@@ -107,16 +109,17 @@ PATTERNS = [
 # every one of them was being reported as a leak. The dot before the reserved
 # name is required, so a real domain that merely ends in the same letters is
 # not waved through with them.
-EMAIL_OK = re.compile(
+ALLOWED_EMAIL_DOMAIN = re.compile(
     r"@(demo\.com|example\.(com|org|net)"
     r"|[A-Za-z0-9.-]+\.(example|test|invalid|localhost))$", re.I)
 
 # .claude/ holds local machine config (gitignored, never published).
 SKIP_DIRS = {".git", ".claude", "__pycache__", ".venv", "venv", "env", "ENV",
              "node_modules", ".pytest_cache", "build", "dist"}
-SKIP_EXT = {".db", ".sqlite", ".sqlite3", ".png", ".jpg", ".jpeg", ".gif",
-            ".webp", ".bmp", ".ico", ".pyc", ".zip", ".mp4", ".mov",
-            ".docx", ".doc", ".pdf", ".xlsx"}
+SKIP_EXTENSIONS = {
+    ".db", ".sqlite", ".sqlite3", ".png", ".jpg", ".jpeg", ".gif",
+    ".webp", ".bmp", ".ico", ".pyc", ".zip", ".mp4", ".mov",
+    ".docx", ".doc", ".pdf", ".xlsx"}
 
 
 def load_local_patterns():
@@ -135,31 +138,32 @@ def load_local_patterns():
     fortnight. A guard that cannot tell you it is not guarding is worse than
     no guard, because it is trusted.
     """
-    out, notes = [], []
-    path = os.path.join(REPO, "scripts", "pii_patterns.local")
+    private_patterns, notes = [], []
+    path = os.path.join(REPO_ROOT, "scripts", "pii_patterns.local")
     if not os.path.exists(path):
         notes.append(
             "NAME DETECTION IS OFF: scripts/pii_patterns.local is missing, so "
             "nothing here can recognise a real name, username or share name. "
             "Create it (one regex per line; it is gitignored) or this scan "
             "cannot see the category it exists for.")
-        return out, notes
+        return private_patterns, notes
 
-    with open(path, encoding="utf-8", errors="ignore") as fh:
-        for lineno, line in enumerate(fh, 1):
+    with open(path, encoding="utf-8", errors="ignore") as pattern_file:
+        for lineno, line in enumerate(pattern_file, 1):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             try:
-                out.append(("private pattern", re.compile(line, re.I)))
+                private_patterns.append(("private pattern",
+                                         re.compile(line, re.I)))
             except re.error as exc:
                 # Silently dropping a bad pattern used to leave a hole shaped
                 # exactly like the thing it was meant to catch.
                 notes.append(f"pii_patterns.local:{lineno} is not a valid "
                              f"regex and was skipped ({exc}).")
-    if not out:
+    if not private_patterns:
         notes.append("pii_patterns.local exists but defines no usable patterns.")
-    return out, notes
+    return private_patterns, notes
 
 
 def load_allowlist():
@@ -176,21 +180,21 @@ def load_allowlist():
     dropped quietly, but unlike a bad private pattern it cannot hide a leak:
     losing an exception makes the scan stricter, not blinder.
     """
-    out, notes = [], []
-    path = os.path.join(REPO, "scripts", "pii_allow.txt")
+    allow_patterns, notes = [], []
+    path = os.path.join(REPO_ROOT, "scripts", "pii_allow.txt")
     if not os.path.exists(path):
-        return out, notes
-    with open(path, encoding="utf-8", errors="ignore") as fh:
-        for lineno, line in enumerate(fh, 1):
+        return allow_patterns, notes
+    with open(path, encoding="utf-8", errors="ignore") as allowlist_file:
+        for lineno, line in enumerate(allowlist_file, 1):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             try:
-                out.append(re.compile(line, re.I))
+                allow_patterns.append(re.compile(line, re.I))
             except re.error as exc:
                 notes.append(f"pii_allow.txt:{lineno} is not a valid regex and "
                              f"was skipped ({exc}).")
-    return out, notes
+    return allow_patterns, notes
 
 
 # Files that legitimately contain the shapes being hunted, because hunting is
@@ -211,22 +215,24 @@ def tracked_files():
     having no scanner.
     """
     try:
-        out = subprocess.run(["git", "-C", REPO, "ls-files", "-z"],
-                             capture_output=True, check=True)
+        git_result = subprocess.run(["git", "-C", REPO_ROOT, "ls-files", "-z"],
+                                    capture_output=True, check=True)
     except (OSError, subprocess.CalledProcessError):
         return None
-    return [p for p in out.stdout.decode("utf-8", "replace").split("\0") if p]
+    return [p for p in
+            git_result.stdout.decode("utf-8", "replace").split("\0") if p]
 
 
 def walked_files():
     """Every file in the working tree, repo-relative."""
-    found = []
-    for root, dirs, files in os.walk(REPO):
+    relative_paths = []
+    for root, dirs, files in os.walk(REPO_ROOT):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for name in files:
-            path = os.path.join(root, name)
-            found.append(os.path.relpath(path, REPO).replace("\\", "/"))
-    return found
+        for file_name in files:
+            path = os.path.join(root, file_name)
+            relative_paths.append(
+                os.path.relpath(path, REPO_ROOT).replace("\\", "/"))
+    return relative_paths
 
 
 # A line whose context makes a PRIVATE-NAME match legitimate: credit lines for
@@ -235,11 +241,12 @@ def walked_files():
 # not a privacy problem; being unable to tell the two apart is. It exempts the
 # private-name patterns only -- a user path, an email address, a serial or a
 # MAC on the same line is still reported.
-# scripts/hooks/pre-commit applies the same regex as CREDIT_CONTEXT; keep the
-# two identical, or the hook and the scanner disagree about the same line.
-ALLOW_CONTEXT = re.compile(r"drobo-utils|petersilva|Silva", re.I)
+# scripts/hooks/pre-commit applies the same regex under the same name,
+# CREDIT_CONTEXT; keep the two identical, or the hook and the scanner
+# disagree about the same line.
+CREDIT_CONTEXT = re.compile(r"drobo-utils|petersilva|Silva", re.I)
 
-_PATH_PARTS = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)", re.I | re.S)
+_USER_PATH_PARTS = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)", re.I | re.S)
 
 
 def redact(label, snippet):
@@ -254,9 +261,10 @@ def redact(label, snippet):
     if label == "private pattern":
         return snippet[0] + "*" * (len(snippet) - 1) if snippet else "?"
     if label == "email address" and "@" in snippet:
-        local, _, domain = snippet.partition("@")
-        keep = local[:2] if len(local) > 2 else local[:1]
-        return f"{keep}{'*' * max(len(local) - len(keep), 1)}@{domain}"
+        local_part, _, domain = snippet.partition("@")
+        kept_prefix = local_part[:2] if len(local_part) > 2 else local_part[:1]
+        mask = "*" * max(len(local_part) - len(kept_prefix), 1)
+        return f"{kept_prefix}{mask}@{domain}"
     if label == "Drobo device serial":
         # Every unit's serial starts the same way; what follows is the unit.
         return snippet[:3] + "*" * max(len(snippet) - 3, 1)
@@ -264,50 +272,53 @@ def redact(label, snippet):
         # The first three octets are the vendor OUI -- printing them says "a
         # Drobo", not "which Drobo". The three that identify the unit are
         # masked, separators kept so the line still reads as an address.
-        kept, digits = [], 0
-        for ch in snippet:
-            if ch in ":-":
-                kept.append(ch)
+        redacted_characters, digit_count = [], 0
+        for character in snippet:
+            if character in ":-":
+                redacted_characters.append(character)
                 continue
-            digits += 1
-            kept.append(ch if digits <= 6 else "*")
-        return "".join(kept)
+            digit_count += 1
+            redacted_characters.append(character if digit_count <= 6 else "*")
+        return "".join(redacted_characters)
     if label == "absolute Windows user path":
-        m = _PATH_PARTS.match(snippet)
-        if m and m.group(2):
-            name = m.group(2)
-            return m.group(1) + name[0] + "*" * max(len(name) - 1, 1)
+        path_match = _USER_PATH_PARTS.match(snippet)
+        if path_match and path_match.group(2):
+            account_name = path_match.group(2)
+            return (path_match.group(1) + account_name[0]
+                    + "*" * max(len(account_name) - 1, 1))
     return snippet
 
 
-def scan(patterns, allow, rels):
+def scan_files(patterns, allow_patterns, relative_paths):
     hits = []
-    for rel in rels:
-        if rel in SKIP_FILES:
+    for relative_path in relative_paths:
+        if relative_path in SKIP_FILES:
             continue
-        if os.path.splitext(rel)[1].lower() in SKIP_EXT:
+        if os.path.splitext(relative_path)[1].lower() in SKIP_EXTENSIONS:
             continue
         # git ls-files knows nothing of SKIP_DIRS, so apply them to both file
         # lists; otherwise the tracked scan and --all disagree about scope.
-        if any(part in SKIP_DIRS for part in rel.split("/")):
+        if any(part in SKIP_DIRS for part in relative_path.split("/")):
             continue
         try:
-            with open(os.path.join(REPO, rel), encoding="utf-8", errors="ignore") as fh:
-                for lineno, line in enumerate(fh, 1):
-                    for label, rx in patterns:
+            with open(os.path.join(REPO_ROOT, relative_path),
+                      encoding="utf-8", errors="ignore") as text_file:
+                for lineno, line in enumerate(text_file, 1):
+                    for label, pattern in patterns:
                         # Every match on the line, not only the first. Stopping
                         # at the first meant an accepted match early in a line
                         # -- a reserved test address, a reviewed exception --
                         # hid a real one later on the same line.
-                        for m in rx.finditer(line):
-                            snippet = m.group(0).strip()
-                            if label == "email address" and EMAIL_OK.search(snippet):
+                        for match in pattern.finditer(line):
+                            snippet = match.group(0).strip()
+                            if label == "email address" and ALLOWED_EMAIL_DOMAIN.search(snippet):
                                 continue
-                            if label == "private pattern" and ALLOW_CONTEXT.search(line):
+                            if label == "private pattern" and CREDIT_CONTEXT.search(line):
                                 continue
-                            if any(a.search(snippet) for a in allow):
+                            if any(a.search(snippet) for a in allow_patterns):
                                 continue
-                            hits.append((rel, lineno, label, snippet))
+                            hits.append((relative_path, lineno, label,
+                                         snippet))
         except (OSError, UnicodeError):
             continue
     return hits
@@ -317,67 +328,71 @@ def main():
     # --path lets this guard another checkout instead of only the
     # one it happens to live in. Before this existed, an unknown flag was
     # silently ignored and you got a clean-looking scan of the WRONG directory.
-    global REPO
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--path", help="repo to scan (default: the one this script lives in)")
-    scope = ap.add_mutually_exclusive_group()
-    scope.add_argument("--all", action="store_true",
-                       help="scan every file, not only the ones git tracks "
-                            "(includes build output; expect noise)")
-    scope.add_argument("--tracked", action="store_true",
-                       help="scan only the files git tracks (the default); fail "
-                            "rather than walk the tree if this is not a checkout")
-    ap.add_argument("--generic-only", action="store_true",
-                    help="skip the private name list and say so; for CI, "
-                         "where that list never exists")
-    args = ap.parse_args()
+    global REPO_ROOT
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--path", help="repo to scan (default: the one this script lives in)")
+    scope_group = parser.add_mutually_exclusive_group()
+    scope_group.add_argument(
+        "--all", action="store_true",
+        help="scan every file, not only the ones git tracks "
+             "(includes build output; expect noise)")
+    scope_group.add_argument(
+        "--tracked", action="store_true",
+        help="scan only the files git tracks (the default); fail "
+             "rather than walk the tree if this is not a checkout")
+    parser.add_argument("--generic-only", action="store_true",
+                        help="skip the private name list and say so; for CI, "
+                             "where that list never exists")
+    args = parser.parse_args()
     if args.path:
-        REPO = os.path.abspath(args.path)
-        if not os.path.isdir(REPO):
-            print(f"No such directory: {REPO}")
+        REPO_ROOT = os.path.abspath(args.path)
+        if not os.path.isdir(REPO_ROOT):
+            print(f"No such directory: {REPO_ROOT}")
             return 2
 
     if args.all:
-        rels, scope_desc = walked_files(), "every file in the tree"
+        relative_paths, scope_description = (walked_files(),
+                                             "every file in the tree")
     else:
-        rels = tracked_files()
-        if rels is None:
+        relative_paths = tracked_files()
+        if relative_paths is None:
             if args.tracked:
                 # Walking instead would report on a different file set than
                 # the one that was asked for.
-                print(f"Not a git checkout (or git unavailable): {REPO}")
+                print(f"Not a git checkout (or git unavailable): {REPO_ROOT}")
                 return 2
-            rels = walked_files()
-            scope_desc = "every file in the tree (not a git checkout, so nothing is 'tracked')"
+            relative_paths = walked_files()
+            scope_description = "every file in the tree (not a git checkout, so nothing is 'tracked')"
         else:
-            scope_desc = f"the {len(rels)} files git tracks (use --all for everything)"
+            scope_description = f"the {len(relative_paths)} files git tracks (use --all for everything)"
 
-    print(f"Scanning {REPO}")
+    print(f"Scanning {REPO_ROOT}")
     if args.generic_only:
         # CI can never hold the private list: it is gitignored by design, and
         # putting the names anywhere a runner can read them would publish them.
         # Saying so beats both alternatives -- failing every run, or calling a
         # scan clean that never looked for names. The hook checks names on
         # every clone that has the list.
-        local, notes = [], []
+        private_patterns, private_pattern_notes = [], []
         print("  name detection skipped (--generic-only): the private pattern "
               "list is per-machine and never present in CI")
     else:
-        local, notes = load_local_patterns()
-    allow, allow_notes = load_allowlist()
-    for note in notes:
+        private_patterns, private_pattern_notes = load_local_patterns()
+    allow_patterns, allowlist_notes = load_allowlist()
+    for note in private_pattern_notes:
         print(f"  !! {note}")
-    for note in allow_notes:
+    for note in allowlist_notes:
         print(f"  !  {note}")
-    print(f"  {len(PATTERNS)} built-in pattern(s), {len(local)} private pattern(s), "
-          f"{len(allow)} reviewed exception(s)")
-    print(f"  scanning {scope_desc}")
+    print(f"  {len(BUILTIN_PATTERNS)} built-in pattern(s), {len(private_patterns)} private pattern(s), "
+          f"{len(allow_patterns)} reviewed exception(s)")
+    print(f"  scanning {scope_description}")
 
-    hits = scan(PATTERNS + local, allow, rels)
+    hits = scan_files(BUILTIN_PATTERNS + private_patterns, allow_patterns,
+                      relative_paths)
     if not hits:
         # "Clean" is only honest when every category was actually checked.
-        if notes:
+        if private_pattern_notes:
             print("PII scan: no hits from the patterns that RAN -- but see the "
                   "warnings above; this is not a clean bill of health.")
             return 1
@@ -388,8 +403,9 @@ def main():
         print("PII scan: clean — no personal or identifying data found.")
         return 0
     print(f"PII scan: {len(hits)} potential hit(s) found:\n")
-    for rel, lineno, label, snippet in hits:
-        print(f"  {rel}:{lineno}  [{label}]  {redact(label, snippet)}")
+    for relative_path, lineno, label, snippet in hits:
+        print(f"  {relative_path}:{lineno}  [{label}]  "
+              f"{redact(label, snippet)}")
     print("\nReview each hit. Demo accounts (@demo.com) and reserved test domains "
           "are allowed;\nanything else should be removed, replaced, or -- once "
           "reviewed -- added to scripts/pii_allow.txt.")
