@@ -43,16 +43,17 @@ sys.path.insert(0, os.path.abspath(
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
-from drobo_nasd import identify as idf  # noqa: E402
+from drobo_nasd import identify  # noqa: E402
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 tmp = tempfile.mkdtemp(prefix="identify-api-")
@@ -104,9 +105,9 @@ try:
     check("a plain identify succeeds", status == 200 and body.get("ok"), (status, body))
     check("it is reported as simulated", body.get("simulated") is True, body)
     check("the default interval is applied, not left empty",
-          body.get("interval") == idf.DEFAULT_INTERVAL, body)
+          body.get("interval") == identify.DEFAULT_INTERVAL, body)
     check("the driver actually received it",
-          driver._identify_last_interval == idf.DEFAULT_INTERVAL,
+          driver._identify_last_interval == identify.DEFAULT_INTERVAL,
           driver._identify_last_interval)
 
     status, body = post("/api/identify?interval=45")
@@ -131,7 +132,8 @@ try:
     print("\n== a bad interval is the caller's fault, not the Drobo's ==")
     before = driver._identify_count
     for bad, why in (("-1", "negative"), ("abc", "not a number"),
-                     (str(idf.MAX_INTERVAL + 1), "beyond the sanity limit")):
+                     (str(identify.MAX_INTERVAL + 1),
+                      "beyond the sanity limit")):
         status, body = post(f"/api/identify?interval={bad}")
         check(f"{why} is refused with 400", status == 400, (bad, status, body))
         check(f"{why} says why", "error" in body, body)
@@ -141,28 +143,29 @@ try:
     print("\n== the simulator is not more permissive than the hardware ==")
     # If these two ever disagree, the simulator starts certifying intervals
     # that a real Drobo would reject.
-    for value in (-1, idf.MAX_INTERVAL + 1, "15", 15.0, True):
+    for value in (-1, identify.MAX_INTERVAL + 1, "15", 15.0, True):
         sdk_refuses = False
         try:
-            idf.validate_interval(value)
-        except idf.IdentifyParameterError:
+            identify.validate_interval(value)
+        except identify.IdentifyParameterError:
             sdk_refuses = True
         check(f"the SDK refuses {value!r}", sdk_refuses)
-    for value in (None, 0, 15, idf.MAX_INTERVAL):
+    for value in (None, 0, 15, identify.MAX_INTERVAL):
         try:
-            idf.validate_interval(value)
+            identify.validate_interval(value)
             check(f"the SDK allows {value!r}", True)
-        except idf.IdentifyParameterError as exc:
+        except identify.IdentifyParameterError as exc:
             check(f"the SDK allows {value!r}", False, str(exc))
 
     check("IdentifyParameterError is catchable as IdentifyError",
-          issubclass(idf.IdentifyParameterError, idf.IdentifyError))
+          issubclass(identify.IdentifyParameterError, identify.IdentifyError))
     check("...and as ValueError, for callers that never heard of this module",
-          issubclass(idf.IdentifyParameterError, ValueError))
+          issubclass(identify.IdentifyParameterError, ValueError))
 finally:
     httpd.shutdown()
     mon.stop()
     httpd.server_close()
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

@@ -15,13 +15,13 @@ sys.path.insert(0, os.path.abspath(
 
 from drobo_nasd import client, commands, envelope, framing
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label + ("  " + str(failure_detail) if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +384,8 @@ _five.append(_DS(bay=6, present=False, state="empty"))
 _esatm._trim_phantom_slots(_five, "Drobo 5N")
 check("trailing empty phantom slot is removed", len(_five) == 5, len(_five))
 
-print(f"\n{'ALL PASS' if not fails else f'{len(fails)} FAILED'}")
-if fails:
-    for f in fails:
+print(f"\n{'ALL PASS' if not failures else f'{len(failures)} FAILED'}")
+if failures:
+    for f in failures:
         print(f"  - {f}")
     sys.exit(1)

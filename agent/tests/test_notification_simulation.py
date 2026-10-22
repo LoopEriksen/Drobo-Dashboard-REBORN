@@ -57,14 +57,15 @@ from drobo_agent.models import (  # noqa: E402
     SEVERITY_CRITICAL, SEVERITY_WARNING,
 )
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # ---------------------------------------------------------------------------
@@ -326,5 +327,6 @@ unknown_to_port = sorted(set(cs_category_ids) - CATEGORIES)
 check("the C# list has no category this port never routes to",
       not unknown_to_port, unknown_to_port)
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

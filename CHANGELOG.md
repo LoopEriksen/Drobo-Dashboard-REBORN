@@ -224,6 +224,10 @@ released. Every push to this repository carries this file.
   - `scripts/check_versions.py`: `PLACES` -> `VERSION_PLACES`, `collect`
     -> `collect_versions` and `problems` -> `find_problems` (what it
     prints and its exit codes stay)
+  - The SDK modules that read XML (`config_cmd`, `discovery`,
+    `droboapps`, `drobosync`, `envelope`, `esatm`, `eventlog`,
+    `sharewrite` and `sysinfo`) import `ElementTree` under its own name
+    instead of as `ET`, so `drobo_nasd.<module>.ET` -> `ElementTree`
   - Private helpers that scripts of your own may reach into:
     `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
     `_send_section_document`, `_recv_exact` (in `config_cmd` and

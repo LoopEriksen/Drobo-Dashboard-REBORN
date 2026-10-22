@@ -32,27 +32,28 @@ import threading
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import commands as C
-from drobo_nasd import config_cmd as cc
-from drobo_nasd import droboapps as da
-from drobo_nasd import sharewrite as sw
+from drobo_nasd import commands
+from drobo_nasd import config_cmd
+from drobo_nasd import droboapps
+from drobo_nasd import sharewrite
 from drobo_nasd.shareedit import ShareEditError
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # HANGUP is the measured symptom: the device reads the command frame, then
 # closes the connection without sending a result frame at all.
 HANGUP = "hangup"
 
-SET_CONFIG_ID = C.COMMANDS["eCmdSetConfig"]
+SET_CONFIG_ID = commands.COMMANDS["eCmdSetConfig"]
 
 
 class ScriptedDrobo:
@@ -94,14 +95,16 @@ class ScriptedDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._frame(conn)  # login
-                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+                conn.sendall(
+                    config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
                 payload = self._frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
                 # The command frame is fully read either way -- the client's
                 # sendall must complete before the socket goes away, or the
                 # test would be measuring a SEND failure, not an ACK failure.
                 if step is not HANGUP:
-                    conn.sendall(cc._build_frame(cc.TYPE_RESULT, step))
+                    conn.sendall(
+                        config_cmd._build_frame(config_cmd.TYPE_RESULT, step))
                 conn.close()
             except OSError:
                 break
@@ -153,7 +156,7 @@ def _read_reply(shareconfig_xml):
 
 def _accept():
     return (f"<TMCmd><CmdID>{SET_CONFIG_ID}</CmdID>"
-            f"<Result>{cc.RESULT_ACCEPTED}</Result>"
+            f"<Result>{config_cmd.RESULT_ACCEPTED}</Result>"
             f"<ResultDetails/></TMCmd>").encode() + b"\x00"
 
 
@@ -171,7 +174,7 @@ def _dimming_reply(value):
 ESA = "drb000000SAMPLE"
 ORIG = _pp_config(_pp_share("Alpha") + _pp_share("Beta"))
 WITH_FRESH = ORIG.replace(
-    "</Shares>", sw._NEW_SHARE_NODE.format(name="Fresh", volume="Volume1") + "</Shares>")
+    "</Shares>", sharewrite._NEW_SHARE_NODE.format(name="Fresh", volume="Volume1") + "</Shares>")
 LOCKED = _pp_config(_pp_share("Locked", access="0"))
 UNLOCKED = _pp_config(_pp_share("Locked", access="1"))
 
@@ -195,12 +198,13 @@ def _arbiter(answer):
 # happened and the arbiter must not even be asked.
 ask, calls = _arbiter(True)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dead_port(), 2, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID,
+                                      dead_port(), 2, readback=ask)
     check("a refused connection raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("a refused connection is a plain ConfigWriteError, not outcome-unknown",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
     check("...with the pre-existing 'could not reach' wording",
           "could not reach the command port" in str(exc), str(exc))
 check("...and the read-back arbiter was never consulted", calls == [], calls)
@@ -218,7 +222,7 @@ def _refuse_login():
     head = conn.recv(16)
     ln = struct.unpack(">I", head[12:16])[0]
     conn.recv(ln)
-    conn.sendall(cc._build_frame(0x99, b""))   # not TYPE_LOGIN_OK
+    conn.sendall(config_cmd._build_frame(0x99, b""))   # not TYPE_LOGIN_OK
     conn.close()
     srv.close()
 
@@ -226,12 +230,12 @@ def _refuse_login():
 threading.Thread(target=_refuse_login, daemon=True).start()
 ask, calls = _arbiter(True)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              lport, 3, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID, lport, 3, readback=ask)
     check("a refused login raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("a refused login is a plain failure, not outcome-unknown",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError)
           and "login refused" in str(exc), str(exc))
 check("...and the arbiter was never consulted for a refused login", calls == [], calls)
 
@@ -239,10 +243,11 @@ print("\n== config_cmd: the acknowledged path is untouched ==")
 
 dev = ScriptedDrobo([_accept()])
 ask, calls = _arbiter(False)   # would fail the write if it were ever consulted
-res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
-                                SET_CONFIG_ID, dev.port, 5, readback=ask)
+res = config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                        SET_CONFIG_ID, dev.port, 5,
+                                        readback=ask)
 check("an accepted write still returns the device's result code",
-      res["result_code"] == cc.RESULT_ACCEPTED, res)
+      res["result_code"] == config_cmd.RESULT_ACCEPTED, res)
 check("...and reports itself acknowledged", res["acknowledged"] is True, res)
 check("...and does NOT read the device back", calls == [], calls)
 check("...and carries no 'verified' of its own", "verified" not in res, res)
@@ -251,10 +256,10 @@ check("...and carries no 'verified' of its own", "verified" not in res, res)
 dev = ScriptedDrobo([(f"<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"])
 ask, calls = _arbiter(True)   # would rescue the write if it were ever consulted
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dev.port, 5, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID, dev.port, 5, readback=ask)
     check("a non-accept Result still raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("a non-accept Result still raises ConfigWriteError",
           "did not accept" in str(exc), str(exc))
 check("...and an explicit refusal is never overridden by a read-back",
@@ -264,8 +269,9 @@ print("\n== config_cmd: sent, then silence -- the read-back decides ==")
 
 dev = ScriptedDrobo([HANGUP])
 ask, calls = _arbiter(True)
-res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
-                                SET_CONFIG_ID, dev.port, 5, readback=ask)
+res = config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                        SET_CONFIG_ID, dev.port, 5,
+                                        readback=ask)
 check("an unanswered write whose change IS present succeeds",
       res["verified"] is True, res)
 check("...and is flagged unacknowledged", res["acknowledged"] is False, res)
@@ -280,12 +286,12 @@ check("...and the write frame went out exactly once (no retry)",
 dev = ScriptedDrobo([HANGUP])
 ask, calls = _arbiter(False)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dev.port, 5, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID, dev.port, 5, readback=ask)
     check("an unanswered write whose change is ABSENT raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unanswered write whose change is ABSENT is a genuine failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError)
           and "did not apply" in str(exc), str(exc))
 check("...and still only one write frame went out", len(dev.writes()) == 1, dev.sent)
 
@@ -293,15 +299,16 @@ print("\n== config_cmd: sent, silence, and no usable read-back -> UNKNOWN ==")
 
 
 def _exploding():
-    raise cc.ConfigError("the read-back connection died too")
+    raise config_cmd.ConfigError("the read-back connection died too")
 
 
 dev = ScriptedDrobo([HANGUP])
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dev.port, 5, readback=_exploding)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID,
+                                      dev.port, 5, readback=_exploding)
     check("an unarbitrable write raises", False)
-except cc.ConfigWriteOutcomeUnknownError as exc:
+except config_cmd.ConfigWriteOutcomeUnknownError as exc:
     msg = str(exc)
     check("an unarbitrable write raises ConfigWriteOutcomeUnknownError", True)
     check("...the wording says the frame WAS sent", "WAS sent" in msg, msg)
@@ -315,10 +322,10 @@ except cc.ConfigWriteOutcomeUnknownError as exc:
 # With no arbiter at all the outcome is equally unknown -- never a failure.
 dev = ScriptedDrobo([HANGUP])
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dev.port, 5)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID, dev.port, 5)
     check("an unanswered write with no arbiter raises", False)
-except cc.ConfigWriteOutcomeUnknownError as exc:
+except config_cmd.ConfigWriteOutcomeUnknownError as exc:
     check("an unanswered write with no arbiter is outcome-unknown, not failure",
           "MAY have applied" in str(exc), str(exc))
 
@@ -332,22 +339,24 @@ def _buggy():
 
 
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              dev.port, 5, readback=_buggy)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID,
+                                      dev.port, 5, readback=_buggy)
     check("a broken arbiter raises", False)
-except cc.ConfigWriteOutcomeUnknownError as exc:
+except config_cmd.ConfigWriteOutcomeUnknownError as exc:
     check("a broken arbiter yields UNKNOWN, not a false failure",
           "TypeError" in str(exc) and "MAY have applied" in str(exc), str(exc))
 
 check("ConfigWriteOutcomeUnknownError is still a ConfigWriteError (broad handlers catch it)",
-      issubclass(cc.ConfigWriteOutcomeUnknownError, cc.ConfigWriteError))
+      issubclass(config_cmd.ConfigWriteOutcomeUnknownError,
+                 config_cmd.ConfigWriteError))
 
 print("\n== create_share: the write the hardware actually did this to ==")
 
 # Sent, hung up on, and the share IS there -- the measured 2026-08-25/26 case.
 dev = ScriptedDrobo([_read_reply(ORIG), HANGUP, _read_reply(WITH_FRESH)])
-res = sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
-                      port=dev.port, timeout=5)
+res = sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
+                              port=dev.port, timeout=5)
 check("an unacknowledged create that applied is reported as SUCCESS",
       res.get("verified") is True, res)
 check("...and surfaces that the device never acknowledged it",
@@ -360,22 +369,22 @@ check("...and having read back exactly once, not twice",
 # Sent, hung up on, and the share is NOT there -- a real failure.
 dev = ScriptedDrobo([_read_reply(ORIG), HANGUP, _read_reply(ORIG)])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
-                    port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
+                            port=dev.port, timeout=5)
     check("an unacknowledged create that did NOT apply raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged create that did NOT apply is a genuine failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError)
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError)
           and "did not apply" in str(exc), str(exc))
 check("...and the create was never re-sent", len(dev.writes()) == 1, dev.sent)
 
 # Sent, hung up on, and the read-back is unreachable -- genuinely unknown.
 dev = ScriptedDrobo([_read_reply(ORIG), HANGUP])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
-                    port=dev.port, timeout=3)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
+                            port=dev.port, timeout=3)
     check("an unarbitrable create raises", False)
-except sw.ShareWriteOutcomeUnknownError as exc:
+except sharewrite.ShareWriteOutcomeUnknownError as exc:
     msg = str(exc)
     check("an unarbitrable create raises ShareWriteOutcomeUnknownError", True)
     check("...saying the write WAS sent", "WAS sent" in msg, msg)
@@ -392,24 +401,27 @@ check("...and the create was sent once and never repeated",
 print("\n== delete_share: the destructive write gets the same treatment ==")
 
 dev = ScriptedDrobo([_read_reply(WITH_FRESH), HANGUP, _read_reply(ORIG)])
-res = sw.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=5)
+res = sharewrite.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                              timeout=5)
 check("an unacknowledged delete that applied is reported as SUCCESS",
       res.get("verified") is True and res.get("acknowledged") is False, res)
 check("...having sent the delete exactly once", len(dev.writes()) == 1, dev.sent)
 
 dev = ScriptedDrobo([_read_reply(WITH_FRESH), HANGUP, _read_reply(WITH_FRESH)])
 try:
-    sw.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=5)
+    sharewrite.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                            timeout=5)
     check("an unacknowledged delete that did NOT apply raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged delete that did NOT apply is a genuine failure",
           "did not apply" in str(exc), str(exc))
 
 dev = ScriptedDrobo([_read_reply(WITH_FRESH), HANGUP])
 try:
-    sw.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=3)
+    sharewrite.delete_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                            timeout=3)
     check("an unarbitrable delete raises", False)
-except sw.ShareWriteOutcomeUnknownError as exc:
+except sharewrite.ShareWriteOutcomeUnknownError as exc:
     msg = str(exc)
     check("an unarbitrable delete raises ShareWriteOutcomeUnknownError", True)
     check("...saying the share MAY already be gone", "MAY already be gone" in msg, msg)
@@ -419,26 +431,26 @@ except sw.ShareWriteOutcomeUnknownError as exc:
 print("\n== set_share_user_access: the same, on the permission write ==")
 
 dev = ScriptedDrobo([_read_reply(LOCKED), HANGUP, _read_reply(UNLOCKED)])
-res = sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
-                               port=dev.port, timeout=5)
+res = sharewrite.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone",
+                                       "1", port=dev.port, timeout=5)
 check("an unacknowledged permission write that applied is reported as SUCCESS",
       res.get("verified") is True and res.get("acknowledged") is False, res)
 
 dev = ScriptedDrobo([_read_reply(LOCKED), HANGUP, _read_reply(LOCKED)])
 try:
-    sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
-                             port=dev.port, timeout=5)
+    sharewrite.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone",
+                                     "1", port=dev.port, timeout=5)
     check("an unacknowledged permission write that did NOT apply raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged permission write that did NOT apply is a failure",
           "did not apply" in str(exc), str(exc))
 
 dev = ScriptedDrobo([_read_reply(LOCKED), HANGUP])
 try:
-    sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
-                             port=dev.port, timeout=3)
+    sharewrite.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone",
+                                     "1", port=dev.port, timeout=3)
     check("an unarbitrable permission write raises", False)
-except sw.ShareWriteOutcomeUnknownError as exc:
+except sharewrite.ShareWriteOutcomeUnknownError as exc:
     check("an unarbitrable permission write raises ShareWriteOutcomeUnknownError",
           "WAS sent" in str(exc) and "MAY now be changed" in str(exc), str(exc))
 
@@ -446,29 +458,29 @@ print("\n== every config write benefits, not just the share ones ==")
 
 # Brightness rides the same tail, so it gets the same arbitration.
 dev = ScriptedDrobo([_general_reply(dim="59"), HANGUP, _dimming_reply(10)])
-res = da.set_dimming("127.0.0.1", ESA, 10, port=dev.port, timeout=5)
+res = droboapps.set_dimming("127.0.0.1", ESA, 10, port=dev.port, timeout=5)
 check("an unacknowledged brightness write that applied is reported as SUCCESS",
       res.get("verified") is True and res.get("acknowledged") is False, res)
 check("...having sent the write exactly once", len(dev.writes()) == 1, dev.sent)
 
 dev = ScriptedDrobo([_general_reply(dim="59"), HANGUP, _dimming_reply(59)])
 try:
-    da.set_dimming("127.0.0.1", ESA, 10, port=dev.port, timeout=5)
+    droboapps.set_dimming("127.0.0.1", ESA, 10, port=dev.port, timeout=5)
     check("an unacknowledged brightness write that did NOT apply raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged brightness write that did NOT apply is a failure",
           "did not apply" in str(exc), str(exc))
 
 # Spin-down too.
 dev = ScriptedDrobo([_general_reply(feature="7", spindown="14"), HANGUP,
                      _general_reply(feature="7", spindown="30")])
-res = da.set_spindown("127.0.0.1", ESA, 30, port=dev.port, timeout=5)
+res = droboapps.set_spindown("127.0.0.1", ESA, 30, port=dev.port, timeout=5)
 check("an unacknowledged spin-down write that applied is reported as SUCCESS",
       res.get("verified") is True and res.get("acknowledged") is False, res)
 
 dev = ScriptedDrobo([_general_reply(feature="7", spindown="14"), HANGUP,
                      _general_reply(feature="5", spindown="0")])
-res = da.disable_spindown("127.0.0.1", ESA, port=dev.port, timeout=5)
+res = droboapps.disable_spindown("127.0.0.1", ESA, port=dev.port, timeout=5)
 check("an unacknowledged spin-down DISABLE that applied is reported as SUCCESS",
       res.get("verified") is True and res.get("acknowledged") is False, res)
 
@@ -476,8 +488,8 @@ print("\n== accepted-but-unapplied is untouched: still 'Received, not applied' =
 
 dev = ScriptedDrobo([_read_reply(ORIG), _accept(), _read_reply(ORIG)])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
-                    port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
+                            port=dev.port, timeout=5)
     check("an accepted create the read-back does not show still raises", False)
 except ShareEditError as exc:
     check("an accepted create the read-back does not show still raises",
@@ -485,8 +497,8 @@ except ShareEditError as exc:
 
 dev = ScriptedDrobo([_read_reply(LOCKED), _accept(), _read_reply(LOCKED)])
 try:
-    sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
-                             port=dev.port, timeout=5)
+    sharewrite.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone",
+                                     "1", port=dev.port, timeout=5)
     check("an accepted permission write the read-back does not show still raises", False)
 except ShareEditError as exc:
     check("an accepted permission write the read-back does not show still raises",
@@ -495,13 +507,13 @@ except ShareEditError as exc:
 print("\n== the acknowledged share path is unchanged, and says so ==")
 
 dev = ScriptedDrobo([_read_reply(ORIG), _accept(), _read_reply(WITH_FRESH)])
-res = sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
-                      port=dev.port, timeout=5)
+res = sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1",
+                              port=dev.port, timeout=5)
 check("a normally acknowledged create verifies as before",
       res.get("verified") is True, res)
 check("...and reports acknowledged True", res.get("acknowledged") is True, res)
 check("...and still carries the device's result code",
-      res.get("result_code") == cc.RESULT_ACCEPTED, res)
+      res.get("result_code") == config_cmd.RESULT_ACCEPTED, res)
 sent = html.unescape(dev.sent[1])
 check("...and the document on the wire is still the read plus the new node",
       "<ShareName>Fresh</ShareName>" in sent and "<ShareName>Alpha</ShareName>" in sent,
@@ -510,8 +522,8 @@ check("...and the document on the wire is still the read plus the new node",
 # The no-op permission write still sends nothing, and says nothing was
 # acknowledged because nothing was sent.
 dev = ScriptedDrobo([_read_reply(UNLOCKED)])
-res = sw.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone", "1",
-                               port=dev.port, timeout=5)
+res = sharewrite.set_share_user_access("127.0.0.1", ESA, "Locked", "Everyone",
+                                       "1", port=dev.port, timeout=5)
 check("a no-op permission write still writes nothing",
       res.get("unchanged") is True and len(dev.writes()) == 0, res)
 check("...and reports acknowledged None (there was nothing to acknowledge)",
@@ -544,8 +556,10 @@ def _garbled_reply(port_holder):
                     break
                 buf += chunk
             if _ == 0:
-                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
-        conn.sendall(cc._build_frame(0x77, b"who knows"))   # not TYPE_RESULT
+                conn.sendall(
+                    config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
+        # not TYPE_RESULT
+        conn.sendall(config_cmd._build_frame(0x77, b"who knows"))
         conn.close()
         srv.close()
     threading.Thread(target=serve, daemon=True).start()
@@ -557,8 +571,9 @@ def _garbled_reply(port_holder):
 holder = []
 _garbled_reply(holder)
 ask, calls = _arbiter(True)
-res = cc._send_section_document("127.0.0.1", ESA, "general", DOC,
-                                SET_CONFIG_ID, holder[0], 3, readback=ask)
+res = config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                        SET_CONFIG_ID, holder[0], 3,
+                                        readback=ask)
 check("an unreadable reply consults the read-back", calls == [True], calls)
 check("...and a read-back that finds the change reports success",
       res.get("verified") is True, res)
@@ -573,12 +588,13 @@ holder = []
 _garbled_reply(holder)
 ask, calls = _arbiter(False)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              holder[0], 3, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID,
+                                      holder[0], 3, readback=ask)
     check("an unreadable reply with the change absent raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("an unreadable reply with the change absent is a plain failure",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
     check("...and the read-back was what decided it", calls == [False], calls)
 
 # A stated refusal is still a verdict: the device read the command and said no,
@@ -587,10 +603,11 @@ srv2 = ScriptedDrobo([(f"<TMCmd><CmdID>{SET_CONFIG_ID}</CmdID><Result>5</Result>
                        f"<ResultDetails/></TMCmd>").encode() + b"\x00"])
 ask, calls = _arbiter(True)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              srv2.port, 3, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID,
+                                      srv2.port, 3, readback=ask)
     check("a stated refusal raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("a stated refusal stays a refusal", "did not accept" in str(exc), str(exc))
 check("...and the read-back was never consulted for it", calls == [], calls)
 
@@ -616,15 +633,15 @@ def _hangup_at_login():
 threading.Thread(target=_hangup_at_login, daemon=True).start()
 ask, calls = _arbiter(True)
 try:
-    cc._send_section_document("127.0.0.1", ESA, "general", DOC, SET_CONFIG_ID,
-                              hport, 3, readback=ask)
+    config_cmd._send_section_document("127.0.0.1", ESA, "general", DOC,
+                                      SET_CONFIG_ID, hport, 3, readback=ask)
     check("a login that dies raises", False)
-except cc.ConfigWriteError as exc:
+except config_cmd.ConfigWriteError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           True, type(exc).__name__)
     check("...and not outcome-unknown, because nothing was sent",
-          not isinstance(exc, cc.ConfigWriteOutcomeUnknownError), type(exc).__name__)
-except cc.ConfigError as exc:
+          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+except config_cmd.ConfigError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           False, type(exc).__name__)
 check("...and the read-back was never consulted", calls == [], calls)
@@ -651,5 +668,6 @@ check("...and the arbiter itself never sends anything",
       "sendall" not in _SOURCE.split("def _arbitrate_unacknowledged")[1]
       .split("def get_config_element")[0])
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

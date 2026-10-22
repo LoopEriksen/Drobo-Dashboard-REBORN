@@ -51,12 +51,12 @@ SERVER_PORT = 5000
 XML_FRAME_1 = b'<?xml version="1.0"?><DRINETTM><Command>10</Command><Params/></DRINETTM>'
 XML_FRAME_2 = b'<?xml version="1.0"?><DRINETTM><Command>85</Command><Params/></DRINETTM>'
 
-FAILURES: list[str] = []
+failures: list[str] = []
 
 
 def check(condition: bool, message: str) -> None:
     if not condition:
-        FAILURES.append(message)
+        failures.append(message)
         print(f"  FAIL: {message}")
     else:
         print(f"  ok:   {message}")
@@ -319,9 +319,9 @@ def run_checks(tmp_dir: str) -> int:
     run_without_login_frame(tmp_dir)
 
     print()
-    if FAILURES:
-        print(f"{len(FAILURES)} check(s) FAILED:")
-        for f in FAILURES:
+    if failures:
+        print(f"{len(failures)} check(s) FAILED:")
+        for f in failures:
             print(f"  - {f}")
         return 1
     print("All checks passed.")

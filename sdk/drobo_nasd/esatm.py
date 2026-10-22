@@ -26,7 +26,7 @@ import re
 import socket
 import struct
 import time
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from .models import (
     STATE_EMPTY,
@@ -268,9 +268,9 @@ def _trim_phantom_slots(drives: list[DriveSlot], model: str) -> None:
         drives.pop()
 
 
-def _parse_root(payload: bytes) -> ET.Element:
+def _parse_root(payload: bytes) -> ElementTree.Element:
     """Strip the frame's trailing NUL (length includes it) and parse the XML."""
-    return ET.fromstring(payload.rstrip(b"\x00").rstrip())
+    return ElementTree.fromstring(payload.rstrip(b"\x00").rstrip())
 
 
 def parse_identity(payload: bytes) -> dict:

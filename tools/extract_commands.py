@@ -52,7 +52,7 @@ import json
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -84,7 +84,7 @@ _REDACTED = "[redacted]"
 _LOOKS_LIKE_XML = re.compile(r"^\s*<\?xml|^\s*<[A-Za-z]")
 
 
-def _redact(elem: ET.Element) -> None:
+def _redact(elem: ElementTree.Element) -> None:
     """Blank any element whose TAG looks like a credential, children and all."""
     for child in list(elem):
         if _CREDENTIAL_NAME_RE.search(child.tag):
@@ -96,8 +96,8 @@ def _redact(elem: ET.Element) -> None:
         _redact(child)
 
 
-def _indent(elem: ET.Element, level: int = 0) -> None:
-    """ET.indent equivalent, spelled out so the output is stable across versions."""
+def _indent(elem: ElementTree.Element, level: int = 0) -> None:
+    """ElementTree.indent equivalent, spelled out so the output is stable across versions."""
     pad = "\n" + "  " * level
     if len(elem):
         if not (elem.text or "").strip():
@@ -112,9 +112,9 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
         elem.tail = pad
 
 
-def _pretty(elem: ET.Element) -> str:
+def _pretty(elem: ElementTree.Element) -> str:
     _indent(elem)
-    return ET.tostring(elem, encoding="unicode").strip()
+    return ElementTree.tostring(elem, encoding="unicode").strip()
 
 
 def unwrap_escaped(text: str) -> str | None:
@@ -125,8 +125,8 @@ def unwrap_escaped(text: str) -> str | None:
     if not text or not _LOOKS_LIKE_XML.match(text):
         return None
     try:
-        inner = ET.fromstring(text)
-    except ET.ParseError:
+        inner = ElementTree.fromstring(text)
+    except ElementTree.ParseError:
         return None
     _redact(inner)
     return _pretty(inner)
@@ -168,15 +168,15 @@ def parse_envelopes(buf: bytes) -> list[dict]:
             raw = buf[start:end]
             pos = end
             try:
-                root = ET.fromstring(raw.decode("utf-8", "replace"))
-            except ET.ParseError:
+                root = ElementTree.fromstring(raw.decode("utf-8", "replace"))
+            except ElementTree.ParseError:
                 continue
             found.append({"offset": start, "root": root, "raw": raw})
     found.sort(key=lambda f: f["offset"])
     return found
 
 
-def _text(root: ET.Element, *names: str) -> str:
+def _text(root: ElementTree.Element, *names: str) -> str:
     for name in names:
         node = root.find(name)
         if node is not None and node.text:
@@ -184,7 +184,7 @@ def _text(root: ET.Element, *names: str) -> str:
     return ""
 
 
-def describe(root: ET.Element) -> dict:
+def describe(root: ElementTree.Element) -> dict:
     """
     Reduce one command (or reply) document to the facts worth printing.
 
@@ -222,7 +222,7 @@ def describe(root: ET.Element) -> dict:
     }
 
     if params is not None:
-        clone = ET.fromstring(ET.tostring(params))
+        clone = ElementTree.fromstring(ElementTree.tostring(params))
         _redact(clone)
         entry["params_xml"] = _pretty(clone)
         for node in clone.iter():

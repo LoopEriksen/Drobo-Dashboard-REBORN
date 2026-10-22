@@ -45,7 +45,7 @@ assertion at the bottom of this module holds us to that.
 from __future__ import annotations
 
 import socket
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from . import commands as _commands
 from .config_cmd import (
@@ -100,8 +100,8 @@ def parse_sync_reply(payload: bytes) -> dict:
         return {"configured": False, "raw_xml": "", "fields": {}}
 
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise DroboSyncError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
@@ -114,7 +114,7 @@ def parse_sync_reply(payload: bytes) -> dict:
     inner = _inner_document(details)
     node = inner if inner is not None else details
 
-    raw_xml = ET.tostring(node, encoding="unicode").strip() if inner is not None else ""
+    raw_xml = ElementTree.tostring(node, encoding="unicode").strip() if inner is not None else ""
     if not raw_xml:
         raw_xml = (details.text or "").strip()
 

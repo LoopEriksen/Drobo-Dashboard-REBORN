@@ -115,7 +115,7 @@ jobs:
             skips=$(grep -cE '^[[:space:]]*SKIP' "$log" || true)
             # The FAIL lines are counted as well as totalled, because an exit
             # code is a promise a suite has to keep: every one of the
-            # thirty-one ends in sys.exit(1 if fails else 0) today, but a
+            # thirty-one exits non-zero today when a check fails, but a
             # suite that printed FAIL lines and still returned 0 would
             # otherwise be folded away as a green group and counted in "all
             # suites passed".

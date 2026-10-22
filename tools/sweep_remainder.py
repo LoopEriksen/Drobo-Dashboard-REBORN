@@ -77,7 +77,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "sdk")))
 sys.path.insert(0, _HERE)
 
-from drobo_nasd import commands as C  # noqa: E402
+from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
 import nasd_sweep as sweep  # noqa: E402  (reuse its send/redact/report machinery)
 
@@ -144,7 +144,7 @@ def main(argv=None) -> int:
     results = []
     consecutive_timeouts = 0
     for i, name in enumerate(REMAINDER, 1):
-        cmd_id = C.COMMANDS[name]
+        cmd_id = commands.COMMANDS[name]
         print(f"[{i}/{len(REMAINDER)}] {name} (id {cmd_id}) ...", flush=True)
         rec = sweep.send_one_command(host, sweep.DEFAULT_COMMAND_PORT, esa, cmd_id, 6.0)
         rec["name"], rec["cmd_id"] = name, cmd_id

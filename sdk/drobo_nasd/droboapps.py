@@ -23,6 +23,7 @@ helper rather than by looking for child elements that are not there.
 from __future__ import annotations
 
 import socket
+from xml.etree import ElementTree
 
 from . import commands as _commands
 from .config_cmd import (
@@ -39,8 +40,6 @@ from .config_cmd import (
     decided_by_readback,
 )
 from .sysinfo import SysInfoError, _inner_document
-
-import xml.etree.ElementTree as ET
 
 APPS_STATUS_COMMAND_NAME = "eCmdGetDroboAppsStatus"
 
@@ -62,8 +61,8 @@ def parse_droboapps(payload: bytes) -> dict:
     if not text:
         return {"sdk_version": "", "apps": []}
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
@@ -117,8 +116,8 @@ def parse_dimming(payload: bytes) -> int | None:
     if not text:
         return None
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
     details = root.find("ResultDetails")
     if details is None:
@@ -158,8 +157,8 @@ def parse_demo_mode(payload: bytes) -> dict:
     if not text:
         return out
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")

@@ -23,13 +23,13 @@ from drobo_nasd import esatm
 FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "fixtures", "esatm-sample.xml")
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label + (f"  {extra}" if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 payload = open(FIXTURE, "rb").read()
@@ -256,12 +256,13 @@ check("an unnamed volume stays unnamed rather than being invented",
 
 # Absent must not read as zero -- a volume reporting no partition count is not
 # a volume with zero partitions.
-import xml.etree.ElementTree as _ET
+from xml.etree import ElementTree
 _bare = esatm._parse_volumes(
-    _ET.fromstring("<r><mLUNUpdates><n0><mLUN>0</mLUN></n0></mLUNUpdates></r>"))
+    ElementTree.fromstring("<r><mLUNUpdates><n0><mLUN>0</mLUN></n0></mLUNUpdates></r>"))
 check("a missing field is None, not 0", _bare[0].partition_count is None, _bare[0].partition_count)
 check("a greeting with no mLUNUpdates gives no volumes",
-      esatm._parse_volumes(_ET.fromstring("<r/>")) == [])
+      esatm._parse_volumes(ElementTree.fromstring("<r/>")) == [])
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

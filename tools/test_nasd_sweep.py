@@ -34,17 +34,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sdk")))
 
 import nasd_sweep as sweep  # noqa: E402
-from drobo_nasd import commands as C  # noqa: E402
-from drobo_nasd import config_cmd as cc  # noqa: E402
+from drobo_nasd import commands  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
 
-FAILURES: list[str] = []
+failures: list[str] = []
 
 
-def check(label: str, cond: bool, extra="") -> None:
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        FAILURES.append(label)
+def check(label: str, condition: bool, failure_detail="") -> None:
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +54,12 @@ def check(label: str, cond: bool, extra="") -> None:
 print("== allowlist safety ==")
 
 check("the real ALLOWLIST is disjoint from DO_NOT_SEND",
-      set(sweep.ALLOWLIST).isdisjoint(C.DO_NOT_SEND),
-      set(sweep.ALLOWLIST) & C.DO_NOT_SEND)
+      set(sweep.ALLOWLIST).isdisjoint(commands.DO_NOT_SEND),
+      set(sweep.ALLOWLIST) & commands.DO_NOT_SEND)
 
 check("every ALLOWLIST name resolves to a confirmed id",
-      all(n in C.COMMANDS for n in sweep.ALLOWLIST),
-      [n for n in sweep.ALLOWLIST if n not in C.COMMANDS])
+      all(n in commands.COMMANDS for n in sweep.ALLOWLIST),
+      [n for n in sweep.ALLOWLIST if n not in commands.COMMANDS])
 
 check("ALLOWLIST has no duplicate names",
       len(set(sweep.ALLOWLIST)) == len(sweep.ALLOWLIST))
@@ -174,11 +175,13 @@ def fake_drobo_answers(reply_body: bytes, port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(
+                config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply_body))
+            conn.sendall(
+                config_cmd._build_frame(config_cmd.TYPE_RESULT, reply_body))
             conn.close()
         except OSError:
             pass
@@ -202,7 +205,8 @@ def fake_drobo_refuses_login(port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(0x99, b""))  # not TYPE_LOGIN_OK
+            # not TYPE_LOGIN_OK
+            conn.sendall(config_cmd._build_frame(0x99, b""))
             conn.close()
         except OSError:
             pass
@@ -228,7 +232,8 @@ def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(
+                config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
             # Read the command, but never reply -- the client must time out.
             conn.recv(16)
             time.sleep(5)
@@ -244,7 +249,8 @@ def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
 ports: list[int] = []
 fake_drobo_answers(ADMIN_BODY, ports)
 result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                 C.COMMANDS["eCmdGetAdminConfig"], timeout=5)
+                                commands.COMMANDS["eCmdGetAdminConfig"],
+                                timeout=5)
 check("answered status recorded", result["status"] == "answered", result)
 check("no secret leaks through send_one_command either",
       not any(s in repr(result) for s in SECRETS), result)
@@ -252,26 +258,27 @@ check("no secret leaks through send_one_command either",
 ports = []
 fake_drobo_answers(b"\x00", ports)
 result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                 C.COMMANDS["eCmdGetFanInfo"], timeout=5)
+                                commands.COMMANDS["eCmdGetFanInfo"], timeout=5)
 check("empty body -> status 'empty'", result["status"] == "empty", result)
 
 ports = []
 fake_drobo_refuses_login(ports)
 result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                 C.COMMANDS["eCmdGetVersion"], timeout=5)
+                                commands.COMMANDS["eCmdGetVersion"], timeout=5)
 check("refused login -> status 'refused', phase 'login'",
       result["status"] == "refused" and result.get("phase") == "login", result)
 
 ports = []
 fake_drobo_login_ok_then_silent(ports)
 result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                 C.COMMANDS["eCmdGetSysInfo"], timeout=0.5)
+                                commands.COMMANDS["eCmdGetSysInfo"],
+                                timeout=0.5)
 check("no command reply -> status 'timeout', phase 'command'",
       result["status"] == "timeout" and result.get("phase") == "command", result)
 
 # connect() to a closed port -> refused at the connect phase, not a timeout.
 result = sweep.send_one_command("127.0.0.1", 1, TEST_ESAID,
-                                 C.COMMANDS["eCmdGetVersion"], timeout=1)
+                                commands.COMMANDS["eCmdGetVersion"], timeout=1)
 check("connection refused outright -> status 'refused', phase 'connect'",
       result["status"] == "refused" and result.get("phase") == "connect", result)
 
@@ -313,5 +320,6 @@ check("all 3 recorded attempts are timeouts",
       all(r["status"] == "timeout" for r in outcome["results"]), outcome["results"])
 
 
-print("\n" + ("ALL PASS" if not FAILURES else f"{len(FAILURES)} FAILURES: {FAILURES}"))
-sys.exit(1 if FAILURES else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

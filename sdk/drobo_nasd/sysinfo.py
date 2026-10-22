@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import html
 import socket
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from . import commands as _commands
 from .config_cmd import (
@@ -60,7 +60,8 @@ class SysInfoError(ConfigError):
     """The device would not, or could not, report its system information."""
 
 
-def _inner_document(details: ET.Element) -> ET.Element | None:
+def _inner_document(
+        details: ElementTree.Element) -> ElementTree.Element | None:
     """
     Get at the document hiding inside <ResultDetails>.
 
@@ -89,12 +90,12 @@ def _inner_document(details: ET.Element) -> ET.Element | None:
     if not unescaped:
         return None
     try:
-        return ET.fromstring(unescaped)
-    except ET.ParseError as exc:
+        return ElementTree.fromstring(unescaped)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"could not read the system-info document: {exc}") from exc
 
 
-def _int_or_none(node: ET.Element | None, tag: str) -> int | None:
+def _int_or_none(node: ElementTree.Element | None, tag: str) -> int | None:
     """A missing field and a field we can't read both mean 'no answer', not 0."""
     if node is None:
         return None
@@ -119,8 +120,8 @@ def parse_sysinfo(payload: bytes) -> dict:
     if not text:
         return {"temperature_c": None, "uptime_seconds": None}
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
@@ -193,8 +194,8 @@ def parse_performance(payload: bytes) -> dict:
         return {"read_mb_per_s": None, "write_mb_per_s": None,
                 "iops": None, "tier_iops": None}
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")

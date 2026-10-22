@@ -20,16 +20,17 @@ import sys
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import shareedit as se
+from drobo_nasd import shareedit
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # Shaped exactly like the live device's reply, including the quirk that one
@@ -61,13 +62,14 @@ CONFIG = {
 
 print("== reading the document ==")
 check("every share is found",
-      se.share_names(CONFIG) == ["Documents", "Photo Library", "Private"],
-      se.share_names(CONFIG))
-check("a share name with a space survives", "Photo Library" in se.share_names(CONFIG))
+      shareedit.share_names(CONFIG) == ["Documents", "Photo Library",
+                                        "Private"],
+      shareedit.share_names(CONFIG))
+check("a share name with a space survives", "Photo Library" in shareedit.share_names(CONFIG))
 
 print("\n== the edit itself ==")
 before = copy.deepcopy(CONFIG)
-out = se.set_user_access(CONFIG, "Private", "Everyone", "1")
+out = shareedit.set_user_access(CONFIG, "Private", "Everyone", "1")
 priv = [s for s in out["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"]
         if s["ShareName"] == "Private"][0]
 check("the access code is changed",
@@ -76,7 +78,7 @@ check("the input document is NOT mutated", CONFIG == before)
 check("a single user stays a dict, as the device sends it",
       isinstance(priv["ShareUsers"]["ShareUser"], dict), type(priv["ShareUsers"]["ShareUser"]))
 
-out2 = se.set_user_access(CONFIG, "Documents", "jordan", "1")
+out2 = shareedit.set_user_access(CONFIG, "Documents", "jordan", "1")
 docs = [s for s in out2["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"]
         if s["ShareName"] == "Documents"][0]
 check("a new user is added",
@@ -85,7 +87,7 @@ check("a new user is added",
 check("...and several users become a list, as the device sends them",
       isinstance(docs["ShareUsers"]["ShareUser"], list))
 
-rev = se.revoke_user(CONFIG, "Documents", "Everyone")
+rev = shareedit.revoke_user(CONFIG, "Documents", "Everyone")
 d2 = [s for s in rev["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"]
       if s["ShareName"] == "Documents"][0]
 check("revoking sets code 0", d2["ShareUsers"]["ShareUser"]["ShareUserAccess"] == "0")
@@ -98,25 +100,27 @@ print("\n== what must never happen ==")
 check("nothing outside DRIShareConfig moved",
       out["DRINASConfig"]["DRINasNetworkConfig"]
       == CONFIG["DRINASConfig"]["DRINasNetworkConfig"])
-check("no share disappeared", se.share_names(out) == se.share_names(CONFIG))
+check("no share disappeared",
+      shareedit.share_names(out) == shareedit.share_names(CONFIG))
 
 # The central refusal. Code 2's meaning is still unconfirmed (only 0 and 1 are
 # known), and it is not on this device, so it is not something to send.
 try:
-    se.set_user_access(CONFIG, "Documents", "Everyone", "2")
+    shareedit.set_user_access(CONFIG, "Documents", "Everyone", "2")
     check("an unconfirmed, unseen access code is refused", False)
-except se.ShareEditError as exc:
+except shareedit.ShareEditError as exc:
     check("an unconfirmed, unseen access code is refused",
           "neither confirmed nor already on" in str(exc), str(exc))
 
 try:
-    se.set_user_access(CONFIG, "Documents", "Everyone", "7")
+    shareedit.set_user_access(CONFIG, "Documents", "Everyone", "7")
     check("an invented access code is refused", False)
-except se.ShareEditError:
+except shareedit.ShareEditError:
     check("an invented access code is refused", True)
 
 check("code 0 is always allowed -- it is the one we are surest of",
-      se.set_user_access(CONFIG, "Documents", "Everyone", "0") is not None)
+      shareedit.set_user_access(CONFIG, "Documents", "Everyone", "0")
+      is not None)
 
 # The capability that actually unlocks a locked share: code 1 (read/write) is
 # CONFIRMED, so it may be set even on a device whose shares are ALL zero and
@@ -124,55 +128,56 @@ check("code 0 is always allowed -- it is the one we are surest of",
 ALL_ZERO = {"DRINASConfig": {"DRIShareConfig": {"ConfigVersionBasis": "9",
     "Shares": {"Share": {"ShareName": "Locked", "ShareUsers": {"ShareUser": {
         "ShareUsername": "Everyone", "ShareUserAccess": "0"}}}}}}}
-unlocked = se.set_user_access(ALL_ZERO, "Locked", "Everyone", "1")
-u = se._share_block(unlocked)["Shares"]["Share"]["ShareUsers"]["ShareUser"]
+unlocked = shareedit.set_user_access(ALL_ZERO, "Locked", "Everyone", "1")
+u = (shareedit._share_block(unlocked)
+     ["Shares"]["Share"]["ShareUsers"]["ShareUser"])
 check("a confirmed code (1) can be set on an all-zero device",
       u["ShareUserAccess"] == "1", u)
 check("...and setting it changed nothing outside DRIShareConfig",
-      se.share_names(unlocked) == se.share_names(ALL_ZERO))
+      shareedit.share_names(unlocked) == shareedit.share_names(ALL_ZERO))
 
 try:
-    se.set_user_access(CONFIG, "Nope", "Everyone", "0")
+    shareedit.set_user_access(CONFIG, "Nope", "Everyone", "0")
     check("editing a share that isn't there is refused", False)
-except se.ShareEditError as exc:
+except shareedit.ShareEditError as exc:
     check("editing a share that isn't there is refused", "no share named" in str(exc))
 
 try:
-    se._share_block({"something": "else"})
+    shareedit._share_block({"something": "else"})
     check("a document with no share block is refused", False)
-except se.ShareEditError:
+except shareedit.ShareEditError:
     check("a document with no share block is refused", True)
 
 # Prove the guards actually fire, rather than trusting that they would.
 tampered = copy.deepcopy(CONFIG)
 tampered["DRINASConfig"]["DRINasNetworkConfig"]["IPConfig"]["IP"] = "10.0.0.99"
 try:
-    se._assert_only_shares_changed(CONFIG, tampered)
+    shareedit._assert_only_shares_changed(CONFIG, tampered)
     check("a change to the network block IS caught", False)
-except se.ShareEditError as exc:
+except shareedit.ShareEditError as exc:
     check("a change to the network block IS caught", "outside DRIShareConfig" in str(exc))
 
 dropped = copy.deepcopy(CONFIG)
 dropped["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"].pop()
 try:
-    se._assert_no_share_lost(CONFIG, dropped)
+    shareedit._assert_no_share_lost(CONFIG, dropped)
     check("a vanished share IS caught", False)
-except se.ShareEditError as exc:
+except shareedit.ShareEditError as exc:
     check("a vanished share IS caught", "would remove share" in str(exc), str(exc))
 
 print("\n== the confirmation a person reads before agreeing ==")
-lines = se.describe_change(CONFIG, se.set_user_access(CONFIG, "Private", "Everyone", "1"))
+lines = shareedit.describe_change(CONFIG, shareedit.set_user_access(CONFIG, "Private", "Everyone", "1"))
 check("the change is described in one line", len(lines) == 1, lines)
 check("it names the user and the share",
       "Everyone" in lines[0] and "Private" in lines[0], lines)
 check("it reports the raw code without claiming to know what it means",
       "code 1" in lines[0], lines)
 
-rev_lines = se.describe_change(CONFIG, se.revoke_user(CONFIG, "Documents", "Everyone"))
+rev_lines = shareedit.describe_change(CONFIG, shareedit.revoke_user(CONFIG, "Documents", "Everyone"))
 check("losing access is described as losing access",
       "loses access" in rev_lines[0], rev_lines)
 check("an unchanged document describes nothing",
-      se.describe_change(CONFIG, copy.deepcopy(CONFIG)) == [])
+      shareedit.describe_change(CONFIG, copy.deepcopy(CONFIG)) == [])
 
 print("\n== this module cannot reach the network, by construction ==")
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -181,5 +186,6 @@ src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 for forbidden in ("import socket", "config_cmd", "sendall", "create_connection"):
     check(f"no {forbidden!r} anywhere in the module", forbidden not in src)
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

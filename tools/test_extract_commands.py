@@ -27,13 +27,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import extract_commands
 import test_nasd_dissect as builders
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label + (f"  {extra}" if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 def envelope(command_id: int, params_inner: str = "") -> bytes:
@@ -184,5 +184,6 @@ check("a number is not a document", extract_commands.unwrap_escaped("42") is Non
 check("malformed XML is declined rather than crashing",
       extract_commands.unwrap_escaped("<broken") is None)
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

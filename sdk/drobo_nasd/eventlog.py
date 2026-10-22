@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import html
 import socket
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from . import commands as _commands
 from .config_cmd import (
@@ -137,8 +137,8 @@ def parse_event_log(payload: bytes) -> list[str]:
         return _lines(text.decode("utf-8", "replace"))
 
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         # Could be a truncated envelope, could be a text log whose first line
         # merely begins with "<". Not distinguishable, so fail loudly -- junk
         # markup presented as "events" would be worse than an error.
@@ -161,8 +161,8 @@ def parse_event_log(payload: bytes) -> list[str]:
     candidate = unescaped.strip()
     if candidate.startswith("<"):
         try:
-            ET.fromstring(candidate)
-        except ET.ParseError:
+            ElementTree.fromstring(candidate)
+        except ElementTree.ParseError:
             pass  # ordinary log text that happens to open with "<"
         else:
             raise EventLogError(

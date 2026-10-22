@@ -64,7 +64,7 @@ re-sends: retrying a write that already applied is the harm.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from . import config_cmd
 from .shares import CONFIRMED_ACCESS_CODES
@@ -96,7 +96,8 @@ class _NoChangeNeeded(Exception):
     """Internal signal: the row already holds the requested code; skip the send."""
 
 
-def _resolve_share(share_config: ET.Element, share_name: str) -> ET.Element:
+def _resolve_share(share_config: ElementTree.Element,
+                   share_name: str) -> ElementTree.Element:
     """
     The one <Share> that `share_name` refers to, or raise.
 
@@ -123,7 +124,7 @@ def _resolve_share(share_config: ET.Element, share_name: str) -> ET.Element:
         f"the first one and hoping. Give the exact name.")
 
 
-def _assert_well_formed(share: ET.Element, share_name: str) -> None:
+def _assert_well_formed(share: ElementTree.Element, share_name: str) -> None:
     """Refuse a share whose structure this module cannot edit unambiguously."""
     names = share.findall("ShareName")
     if len(names) != 1:
@@ -137,7 +138,8 @@ def _assert_well_formed(share: ET.Element, share_name: str) -> None:
             f"containers; refusing -- a new user could land in either.")
 
 
-def _share_elements(share_config: ET.Element) -> list[ET.Element]:
+def _share_elements(
+        share_config: ElementTree.Element) -> list[ElementTree.Element]:
     """Every <Share> element under <Shares>, whatever nesting the device used."""
     shares_container = share_config.find("Shares")
     if shares_container is None:
@@ -145,7 +147,7 @@ def _share_elements(share_config: ET.Element) -> list[ET.Element]:
     return shares_container.findall("Share")
 
 
-def _allowed_codes(share_config: ET.Element) -> set[str]:
+def _allowed_codes(share_config: ElementTree.Element) -> set[str]:
     """0, every confirmed code, and every code already present on the device."""
     allowed = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
     for access in share_config.iter("ShareUserAccess"):
@@ -187,7 +189,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
     if not access_code.isdigit():
         raise ShareEditError(f"access code {access_code!r} is not a number")
 
-    def edit(share_config: ET.Element) -> None:
+    def edit(share_config: ElementTree.Element) -> None:
         allowed = _allowed_codes(share_config)
         if access_code not in allowed:
             raise ShareEditError(
@@ -214,7 +216,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
 
         users_container = target.find("ShareUsers")
         if users_container is None:
-            users_container = ET.SubElement(target, "ShareUsers")
+            users_container = ElementTree.SubElement(target, "ShareUsers")
 
         # Change an existing user's code -- the pure single-node edit -- or add
         # one if the user is not on this share yet.
@@ -246,7 +248,7 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
                     f"unambiguously.")
             access = accesses[0] if accesses else None
             if access is None:
-                access = ET.SubElement(matching[0], "ShareUserAccess")
+                access = ElementTree.SubElement(matching[0], "ShareUserAccess")
             # A no-op write is all risk and no change: it re-sends the entire
             # share config (TOCTOU window, whole-document replace) to set a
             # value that is already set. Signal it and let the caller skip
@@ -255,9 +257,10 @@ def set_share_user_access(host: str, esa_id: str, share_name: str, username: str
                 raise _NoChangeNeeded()
             access.text = access_code
         else:
-            new_user = ET.SubElement(users_container, "ShareUser")
-            ET.SubElement(new_user, "ShareUsername").text = username
-            ET.SubElement(new_user, "ShareUserAccess").text = access_code
+            new_user = ElementTree.SubElement(users_container, "ShareUser")
+            ElementTree.SubElement(new_user, "ShareUsername").text = username
+            ElementTree.SubElement(
+                new_user, "ShareUserAccess").text = access_code
 
         # Belt and braces: surgical editing cannot drop a share, but assert it,
         # because the cost of being wrong here is a share vanishing from a
@@ -367,7 +370,7 @@ _SHARE_NAME_RULE = ("1-27 characters: letters, digits, spaces, underscores or "
                     "hyphens, starting with a letter or digit")
 
 
-def _derive_volume_name(share_config: ET.Element) -> str:
+def _derive_volume_name(share_config: ElementTree.Element) -> str:
     """
     The volume a new share should live on, from the device's own data.
 
@@ -461,7 +464,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
             f"escaped volume name has never been observed on the wire -- "
             f"refusing rather than guessing what the device's parser accepts.")
 
-    def edit(share_config: ET.Element) -> str:
+    def edit(share_config: ElementTree.Element) -> str:
         before = [(e.text or "").strip() for e in share_config.iter("ShareName")]
         clash = [n for n in before if n.lower() == name.lower()]
         if clash:
@@ -479,7 +482,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         # outside what ElementTree can serialize. Names cannot carry markup
         # (_SHARE_NAME_PATTERN) and serialized text escapes every '<', so the
         # one literal </Shares> is the container's close tag.
-        document = ET.tostring(share_config, encoding="unicode")
+        document = ElementTree.tostring(share_config, encoding="unicode")
         if document.count("</Shares>") != 1:
             raise ShareEditError(
                 "the share config does not contain exactly one </Shares> close "
@@ -492,7 +495,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         # Belt and braces: reparse what will be sent and require exactly the
         # one new name, in last place, with every existing name untouched.
         after = [(e.text or "").strip()
-                 for e in ET.fromstring(out).iter("ShareName")]
+                 for e in ElementTree.fromstring(out).iter("ShareName")]
         if after != before + [name]:
             raise ShareEditError(
                 "the spliced document does not read back as the existing "
@@ -582,7 +585,7 @@ def delete_share(host: str, esa_id: str, name: str,
 
     resolved: dict[str, str] = {}
 
-    def edit(share_config: ET.Element) -> None:
+    def edit(share_config: ElementTree.Element) -> None:
         target = _resolve_share(share_config, name)
         actual = _text(target, "ShareName")
         resolved["name"] = actual
@@ -617,7 +620,7 @@ def delete_share(host: str, esa_id: str, name: str,
                 "refusing. This should be impossible with a surgical edit and "
                 "means something is wrong.")
 
-        ET.SubElement(share_config, "ShareDeleteConfirm").text = "Y"
+        ElementTree.SubElement(share_config, "ShareDeleteConfirm").text = "Y"
 
     def _now_gone() -> bool:
         # Called only after edit() has run, so resolved["name"] is populated:
@@ -663,7 +666,7 @@ def delete_share(host: str, esa_id: str, name: str,
     return result
 
 
-def _text(elem: ET.Element, tag: str) -> str:
+def _text(elem: ElementTree.Element, tag: str) -> str:
     child = elem.find(tag)
     return (child.text or "").strip() if child is not None else ""
 

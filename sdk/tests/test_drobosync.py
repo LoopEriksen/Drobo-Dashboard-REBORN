@@ -17,13 +17,13 @@ sys.path.insert(0, os.path.abspath(
 
 from drobo_nasd import commands, drobosync
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label + (f"  {extra}" if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 def result(details_inner: str) -> bytes:
@@ -181,5 +181,6 @@ try:
 finally:
     drobosync.read = _orig
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

@@ -19,14 +19,15 @@ sys.path.insert(0, os.path.abspath(
 
 from drobo_nasd import sysinfo
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # The real thing, as it comes off the wire.
@@ -105,11 +106,11 @@ for bad, label in ((b"<not xml\x00", "malformed outer XML"),
         check(f"{label} raises SysInfoError", True)
 
 print("\n== safety ==")
-from drobo_nasd import commands as C
-check("eCmdGetSysInfo has a confirmed id", C.COMMANDS.get("eCmdGetSysInfo") == 61,
-      C.COMMANDS.get("eCmdGetSysInfo"))
+from drobo_nasd import commands
+check("eCmdGetSysInfo has a confirmed id", commands.COMMANDS.get("eCmdGetSysInfo") == 61,
+      commands.COMMANDS.get("eCmdGetSysInfo"))
 check("eCmdGetSysInfo is not on the do-not-send list",
-      not C.is_dangerous("eCmdGetSysInfo"))
+      not commands.is_dangerous("eCmdGetSysInfo"))
 check("SysInfoError is catchable as ConfigError (callers already handle that)",
       issubclass(sysinfo.SysInfoError,
                  __import__("drobo_nasd.config_cmd", fromlist=["x"]).ConfigError))
@@ -172,8 +173,8 @@ except sysinfo.SysInfoError:
     check("malformed XML raises SysInfoError", True)
 
 check("eCmdGetPerformance is resolved by NAME and is not a write",
-      C.COMMANDS["eCmdGetPerformance"] == 62
-      and "eCmdGetPerformance" not in C.DO_NOT_SEND)
+      commands.COMMANDS["eCmdGetPerformance"] == 62
+      and "eCmdGetPerformance" not in commands.DO_NOT_SEND)
 
 print("\n== eCmdGetDemoModeInfo: is this unit showing fabricated capacity? ==")
 # One of the seven commands that answers with real data. Obscure, and worth
@@ -259,5 +260,6 @@ check("no reading is None, distinct from zero", _apps.parse_dimming(_demo("")) i
 check("an empty payload is None", _apps.parse_dimming(b"") is None)
 check("a non-numeric reading is None", _apps.parse_dimming(_demo("bright")) is None)
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

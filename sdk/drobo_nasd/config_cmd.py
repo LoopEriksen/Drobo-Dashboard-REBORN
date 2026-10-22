@@ -60,7 +60,7 @@ import re
 import socket
 import struct
 import time
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from . import commands as _commands
 # The number the device puts in <Result> when it accepts a command. Imported
@@ -219,7 +219,7 @@ def _read_frame(sock: socket.socket,
     return head[8], body
 
 
-def _strip_secrets(node: ET.Element) -> None:
+def _strip_secrets(node: ElementTree.Element) -> None:
     """
     Replace the text of any credential-looking element, in place, before the
     document is turned into anything we keep. Recursive, so a password nested
@@ -250,7 +250,7 @@ def _strip_secrets(node: ET.Element) -> None:
         _strip_secrets(child)
 
 
-def _redact_escaped_document(node: ET.Element) -> None:
+def _redact_escaped_document(node: ElementTree.Element) -> None:
     """
     Catch credentials hiding inside an entity-escaped inner document.
 
@@ -293,8 +293,8 @@ def _redact_escaped_document(node: ET.Element) -> None:
             if end != -1:
                 body = body[end + 2:].strip()
         try:
-            sub = ET.fromstring(body)
-        except ET.ParseError:
+            sub = ElementTree.fromstring(body)
+        except ElementTree.ParseError:
             # Unparseable but XML-shaped. Refuse to pass it on.
             if _CREDENTIAL_NAME_RE.search(text):
                 child.text = _REDACTION_SENTINEL
@@ -303,10 +303,10 @@ def _redact_escaped_document(node: ET.Element) -> None:
             child.text = _REDACTION_SENTINEL
             continue
         _strip_secrets(sub)
-        child.text = ET.tostring(sub, encoding="unicode")
+        child.text = ElementTree.tostring(sub, encoding="unicode")
 
 
-def _element_to_dict(node: ET.Element):
+def _element_to_dict(node: ElementTree.Element):
     """XML subtree -> plain dict/list/str, with repeated tags becoming lists."""
     children = list(node)
     if not children:
@@ -348,8 +348,8 @@ def parse_config_result(payload: bytes, redact: bool = True) -> dict:
     if not text:
         return {}
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise ConfigError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
@@ -618,8 +618,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
     # wipe every share. Parse it and require its root to be the section's own
     # element.
     try:
-        root_el = ET.fromstring(section_document)
-    except ET.ParseError as exc:
+        root_el = ElementTree.fromstring(section_document)
+    except ElementTree.ParseError as exc:
         raise ConfigWriteError(f"the document to write is not valid XML: {exc}") from exc
     expected_root = SECTIONS[section]
     if root_el.tag != expected_root:
@@ -841,7 +841,7 @@ def get_config_element(host: str, esa_id: str, section: str,
     finally:
         sock.close()
 
-    root = ET.fromstring(body.rstrip(b"\x00").rstrip())
+    root = ElementTree.fromstring(body.rstrip(b"\x00").rstrip())
     details = root.find("ResultDetails")
     if details is None:
         raise ConfigError("result carried no <ResultDetails>")
@@ -856,7 +856,7 @@ def get_config_element(host: str, esa_id: str, section: str,
         return found
     text = (details.text or "").strip()
     if text and "<" in html.unescape(text):
-        sub = ET.fromstring(html.unescape(text))
+        sub = ElementTree.fromstring(html.unescape(text))
         nested = sub if sub.tag == tag else next(iter(sub.iter(tag)), None)
         if nested is not None:
             return nested
@@ -879,16 +879,17 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
     _send_section_document's sentinel check still guards against a mask
     slipping in.
 
-    `edit` may instead RETURN the complete inner document as a string, built
-    from the element it was handed. That exists for one reason: some captured
-    byte shapes are outside what ElementTree's serializer can express -- the
-    create-share node (captured 2026-08-25) carries an empty open-close
-    <ShareMaxTMSizeGB></ShareMaxTMSizeGB> pair, which ET can only emit as
-    <ShareMaxTMSizeGB />. Mirroring a capture byte-for-byte therefore needs
-    string-level control of the one piece being added. A returned document
-    passes through every check in _send_section_document unchanged --
-    confinement to the section root, the sentinel refusal, the accepted-check
-    -- so it is exactly as guarded as the mutate-in-place path.
+    `edit` may instead RETURN the complete inner document as a string,
+    built from the element it was handed. That exists for one reason:
+    some captured byte shapes are outside what ElementTree's serializer
+    can express -- the create-share node (captured 2026-08-25) carries
+    an empty open-close <ShareMaxTMSizeGB></ShareMaxTMSizeGB> pair,
+    which ElementTree can only emit as <ShareMaxTMSizeGB />. Mirroring a
+    capture byte-for-byte therefore needs string-level control of the
+    one piece being added. A returned document passes through every
+    check in _send_section_document unchanged -- confinement to the
+    section root, the sentinel refusal, the accepted-check -- so it is
+    exactly as guarded as the mutate-in-place path.
 
     Same gate, confinement, accepted-check, read-back arbitration (`readback`)
     and KNOWN LIMITATION (non-atomic RMW) as set_config -- see there. Returns
@@ -905,7 +906,7 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
     element = get_config_element(host, esa_id, section, port=port, timeout=timeout)
     replacement = edit(element)
     if replacement is None:
-        section_document = ET.tostring(element, encoding="unicode")
+        section_document = ElementTree.tostring(element, encoding="unicode")
     elif isinstance(replacement, str) and replacement.strip():
         section_document = replacement
     else:

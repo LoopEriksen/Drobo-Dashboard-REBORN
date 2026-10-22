@@ -22,23 +22,24 @@ import socket
 import struct
 import sys
 import threading
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import config_cmd as cc
-from drobo_nasd import sharewrite as sw
+from drobo_nasd import config_cmd
+from drobo_nasd import sharewrite
 from drobo_nasd.shareedit import ShareEditError
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 def _pp_share(name):
@@ -83,14 +84,16 @@ def _read_reply(shareconfig_xml):
 
 
 def _accept():
-    return (f"<TMCmd><CmdID>31</CmdID><Result>{cc.RESULT_ACCEPTED}</Result>"
+    return ("<TMCmd><CmdID>31</CmdID>"
+            f"<Result>{config_cmd.RESULT_ACCEPTED}</Result>"
             f"<ResultDetails/></TMCmd>").encode() + b"\x00"
 
 
 def _roundtrip(shareconfig_xml):
     """What the surgical pipeline sends for this document when nothing is
     edited: the read reserialized by ElementTree."""
-    return ET.tostring(ET.fromstring(shareconfig_xml), encoding="unicode")
+    return ElementTree.tostring(ElementTree.fromstring(shareconfig_xml),
+                                encoding="unicode")
 
 
 def _sent_inner(raw_tmcmd):
@@ -131,10 +134,12 @@ class FakeDrobo:
                 conn, _ = self.srv.accept()
                 conn.settimeout(5)
                 self._frame(conn)  # login
-                conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+                conn.sendall(
+                    config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
                 payload = self._frame(conn)  # command
                 self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
-                conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
+                conn.sendall(
+                    config_cmd._build_frame(config_cmd.TYPE_RESULT, reply))
                 conn.close()
             except OSError:
                 break
@@ -157,7 +162,7 @@ WITH_ZZ = ORIG.replace("</Shares>", CAPTURED_NODE + "</Shares>")
 print("== the new node is byte-exact against the capture ==")
 
 check("substituting ZZTESTZZ/Volume1 reproduces the captured node exactly",
-      sw._NEW_SHARE_NODE.format(name="ZZTESTZZ", volume="Volume1") == CAPTURED_NODE)
+      sharewrite._NEW_SHARE_NODE.format(name="ZZTESTZZ", volume="Volume1") == CAPTURED_NODE)
 check("the node has no ShareState", "ShareState" not in CAPTURED_NODE)
 check("ShareMaxTMSizeGB is an empty OPEN-CLOSE pair, not self-closing",
       "<ShareMaxTMSizeGB></ShareMaxTMSizeGB>" in CAPTURED_NODE)
@@ -165,8 +170,8 @@ check("ShareMaxTMSizeGB is an empty OPEN-CLOSE pair, not self-closing",
 print("\n== create: the node is appended and every other byte is untouched ==")
 
 dev = FakeDrobo([_read_reply(ORIG), _accept(), _read_reply(WITH_ZZ)])
-res = sw.create_share("127.0.0.1", ESA, "ZZTESTZZ", volume="Volume1",
-                      port=dev.port, timeout=5)
+res = sharewrite.create_share("127.0.0.1", ESA, "ZZTESTZZ", volume="Volume1",
+                              port=dev.port, timeout=5)
 check("the create is accepted and verified", res.get("verified") is True, res)
 check("read, write, then verify -- three connections", len(dev.sent) == 3, len(dev.sent))
 
@@ -182,8 +187,8 @@ check("ConfigVersionBasis is echoed, not invented",
 
 # verify=False stops after the accepted write: two connections, no verdict.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
-res = sw.create_share("127.0.0.1", ESA, "ZZTESTZZ", volume="Volume1",
-                      port=dev.port, timeout=5, verify=False)
+res = sharewrite.create_share("127.0.0.1", ESA, "ZZTESTZZ", volume="Volume1",
+                              port=dev.port, timeout=5, verify=False)
 check("verify=False sends but does not read back",
       len(dev.sent) == 2 and "verified" not in res, res)
 
@@ -192,20 +197,21 @@ print("\n== create: name validation (deliberately narrower than the device) ==")
 for bad in ["", " leading", "trailing ", "-lead", "_lead", "a" * 28, "Bad<Name",
             "Bad&Name", "Tab\tName", "Café", "slash/name", "dot.name"]:
     try:
-        sw.create_share("127.0.0.1", ESA, bad, volume="V", port=1, timeout=1)
+        sharewrite.create_share("127.0.0.1", ESA, bad, volume="V", port=1,
+                                timeout=1)
         check(f"bad name {bad!r} is refused before any network", False)
     except ShareEditError as exc:
         check(f"bad name {bad!r} is refused before any network",
               "invalid share name" in str(exc), str(exc))
 for good in ["A", "a" * 27, "My Share_2-b", "0numeric", "x-", "x _-9"]:
     check(f"good name {good!r} passes the pattern",
-          sw._SHARE_NAME_PATTERN.match(good) is not None)
+          sharewrite._SHARE_NAME_PATTERN.match(good) is not None)
 
 # A duplicate -- even one differing only by case -- is refused after the read,
 # before any write.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "ALPHA", volume="Volume1", port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "ALPHA", volume="Volume1", port=dev.port, timeout=5)
     check("a case-folding duplicate is refused", False)
 except ShareEditError as exc:
     check("a case-folding duplicate is refused", "already exists" in str(exc), str(exc))
@@ -216,9 +222,10 @@ print("\n== create: volume derivation from the device's own data ==")
 # Exactly one volume named anywhere in the read -> used without being passed.
 ONE_VOL = _pp_config(_pp_share("Alpha") + _vol_share("Made", "VolX"))
 after_one = ONE_VOL.replace("</Shares>",
-                            sw._NEW_SHARE_NODE.format(name="Fresh", volume="VolX") + "</Shares>")
+                            sharewrite._NEW_SHARE_NODE.format(name="Fresh", volume="VolX") + "</Shares>")
 dev = FakeDrobo([_read_reply(ONE_VOL), _accept(), _read_reply(after_one)])
-res = sw.create_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=5)
+res = sharewrite.create_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                              timeout=5)
 check("a single on-device volume is derived and used",
       "<VolumeName>VolX</VolumeName><TimeMachineEnabled>0</TimeMachineEnabled>"
       in _sent_inner(dev.sent[1]).split("<ShareName>Fresh</ShareName>", 1)[-1],
@@ -228,7 +235,8 @@ check("...and the create verifies", res.get("verified") is True, res)
 # No volume named anywhere (the captured unit's own shape) -> refuse to guess.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                            timeout=5)
     check("zero volume candidates without volume= is refused", False)
 except ShareEditError as exc:
     check("zero volume candidates without volume= is refused",
@@ -239,7 +247,8 @@ check("...nothing written", len(dev.sent) == 1, dev.sent)
 TWO_VOL = _pp_config(_vol_share("A", "Vol1") + _vol_share("B", "Vol2"))
 dev = FakeDrobo([_read_reply(TWO_VOL), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", port=dev.port,
+                            timeout=5)
     check("two volume candidates without volume= is refused", False)
 except ShareEditError as exc:
     check("two volume candidates without volume= is refused",
@@ -247,14 +256,14 @@ except ShareEditError as exc:
 check("...nothing written", len(dev.sent) == 1, dev.sent)
 
 after_two = TWO_VOL.replace("</Shares>",
-                            sw._NEW_SHARE_NODE.format(name="Fresh", volume="Vol2") + "</Shares>")
+                            sharewrite._NEW_SHARE_NODE.format(name="Fresh", volume="Vol2") + "</Shares>")
 dev = FakeDrobo([_read_reply(TWO_VOL), _accept(), _read_reply(after_two)])
-res = sw.create_share("127.0.0.1", ESA, "Fresh", volume="Vol2", port=dev.port, timeout=5)
+res = sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Vol2", port=dev.port, timeout=5)
 check("an explicit volume= resolves the ambiguity", res.get("verified") is True, res)
 
 # A volume needing XML escaping was never observed on the wire -> refused early.
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="V<ol", port=1, timeout=1)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="V<ol", port=1, timeout=1)
     check("an XML-special volume name is refused", False)
 except ShareEditError as exc:
     check("an XML-special volume name is refused", "XML-special" in str(exc), str(exc))
@@ -265,7 +274,7 @@ EMPTY = ("<DRIShareConfig>\n\t\t<ConfigVersionBasis>3</ConfigVersionBasis>"
          "\n\t\t<UserList/>\n\t\t<Shares/>\n\t</DRIShareConfig>")
 dev = FakeDrobo([_read_reply(EMPTY), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "First", volume="Volume1", port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "First", volume="Volume1", port=dev.port, timeout=5)
     check("an empty <Shares/> container is refused, not guessed at", False)
 except ShareEditError as exc:
     check("an empty <Shares/> container is refused, not guessed at",
@@ -275,7 +284,8 @@ check("...nothing written", len(dev.sent) == 1, dev.sent)
 print("\n== delete: the node is removed, the confirm appended, nothing else moves ==")
 
 dev = FakeDrobo([_read_reply(WITH_ZZ), _accept(), _read_reply(ORIG)])
-res = sw.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port, timeout=5)
+res = sharewrite.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port,
+                              timeout=5)
 check("the delete is accepted and verified", res.get("verified") is True, res)
 
 sent = _sent_inner(dev.sent[1])
@@ -296,7 +306,8 @@ check("both surviving shares are still on the wire",
 THREE = _pp_config(_pp_share("Alpha") + _pp_share("Beta") + _pp_share("Gamma"))
 TWO_LEFT = _pp_config(_pp_share("Alpha") + _pp_share("Gamma"))
 dev = FakeDrobo([_read_reply(THREE), _accept(), _read_reply(TWO_LEFT)])
-res = sw.delete_share("127.0.0.1", ESA, "Beta", port=dev.port, timeout=5)
+res = sharewrite.delete_share("127.0.0.1", ESA, "Beta", port=dev.port,
+                              timeout=5)
 sent = _sent_inner(dev.sent[1])
 expected = _roundtrip(TWO_LEFT).replace(
     "</DRIShareConfig>",
@@ -308,7 +319,8 @@ print("\n== delete: resolution is exact-case first, then a UNIQUE fold ==")
 
 # A fold that lands on exactly one share resolves.
 dev = FakeDrobo([_read_reply(WITH_ZZ), _accept(), _read_reply(ORIG)])
-res = sw.delete_share("127.0.0.1", ESA, "zztestzz", port=dev.port, timeout=5)
+res = sharewrite.delete_share("127.0.0.1", ESA, "zztestzz", port=dev.port,
+                              timeout=5)
 check("a unique case-insensitive fold resolves and verifies",
       res.get("verified") is True and "ZZTESTZZ" not in _sent_inner(dev.sent[1]), res)
 
@@ -316,7 +328,7 @@ check("a unique case-insensitive fold resolves and verifies",
 CASE = _pp_config(_pp_share("Data") + _pp_share("data"))
 dev = FakeDrobo([_read_reply(CASE), _accept()])
 try:
-    sw.delete_share("127.0.0.1", ESA, "DATA", port=dev.port, timeout=5)
+    sharewrite.delete_share("127.0.0.1", ESA, "DATA", port=dev.port, timeout=5)
     check("an ambiguous fold with no exact match is refused", False)
 except ShareEditError as exc:
     check("an ambiguous fold with no exact match is refused",
@@ -326,14 +338,14 @@ check("...nothing written", len(dev.sent) == 1, dev.sent)
 # An unknown share -> refuse after the read, before any write.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
-    sw.delete_share("127.0.0.1", ESA, "Nope", port=dev.port, timeout=5)
+    sharewrite.delete_share("127.0.0.1", ESA, "Nope", port=dev.port, timeout=5)
     check("an unknown share is refused", False)
 except ShareEditError as exc:
     check("an unknown share is refused", "no share named" in str(exc), str(exc))
 check("...nothing written", len(dev.sent) == 1, dev.sent)
 
 try:
-    sw.delete_share("127.0.0.1", ESA, "  ", port=1, timeout=1)
+    sharewrite.delete_share("127.0.0.1", ESA, "  ", port=1, timeout=1)
     check("an empty delete name is refused before connecting", False)
 except ShareEditError as exc:
     check("an empty delete name is refused before connecting",
@@ -345,7 +357,8 @@ ODD = WITH_ZZ.replace("</DRIShareConfig>",
                       "<ShareDeleteConfirm>Y</ShareDeleteConfirm></DRIShareConfig>")
 dev = FakeDrobo([_read_reply(ODD), _accept()])
 try:
-    sw.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port, timeout=5)
+    sharewrite.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port,
+                            timeout=5)
     check("a pre-existing ShareDeleteConfirm in the read is refused", False)
 except ShareEditError as exc:
     check("a pre-existing ShareDeleteConfirm in the read is refused",
@@ -357,9 +370,9 @@ print("\n== accepted-but-unverified and accepted-but-unapplied are named apart =
 # Write accepted, verify connection refused -> ShareWriteOutcomeUnknownError, both ways.
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1", port=dev.port, timeout=3)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1", port=dev.port, timeout=3)
     check("create verify transport failure raises ShareWriteOutcomeUnknownError", False)
-except sw.ShareWriteOutcomeUnknownError as exc:
+except sharewrite.ShareWriteOutcomeUnknownError as exc:
     check("create verify transport failure raises ShareWriteOutcomeUnknownError",
           "ACCEPTED" in str(exc) and "do NOT simply retry" in str(exc), str(exc))
 except ShareEditError as exc:
@@ -368,9 +381,10 @@ except ShareEditError as exc:
 
 dev = FakeDrobo([_read_reply(WITH_ZZ), _accept()])
 try:
-    sw.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port, timeout=3)
+    sharewrite.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port,
+                            timeout=3)
     check("delete verify transport failure raises ShareWriteOutcomeUnknownError", False)
-except sw.ShareWriteOutcomeUnknownError as exc:
+except sharewrite.ShareWriteOutcomeUnknownError as exc:
     check("delete verify transport failure raises ShareWriteOutcomeUnknownError",
           "ACCEPTED" in str(exc) and "do NOT simply retry" in str(exc), str(exc))
 except ShareEditError as exc:
@@ -380,7 +394,7 @@ except ShareEditError as exc:
 # Device accepts but the read-back does not show the change -> received, not applied.
 dev = FakeDrobo([_read_reply(ORIG), _accept(), _read_reply(ORIG)])
 try:
-    sw.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1", port=dev.port, timeout=5)
+    sharewrite.create_share("127.0.0.1", ESA, "Fresh", volume="Volume1", port=dev.port, timeout=5)
     check("a create the read-back does not show raises", False)
 except ShareEditError as exc:
     check("a create the read-back does not show raises",
@@ -388,7 +402,8 @@ except ShareEditError as exc:
 
 dev = FakeDrobo([_read_reply(WITH_ZZ), _accept(), _read_reply(WITH_ZZ)])
 try:
-    sw.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port, timeout=5)
+    sharewrite.delete_share("127.0.0.1", ESA, "ZZTESTZZ", port=dev.port,
+                            timeout=5)
     check("a delete the read-back still shows raises", False)
 except ShareEditError as exc:
     check("a delete the read-back still shows raises",
@@ -405,13 +420,14 @@ print()
 print("== a volume name with & is refused, never escaped and sent ==")
 dev = FakeDrobo([_read_reply(ORIG), _accept()])
 try:
-    sw.create_share("127.0.0.1", ESA, "Amp", volume="Photos & Video",
-                    port=dev.port, timeout=5, verify=False)
+    sharewrite.create_share("127.0.0.1", ESA, "Amp", volume="Photos & Video",
+                            port=dev.port, timeout=5, verify=False)
     check("a volume name with & is refused", False, "no exception")
 except ShareEditError as exc:
     check("a volume name with & is refused", "XML-special" in str(exc), str(exc))
 check("nothing was written for it",
       not any("<ShareName>Amp<" in s for s in dev.sent), len(dev.sent))
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

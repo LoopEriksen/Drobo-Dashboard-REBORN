@@ -69,10 +69,10 @@ def call(path, data=None, headers=None, method=None, raw=False):
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read())
 
-fails = []
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label + ("  " + str(extra) if extra and not cond else ""))
-    if not cond: fails.append(label)
+failures = []
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label + ("  " + str(failure_detail) if failure_detail and not condition else ""))
+    if not condition: failures.append(label)
 
 print("\n== auth ==")
 s, b = call("/api/ping"); check("ping ok", s == 200 and b["ok"], b)
@@ -1588,5 +1588,6 @@ check("-- and no poll loop was started", _kb_mon._poll_thread is None)
 (discovery.resolve, _esatm_mod.read_snapshot,
  _sysinfo_mod.get_sysinfo_and_performance, _eventlog_mod.get_event_log) = _nf_saved
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

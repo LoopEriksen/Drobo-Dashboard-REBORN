@@ -63,7 +63,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "sdk")))
 sys.path.insert(0, _HERE)
 
-from drobo_nasd import commands as C  # noqa: E402
+from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
 import nasd_sweep as sweep  # noqa: E402
 
@@ -112,8 +112,8 @@ def main(argv=None) -> int:
 
     results = []
     for i, (name, why) in enumerate(ORDER, 1):
-        cmd_id = C.COMMANDS[name]
-        refused = C.is_dangerous(name)
+        cmd_id = commands.COMMANDS[name]
+        refused = commands.is_dangerous(name)
         print(f"[{i}/{len(ORDER)}] {name} (id {cmd_id})")
         print(f"        {why}")
         if refused:

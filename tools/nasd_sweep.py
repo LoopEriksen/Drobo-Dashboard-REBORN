@@ -107,7 +107,7 @@ import os
 import socket
 import sys
 import time
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 # tools/, agent/ and sdk/ are siblings. The Drobo protocol lives in the SDK
 # (sdk/drobo_nasd) -- the WORKING reference already confirmed against real
@@ -115,12 +115,13 @@ import xml.etree.ElementTree as ET
 _SDK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sdk")
 sys.path.insert(0, os.path.abspath(_SDK_DIR))
 
-from drobo_nasd import commands as C  # noqa: E402
-from drobo_nasd import config_cmd as cc  # noqa: E402
+from drobo_nasd import commands  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
 
 DEFAULT_STATUS_PORT = 5000
-DEFAULT_COMMAND_PORT = cc.DEFAULT_PORT  # 5001, confirmed in config_cmd.py
+# 5001, confirmed in config_cmd.py
+DEFAULT_COMMAND_PORT = config_cmd.DEFAULT_PORT
 
 # ---------------------------------------------------------------------------
 # THE allowlist. See the module docstring for what is excluded and why.
@@ -158,13 +159,13 @@ def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
         dupes = sorted({n for n in allowlist if allowlist.count(n) > 1})
         raise SweepSafetyError(f"ALLOWLIST has duplicate entries: {dupes}")
 
-    overlap = sorted(set(allowlist) & set(C.DO_NOT_SEND))
+    overlap = sorted(set(allowlist) & set(commands.DO_NOT_SEND))
     if overlap:
         raise SweepSafetyError(
             f"ALLOWLIST overlaps commands.DO_NOT_SEND -- refusing to run: {overlap}"
         )
 
-    unknown = sorted(n for n in allowlist if n not in C.COMMANDS)
+    unknown = sorted(n for n in allowlist if n not in commands.COMMANDS)
     if unknown:
         raise SweepSafetyError(
             f"ALLOWLIST contains names with no confirmed numeric id: {unknown}"
@@ -177,7 +178,7 @@ assert_allowlist_safe()
 # ---------------------------------------------------------------------------
 # One command, one fresh connection.
 # ---------------------------------------------------------------------------
-def _unwrap_escaped(el: ET.Element) -> ET.Element | None:
+def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
     """
     If this element's TEXT is really an entity-escaped XML document, parse it.
 
@@ -203,12 +204,12 @@ def _unwrap_escaped(el: ET.Element) -> ET.Element | None:
         if end != -1:
             body = body[end + 2:].strip()
     try:
-        return ET.fromstring(body)
-    except ET.ParseError:
+        return ElementTree.fromstring(body)
+    except ElementTree.ParseError:
         return None
 
 
-def _collect_tags(el: ET.Element) -> set[str]:
+def _collect_tags(el: ElementTree.Element) -> set[str]:
     tags = {el.tag}
     # Descend into an escaped inner document as if it were ordinary children,
     # marking it so the report shows the reply needed unwrapping.
@@ -221,7 +222,7 @@ def _collect_tags(el: ET.Element) -> set[str]:
     return tags
 
 
-def _has_escaped_document(el: ET.Element) -> bool:
+def _has_escaped_document(el: ElementTree.Element) -> bool:
     """True if any element in this tree hides an escaped XML document."""
     return any(_unwrap_escaped(node) is not None for node in el.iter())
 
@@ -238,8 +239,8 @@ def _redact_and_summarize(body: bytes) -> dict:
     if not text:
         return {"empty": True}
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         return {"parse_error": str(exc)}
 
     # Redact first. Nothing below this line ever sees an unredacted secret.
@@ -247,12 +248,12 @@ def _redact_and_summarize(body: bytes) -> dict:
     # inside an escaped inner document -- see config_cmd for why that second
     # pass has to exist.
     escaped = _has_escaped_document(root)
-    cc._strip_secrets(root)
-    cc._redact_escaped_document(root)
+    config_cmd._strip_secrets(root)
+    config_cmd._redact_escaped_document(root)
 
     return {
         "tags": sorted(_collect_tags(root)),
-        "redacted_value": cc._element_to_dict(root),
+        "redacted_value": config_cmd._element_to_dict(root),
         "escaped_document": escaped,
     }
 
@@ -274,15 +275,15 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
     sock.settimeout(timeout)
     try:
         try:
-            sock.sendall(cc._build_frame(cc.TYPE_LOGIN,
-                                         cc._login_payload(esa_id)))
-            frame_type, _ = cc._read_frame(sock)
+            sock.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_LOGIN, config_cmd._login_payload(esa_id)))
+            frame_type, _ = config_cmd._read_frame(sock)
         except (TimeoutError, socket.timeout):
             return {"status": "timeout", "phase": "login"}
-        except (cc.ConfigError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             return {"status": "refused", "phase": "login", "detail": str(exc)}
 
-        if frame_type != cc.TYPE_LOGIN_OK:
+        if frame_type != config_cmd.TYPE_LOGIN_OK:
             return {"status": "refused", "phase": "login",
                     "detail": f"unexpected type 0x{frame_type:02x}"}
 
@@ -290,15 +291,16 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
             f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
             f"<Params></Params></TMCmd>").encode() + b"\x00"
         try:
-            sock.sendall(cc._build_frame(cc.TYPE_COMMAND, request_payload))
-            frame_type, body = cc._read_frame(sock)
+            sock.sendall(config_cmd._build_frame(config_cmd.TYPE_COMMAND,
+                                                 request_payload))
+            frame_type, body = config_cmd._read_frame(sock)
         except (TimeoutError, socket.timeout):
             return {"status": "timeout", "phase": "command"}
-        except (cc.ConfigError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             return {"status": "refused", "phase": "command", "detail": str(exc)}
 
         elapsed = time.monotonic() - t0
-        if frame_type != cc.TYPE_RESULT:
+        if frame_type != config_cmd.TYPE_RESULT:
             return {"status": "refused", "phase": "command",
                     "detail": f"unexpected type 0x{frame_type:02x}", "elapsed_s": elapsed}
         if not body or not body.rstrip(b"\x00").strip():
@@ -324,7 +326,7 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
 
     for i, command_name in enumerate(names):
         # allowlist is pre-validated; always present
-        command_id = C.COMMANDS[command_name]
+        command_id = commands.COMMANDS[command_name]
         print(f"[{i + 1}/{len(names)}] {command_name} (id {command_id}) ...",
               flush=True)
         record = send_one_command(host, port, esa_id, command_id, timeout)
@@ -366,7 +368,7 @@ def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
         return {"healthy": False, "detail": str(exc)}
     try:
         identity = esatm.parse_identity(payload)
-    except ET.ParseError as exc:
+    except ElementTree.ParseError as exc:
         return {"healthy": False, "detail": f"greeting did not parse: {exc}"}
     return {"healthy": bool(identity.get("esa_id")), "detail": "ESATMUpdate greeting received"}
 

@@ -28,14 +28,15 @@ from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX, _SPINDOWN_MAX  # noqa: E402
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 tmp = tempfile.mkdtemp(prefix="config-api-")
@@ -155,5 +156,6 @@ try:
 finally:
     httpd.shutdown()
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

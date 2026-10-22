@@ -21,37 +21,39 @@ import threading
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import commands as C
-from drobo_nasd import config_cmd as cc
-from drobo_nasd import droboapps as da
-from drobo_nasd import identify as idf
+from drobo_nasd import commands
+from drobo_nasd import config_cmd
+from drobo_nasd import droboapps
+from drobo_nasd import identify
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # ---------------------------------------------------------------------------
 print("== the boundary: what may be written, and what may not ==")
 
-check("eCmdIdentify is approved", C.is_safe_write("eCmdIdentify"))
-check("eCmdIdentify is not refused", not C.is_dangerous("eCmdIdentify"))
+check("eCmdIdentify is approved", commands.is_safe_write("eCmdIdentify"))
+check("eCmdIdentify is not refused", not commands.is_dangerous("eCmdIdentify"))
 check("exactly one approved write so far",
-      C.SAFE_WRITES == frozenset({"eCmdIdentify"}), sorted(C.SAFE_WRITES))
+      commands.SAFE_WRITES == frozenset({"eCmdIdentify"}),
+      sorted(commands.SAFE_WRITES))
 check("approved and refused sets are disjoint",
-      C.DO_NOT_SEND.isdisjoint(C.SAFE_WRITES))
+      commands.DO_NOT_SEND.isdisjoint(commands.SAFE_WRITES))
 
 # The whole point. If a future change quietly promotes one of these into
 # SAFE_WRITES, this is where it gets caught.
 for name in ("eCmdFormatDevice", "eCmdInstallFirmware", "eCmdReset",
              "eCmdRestart", "eCmdShutdown", "eCmdSetDimming", "eCmdRename",
              "eCmdDeleteLUN", "eCmdRepair"):
-    check(f"{name} may still not be written", not C.is_safe_write(name))
+    check(f"{name} may still not be written", not commands.is_safe_write(name))
 
 
 # ---------------------------------------------------------------------------
@@ -73,13 +75,13 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            conn.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
                 conn.close(); srv.close(); return
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             seen["command"] = conn.recv(ln)
-            conn.sendall(cc._build_frame(reply_type, reply_body))
+            conn.sendall(config_cmd._build_frame(reply_type, reply_body))
             conn.close()
         except OSError:
             pass
@@ -93,17 +95,18 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
 def send(**kw):
     """One identify against a throwaway fake device; returns (result, bytes)."""
     ports = []
-    seen = fake_device(cc.TYPE_RESULT, b"", ports)
-    res = idf.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5, **kw)
+    seen = fake_device(config_cmd.TYPE_RESULT, b"", ports)
+    res = identify.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5, **kw)
     return res, seen.get("command", b"").decode("utf-8", "replace")
 
 
 res, sent = send()
 check("identify reports it was sent", res["sent"] is True, res)
 check("it used the id from the table, not a literal",
-      res["command_id"] == C.COMMANDS["eCmdIdentify"], res)
+      res["command_id"] == commands.COMMANDS["eCmdIdentify"], res)
 check("the wire carries the right command id",
-      f"<CmdID>{C.COMMANDS['eCmdIdentify']}</CmdID>" in sent, sent[:160])
+      f"<CmdID>{commands.COMMANDS['eCmdIdentify']}</CmdID>" in sent,
+      sent[:160])
 check("the device serial is included", "drb000000SAMPLE" in sent)
 
 # An empty reply is success here. Identify's result is a blinking light, not a
@@ -133,9 +136,9 @@ print("\n== the interval: on the wire 2026-07-25, re-found in Dashboard's binary
 # exactly as given; none of them claims it means minutes.
 
 check("the interval element is the one from Dashboard's binary",
-      idf.INTERVAL_TAG == "IdentifyInterval", idf.INTERVAL_TAG)
+      identify.INTERVAL_TAG == "IdentifyInterval", identify.INTERVAL_TAG)
 check("the default is still this project's guess, 15 (Dashboard sent 900)",
-      idf.DEFAULT_INTERVAL == 15, idf.DEFAULT_INTERVAL)
+      identify.DEFAULT_INTERVAL == 15, identify.DEFAULT_INTERVAL)
 check("by default the interval is on the wire",
       "<Params><IdentifyInterval>15</IdentifyInterval></Params>" in sent, sent[:200])
 check("the interval is reported back to the caller", res["interval"] == 15, res)
@@ -145,7 +148,7 @@ check("a caller-chosen interval is transmitted verbatim",
       "<IdentifyInterval>45</IdentifyInterval>" in sent2, sent2[:200])
 check("...and echoed in the result", res2["interval"] == 45, res2)
 
-res0, sent0 = send(interval=idf.STOP_INTERVAL)
+res0, sent0 = send(interval=identify.STOP_INTERVAL)
 check("zero -- the stop guess -- is sent, not silently dropped",
       "<IdentifyInterval>0</IdentifyInterval>" in sent0, sent0[:200])
 check("zero is reported as zero, not as 'nothing asked for'",
@@ -166,37 +169,38 @@ print("\n== bad intervals are refused before a socket is opened ==")
 # Refused early and locally: a typo should not become a connection to storage
 # hardware that is then logged and abandoned half-done.
 for bad, why in ((-1, "negative"), (-900, "very negative"),
-                 (idf.MAX_INTERVAL + 1, "beyond the sanity limit"),
+                 (identify.MAX_INTERVAL + 1, "beyond the sanity limit"),
                  ("15", "a string"), (15.0, "a float"), (True, "a bool")):
     try:
-        idf.identify("127.0.0.1", "drb000000SAMPLE", port=1, timeout=1, interval=bad)
+        identify.identify("127.0.0.1", "drb000000SAMPLE", port=1, timeout=1, interval=bad)
         check(f"{why} interval is refused", False, repr(bad))
-    except idf.IdentifyError:
+    except identify.IdentifyError:
         check(f"{why} interval is refused", True)
     except OSError:
         # Reaching a connect() means validation let it through.
         check(f"{why} interval is refused BEFORE connecting", False, repr(bad))
 
 check("the sanity limit itself is allowed",
-      idf._interval_params_xml(idf.MAX_INTERVAL).endswith(
-          f"<IdentifyInterval>{idf.MAX_INTERVAL}</IdentifyInterval></Params>"))
+      identify._interval_params_xml(identify.MAX_INTERVAL).endswith(
+          f"<IdentifyInterval>{identify.MAX_INTERVAL}"
+          "</IdentifyInterval></Params>"))
 check("True is rejected even though bool is an int subclass",
       isinstance(True, int))
 
 ports = []
-fake_device(cc.TYPE_RESULT, b"", ports, login_ok=False)
+fake_device(config_cmd.TYPE_RESULT, b"", ports, login_ok=False)
 try:
-    idf.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
+    identify.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
     check("a refused login raises", False)
-except idf.IdentifyError as exc:
+except identify.IdentifyError as exc:
     check("a refused login raises IdentifyError", "login refused" in str(exc), str(exc))
 
 ports = []
 fake_device(0x99, b"", ports)
 try:
-    idf.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
+    identify.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
     check("an unexpected reply type raises", False)
-except idf.IdentifyError:
+except identify.IdentifyError:
     check("an unexpected reply type raises IdentifyError", True)
 
 
@@ -209,7 +213,7 @@ def apps_reply(inner):
             + html.escape(inner).encode() + b"</ResultDetails></TMCmd>\x00")
 
 
-out = da.parse_droboapps(apps_reply(
+out = droboapps.parse_droboapps(apps_reply(
     "<DroboApps><SDKVersion>2.1</SDKVersion>"
     "<App><Name>betaapp</Name><Version>2.0.1</Version>"
     "<Description>Example service.</Description><Stopped>0</Stopped></App>"
@@ -233,9 +237,9 @@ check("a web interface is noticed", by_name["AlphaApp"]["has_web_ui"] is True)
 check("...and its absence is not invented", by_name["betaapp"]["has_web_ui"] is False)
 
 check("no apps is an empty list, not an error",
-      da.parse_droboapps(b"\x00") == {"sdk_version": "", "apps": []})
+      droboapps.parse_droboapps(b"\x00") == {"sdk_version": "", "apps": []})
 try:
-    da.parse_droboapps(b"<not xml\x00")
+    droboapps.parse_droboapps(b"<not xml\x00")
     check("malformed XML raises", False)
 except Exception as exc:
     check("malformed XML raises", type(exc).__name__ == "SysInfoError", type(exc).__name__)
@@ -245,7 +249,7 @@ except Exception as exc:
 print("\n== LED brightness ==")
 
 def dim(v):
-    return da.parse_dimming(
+    return droboapps.parse_dimming(
         f"<TMCmd><ResultDetails>{v}</ResultDetails></TMCmd>".encode() + b"\x00")
 
 check("the live device's reading parses", dim(59) == 59)
@@ -256,7 +260,9 @@ check("...and is not None", dim(0) is not None)
 check("empty means no reading", dim("") is None)
 check("negative is rejected", dim(-5) is None)
 check("non-numeric is rejected", dim("bright") is None)
-check("no payload at all means no reading", da.parse_dimming(b"\x00") is None)
+check("no payload at all means no reading",
+      droboapps.parse_dimming(b"\x00") is None)
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

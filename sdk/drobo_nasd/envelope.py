@@ -31,7 +31,7 @@ and client.py for that.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
@@ -107,27 +107,27 @@ def _coerce(text: Optional[str]) -> Any:
     return text
 
 
-def _build_container(parent: ET.Element, data: dict) -> None:
+def _build_container(parent: ElementTree.Element, data: dict) -> None:
     """Recursively populate `parent` from a dict. Nested dicts become nested
     elements; lists/tuples repeat the same tag once per item (this is how
     UXMLNode-style trees typically represent repeated records)."""
     for key, value in data.items():
         if isinstance(value, dict):
-            child = ET.SubElement(parent, key)
+            child = ElementTree.SubElement(parent, key)
             _build_container(child, value)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                child = ET.SubElement(parent, key)
+                child = ElementTree.SubElement(parent, key)
                 if isinstance(item, dict):
                     _build_container(child, item)
                 else:
                     child.text = _text_of(item)
         else:
-            child = ET.SubElement(parent, key)
+            child = ElementTree.SubElement(parent, key)
             child.text = _text_of(value)
 
 
-def _parse_container(elem: ET.Element) -> dict:
+def _parse_container(elem: ElementTree.Element) -> dict:
     """Inverse of _build_container. Repeated tags collapse into a list."""
     result: dict = {}
     for child in elem:
@@ -163,8 +163,8 @@ def _resolve_command(command: Union[int, str]) -> tuple[str, Optional[int], Opti
     return str(cmd_id), cmd_id, commands.ID_TO_NAME.get(cmd_id)
 
 
-def _serialize(root: ET.Element) -> str:
-    body = ET.tostring(root, encoding="unicode")
+def _serialize(root: ElementTree.Element) -> str:
+    body = ElementTree.tostring(root, encoding="unicode")
     return f"{_XML_DECLARATION}\n{body}"
 
 
@@ -182,11 +182,11 @@ def build_command(esa_id: Union[str, int], command: Union[int, str], params: Opt
     guard lives in client.py, which is the layer that actually has a socket.
     """
     wire_text, _cmd_id, _cmd_name = _resolve_command(command)
-    root = ET.Element(ROOT_TAG)
-    ET.SubElement(root, "ESAID").text = str(esa_id)
-    ET.SubElement(root, "Command").text = wire_text
+    root = ElementTree.Element(ROOT_TAG)
+    ElementTree.SubElement(root, "ESAID").text = str(esa_id)
+    ElementTree.SubElement(root, "Command").text = wire_text
     if params:
-        params_elem = ET.SubElement(root, "Params")
+        params_elem = ElementTree.SubElement(root, "Params")
         _build_container(params_elem, params)
     return _serialize(root)
 
@@ -206,21 +206,21 @@ def build_response(
     symmetric is what makes the round-trip test meaningful.
     """
     wire_text, _cmd_id, _cmd_name = _resolve_command(command)
-    root = ET.Element(ROOT_TAG)
-    ET.SubElement(root, "ESAID").text = str(esa_id)
-    ET.SubElement(root, "Command").text = wire_text
+    root = ElementTree.Element(ROOT_TAG)
+    ElementTree.SubElement(root, "ESAID").text = str(esa_id)
+    ElementTree.SubElement(root, "Command").text = wire_text
     if params:
-        params_elem = ET.SubElement(root, "Params")
+        params_elem = ElementTree.SubElement(root, "Params")
         _build_container(params_elem, params)
-    ET.SubElement(root, "Error").text = str(int(error))
+    ElementTree.SubElement(root, "Error").text = str(int(error))
     if result is not None:
-        result_elem = ET.SubElement(root, "Result")
+        result_elem = ElementTree.SubElement(root, "Result")
         if isinstance(result, dict):
             _build_container(result_elem, result)
         else:
             result_elem.text = _text_of(result)
     if result_details is not None:
-        details_elem = ET.SubElement(root, "ResultDetails")
+        details_elem = ElementTree.SubElement(root, "ResultDetails")
         if isinstance(result_details, dict):
             _build_container(details_elem, result_details)
         else:
@@ -243,8 +243,8 @@ def parse(xml_text: str) -> Envelope:
         # exact declaration text is not itself meaningful to us
         text = text.split("?>", 1)[1].strip()
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
         raise EnvelopeError(f"not well-formed XML: {exc}") from exc
 
     if root.tag != ROOT_TAG:

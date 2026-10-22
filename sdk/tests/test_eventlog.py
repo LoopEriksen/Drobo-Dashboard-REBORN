@@ -20,20 +20,21 @@ import sys
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import commands as C
+from drobo_nasd import commands
 from drobo_nasd import eventlog
 from drobo_nasd.config_cmd import ConfigError
 from drobo_nasd.models import EventLogEntry
 from drobo_nasd.sysinfo import SysInfoError
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 def envelope(inner_text: str, escaped: bool = True) -> bytes:
@@ -130,10 +131,11 @@ check("command 91 with the /uel.log path, CmdID/Params/ESAID order",
 print("\n== safety ==")
 check("we send eCmdGetUserEventLog, not the eCmdGetEventLogs that answers empty",
       eventlog.COMMAND_NAME == "eCmdGetUserEventLog")
-check("its confirmed id is 91", C.COMMANDS.get(eventlog.COMMAND_NAME) == 91,
-      C.COMMANDS.get(eventlog.COMMAND_NAME))
+check("its confirmed id is 91",
+      commands.COMMANDS.get(eventlog.COMMAND_NAME) == 91,
+      commands.COMMANDS.get(eventlog.COMMAND_NAME))
 check("it is not on the do-not-send list",
-      not C.is_dangerous(eventlog.COMMAND_NAME))
+      not commands.is_dangerous(eventlog.COMMAND_NAME))
 check("the path constant is exactly the captured one",
       eventlog.USER_EVENT_LOG_PATH == "/uel.log", eventlog.USER_EVENT_LOG_PATH)
 check("EventLogError is catchable as SysInfoError",
@@ -141,5 +143,6 @@ check("EventLogError is catchable as SysInfoError",
 check("...and as ConfigError (callers already handle that)",
       issubclass(eventlog.EventLogError, ConfigError))
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)

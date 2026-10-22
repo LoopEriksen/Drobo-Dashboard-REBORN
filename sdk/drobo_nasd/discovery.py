@@ -51,7 +51,7 @@ import subprocess
 import sys
 import time
 import warnings
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -632,7 +632,7 @@ def resolve(
         except IdentityMismatchError as exc:
             mismatches.append(str(exc))
             continue
-        except (OSError, esatm.FrameError, ET.ParseError):
+        except (OSError, esatm.FrameError, ElementTree.ParseError):
             continue  # unreachable, or answered but wasn't a Drobo greeting
 
     if mismatches:

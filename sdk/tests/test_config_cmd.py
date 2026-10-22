@@ -25,18 +25,19 @@ import time
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-from drobo_nasd import config_cmd as cc
-from drobo_nasd import commands as C
+from drobo_nasd import config_cmd
+from drobo_nasd import commands
 from drobo_nasd import esatm
 
-fails = []
+failures = []
 
 
-def check(label, cond, extra=""):
-    print(("  PASS  " if cond else "  FAIL  ") + label
-          + ("  " + str(extra) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+def check(label, condition, failure_detail=""):
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
 
 
 # --------------------------------------------------------------------------
@@ -70,12 +71,13 @@ SECRETS = ("hunter2", "QUJDREVGRw==", "leakme")
 
 print("== parsing, and the redaction that matters ==")
 
-net = cc.parse_config_result(NETWORK)
+net = config_cmd.parse_config_result(NETWORK)
 ncfg = net["DRINASConfig"]["DRINasNetworkConfig"]
 check("network parses", ncfg["NasName"] == "TestDrobo", ncfg.get("NasName"))
 check("nested IPConfig parses", ncfg["IPConfig"]["IP"] == "10.0.0.5", ncfg.get("IPConfig"))
 
-adm = cc.parse_config_result(ADMIN)["DRINASConfig"]["DRINasAdminConfig"]
+adm = (config_cmd.parse_config_result(ADMIN)
+       ["DRINASConfig"]["DRINasAdminConfig"])
 check("admin username kept (not a secret)", adm["UserName"] == "admin", adm.get("UserName"))
 check("Password redacted", adm["Password"] == "[redacted]", adm.get("Password"))
 check("ValidPassword redacted", adm["ValidPassword"] == "[redacted]", adm.get("ValidPassword"))
@@ -84,7 +86,7 @@ check("EncryptedPassword redacted",
 check("no admin secret survives anywhere in the result",
       not any(s in repr(adm) for s in SECRETS), adm)
 
-sh = cc.parse_config_result(SHARES)["DRINASConfig"]["DRIShareConfig"]
+sh = config_cmd.parse_config_result(SHARES)["DRINASConfig"]["DRIShareConfig"]
 shares = sh["Shares"]["Share"]
 check("repeated <Share> becomes a list", isinstance(shares, list) and len(shares) == 2,
       type(shares).__name__)
@@ -111,23 +113,23 @@ def escaped_result(inner: str) -> bytes:
             + b"</ResultDetails></TMCmd>\x00")
 
 
-esc = cc.parse_config_result(escaped_result(
+esc = config_cmd.parse_config_result(escaped_result(
     f"<DRINasAdminConfig><UserName>admin</UserName>"
     f"<Password>{LEAK}</Password></DRINasAdminConfig>"))
 check("secret inside an ESCAPED inner document is redacted", LEAK not in repr(esc), esc)
 
 check("...also when the inner document carries its own <?xml?> declaration",
-      LEAK not in repr(cc.parse_config_result(escaped_result(
+      LEAK not in repr(config_cmd.parse_config_result(escaped_result(
           '<?xml version="1.0" encoding="UTF-8"?>'
           f"<DRINasAdminConfig><Password>{LEAK}</Password></DRINasAdminConfig>"))))
 
 check("...also when the secret is nested several levels down",
-      LEAK not in repr(cc.parse_config_result(escaped_result(
+      LEAK not in repr(config_cmd.parse_config_result(escaped_result(
           f"<Shares><Share><ShareName>Docs</ShareName>"
           f"<SharePassword>{LEAK}</SharePassword></Share></Shares>"))))
 
 check("XML-shaped text we CAN'T parse is redacted rather than trusted",
-      LEAK not in repr(cc.parse_config_result(escaped_result(f"<Password>{LEAK}"))))
+      LEAK not in repr(config_cmd.parse_config_result(escaped_result(f"<Password>{LEAK}"))))
 
 # Hole 2: a credential element whose value lived in CHILD elements rather than
 # its own text survived, because the old code replaced .text (empty here) and
@@ -137,16 +139,16 @@ child_doc = (b"<TMCmd><ResultDetails><DRINasAdminConfig>"
              b"<Password><Value>" + LEAK.encode() + b"</Value></Password>"
              b"</DRINasAdminConfig></ResultDetails></TMCmd>\x00")
 check("a credential element's CHILD elements are redacted too",
-      LEAK not in repr(cc.parse_config_result(child_doc)),
-      cc.parse_config_result(child_doc))
+      LEAK not in repr(config_cmd.parse_config_result(child_doc)),
+      config_cmd.parse_config_result(child_doc))
 
 # ...without the fix becoming so blunt it eats real data.
-sysinfo_like = cc.parse_config_result(escaped_result(
+sysinfo_like = config_cmd.parse_config_result(escaped_result(
     "<SysInfo><UpTime>1209645</UpTime><Temperature>36</Temperature></SysInfo>"))
 check("a non-credential escaped document is NOT redacted away",
       "36" in repr(sysinfo_like) and "1209645" in repr(sysinfo_like), sysinfo_like)
 
-plain = cc.parse_config_result(
+plain = config_cmd.parse_config_result(
     b"<TMCmd><ResultDetails><DRINasNetworkConfig><NasName>MyDrobo</NasName>"
     b"<IPConfig><IP>10.0.0.5</IP></IPConfig></DRINasNetworkConfig>"
     b"</ResultDetails></TMCmd>\x00")
@@ -156,43 +158,43 @@ check("ordinary config is untouched by the new pass",
 
 print("\n== malformed and empty input ==")
 try:
-    cc.parse_config_result(b"<TMCmd><CmdID>30</CmdID></TMCmd>\x00")
+    config_cmd.parse_config_result(b"<TMCmd><CmdID>30</CmdID></TMCmd>\x00")
     check("missing ResultDetails raises", False)
-except cc.ConfigError:
+except config_cmd.ConfigError:
     check("missing ResultDetails raises ConfigError", True)
 try:
-    cc.parse_config_result(b"<not xml at all\x00")
+    config_cmd.parse_config_result(b"<not xml at all\x00")
     check("malformed XML raises", False)
-except cc.ConfigError:
+except config_cmd.ConfigError:
     check("malformed XML raises ConfigError", True)
-check("empty payload gives an empty dict", cc.parse_config_result(b"\x00") == {})
+check("empty payload gives an empty dict", config_cmd.parse_config_result(b"\x00") == {})
 
 print("\n== frame construction matches the observed wire format ==")
-f = cc._build_frame(cc.TYPE_COMMAND, b"abc")
+f = config_cmd._build_frame(config_cmd.TYPE_COMMAND, b"abc")
 check("frame starts with DRINETTM", f[:8] == b"DRINETTM", f[:8])
-check("type byte placed correctly", f[8] == cc.TYPE_COMMAND, f[8])
+check("type byte placed correctly", f[8] == config_cmd.TYPE_COMMAND, f[8])
 check("length is big-endian", struct.unpack(">I", f[12:16])[0] == 3, f[12:16].hex())
 
-lp = cc._login_payload("drb000000SAMPLE")
+lp = config_cmd._login_payload("drb000000SAMPLE")
 check("login payload is 220 bytes", len(lp) == 220, len(lp))
 check("serial at offset 0", lp[:15] == b"drb000000SAMPLE", lp[:15])
 check("serial repeated at offset 20", lp[20:35] == b"drb000000SAMPLE", lp[20:35])
 check("rest is NUL padding", set(lp[35:]) == {0})
 try:
-    cc._login_payload("x" * 40)
+    config_cmd._login_payload("x" * 40)
     check("over-long serial rejected", False)
-except cc.ConfigError:
+except config_cmd.ConfigError:
     check("over-long serial rejected", True)
 
 print("\n== safety guards ==")
-check("eCmdGetConfig has a confirmed id", C.COMMANDS.get("eCmdGetConfig") == 30,
-      C.COMMANDS.get("eCmdGetConfig"))
+check("eCmdGetConfig has a confirmed id", commands.COMMANDS.get("eCmdGetConfig") == 30,
+      commands.COMMANDS.get("eCmdGetConfig"))
 check("the dangerous commands are still refused everywhere",
-      {"eCmdRunCommand", "eCmdWriteHostBuffer"} <= C.DO_NOT_SEND)
+      {"eCmdRunCommand", "eCmdWriteHostBuffer"} <= commands.DO_NOT_SEND)
 try:
-    cc.get_config("127.0.0.1", "drb000000SAMPLE", section="nonsense")
+    config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", section="nonsense")
     check("unknown section rejected before connecting", False)
-except cc.ConfigError as exc:
+except config_cmd.ConfigError as exc:
     check("unknown section rejected before connecting", "unknown section" in str(exc))
 
 
@@ -217,13 +219,14 @@ def fake_drobo(reply: bytes, port_holder: list, login_ok=True):
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            conn.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
                 conn.close(); srv.close(); return
             head = conn.recv(16)
             ln = struct.unpack(">I", head[12:16])[0]
             conn.recv(ln)
-            conn.sendall(cc._build_frame(cc.TYPE_RESULT, reply))
+            conn.sendall(
+                config_cmd._build_frame(config_cmd.TYPE_RESULT, reply))
             conn.close()
         except OSError:
             pass
@@ -235,8 +238,8 @@ def fake_drobo(reply: bytes, port_holder: list, login_ok=True):
 
 ports = []
 fake_drobo(ADMIN, ports)
-got = cc.get_config("127.0.0.1", "drb000000SAMPLE", section="admin",
-                    port=ports[0], timeout=5)
+got = config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", section="admin",
+                            port=ports[0], timeout=5)
 a = got["DRINASConfig"]["DRINasAdminConfig"]
 check("end-to-end fetch works", a["UserName"] == "admin", a)
 check("end-to-end result carries NO credential",
@@ -245,17 +248,19 @@ check("end-to-end result carries NO credential",
 ports = []
 fake_drobo(b"", ports)
 try:
-    cc.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
+    config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0],
+                          timeout=5)
     check("empty device reply raises", False)
-except cc.ConfigError:
+except config_cmd.ConfigError:
     check("empty device reply raises ConfigError", True)
 
 ports = []
 fake_drobo(NETWORK, ports, login_ok=False)
 try:
-    cc.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
+    config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0],
+                          timeout=5)
     check("refused login raises", False)
-except cc.ConfigError as exc:
+except config_cmd.ConfigError as exc:
     check("refused login raises ConfigError", "login refused" in str(exc), str(exc))
 
 # --------------------------------------------------------------------------
@@ -275,8 +280,9 @@ print("\n== a dribbling peer cannot hold the command channel open ==")
 
 # A well-formed header declaring the largest payload the module will accept --
 # exactly what a peer wanting to stall would send.
-HEAD_MAX = (cc.SIGNATURE + bytes([cc.TYPE_RESULT, 0x01]) + b"\x00\x00"
-            + struct.pack(">I", cc.MAX_PAYLOAD_BYTES))
+HEAD_MAX = (config_cmd.SIGNATURE + bytes([config_cmd.TYPE_RESULT, 0x01])
+            + b"\x00\x00"
+            + struct.pack(">I", config_cmd.MAX_PAYLOAD_BYTES))
 BUDGET = 0.4        # the deadline under test
 CEILING = 5.0       # generous: this asserts "bounded at all", not a stopwatch
 
@@ -302,9 +308,9 @@ for _label, _whole, _trickle in (
     dribble(b, _trickle)
     _t0 = time.monotonic()
     try:
-        cc._read_frame(a, deadline=time.monotonic() + BUDGET)
+        config_cmd._read_frame(a, deadline=time.monotonic() + BUDGET)
         check(f"a dribbled {_label} gives up", False)
-    except (cc.ConfigError, OSError):
+    except (config_cmd.ConfigError, OSError):
         # ConfigError once the budget is spent, or the socket timeout the
         # shrinking deadline puts on the last recv -- which one you get depends
         # on the scheduler, so this asserts that it stopped, not how.
@@ -318,10 +324,11 @@ for _label, _whole, _trickle in (
 
 # ...without the bound getting in the way of a device that simply answers.
 a, b = socket.socketpair()
-b.sendall(cc._build_frame(cc.TYPE_RESULT, NETWORK))
-frame_type, body = cc._read_frame(a, deadline=time.monotonic() + CEILING)
+b.sendall(config_cmd._build_frame(config_cmd.TYPE_RESULT, NETWORK))
+frame_type, body = config_cmd._read_frame(a,
+                                          deadline=time.monotonic() + CEILING)
 check("a normal read still succeeds under a deadline",
-      frame_type == cc.TYPE_RESULT and body == NETWORK, frame_type)
+      frame_type == config_cmd.TYPE_RESULT and body == NETWORK, frame_type)
 a.close()
 b.close()
 
@@ -329,13 +336,13 @@ b.close()
 # module -- droboapps, eventlog, identify, sysinfo, drobosync, nasd_sweep --
 # reads exactly as it did before.
 a, b = socket.socketpair()
-b.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
-frame_type, body = cc._read_frame(a)
+b.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
+frame_type, body = config_cmd._read_frame(a)
 check("a read with no deadline is unchanged",
-      frame_type == cc.TYPE_LOGIN_OK and body == b"", frame_type)
+      frame_type == config_cmd.TYPE_LOGIN_OK and body == b"", frame_type)
 check("the deadline stays optional",
-      cc._receive_exactly.__defaults__ == (None,),
-      cc._receive_exactly.__defaults__)
+      config_cmd._receive_exactly.__defaults__ == (None,),
+      config_cmd._receive_exactly.__defaults__)
 a.close()
 b.close()
 
@@ -351,8 +358,8 @@ a, b = socket.socketpair()
 c, d = socket.socketpair()
 cc_exc = es_exc = None
 try:
-    cc._read_frame(a, deadline=_spent)
-except cc.ConfigError as exc:
+    config_cmd._read_frame(a, deadline=_spent)
+except config_cmd.ConfigError as exc:
     cc_exc = exc
 try:
     esatm.read_frame(c, deadline=_spent)
@@ -361,7 +368,7 @@ except esatm.FrameError as exc:
 for _sock in (a, b, c, d):
     _sock.close()
 check("a spent budget raises this module's own framing error",
-      type(cc_exc) is cc.ConfigError, type(cc_exc).__name__)
+      type(cc_exc) is config_cmd.ConfigError, type(cc_exc).__name__)
 check("esatm raises its own for the same situation",
       type(es_exc) is esatm.FrameError, type(es_exc).__name__)
 check("...and both say the same thing", str(cc_exc) == str(es_exc),
@@ -386,7 +393,8 @@ def fake_dribbler(port_holder):
             conn.settimeout(5)
             head = conn.recv(16)
             conn.recv(struct.unpack(">I", head[12:16])[0])
-            conn.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
+            conn.sendall(
+                config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
             head = conn.recv(16)
             conn.recv(struct.unpack(">I", head[12:16])[0])
             conn.sendall(HEAD_MAX)          # a payload that never arrives...
@@ -406,9 +414,10 @@ ports = []
 fake_dribbler(ports)
 _t0 = time.monotonic()
 try:
-    cc.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=0.5)
+    config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", port=ports[0],
+                          timeout=0.5)
     check("get_config gives up on a dribbling device", False)
-except (cc.ConfigError, OSError):
+except (config_cmd.ConfigError, OSError):
     check("get_config gives up on a dribbling device", True)
 _elapsed = time.monotonic() - _t0
 check("...in bounded time", _elapsed < CEILING, _elapsed)
@@ -425,8 +434,8 @@ print("\n== a bounded read hands the socket back as it found it ==")
 # send -- a narrowing of the caller's timeout that nobody asked for.
 a, b = socket.socketpair()
 a.settimeout(5.0)
-dribble(b, cc._build_frame(cc.TYPE_LOGIN_OK, b""))
-cc._read_frame(a, deadline=time.monotonic() + CEILING)
+dribble(b, config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
+config_cmd._read_frame(a, deadline=time.monotonic() + CEILING)
 check("a completed bounded read leaves the socket's timeout alone",
       a.gettimeout() == 5.0, a.gettimeout())
 a.close()
@@ -438,8 +447,8 @@ a, b = socket.socketpair()
 a.settimeout(5.0)
 b.sendall(HEAD_MAX)          # a header promising a payload that never arrives
 try:
-    cc._read_frame(a, deadline=time.monotonic() + 0.2)
-except (cc.ConfigError, OSError):
+    config_cmd._read_frame(a, deadline=time.monotonic() + 0.2)
+except (config_cmd.ConfigError, OSError):
     pass
 check("so does one that runs out of budget", a.gettimeout() == 5.0, a.gettimeout())
 a.close()
@@ -448,11 +457,12 @@ b.close()
 # With no deadline the timeout is never touched at all.
 a, b = socket.socketpair()
 a.settimeout(3.5)
-b.sendall(cc._build_frame(cc.TYPE_LOGIN_OK, b""))
-cc._read_frame(a)
+b.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
+config_cmd._read_frame(a)
 check("an unbounded read never touches it", a.gettimeout() == 3.5, a.gettimeout())
 a.close()
 b.close()
 
-print("\n" + ("ALL PASS" if not fails else f"{len(fails)} FAILURES: {fails}"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASS" if not failures
+              else f"{len(failures)} FAILURES: {failures}"))
+sys.exit(1 if failures else 0)
