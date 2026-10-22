@@ -1,108 +1,137 @@
 """
 The agent's HTTP API.
 
-Plain JSON over loopback (or the LAN, if you turn that on). The Windows app and
-the iOS app both talk to this and neither knows the Drobo protocol exists.
+Plain JSON over loopback (or the LAN, if you turn that on). The Windows
+app and the iOS app both talk to this and neither knows the Drobo
+protocol exists.
 
-Every endpoint except /api/ping requires the access token from config.json,
-sent as the  X-Agent-Token  header. /api/events also accepts ?token= because
-browser EventSource can't set headers.
+Every endpoint except /api/ping requires the access token from
+config.json, sent as the  X-Agent-Token  header. /api/events also
+accepts ?token= because browser EventSource can't set headers.
 
-    GET  /                      the web dashboard (no auth - it holds no data)
+    GET  /                      the web dashboard (no auth - it holds no
+                                 data)
     GET  /api/ping              liveness + agent version (no auth)
-    GET  /api/status            everything: device, capacity, drives, state
+    GET  /api/status            everything: device, capacity, drives,
+                                 state
     GET  /api/device            identity and firmware only
     GET  /api/drives            per-bay detail
     GET  /api/volumes           the volumes the pack is split into
     GET  /api/capacity          capacity numbers only
     GET  /api/battery           cache-battery health
-    GET  /api/health            pack/device-level health values (health telemetry) -- error
-                                 counts, relayout/double-degraded, raw status codes
-    GET  /api/droboconfig[?section=]  the Drobo's own settings, read on demand
-                                 rather than on every poll: network (the
-                                 default), shares, admin or general
-    GET  /api/discover[?host=]  Drobos visible on this network, each already
-                                 identified, so a front-end can list them and
-                                 let you pick one instead of typing an address.
-                                 ?host= adds one typed address to the search,
-                                 for networks that filter mDNS entirely
-    GET  /api/netcheck[?host=]  whether this PC is even on the same network as
-                                 a given Drobo -- the usual reason one "vanishes"
-    GET  /api/shares            the file shares, with UNC paths a front-end can
-                                 open or map, plus why Windows may refuse them
-    GET  /api/droboapps         software installed ON the Drobo (name, version,
-                                 running state, whether it has a web interface)
-    GET  /api/leds              LED brightness as the device reports it, plus
-                                 whether the unit is in shop-demo mode (in which
-                                 case its capacity numbers are fabricated)
-    GET  /api/spindown          drive spin-down as the device stores it --
-                                 whether it is enabled, and the delay, from the
-                                 same General block the spin-down write edits
-    GET  /api/update            whether a newer version exists. DORMANT unless
-                                 config.json's "updates" block is switched on --
-                                 it then only ever TELLS you; downloading and
-                                 installing stay a human decision
-    GET  /api/emailalerts       whether email alerts are configured -- never the
-                                 credentials, only host and recipients
-    POST /api/emailalerts/test  send a test email through that configuration
+    GET  /api/health            pack/device-level health values (health
+                                 telemetry) -- error counts,
+                                 relayout/double-degraded, raw status
+                                 codes
+    GET  /api/droboconfig[?section=]  the Drobo's own settings, read on
+                                 demand rather than on every poll:
+                                 network (the default), shares, admin or
+                                 general
+    GET  /api/discover[?host=]  Drobos visible on this network, each
+                                 already identified, so a front-end can
+                                 list them and let you pick one instead
+                                 of typing an address. ?host= adds one
+                                 typed address to the search, for
+                                 networks that filter mDNS entirely
+    GET  /api/netcheck[?host=]  whether this PC is even on the same
+                                 network as a given Drobo -- the usual
+                                 reason one "vanishes"
+    GET  /api/shares            the file shares, with UNC paths a
+                                 front-end can open or map, plus why
+                                 Windows may refuse them
+    GET  /api/droboapps         software installed ON the Drobo (name,
+                                 version, running state, whether it has
+                                 a web interface)
+    GET  /api/leds              LED brightness as the device reports it,
+                                 plus whether the unit is in shop-demo
+                                 mode (in which case its capacity
+                                 numbers are fabricated)
+    GET  /api/spindown          drive spin-down as the device stores it
+                                 -- whether it is enabled, and the
+                                 delay, from the same General block the
+                                 spin-down write edits
+    GET  /api/update            whether a newer version exists. DORMANT
+                                 unless config.json's "updates" block is
+                                 switched on -- it then only ever TELLS
+                                 you; downloading and installing stay a
+                                 human decision
+    GET  /api/emailalerts       whether email alerts are configured --
+                                 never the credentials, only host and
+                                 recipients
+    POST /api/emailalerts/test  send a test email through that
+                                 configuration
     GET  /api/backup/status     progress of a running or finished backup
     POST /api/backup/plan       what a backup WOULD do. Copies nothing
     POST /api/backup/start      actually run it. Needs "confirm": true
-    GET  /api/drobosync         Drobo-to-Drobo replication state. Built and
-                                 dormant -- it needs a second Drobo, so it
-                                 reports "not configured" rather than failing
-    GET  /api/eventlog          the Drobo's own device event log (not the SSE stream)
-    GET  /api/performance       throughput stats (read/write bytes per second)
+    GET  /api/drobosync         Drobo-to-Drobo replication state. Built
+                                 and dormant -- it needs a second Drobo,
+                                 so it reports "not configured" rather
+                                 than failing
+    GET  /api/eventlog          the Drobo's own device event log (not
+                                 the SSE stream)
+    GET  /api/performance       throughput stats (read/write bytes per
+                                 second)
     GET  /api/alerts[?all=1]    active alerts (or the full history)
-    GET  /api/history[?limit=N] trimmed series for graphing
-    GET  /api/events            server-sent events: live snapshots and alerts
+    GET  /api/history[?limit=N]  trimmed series for graphing
+    GET  /api/events            server-sent events: live snapshots and
+                                 alerts
     GET  /api/photos/stats      how much has been backed up
-    GET  /api/photos/session?id=<sha256>  how much of a chunked upload the
-                                 agent already holds, so it can be resumed
+    GET  /api/photos/session?id=<sha256>  how much of a chunked upload
+                                 the agent already holds, so it can be
+                                 resumed
     GET  /api/pair              url + token for the phone
     GET  /api/pair.svg          the same, as a scannable QR code
     POST /api/photos/have       {"hashes":[...]} -> {"missing":[...]}
-    POST /api/photos/rescan     rebuild the dedupe index from the files actually
-                                 on the Drobo -- run after deleting any by hand
-    POST /api/photos            raw file body; X-Filename, X-Taken-At headers
-    POST /api/photos/begin      start a chunked, resumable upload (the path
-                                 videos take): {"filename", "size", "sha256",
-                                 "taken_at"}
-    POST /api/photos/chunk      raw body: the next chunk; X-Upload-Id and
-                                 X-Offset headers
-    POST /api/photos/finish     check the whole file against its SHA-256, then
-                                 file it; X-Upload-Id header
-    POST /api/identify          flash the Drobo's lights, so you can tell
-                                 which box is which
-    POST /api/config/brightness    {"value": N} set LED brightness
-    POST /api/config/spindown      {"delay": N} or {"enabled": false} -- the
-                                 drive spin-down setting
-    POST /api/config/share-access  {"share","user","access"} one user's access
-                                 on one share
-    POST /api/shares/create        {"name": N} create a share. It starts with
-                                 no access for anyone until share-access
-                                 grants some
-    POST /api/shares/delete        {"name": N, "confirm_name": N} delete a
+    POST /api/photos/rescan     rebuild the dedupe index from the files
+                                 actually on the Drobo -- run after
+                                 deleting any by hand
+    POST /api/photos            raw file body; X-Filename, X-Taken-At
+                                 headers
+    POST /api/photos/begin      start a chunked, resumable upload (the
+                                 path videos take): {"filename", "size",
+                                 "sha256", "taken_at"}
+    POST /api/photos/chunk      raw body: the next chunk; X-Upload-Id
+                                 and X-Offset headers
+    POST /api/photos/finish     check the whole file against its
+                                 SHA-256, then file it; X-Upload-Id
+                                 header
+    POST /api/identify          flash the Drobo's lights, so you can
+                                 tell which box is which
+    POST /api/config/brightness  {"value": N} set LED brightness
+    POST /api/config/spindown   {"delay": N} or {"enabled": false} --
+                                 the drive spin-down setting
+    POST /api/config/share-access  {"share","user","access"} one user's
+                                 access on one share
+    POST /api/shares/create     {"name": N} create a share. It starts
+                                 with no access for anyone until
+                                 share-access grants some
+    POST /api/shares/delete     {"name": N, "confirm_name": N} delete a
                                  share AND everything stored in it.
-                                 confirm_name must repeat the name exactly
-                                 (case counts) or nothing touches the device
-    POST /api/droboapps/action     {"name","action"} start or stop an installed
-                                 DroboApp. These seven are the only endpoints
-                                 that change anything on the device, and every
-                                 200 from the config writes means the change
-                                 was READ BACK, not merely accepted
-    POST /api/mock/<action>/<bay>   mock driver only: fail|warn|pull, and reset
-    POST /api/mock/sign-in      {"share": S, "username": U, "password": P}
-                                    mock driver only: would this login open this
-                                    share on the simulated Drobo? Its account is
-                                    admin / admin. Answers {"ok", "win32_error",
-                                    "error"} and never echoes the password.
-    POST /api/mock/battery/<warning|failed>  mock driver only: cache-battery fault injection
-    POST /api/mock/power/<warning|failed>    mock driver only: PSU fault injection
-    POST /api/mock/write/<none|hangs_up|refused|unconfirmable>
-                                 mock driver only: how every simulated settings
-                                 or share write ends from now on, until
-                                 /api/mock/reset
+                                 confirm_name must repeat the name
+                                 exactly (case counts) or nothing
+                                 touches the device
+    POST /api/droboapps/action  {"name","action"} start or stop an
+                                 installed DroboApp. These seven are the
+                                 only endpoints that change anything on
+                                 the device, and every 200 from the
+                                 config writes means the change was READ
+                                 BACK, not merely accepted
+    POST /api/mock/<action>/<bay>  mock driver only: fail|warn|pull, and
+                                 reset
+    POST /api/mock/sign-in      {"share": S, "username": U, "password":
+                                 P} mock driver only: would this login
+                                 open this share on the simulated Drobo?
+                                 Its account is admin / admin. Answers
+                                 {"ok", "win32_error", "error"} and
+                                 never echoes the password.
+    POST /api/mock/battery/<warning|failed>  mock driver only:
+                                 cache-battery fault injection
+    POST /api/mock/power/<warning|failed>  mock driver only: PSU fault
+                                 injection
+    POST /api/mock/write/<none|hangs_up|refused|unconfirmable>  mock
+                                 driver only: how every simulated
+                                 settings or share write ends from now
+                                 on, until /api/mock/reset
 """
 
 from __future__ import annotations
@@ -126,63 +155,69 @@ from drobo_nasd.shareedit import ShareEditError
 from .drivers import MockDriver, SimulatedWriteUnconfirmedError
 from .photos import PhotoStoreError
 
-#: One backup at a time, for the whole agent. Two robocopy processes writing
-#: the same destination would interleave and neither result would be
-#: trustworthy, so the runner is a module-level singleton rather than
-#: per-request.
+#: One backup at a time, for the whole agent. Two robocopy processes
+#: writing the same destination would interleave and neither result
+#: would be trustworthy, so the runner is a module-level singleton
+#: rather than per-request.
 _BACKUP_RUNNER = backup.BackupRunner()
 
 VERSION = "1.1.0"
 MAX_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024
 
-#: The live 5N reports its LED brightness as 59. The firmware command table
-#: names eCmdGetDimming and gives its id, and documents NOTHING about the
-#: scale -- so whether 59 means 59%, 59 of 255, or Drobo's own step 59 is
-#: unknown. Shown with the number rather than quietly rendered as a
-#: percentage, because inventing a unit is how a measurement becomes a lie.
+#: The live 5N reports its LED brightness as 59. The firmware command
+#: table names eCmdGetDimming and gives its id, and documents NOTHING
+#: about the scale -- so whether 59 means 59%, 59 of 255, or Drobo's own
+#: step 59 is unknown. Shown with the number rather than quietly
+#: rendered as a percentage, because inventing a unit is how a
+#: measurement becomes a lie.
 DIMMING_SCALE_NOTE = (
     "The Drobo reports this as a bare number. Its firmware never says what "
     "the scale is -- percent, 0-255, or its own steps -- so it is shown "
     "exactly as reported rather than converted into a unit we would be "
     "guessing at.")
 
-#: Same honesty problem as the dimming scale, one field over. The 2026-08-06
-#: capture showed SpindownDelay as 0 (disabled) and 14 (the unit's default);
-#: minutes and a dropdown index are both consistent with that, so the number
-#: ships as stored rather than dressed in a unit.
+#: Same honesty problem as the dimming scale, one field over. The
+#: 2026-08-06 capture showed SpindownDelay as 0 (disabled) and 14 (the
+#: unit's default); minutes and a dropdown index are both consistent
+#: with that, so the number ships as stored rather than dressed in a
+#: unit.
 SPINDOWN_UNIT_NOTE = (
     "The Drobo stores this delay as a bare number (14 on a stock unit). Its "
     "firmware never says what the unit is -- minutes and a menu position are "
     "both consistent with what has been captured -- so it is shown exactly "
     "as stored rather than converted into a unit we would be guessing at.")
 
-# --- how a configuration write can end ---------------------------------------
-# Four outcomes, named once here and reported in every write answer as
-# "outcome", so the agent, both UIs and the tests share one vocabulary instead
-# of each reading English prose to work out what happened.
+# --- how a configuration write can end
+# --------------------------------------- Four outcomes, named once here
+# and reported in every write answer as "outcome", so the agent, both
+# UIs and the tests share one vocabulary instead of each reading English
+# prose to work out what happened.
 #
-# The middle two exist because of a measured hardware fact (2026-08-25): a
-# share create was sent to the real 5N, the device closed the socket without
-# ever answering, every layer above reported the write as failed -- and the
-# share had been created. So a write that applied must never render as
-# "failed", and a write nobody can settle must never render as "fine".
+# The middle two exist because of a measured hardware fact (2026-08-25):
+# a share create was sent to the real 5N, the device closed the socket
+# without ever answering, every layer above reported the write as failed
+# -- and the share had been created. So a write that applied must never
+# render as "failed", and a write nobody can settle must never render as
+# "fine".
 
 #: The device acknowledged the write AND it reads back changed.
 WRITE_VERIFIED = "verified"
 
-#: The device never acknowledged the write, but it reads back changed anyway.
-#: A SUCCESS: on this project the read-back is the arbiter of truth, not the
-#: acknowledgement. Kept distinct from WRITE_VERIFIED so the answer can say so
-#: out loud rather than implying a conversation that did not happen.
+#: The device never acknowledged the write, but it reads back changed
+#: anyway. A SUCCESS: on this project the read-back is the arbiter of
+#: truth, not the acknowledgement. Kept distinct from WRITE_VERIFIED so
+#: the answer can say so out loud rather than implying a conversation
+#: that did not happen.
 WRITE_UNACKNOWLEDGED = "verified_unacknowledged"
 
-#: Nothing was applied -- the device refused the write, could not be reached,
-#: or took it and reads back unchanged.
+#: Nothing was applied -- the device refused the write, could not be
+#: reached, or took it and reads back unchanged.
 WRITE_FAILED = "failed"
 
-#: Neither confirmed nor refuted: the write went out and the read-back that
-#: would settle it could not be completed. The change MAY be on the device.
+#: Neither confirmed nor refuted: the write went out and the read-back
+#: that would settle it could not be completed. The change MAY be on the
+#: device.
 WRITE_UNKNOWN = "unknown"
 
 #: Added to the success message of a WRITE_UNACKNOWLEDGED write.
@@ -191,24 +226,27 @@ UNACKNOWLEDGED_WRITE_NOTE = (
     "connection instead -- but reading the setting back afterwards shows the "
     "change really is there.")
 
-#: Added to the error message of a WRITE_UNKNOWN write. Appended always, not
-#: only when the SDK's own wording lacks it: saying it twice costs a sentence,
-#: leaving it out costs somebody a blind retry of a write that already applied.
+#: Added to the error message of a WRITE_UNKNOWN write. Appended always,
+#: not only when the SDK's own wording lacks it: saying it twice costs a
+#: sentence, leaving it out costs somebody a blind retry of a write that
+#: already applied.
 UNKNOWN_WRITE_GUIDANCE = (
     "Nothing here can say whether the change was applied, and it may well "
     "have been. Re-read what the Drobo now holds before sending this again.")
 
-#: Exception types meaning "the write went out and its outcome could not be
-#: established" -- WRITE_UNKNOWN, never a failure. Every one of these MUST be
-#: caught before the refusal branches in _config_write, and
-#: ConfigWriteOutcomeUnknownError especially: it subclasses ConfigWriteError purely
-#: so old callers keep catching it, so an `except ConfigWriteError` reached
-#: first would report an unsettled write as a plain failure -- the one answer
-#: this whole path exists to prevent.
+#: Exception types meaning "the write went out and its outcome could not
+#: be established" -- WRITE_UNKNOWN, never a failure. Every one of these
+#: MUST be caught before the refusal branches in _config_write, and
+#: ConfigWriteOutcomeUnknownError especially: it subclasses
+#: ConfigWriteError purely so old callers keep catching it, so an
+#: `except ConfigWriteError` reached first would report an unsettled
+#: write as a plain failure -- the one answer this whole path exists to
+#: prevent.
 #:
-#: Listed by name rather than discovered, so that if the SDK ever renames one
-#: this file fails loudly at import instead of quietly mis-filing the write as
-#: failed. A new SDK type for this condition has to be added here.
+#: Listed by name rather than discovered, so that if the SDK ever
+#: renames one this file fails loudly at import instead of quietly
+#: mis-filing the write as failed. A new SDK type for this condition has
+#: to be added here.
 _UNCONFIRMED_WRITE_ERRORS = (
     # brightness and spin-down writes
     config_cmd.ConfigWriteOutcomeUnknownError,
@@ -221,19 +259,19 @@ _UNCONFIRMED_WRITE_ERRORS = (
 
 def _write_outcome(result) -> tuple[str, bool]:
     """
-    Which of the four outcomes an SDK write's RESULT describes, and whether the
-    device acknowledged it.
+    Which of the four outcomes an SDK write's RESULT describes, and
+    whether the device acknowledged it.
 
-    config_cmd.decided_by_readback() is the SDK's own reader for its own shape:
-    true exactly when the device never answered and the read-back settled the
-    write instead. The fallbacks after it exist for shapes it cannot judge --
-    a no-op write that sent nothing (acknowledged None), and any result whose
-    flag is missing entirely.
+    config_cmd.decided_by_readback() is the SDK's own reader for its own
+    shape: true exactly when the device never answered and the read-back
+    settled the write instead. The fallbacks after it exist for shapes
+    it cannot judge -- a no-op write that sent nothing (acknowledged
+    None), and any result whose flag is missing entirely.
 
-    Anything left unrecognised is WRITE_UNKNOWN, never a success, because the
-    two mistakes do not cost the same: "unknown" costs the user one re-read,
-    while a wrong "verified" tells them a change is on their Drobo when it may
-    not be.
+    Anything left unrecognised is WRITE_UNKNOWN, never a success,
+    because the two mistakes do not cost the same: "unknown" costs the
+    user one re-read, while a wrong "verified" tells them a change is on
+    their Drobo when it may not be.
     """
     if not isinstance(result, dict):
         return WRITE_UNKNOWN, False
@@ -242,9 +280,10 @@ def _write_outcome(result) -> tuple[str, bool]:
     else:
         acknowledged = result.get("acknowledged")
         if not isinstance(acknowledged, bool):
-            # A result_code of None is how a device that answered nothing shows
-            # up; no result_code at all means nothing was sent for it to answer,
-            # which is a success in its own right (see the SDK's no-op write).
+            # A result_code of None is how a device that answered
+            # nothing shows up; no result_code at all means nothing was
+            # sent for it to answer, which is a success in its own right
+            # (see the SDK's no-op write).
             acknowledged = (result["result_code"] is not None
                             if "result_code" in result else True)
     verified = result.get("verified")
@@ -258,28 +297,31 @@ def _write_outcome(result) -> tuple[str, bool]:
 
 def _identify_message(interval, simulated: bool = False) -> str:
     """
-    What to tell the user after an Identify, given what was actually sent.
+    What to tell the user after an Identify, given what was actually
+    sent.
 
-    Three outcomes, and one honesty problem. Identify is a MODE, not a pulse:
-    Drobo Dashboard's own warning says the lights blink continuously for
-    fifteen minutes and the same button stops them. "Sent, the lights should
-    be flashing" -- which is what this said until 2026-08-06 -- describes a
-    brief flash, so somebody who wanted a brief flash gets fifteen minutes of
-    blinking and no idea how to stop it.
+    Three outcomes, and one honesty problem. Identify is a MODE, not a
+    pulse: Drobo Dashboard's own warning says the lights blink
+    continuously for fifteen minutes and the same button stops them.
+    "Sent, the lights should be flashing" -- which is what this said
+    until 2026-08-06 -- describes a brief flash, so somebody who wanted
+    a brief flash gets fifteen minutes of blinking and no idea how to
+    stop it.
 
-    The honesty problem is the unit. Dashboard's warning says fifteen minutes,
-    and the one captured press (2026-07-25) sent 900 -- seconds, most likely,
-    but 900 has never been sent from here and no light has been seen to move
-    on this unit. (This said Dashboard "sends fifteen of something" until
-    2026-09-26; it does not.) So the duration is attributed to the original
-    product rather than promised here, and the way to stop it is offered
-    regardless -- which is useful whichever reading turns out to be right.
+    The honesty problem is the unit. Dashboard's warning says fifteen
+    minutes, and the one captured press (2026-07-25) sent 900 --
+    seconds, most likely, but 900 has never been sent from here and no
+    light has been seen to move on this unit. (This said Dashboard
+    "sends fifteen of something" until 2026-09-26; it does not.) So the
+    duration is attributed to the original product rather than promised
+    here, and the way to stop it is offered regardless -- which is
+    useful whichever reading turns out to be right.
 
     Known to be inaccurate, recorded 2026-09-26 and left for a separate
-    decision: the blink reply says the lights "should be blinking now" and
-    that the original Dashboard "used this value". With the default of 15,
-    this project's own guess, the second claim is untrue, and the first has
-    never been observed on this unit.
+    decision: the blink reply says the lights "should be blinking now"
+    and that the original Dashboard "used this value". With the default
+    of 15, this project's own guess, the second claim is untrue, and the
+    first has never been observed on this unit.
     """
     device_label = "Simulated Drobo" if simulated else "The Drobo"
     if interval == nasd_identify.STOP_INTERVAL:
@@ -296,15 +338,16 @@ def _identify_message(interval, simulated: bool = False) -> str:
 def _app_action_message(name: str, action: str, read_back: dict | None,
                         simulated: bool = False) -> str:
     """
-    What to tell the user after a DroboApp Start/Stop, given the re-read.
+    What to tell the user after a DroboApp Start/Stop, given the
+    re-read.
 
-    The device ACCEPTS the action before the service has finished changing
-    state -- the SDK deliberately skips read-back verification for exactly
-    that reason (see droboapps.droboapps_action). So the re-read is reported
-    as what the device says RIGHT NOW, and a state that has not flipped yet
-    is described as still settling, never as a failure: telling somebody
-    their Stop failed when the service is halfway down invites a retry of a
-    write that already took.
+    The device ACCEPTS the action before the service has finished
+    changing state -- the SDK deliberately skips read-back verification
+    for exactly that reason (see droboapps.droboapps_action). So the
+    re-read is reported as what the device says RIGHT NOW, and a state
+    that has not flipped yet is described as still settling, never as a
+    failure: telling somebody their Stop failed when the service is
+    halfway down invites a retry of a write that already took.
     """
     device_label = "The simulated Drobo" if simulated else "The Drobo"
     if read_back is None:
@@ -323,37 +366,41 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     server_version = f"DroboAgent/{VERSION}"
     protocol_version = "HTTP/1.1"
 
-    # /api/droboconfig opens a second connection to the device's command port.
-    # Bounded so a slow or sulking Drobo can't stall an API worker thread.
+    # /api/droboconfig opens a second connection to the device's command
+    # port. Bounded so a slow or sulking Drobo can't stall an API worker
+    # thread.
     COMMAND_TIMEOUT_SECONDS = 8.0
 
     # How long a /api/shares answer stays good for.
     #
-    # This is a cache for the device's benefit, not ours. Each call costs two
-    # command-port connections, and on 2026-07-26 that port was measurably worn
-    # out by heavy use -- eCmdGetSysInfo stopped answering entirely after about
-    # ninety connections in an hour, while the array stayed perfectly healthy
-    # (see docs/command-surface.md). Share names and network settings change
-    # roughly never, so a refreshing dashboard has no business asking again
-    # every few seconds.
+    # This is a cache for the device's benefit, not ours. Each call
+    # costs two command-port connections, and on 2026-07-26 that port
+    # was measurably worn out by heavy use -- eCmdGetSysInfo stopped
+    # answering entirely after about ninety connections in an hour,
+    # while the array stayed perfectly healthy (see
+    # docs/command-surface.md). Share names and network settings change
+    # roughly never, so a refreshing dashboard has no business asking
+    # again every few seconds.
     SHARES_CACHE_SECONDS = 60.0
     _shares_cache: tuple[float, dict] | None = None
     # Socket timeout for one request. Without it, a client that sends a
-    # Content-Length and then stalls holds a handler thread for ever. Per
-    # recv/send call, not per request, so a slow phone upload is unaffected.
+    # Content-Length and then stalls holds a handler thread for ever.
+    # Per recv/send call, not per request, so a slow phone upload is
+    # unaffected.
     timeout = 60
 
     _shares_lock = threading.Lock()
 
-    # Network discovery costs a few seconds of listening, so the front page
-    # doesn't get to re-run it on every render.
+    # Network discovery costs a few seconds of listening, so the front
+    # page doesn't get to re-run it on every render.
     DISCOVERY_LISTEN_SECONDS = 3.0
     DISCOVERY_CACHE_SECONDS = 30.0
     _discover_cache: tuple[float, dict] | None = None
     _discover_lock = threading.Lock()
 
     # The update check, cached for its configured interval. A dashboard
-    # left open in a tab must not turn a daily check into a per-second one.
+    # left open in a tab must not turn a daily check into a per-second
+    # one.
     _update_cache: tuple[float, dict] | None = None
     _update_lock = threading.Lock()
 
@@ -362,66 +409,73 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     photo_store = None
     token = ""
 
-    # -- plumbing ----------------------------------------------------------
+    # -- plumbing
+    # ----------------------------------------------------------
 
-    #: A token supplied in the URL, in any of the forms a request line can
-    #: carry one. Scrubbed before anything is printed: see log_message.
+    #: A token supplied in the URL, in any of the forms a request line
+    #: can carry one. Scrubbed before anything is printed: see
+    #: log_message.
     _TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s\"]*", re.I)
 
     def log_message(self, message_format: str,
                     *args) -> None:  # quieter default logging
-        # getattr, not self.path: http.server logs a timeout BEFORE it has read
-        # a request line, and at that point the handler has no path attribute
-        # at all. A client that opens a spare keep-alive connection and never
-        # sends on it reaches the 60-second timeout above, and this line used
-        # to raise AttributeError there: a traceback in the operator's console
-        # for a connection nobody used. Seen against the simulator, 2026-09-14.
+        # getattr, not self.path: http.server logs a timeout BEFORE it
+        # has read a request line, and at that point the handler has no
+        # path attribute at all. A client that opens a spare keep-alive
+        # connection and never sends on it reaches the 60-second timeout
+        # above, and this line used to raise AttributeError there: a
+        # traceback in the operator's console for a connection nobody
+        # used. Seen against the simulator, 2026-09-14.
         if (getattr(self, "path", "") or "").startswith("/api/events"):
             return
-        # The access log prints the whole request line, query string included,
-        # and a token still reaches us in the URL on the two routes that need
-        # it that way -- /api/events, and `/?token=` from the QR code that
-        # /api/pair.svg hands out. So the agent was printing its own access
-        # token into the console window that Run-Agent.bat tells testers to
-        # copy into a public issue when the agent stops. Found by a privacy
-        # audit, 2026-09-08.
+        # The access log prints the whole request line, query string
+        # included, and a token still reaches us in the URL on the two
+        # routes that need it that way -- /api/events, and `/?token=`
+        # from the QR code that /api/pair.svg hands out. So the agent
+        # was printing its own access token into the console window that
+        # Run-Agent.bat tells testers to copy into a public issue when
+        # the agent stops. Found by a privacy audit, 2026-09-08.
         #
-        # Scrubbed rather than refused, because a browser cannot set a header
-        # on an EventSource and the phone pairing flow depends on the URL
-        # form. Everything else takes the header only (see _authorised); the
-        # token still works here, it just stops being written down.
+        # Scrubbed rather than refused, because a browser cannot set a
+        # header on an EventSource and the phone pairing flow depends on
+        # the URL form. Everything else takes the header only (see
+        # _authorised); the token still works here, it just stops being
+        # written down.
         line = self._TOKEN_IN_URL.sub(r"\1<redacted>", message_format % args)
         print(f"[api] {self.address_string()} {line}", flush=True)
 
     def _authorised(self, params: dict, *, allow_query: bool = False) -> bool:
-        # Header only, unless the caller opts in -- which today is /api/events
-        # alone, because an EventSource cannot set a header.
+        # Header only, unless the caller opts in -- which today is
+        # /api/events alone, because an EventSource cannot set a header.
         #
-        # This is what stops a token that has already escaped into a URL (the
-        # QR code from /api/pair.svg, a pairing link forwarded to a phone, a
-        # screenshot in a bug report) from being a one-request CSRF. A page on
-        # any other site can make your browser POST to 127.0.0.1 with a plain
-        # <form>, and a form cannot set X-Agent-Token; if it could put the
-        # token in the query string instead, that single request would be
-        # enough to fire /api/backup/start with mirror on, or /api/shares/
-        # delete. A cross-site fetch() *can* set the header, but then it is a
-        # preflighted request -- and this handler answers no OPTIONS and sends
-        # no Access-Control-* headers, so the preflight fails and the real
-        # request is never sent. Header-only is therefore the whole fix.
+        # This is what stops a token that has already escaped into a URL
+        # (the QR code from /api/pair.svg, a pairing link forwarded to a
+        # phone, a screenshot in a bug report) from being a one-request
+        # CSRF. A page on any other site can make your browser POST to
+        # 127.0.0.1 with a plain <form>, and a form cannot set
+        # X-Agent-Token; if it could put the token in the query string
+        # instead, that single request would be enough to fire
+        # /api/backup/start with mirror on, or /api/shares/ delete. A
+        # cross-site fetch() *can* set the header, but then it is a
+        # preflighted request -- and this handler answers no OPTIONS and
+        # sends no Access-Control-* headers, so the preflight fails and
+        # the real request is never sent. Header-only is therefore the
+        # whole fix.
         supplied = self.headers.get("X-Agent-Token", "")
         if not supplied and allow_query:
             supplied = (params.get("token") or [""])[0]
         if not supplied:
             return False
-        # Compare the utf-8 bytes, not the strings. compare_digest refuses two
-        # str arguments unless both are pure ASCII -- it raises TypeError -- and
-        # the supplied half is whatever the caller sent: a header byte >= 0x80
-        # reaches us as latin-1 text, and ?token= can carry any %-escape. So the
-        # gate used to raise inside itself and drop a traceback in the operator's
-        # console instead of answering a clean 401, and a non-ASCII token typed
-        # into config.json by hand broke every request the same way. Bytes keep
-        # the same constant-time compare and the same answer for the ASCII
-        # tokens config.py generates.
+        # Compare the utf-8 bytes, not the strings. compare_digest
+        # refuses two str arguments unless both are pure ASCII -- it
+        # raises TypeError -- and the supplied half is whatever the
+        # caller sent: a header byte >= 0x80 reaches us as latin-1 text,
+        # and ?token= can carry any %-escape. So the gate used to raise
+        # inside itself and drop a traceback in the operator's console
+        # instead of answering a clean 401, and a non-ASCII token typed
+        # into config.json by hand broke every request the same way.
+        # Bytes keep the same constant-time compare and the same answer
+        # for the ASCII tokens config.py generates.
         try:
             offered = supplied.encode("utf-8")
         except UnicodeEncodeError:  # lone surrogate; cannot be the token
@@ -429,10 +483,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         return secrets.compare_digest(offered, self.token.encode("utf-8"))
 
     def _send_unauthorised(self, params: dict) -> None:
-        # ?token= used to be accepted everywhere. Somebody's bookmark, curl
-        # one-liner or phone client was very likely built from the pairing
-        # URL, and a bare "invalid token" would send them hunting for a typo
-        # in a token that is perfectly good. Say what actually changed.
+        # ?token= used to be accepted everywhere. Somebody's bookmark,
+        # curl one-liner or phone client was very likely built from the
+        # pairing URL, and a bare "invalid token" would send them
+        # hunting for a typo in a token that is perfectly good. Say what
+        # actually changed.
         message = "missing or invalid X-Agent-Token"
         if params.get("token"):
             message += ("; ?token= is accepted on /api/events only -- "
@@ -459,9 +514,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _pair_url(self) -> str:
         """
-        The address the phone should use. Prefer whatever host the browser
-        reached us on, but if that's loopback the phone can't use it -- fall
-        back to this machine's LAN address.
+        The address the phone should use. Prefer whatever host the
+        browser reached us on, but if that's loopback the phone can't
+        use it -- fall back to this machine's LAN address.
         """
         host = (self.headers.get("Host", "") or "").split(":")[0]
         if host in ("", "localhost", "127.0.0.1", "::1", "[::1]"):
@@ -487,7 +542,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 f"body of {length} bytes exceeds the {limit} byte limit")
         return self.rfile.read(length)
 
-    # -- routing -----------------------------------------------------------
+    # -- routing
+    # -----------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - required name
         parsed = urllib.parse.urlparse(self.path)
@@ -500,9 +556,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                  "uptime_seconds": int(time.time() - self.monitor.started_at)}
             )
 
-        # The dashboard shell carries no data of its own -- everything on it
-        # arrives from the authenticated API below -- so it is served without a
-        # token. That lets you bookmark it and be prompted for the token once.
+        # The dashboard shell carries no data of its own -- everything
+        # on it arrives from the authenticated API below -- so it is
+        # served without a token. That lets you bookmark it and be
+        # prompted for the token once.
         if path == "/":
             return self._send_text(webui.PAGE, content_type="text/html")
 
@@ -514,10 +571,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(
                 self.monitor.snapshot_dict().get("device", {}))
         if path == "/api/volumes":
-            # The volumes (Drobo calls them LUNs) the pack is carved into --
-            # what Windows shows as drive letters. Read straight from the
-            # status greeting, so this costs no extra command and no extra
-            # connection to a device that tires easily.
+            # The volumes (Drobo calls them LUNs) the pack is carved
+            # into -- what Windows shows as drive letters. Read straight
+            # from the status greeting, so this costs no extra command
+            # and no extra connection to a device that tires easily.
             snapshot = self.monitor.snapshot_dict()
             return self._send_json({
                 "volumes": snapshot.get("volumes", []),
@@ -535,12 +592,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(
                 self.monitor.snapshot_dict().get("pack_health", {}))
         if path == "/api/droboconfig":
-            # On demand, not on every poll: this opens a second connection to
-            # the command port, and configuration changes rarely.
+            # On demand, not on every poll: this opens a second
+            # connection to the command port, and configuration changes
+            # rarely.
             section = (params.get("section") or ["network"])[0]
-            # The simulator answers from its own canned config, in the same
-            # shape a real device returns, so demo mode shows a populated
-            # Settings tab instead of "no live Drobo connection yet".
+            # The simulator answers from its own canned config, in the
+            # same shape a real device returns, so demo mode shows a
+            # populated Settings tab instead of "no live Drobo
+            # connection yet".
             if getattr(self.monitor.driver, "simulate_config", False):
                 try:
                     return self._send_json({
@@ -573,9 +632,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/netcheck":
             return self._serve_netcheck((params.get("host") or [""])[0])
         if path == "/api/droboapps":
-            # What's installed ON the Drobo. On-demand, not polled: the app
-            # list changes when someone installs something, which is roughly
-            # never, and the command port does not enjoy being asked twice.
+            # What's installed ON the Drobo. On-demand, not polled: the
+            # app list changes when someone installs something, which is
+            # roughly never, and the command port does not enjoy being
+            # asked twice.
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json(
@@ -592,13 +652,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json({"error": str(exc), "apps": []}, 502)
 
         if path == "/api/update":
-            # Dormant unless config.json's "updates" block is switched on. With
-            # it off this touches no network at all -- see updates.check.
+            # Dormant unless config.json's "updates" block is switched
+            # on. With it off this touches no network at all -- see
+            # updates.check.
             #
-            # Cached, because the answer changes at most daily and this is
-            # rendered on a dashboard that refreshes every few seconds. Without
-            # the cache, leaving a browser tab open would hammer whatever host
-            # ends up serving the manifest.
+            # Cached, because the answer changes at most daily and this
+            # is rendered on a dashboard that refreshes every few
+            # seconds. Without the cache, leaving a browser tab open
+            # would hammer whatever host ends up serving the manifest.
             with _ApiRequestHandler._update_lock:
                 cached = _ApiRequestHandler._update_cache
                 cache_seconds = float(self.monitor.config.get(
@@ -608,22 +669,22 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 status = updates.check(
                     self.monitor.config.get("updates", {}), VERSION)
                 payload = status.to_dict()
-                # A disabled check is not worth caching for a day: flipping the
-                # setting on should take effect on the next refresh, not
-                # tomorrow.
+                # A disabled check is not worth caching for a day:
+                # flipping the setting on should take effect on the next
+                # refresh, not tomorrow.
                 if status.state != updates.STATE_DISABLED:
                     _ApiRequestHandler._update_cache = (time.time(), payload)
             return self._send_json(payload)
 
         if path == "/api/leds":
-            # eCmdGetDimming and eCmdGetDemoModeInfo: two of the seven commands
-            # that answer with real data on this firmware. Both had working
-            # parsers and no way to reach them until 2026-07-28 -- a measurement
-            # nobody could see.
+            # eCmdGetDimming and eCmdGetDemoModeInfo: two of the seven
+            # commands that answer with real data on this firmware. Both
+            # had working parsers and no way to reach them until
+            # 2026-07-28 -- a measurement nobody could see.
             #
-            # On demand, never polled: neither changes without someone changing
-            # it, and each costs a command-port connection on a device that
-            # stops answering under sustained use.
+            # On demand, never polled: neither changes without someone
+            # changing it, and each costs a command-port connection on a
+            # device that stops answering under sustained use.
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json({
@@ -646,19 +707,21 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 payload.update(droboapps.get_demo_mode(
                     host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS))
             except (sysinfo.SysInfoError, OSError):
-                # Best-effort. A missing demo-mode read must not cost the
-                # brightness reading, which is the half anyone came for.
+                # Best-effort. A missing demo-mode read must not cost
+                # the brightness reading, which is the half anyone came
+                # for.
                 payload.setdefault("demo_mode", None)
                 payload.setdefault("scale_factor", None)
             return self._send_json(payload)
 
         if path == "/api/spindown":
-            # The spin-down state, read from the same <General> block the
-            # write path (/api/config/spindown) edits and verifies against --
-            # one confirmed reader on both sides, so the read and the write
-            # can never disagree about where the truth lives. On demand,
-            # never polled: each ask costs a command-port connection, and the
-            # setting changes only when somebody changes it.
+            # The spin-down state, read from the same <General> block
+            # the write path (/api/config/spindown) edits and verifies
+            # against -- one confirmed reader on both sides, so the read
+            # and the write can never disagree about where the truth
+            # lives. On demand, never polled: each ask costs a
+            # command-port connection, and the setting changes only when
+            # somebody changes it.
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json({**driver.get_spindown(),
@@ -668,12 +731,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             if unavailable_body:
                 return self._send_json(unavailable_body, 503)
             # One device read serves both facts. The SDK's public
-            # get_spindown() returns only the delay, and "enabled" is the
-            # FeatureStates bit beside it (measured 2026-08-12) -- so the
-            # block is fetched once and both fields taken from it, borrowing
-            # the SDK's own block reader the same way the mock driver borrows
-            # its private constants, rather than second-guessing the wrapper
-            # shape here.
+            # get_spindown() returns only the delay, and "enabled" is
+            # the FeatureStates bit beside it (measured 2026-08-12) --
+            # so the block is fetched once and both fields taken from
+            # it, borrowing the SDK's own block reader the same way the
+            # mock driver borrows its private constants, rather than
+            # second-guessing the wrapper shape here.
             try:
                 general_block = droboapps._extract_general_block(
                     config_cmd.get_config(
@@ -689,8 +752,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             feature_states = self._int_or_none(
                 general_block.get("FeatureStates"))
             return self._send_json({
-                # null means "the field would not parse", which is not the
-                # same claim as off/0 -- same rule as parse_dimming.
+                # null means "the field would not parse", which is not
+                # the same claim as off/0 -- same rule as parse_dimming.
                 "enabled": (None if feature_states is None
                             else bool(feature_states
                                       & droboapps._SPINDOWN_ENABLED_BIT)),
@@ -705,11 +768,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                                     "summary": "No backup has been run."})
 
         if path == "/api/emailalerts":
-            # Whether email alerts are set up, WITHOUT ever returning the
-            # credentials that make them work. The Windows app renders this on
-            # its Preferences tab; it must be able to say "configured" without
-            # being told the password, which is why this reports a summary
-            # rather than the config block.
+            # Whether email alerts are set up, WITHOUT ever returning
+            # the credentials that make them work. The Windows app
+            # renders this on its Preferences tab; it must be able to
+            # say "configured" without being told the password, which is
+            # why this reports a summary rather than the config block.
             email_config = self.monitor.config.get("notify", {}).get(
                 "email", {})
             enabled = "email" in self.monitor.config.get(
@@ -722,9 +785,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "configured": configured,
                 "enabled": enabled,
-                # Host and recipients are not secrets and are the two things
-                # somebody needs to confirm they set it up the way they meant.
-                # The password is never included, at any verbosity.
+                # Host and recipients are not secrets and are the two
+                # things somebody needs to confirm they set it up the
+                # way they meant. The password is never included, at any
+                # verbosity.
                 "host": email_config.get("host", ""),
                 "to": recipients,
                 "summary": (f"Sending to {recipients} via "
@@ -735,8 +799,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/drobosync":
             # Drobo-to-Drobo replication. Built and dormant by decision
-            # (ROADMAP, 2026-07-28): it needs two units and only a single unit is
-            # available, so it reports "not configured" honestly rather than being absent.
+            # (ROADMAP, 2026-07-28): it needs two units and only a
+            # single unit is available, so it reports "not configured"
+            # honestly rather than being absent.
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
                 return self._send_json(
@@ -789,7 +854,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 "photos_enabled": self.photo_store.enabled,
             })
         if path == "/api/pair.svg":
-            # Carries the token, so this stays behind auth like everything else.
+            # Carries the token, so this stays behind auth like
+            # everything else.
             return self._send_text(
                 qr.svg(f"{self._pair_url()}/?token={self.token}"),
                 content_type="image/svg+xml")
@@ -803,15 +869,17 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         params = urllib.parse.parse_qs(parsed.query)
 
-        # No allow_query here, deliberately: nothing this handler writes may be
-        # reachable by a request a cross-site <form> can forge. See _authorised.
+        # No allow_query here, deliberately: nothing this handler writes
+        # may be reachable by a request a cross-site <form> can forge.
+        # See _authorised.
         if not self._authorised(params):
-            # Drain the request body BEFORE answering. Without this, a POST
-            # that arrives with a body gets its 401 while those bytes are
-            # still unread on a keep-alive connection; the server then closes
-            # and Windows aborts the socket, so the client sees a connection
-            # error instead of a clean 401 with a reason. Found by the config-
-            # write tests; it affected every unauthenticated POST.
+            # Drain the request body BEFORE answering. Without this, a
+            # POST that arrives with a body gets its 401 while those
+            # bytes are still unread on a keep-alive connection; the
+            # server then closes and Windows aborts the socket, so the
+            # client sees a connection error instead of a clean 401 with
+            # a reason. Found by the config- write tests; it affected
+            # every unauthenticated POST.
             try:
                 self._read_body(MAX_JSON_BODY_BYTES)
             except Exception:  # noqa: BLE001 - the answer is 401 regardless
@@ -835,8 +903,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
             # /start writes. It requires confirm:true ON TOP of being a
             # separate endpoint from /plan -- two deliberate acts before
-            # anything is written, because the cost of an accidental run with
-            # mirror on is somebody's backup deleting itself.
+            # anything is written, because the cost of an accidental run
+            # with mirror on is somebody's backup deleting itself.
             if body.get("confirm") is not True:
                 return self._send_json(
                     {"error": "Refusing to start without \"confirm\": true. "
@@ -850,9 +918,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(job.to_dict())
 
         if path == "/api/emailalerts/test":
-            # POST, not GET: this sends real mail, and a GET must never have a
-            # side effect -- browsers and link prefetchers will happily follow
-            # one. Same rule that put /api/identify on POST.
+            # POST, not GET: this sends real mail, and a GET must never
+            # have a side effect -- browsers and link prefetchers will
+            # happily follow one. Same rule that put /api/identify on
+            # POST.
             notify_config = self.monitor.config.get("notify", {})
             if "email" not in notify_config.get("backends", []):
                 return self._send_json(
@@ -882,13 +951,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 {"ok": True, "message": "Sent. Check your inbox."})
 
         if path == "/api/photos/rescan":
-            # Re-read what is actually on the Drobo and rebuild the dedupe
-            # index from it. On demand rather than scheduled: it hashes every
-            # backed-up file, which is real I/O over SMB.
+            # Re-read what is actually on the Drobo and rebuild the
+            # dedupe index from it. On demand rather than scheduled: it
+            # hashes every backed-up file, which is real I/O over SMB.
             #
-            # Worth running after deleting photos off the Drobo by hand --
-            # otherwise the index still lists them, `have` answers "already got
-            # it", and the phone never re-sends. See PhotoStore.rescan.
+            # Worth running after deleting photos off the Drobo by hand
+            # -- otherwise the index still lists them, `have` answers
+            # "already got it", and the phone never re-sends. See
+            # PhotoStore.rescan.
             try:
                 return self._send_json(self.photo_store.rescan())
             except PhotoStoreError as exc:
@@ -955,16 +1025,18 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             except PhotoStoreError as exc:
                 return self._send_json({"error": str(exc)}, 400)
 
-        # POST, not GET, and deliberately so: this changes something on the
-        # Drobo (the first endpoint here that ever did). A GET must never have
-        # a side effect -- browsers and link prefetchers will happily follow one.
+        # POST, not GET, and deliberately so: this changes something on
+        # the Drobo (the first endpoint here that ever did). A GET must
+        # never have a side effect -- browsers and link prefetchers will
+        # happily follow one.
         if path == "/api/identify":
             # ?interval=N sets <IdentifyInterval>. Omitted uses the SDK
-            # default; 0 is the best guess at stopping a running blink; "none"
-            # sends the historical empty <Params>, which is the control case
-            # for proving the interval is what makes the lights move. Exposed
-            # here rather than kept internal precisely so that comparison can
-            # be run without editing code.
+            # default; 0 is the best guess at stopping a running blink;
+            # "none" sends the historical empty <Params>, which is the
+            # control case for proving the interval is what makes the
+            # lights move. Exposed here rather than kept internal
+            # precisely so that comparison can be run without editing
+            # code.
             interval_text = (params.get("interval") or [""])[0].strip().lower()
             if not interval_text:
                 interval = nasd_identify.DEFAULT_INTERVAL
@@ -980,9 +1052,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                         400)
 
             # Checked HERE, before the simulated/real fork, so both arms
-            # enforce the same rule. Left to the packet builder it would only
-            # bind the hardware path, and a simulator that accepts what the
-            # device rejects certifies things that do not work.
+            # enforce the same rule. Left to the packet builder it would
+            # only bind the hardware path, and a simulator that accepts
+            # what the device rejects certifies things that do not work.
             try:
                 nasd_identify.validate_interval(interval)
             except nasd_identify.IdentifyParameterError as exc:
@@ -990,11 +1062,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
             driver = self.monitor.driver
             if getattr(driver, "simulate_config", False):
-                # The simulator "blinks" by saying it did. Lets the whole path
-                # -- button, endpoint, result handling -- be exercised without
-                # hardware, which is how it was built in the first place. It
-                # takes the interval too, so the simulated path proves the
-                # value is carried rather than dropped on the way through.
+                # The simulator "blinks" by saying it did. Lets the
+                # whole path -- button, endpoint, result handling -- be
+                # exercised without hardware, which is how it was built
+                # in the first place. It takes the interval too, so the
+                # simulated path proves the value is carried rather than
+                # dropped on the way through.
                 driver.identify(interval)
                 return self._send_json({
                     "ok": True, "simulated": True, "interval": interval,
@@ -1007,8 +1080,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS,
                     interval=interval)
             except nasd_identify.IdentifyParameterError as exc:
-                # Caller asked for something we will not send. Must be 400 and
-                # not 502 -- checked before IdentifyError, which it subclasses.
+                # Caller asked for something we will not send. Must be
+                # 400 and not 502 -- checked before IdentifyError, which
+                # it subclasses.
                 return self._send_json({"error": str(exc)}, 400)
             except nasd_identify.IdentifyError as exc:
                 return self._send_json({"error": str(exc)}, 502)
@@ -1018,22 +1092,24 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, **result,
                                     "message": _identify_message(interval)})
 
-        # --- device configuration WRITES ---------------------------------
-        # Together with /api/identify above and /api/droboapps/action below,
-        # the only endpoints that change anything on the Drobo. Brightness,
-        # spin-down and share permissions wrap SDK writes that were
-        # adversarially audited and verified on real hardware (2026-08-12);
-        # share create/delete wrap SDK writes that mirror the 2026-08-25
-        # capture of the original Dashboard byte-for-byte in structure but
-        # have not themselves been run against hardware yet. Every one is
-        # POST, requires the token, and reports the SDK's own read-back
-        # verification -- so "ok" here means "the device reads back the new
-        # value", not merely "accepted" (RESULT_ACCEPTED means received; two
-        # writes this project made were accepted and silently did the wrong
-        # thing). Since 2026-08-25 the reverse case is known too: a device that
-        # answers NOTHING and applies the write anyway. Every answer therefore
-        # carries an "outcome" field -- see the WRITE_* constants and
-        # _config_write for the four it can hold.
+        # --- device configuration WRITES
+        # --------------------------------- Together with /api/identify
+        # above and /api/droboapps/action below, the only endpoints that
+        # change anything on the Drobo. Brightness, spin-down and share
+        # permissions wrap SDK writes that were adversarially audited
+        # and verified on real hardware (2026-08-12); share
+        # create/delete wrap SDK writes that mirror the 2026-08-25
+        # capture of the original Dashboard byte-for-byte in structure
+        # but have not themselves been run against hardware yet. Every
+        # one is POST, requires the token, and reports the SDK's own
+        # read-back verification -- so "ok" here means "the device reads
+        # back the new value", not merely "accepted" (RESULT_ACCEPTED
+        # means received; two writes this project made were accepted and
+        # silently did the wrong thing). Since 2026-08-25 the reverse
+        # case is known too: a device that answers NOTHING and applies
+        # the write anyway. Every answer therefore carries an "outcome"
+        # field -- see the WRITE_* constants and _config_write for the
+        # four it can hold.
         if path == "/api/config/brightness":
             return self._config_write(
                 lambda body: self._parse_whole_number_field(body, "value"),
@@ -1043,9 +1119,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 describe=lambda value: f"LED brightness set to {value}.")
 
         if path == "/api/config/spindown":
-            # {"delay": N} sets a NONZERO delay (enabling spin-down if it was
-            # off); {"enabled": false} disables it. The SDK refuses a bare
-            # delay of 0 because the device coerces it -- measured 2026-08-12.
+            # {"delay": N} sets a NONZERO delay (enabling spin-down if
+            # it was off); {"enabled": false} disables it. The SDK
+            # refuses a bare delay of 0 because the device coerces it --
+            # measured 2026-08-12.
             return self._config_write(
                 lambda body: self._parse_spindown_request(body),
                 lambda host, esa_id, parsed_request: (
@@ -1062,9 +1139,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     else f"Drive spin-down delay set to {parsed_request}."))
 
         if path == "/api/config/share-access":
-            # {"share": name, "user": name, "access": "0"|"1"} -- one user's
-            # access on one share. The SDK refuses an unconfirmed code and
-            # refuses ambiguous (case-colliding) share or user names.
+            # {"share": name, "user": name, "access": "0"|"1"} -- one
+            # user's access on one share. The SDK refuses an unconfirmed
+            # code and refuses ambiguous (case-colliding) share or user
+            # names.
             return self._config_write(
                 lambda body: self._parse_share_access_request(body),
                 lambda host, esa_id, parsed_request: (
@@ -1079,13 +1157,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     f"set to access {parsed_request[2]}."))
 
         if path == "/api/shares/create":
-            # {"name": ...} -- create one share. The SDK write mirrors the
-            # 2026-08-25 capture of the original Dashboard creating a share,
-            # and a 200 means the re-read LISTS the new share -- which starts
-            # with an empty <ShareUsers/>, no access for anyone, until
-            # /api/config/share-access grants it. The name is validated in
-            # the parse step as well as by the SDK/mock, so the simulated and
-            # hardware paths refuse identical requests with identical codes.
+            # {"name": ...} -- create one share. The SDK write mirrors
+            # the 2026-08-25 capture of the original Dashboard creating
+            # a share, and a 200 means the re-read LISTS the new share
+            # -- which starts with an empty <ShareUsers/>, no access for
+            # anyone, until /api/config/share-access grants it. The name
+            # is validated in the parse step as well as by the SDK/mock,
+            # so the simulated and hardware paths refuse identical
+            # requests with identical codes.
             return self._config_write(
                 self._parse_new_share_name,
                 lambda host, esa_id, name: sharewrite.create_share(
@@ -1096,13 +1175,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                                        f"with no access for anyone."))
 
         if path == "/api/shares/delete":
-            # {"name": ..., "confirm_name": ...} -- delete one share, and with
-            # it everything the share holds. confirm_name must repeat the name
-            # EXACTLY (case-sensitive, untrimmed); the mismatch 400 comes from
-            # the parse step, before _command_target and before the simulate
-            # fork, so a failed confirmation can never touch any device. The
-            # SDK write mirrors the 2026-08-25 capture: the config resent with
-            # the share's node absent plus <ShareDeleteConfirm>Y</...> appended.
+            # {"name": ..., "confirm_name": ...} -- delete one share,
+            # and with it everything the share holds. confirm_name must
+            # repeat the name EXACTLY (case-sensitive, untrimmed); the
+            # mismatch 400 comes from the parse step, before
+            # _command_target and before the simulate fork, so a failed
+            # confirmation can never touch any device. The SDK write
+            # mirrors the 2026-08-25 capture: the config resent with the
+            # share's node absent plus <ShareDeleteConfirm>Y</...>
+            # appended.
             return self._config_write(
                 self._parse_share_delete_request,
                 lambda host, esa_id, name: sharewrite.delete_share(
@@ -1112,14 +1193,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                                        f"everything it held."))
 
         if path == "/api/droboapps/action":
-            # Start or stop something installed ON the Drobo, via the vetted
-            # SDK write droboapps_action (wire format CONFIRMED from the
-            # 2026-08-06 capture, both directions). Same error-code
-            # discipline as _config_write -- 400 caller / 503 no device / 502
-            # device -- and a 200 carries the device's own re-read of the app
-            # list. But the read-back is REPORTED, not asserted: a service
-            # takes a moment to change state, so an immediate re-read can
-            # honestly still say "stopped" right after an accepted Start.
+            # Start or stop something installed ON the Drobo, via the
+            # vetted SDK write droboapps_action (wire format CONFIRMED
+            # from the 2026-08-06 capture, both directions). Same
+            # error-code discipline as _config_write -- 400 caller / 503
+            # no device / 502 device -- and a 200 carries the device's
+            # own re-read of the app list. But the read-back is
+            # REPORTED, not asserted: a service takes a moment to change
+            # state, so an immediate re-read can honestly still say
+            # "stopped" right after an accepted Start.
             return self._serve_droboapps_action()
 
         if path == "/api/mock/sign-in":
@@ -1130,9 +1212,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
         return self._send_json({"error": "not found", "path": path}, 404)
 
-    # -- handlers ----------------------------------------------------------
+    # -- handlers
+    # ----------------------------------------------------------
 
-    # -- configuration writes ---------------------------------------------
+    # -- configuration writes
+    # ---------------------------------------------
 
     def _config_write(self, parse, perform, simulate, describe):
         """
@@ -1140,36 +1224,41 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         discipline cannot drift between them:
 
             400  the caller asked for something we will not send
-                 (bad JSON, missing/invalid field, an SDK parameter refusal)
+                 (bad JSON, missing/invalid field, an SDK parameter
+                 refusal)
             503  no live Drobo yet (command port needs address + serial)
-            502  WRITE_FAILED -- the device refused it, could not be reached,
+            502  WRITE_FAILED -- the device refused it, could not be
+            reached,
                  or took it and reads back unchanged. Nothing applied
-            502  WRITE_UNKNOWN -- it went out and could not be settled either
-                 way. Still an error status, because the caller must not treat
-                 it as done, but worded as "may have applied, re-read first"
-                 and never as "nothing happened"
-            200  WRITE_VERIFIED or WRITE_UNACKNOWLEDGED -- the device reads
-                 back the new value. The second means it never acknowledged
-                 the write and the read-back is the only reason we know it
-                 applied (measured on hardware 2026-08-25); it is a success,
-                 and the body says so plainly with "acknowledged": false and a
-                 message that states it
+            502  WRITE_UNKNOWN -- it went out and could not be settled
+            either
+                 way. Still an error status, because the caller must not
+                 treat it as done, but worded as "may have applied,
+                 re-read first" and never as "nothing happened"
+            200  WRITE_VERIFIED or WRITE_UNACKNOWLEDGED -- the device
+            reads
+                 back the new value. The second means it never
+                 acknowledged the write and the read-back is the only
+                 reason we know it applied (measured on hardware
+                 2026-08-25); it is a success, and the body says so
+                 plainly with "acknowledged": false and a message that
+                 states it
 
         Every answer past the parse step carries "outcome" -- one of the
-        WRITE_* constants above -- so neither UI has to infer any of this from
-        the wording, and 502 alone never has to mean "red".
+        WRITE_* constants above -- so neither UI has to infer any of
+        this from the wording, and 502 alone never has to mean "red".
 
         `parse(body) -> parsed_request` validates the JSON and returns
         the typed argument(s); raising ValueError is the 400 path.
         `perform(host, esa_id, parsed_request)` is the real SDK write.
-        `simulate(driver, parsed_request)` is the mock driver's stand-in,
-        so the whole UI path can be exercised without hardware -- and it
-        is given the SAME validated request, so a value the device would
-        refuse is refused here too. Both return the SDK's result shape
-        and raise the SDK's exception types, so the classification below
-        runs once for both rather than as two sets of rules that can
-        drift. `describe(parsed_request)` is the human sentence for
-        success.
+        `simulate(driver, parsed_request)` is the mock driver's
+        stand-in, so the whole UI path can be exercised without hardware
+        -- and it is given the SAME validated request, so a value the
+        device would refuse is refused here too. Both return the SDK's
+        result shape and raise the SDK's exception types, so the
+        classification below runs once for both rather than as two sets
+        of rules that can drift. `describe(parsed_request)` is the human
+        sentence for success.
         """
         try:
             body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
@@ -1196,35 +1285,37 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         try:
             result = attempt()
         except ValueError as exc:
-            # How the mock driver refuses a parameter -- the caller's fault,
-            # exactly like a parse() refusal, so 400. Left to propagate on the
-            # hardware path: the SDK has its own refusal types below, and a
-            # bare ValueError out of it would be a bug in the SDK rather than
-            # a bad request, which a 400 would blame on the wrong party.
+            # How the mock driver refuses a parameter -- the caller's
+            # fault, exactly like a parse() refusal, so 400. Left to
+            # propagate on the hardware path: the SDK has its own
+            # refusal types below, and a bare ValueError out of it would
+            # be a bug in the SDK rather than a bad request, which a 400
+            # would blame on the wrong party.
             if not simulated:
                 raise
             return self._write_problem(str(exc), 400, simulated)
         except _UNCONFIRMED_WRITE_ERRORS as exc:
-            # The write went out and could not be settled. Decided by TYPE,
-            # before any wording is examined -- it has to be: that message
-            # quotes the transport failure that broke the read-back, and a
-            # ConnectionRefusedError puts both "refused" and
-            # "ConnectionRefusedError" into the text, which the heuristic
-            # below would read as the caller's fault. A 400 there would be the
-            # worst possible answer, because 400 invites the caller to fix the
-            # request and send it again, and this is the one case that must
-            # NOT be blindly retried: the write most likely APPLIED and only
+            # The write went out and could not be settled. Decided by
+            # TYPE, before any wording is examined -- it has to be: that
+            # message quotes the transport failure that broke the
+            # read-back, and a ConnectionRefusedError puts both
+            # "refused" and "ConnectionRefusedError" into the text,
+            # which the heuristic below would read as the caller's
+            # fault. A 400 there would be the worst possible answer,
+            # because 400 invites the caller to fix the request and send
+            # it again, and this is the one case that must NOT be
+            # blindly retried: the write most likely APPLIED and only
             # the confirmation was lost.
             return self._write_unsettled(str(exc), simulated)
         except (droboapps.GeneralWriteError, ShareEditError) as exc:
-            # The SDK's other refusals are domain-specific. A parameter it
-            # will not send is the caller's fault (400); an
-            # accepted-but-unapplied or ambiguous-on-device condition is the
-            # device's (502). The SDK words refusals with "refus"/"must";
-            # follow its judgement. "no share named" is the caller's fault
-            # too -- asking to edit or delete a share the device does not
-            # list -- and the pinned share create/delete contract makes that
-            # a 400.
+            # The SDK's other refusals are domain-specific. A parameter
+            # it will not send is the caller's fault (400); an
+            # accepted-but-unapplied or ambiguous-on-device condition is
+            # the device's (502). The SDK words refusals with
+            # "refus"/"must"; follow its judgement. "no share named" is
+            # the caller's fault too -- asking to edit or delete a share
+            # the device does not list -- and the pinned share
+            # create/delete contract makes that a 400.
             lowered_reason = str(exc).lower()
             http_status = 400 if ("refus" in lowered_reason
                                   or "must" in lowered_reason
@@ -1232,25 +1323,26 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                                   ) else 502
             return self._write_problem(str(exc), http_status, simulated)
         except config_cmd.ConfigWriteError as exc:
-            # The SDK's "the device said no" -- a refusal, an unreachable
-            # command port, or a write its own read-back proved did not land.
-            # Its unsettled subclass is in _UNCONFIRMED_WRITE_ERRORS and was
-            # caught above, so everything reaching here really did change
-            # nothing.
+            # The SDK's "the device said no" -- a refusal, an
+            # unreachable command port, or a write its own read-back
+            # proved did not land. Its unsettled subclass is in
+            # _UNCONFIRMED_WRITE_ERRORS and was caught above, so
+            # everything reaching here really did change nothing.
             return self._write_problem(str(exc), 502, simulated)
         except config_cmd.ConfigError as exc:
-            # NOT ConfigWriteError (caught above). The SDK types everything
-            # that happens after the frame is on the wire, so what reaches here
-            # is its READ failing before the write went out -- but this layer
-            # cannot prove that, and the cost of the two guesses is not equal.
-            # On 2026-08-25 the 5N answered a share create with exactly this
-            # kind of error (ConfigError: short header: 0 of 16 bytes) and had
-            # applied the write. "May have applied, go and look" is the only
+            # NOT ConfigWriteError (caught above). The SDK types
+            # everything that happens after the frame is on the wire, so
+            # what reaches here is its READ failing before the write
+            # went out -- but this layer cannot prove that, and the cost
+            # of the two guesses is not equal. On 2026-08-25 the 5N
+            # answered a share create with exactly this kind of error
+            # (ConfigError: short header: 0 of 16 bytes) and had applied
+            # the write. "May have applied, go and look" is the only
             # answer that is never a lie.
             return self._write_unsettled(str(exc), simulated)
         except OSError as exc:
-            # The command port could not be reached -- raised by the SDK's own
-            # read before anything is sent. Nothing applied.
+            # The command port could not be reached -- raised by the
+            # SDK's own read before anything is sent. Nothing applied.
             return self._write_problem(
                 f"could not reach the command port: {exc}", 502, simulated)
 
@@ -1260,8 +1352,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 "the write was sent, but the Drobo's answer did not settle "
                 "whether it applied.", simulated)
         if outcome == WRITE_FAILED:
-            # The SDK raises for this today. If a future shape returns it
-            # instead, it still must not answer 200.
+            # The SDK raises for this today. If a future shape returns
+            # it instead, it still must not answer 200.
             return self._write_problem(
                 "the Drobo took the write and then read back unchanged. "
                 "Received, not applied.", 502, simulated)
@@ -1272,9 +1364,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if simulated:
             message += " (simulated)"
         # The SDK's own flag wins where it has one, so a write that sent
-        # NOTHING (already set that way) reports null rather than claiming an
-        # acknowledgement nobody ever gave. Only the classification above needs
-        # that reduced to a bool.
+        # NOTHING (already set that way) reports null rather than
+        # claiming an acknowledgement nobody ever gave. Only the
+        # classification above needs that reduced to a bool.
         response_body = {
             "ok": True, "outcome": outcome, "message": message,
             "acknowledged": result.get("acknowledged", acknowledged)}
@@ -1289,11 +1381,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _write_problem(self, detail: str, http_status: int, simulated: bool):
         """
-        A write that changed nothing: the agent's own outcome flag beside the
-        SDK's plain-English reason, so a UI never has to read the prose to
-        choose between red and amber. `http_status` is whatever it was
-        before this helper existed -- 400 the caller's fault, 502 the
-        device's.
+        A write that changed nothing: the agent's own outcome flag
+        beside the SDK's plain-English reason, so a UI never has to read
+        the prose to choose between red and amber. `http_status` is
+        whatever it was before this helper existed -- 400 the caller's
+        fault, 502 the device's.
         """
         body = {"error": detail, "outcome": WRITE_FAILED}
         if simulated:
@@ -1302,9 +1394,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _write_unsettled(self, detail: str, simulated: bool):
         """
-        A write nobody can settle. 502, because the caller must not treat it as
-        done -- but flagged WRITE_UNKNOWN so a UI shows a warning rather than a
-        failure, and worded so it can never be read as "nothing happened".
+        A write nobody can settle. 502, because the caller must not
+        treat it as done -- but flagged WRITE_UNKNOWN so a UI shows a
+        warning rather than a failure, and worded so it can never be
+        read as "nothing happened".
         """
         text = f"{detail}  {UNKNOWN_WRITE_GUIDANCE}"
         if simulated:
@@ -1312,9 +1405,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         body = {"error": text, "outcome": WRITE_UNKNOWN}
         if simulated:
             body["simulated"] = True
-        # The device may well have changed. Whatever /api/shares is holding is
-        # no longer known to be true, so the next read must go to the device --
-        # the re-read this answer tells the user to do has to be a real one.
+        # The device may well have changed. Whatever /api/shares is
+        # holding is no longer known to be true, so the next read must
+        # go to the device -- the re-read this answer tells the user to
+        # do has to be a real one.
         self._invalidate_shares_cache()
         return self._send_json(body, 502)
 
@@ -1367,13 +1461,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _parse_new_share_name(body):
-        """The new share's name, held to the SDK's own rule HERE as well as in
-        the SDK and the mock, so the simulated and hardware paths refuse
-        identical requests with identical codes. Borrows the SDK's pattern
-        rather than restating it -- two copies of one rule is how the layers
-        drift apart -- and, like the SDK, refuses surrounding whitespace
-        instead of stripping it: a silently renamed share could never be
-        verified against the device's read-back."""
+        """The new share's name, held to the SDK's own rule HERE as well
+        as in the SDK and the mock, so the simulated and hardware paths
+        refuse identical requests with identical codes. Borrows the
+        SDK's pattern rather than restating it -- two copies of one rule
+        is how the layers drift apart -- and, like the SDK, refuses
+        surrounding whitespace instead of stripping it: a silently
+        renamed share could never be verified against the device's
+        read-back."""
         name = body.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("expected {\"name\": \"<share name>\"}")
@@ -1390,10 +1485,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _parse_share_delete_request(body):
-        """The name of the share to delete, but only once confirm_name repeats
-        it EXACTLY -- case-sensitive, untrimmed. Deleting a share destroys
-        everything stored in it, so a failed confirmation must be refused here
-        in the parse step, where nothing has touched any device yet."""
+        """The name of the share to delete, but only once confirm_name
+        repeats it EXACTLY -- case-sensitive, untrimmed. Deleting a
+        share destroys everything stored in it, so a failed confirmation
+        must be refused here in the parse step, where nothing has
+        touched any device yet."""
         name = body.get("name")
         confirm = body.get("confirm_name")
         if (not isinstance(name, str) or not name
@@ -1412,19 +1508,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _new_share_volume(self) -> str | None:
         """
-        The <VolumeName> a created share should carry, from the agent's own
-        status data -- or None to leave the choice to the SDK.
+        The <VolumeName> a created share should carry, from the agent's
+        own status data -- or None to leave the choice to the SDK.
 
-        Needed because the SDK derives the volume from the freshly-read share
-        config, and on the only unit this project can read that config names
-        no volume at all (stored share nodes never carry one), so derivation
-        there refuses. What the 2026-08-25 capture shows the original
-        Dashboard sending for that unit -- Volume1 -- matches its status
-        greeting's single, unnamed volume at LUN 0 rendered as
-        "Volume" + (lun + 1). That rendering is trusted only for the captured
-        shape: exactly one volume. A device reporting zero or several falls
-        through to the SDK, which refuses rather than guesses; a single
-        volume the device itself named is passed under its own name.
+        Needed because the SDK derives the volume from the freshly-read
+        share config, and on the only unit this project can read that
+        config names no volume at all (stored share nodes never carry
+        one), so derivation there refuses. What the 2026-08-25 capture
+        shows the original Dashboard sending for that unit -- Volume1 --
+        matches its status greeting's single, unnamed volume at LUN 0
+        rendered as "Volume" + (lun + 1). That rendering is trusted only
+        for the captured shape: exactly one volume. A device reporting
+        zero or several falls through to the SDK, which refuses rather
+        than guesses; a single volume the device itself named is passed
+        under its own name.
         """
         volumes = self.monitor.snapshot_dict().get("volumes") or []
         if len(volumes) != 1:
@@ -1438,9 +1535,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _int_or_none(field_text) -> int | None:
-        """A device config field as a number, or None when it will not parse.
-        None is 'the device did not say', which is a different claim from 0 --
-        the same rule parse_dimming follows for brightness."""
+        """A device config field as a number, or None when it will not
+        parse. None is 'the device did not say', which is a different
+        claim from 0 -- the same rule parse_dimming follows for
+        brightness."""
         try:
             return int(field_text) if isinstance(field_text, str) else None
         except ValueError:
@@ -1449,8 +1547,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _app_state(listing: dict, name: str) -> dict | None:
         """One app's row out of an app-list read -- the read-back for
-        /api/droboapps/action. None when the list no longer carries the name,
-        which the caller reports as unconfirmed rather than inventing a state."""
+        /api/droboapps/action. None when the list no longer carries the
+        name, which the caller reports as unconfirmed rather than
+        inventing a state."""
         for app in listing.get("apps", []):
             if app.get("name") == name:
                 return {"name": app["name"], "running": app.get("running"),
@@ -1459,7 +1558,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_droboapps_action(self):
         """
-        POST /api/droboapps/action {"name": ..., "action": "Start"|"Stop"}.
+        POST /api/droboapps/action {"name": ..., "action":
+        "Start"|"Stop"}.
 
         The name must be an app the device CURRENTLY reports installed
         -- checked against a fresh list read here, and then the SDK
@@ -1469,9 +1569,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         connections total: the list, the action, and the re-read that
         becomes the read-back.
 
-        The re-read is best-effort BY DESIGN: once the device has accepted the
-        action, a failed confirmation must be reported as "accepted,
-        unconfirmed", never as a failure that tempts a retry.
+        The re-read is best-effort BY DESIGN: once the device has
+        accepted the action, a failed confirmation must be reported as
+        "accepted, unconfirmed", never as a failure that tempts a retry.
         """
         try:
             body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
@@ -1525,8 +1625,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 host, esa_id, name, action,
                 timeout=self.COMMAND_TIMEOUT_SECONDS, check_installed=False)
         except droboapps.DroboAppsActionError as exc:
-            # Verb and name were validated above, so whatever is left is the
-            # device refusing, unreachable, or answering with the wrong code.
+            # Verb and name were validated above, so whatever is left is
+            # the device refusing, unreachable, or answering with the
+            # wrong code.
             return self._send_json({"error": str(exc)}, 502)
         except OSError as exc:
             return self._send_json(
@@ -1553,10 +1654,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         Where to send a command, or why we can't yet.
 
-        The command port needs both the device's address and its serial, and
-        the serial only arrives from a successful status read -- so a fresh
-        agent that hasn't polled yet genuinely cannot ask the Drobo anything.
-        Returns (host, esa_id, error_dict); exactly one of esa_id / error is set.
+        The command port needs both the device's address and its serial,
+        and the serial only arrives from a successful status read -- so
+        a fresh agent that hasn't polled yet genuinely cannot ask the
+        Drobo anything. Returns (host, esa_id, error_dict); exactly one
+        of esa_id / error is set.
         """
         driver = self.monitor.driver
         host = (getattr(driver, "_resolved_host", "")
@@ -1575,23 +1677,25 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         Is this PC even on the same network as the Drobo?
 
         /api/status already carries this for the device the agent is
-        monitoring, in its "network_hint" field. This endpoint exists for the
-        case /api/status cannot cover: a front-end sitting on its device
-        picker, having failed to find the Drobo it remembers, with an address
-        from its own settings and no snapshot to attach it to. "Your usual
-        Drobo isn't showing up" and "cannot reach the Drobo" have the same
-        cause far more often than not -- mDNS doesn't cross a subnet boundary
-        any more than TCP does -- so both screens deserve the same answer.
+        monitoring, in its "network_hint" field. This endpoint exists
+        for the case /api/status cannot cover: a front-end sitting on
+        its device picker, having failed to find the Drobo it remembers,
+        with an address from its own settings and no snapshot to attach
+        it to. "Your usual Drobo isn't showing up" and "cannot reach the
+        Drobo" have the same cause far more often than not -- mDNS
+        doesn't cross a subnet boundary any more than TCP does -- so
+        both screens deserve the same answer.
 
-        `host` defaults to whatever the agent's own driver is trying to reach.
+        `host` defaults to whatever the agent's own driver is trying to
+        reach.
 
         Purely local: it reads this machine's interface list and does
-        arithmetic. Nothing is connected to, so an arbitrary `host` cannot be
-        used to make the agent touch anything -- it is a subnet comparison,
-        not a probe. Non-IPv4 input is answered honestly with "no opinion"
-        rather than an error, because a hostname is a perfectly reasonable
-        thing to ask about and the truthful answer is that this check can't
-        speak to it.
+        arithmetic. Nothing is connected to, so an arbitrary `host`
+        cannot be used to make the agent touch anything -- it is a
+        subnet comparison, not a probe. Non-IPv4 input is answered
+        honestly with "no opinion" rather than an error, because a
+        hostname is a perfectly reasonable thing to ask about and the
+        truthful answer is that this check can't speak to it.
         """
         target = (host or self.monitor.driver.target_host() or "").strip()
         result = netcheck.diagnose(target) if target else None
@@ -1608,9 +1712,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "target": result.target,
             "checked": True,
             "same_network": result.same_network,
-            # Null on a match, so a front-end can render `hint` whenever it is
-            # present without also having to check same_network and get that
-            # test the right way round.
+            # Null on a match, so a front-end can render `hint` whenever
+            # it is present without also having to check same_network
+            # and get that test the right way round.
             "hint": None if result.same_network else result.to_dict(),
         })
 
@@ -1618,29 +1722,31 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         Every Drobo we can see on this network, already identified.
 
-        This exists so the front page can show you your Drobo and let you click
-        it, instead of asking you to know its IP address. Each entry is the
-        result of actually connecting and reading the device's own greeting --
-        so the name, model and firmware shown are the device's own claims about
-        itself, not a guess from an mDNS record.
+        This exists so the front page can show you your Drobo and let
+        you click it, instead of asking you to know its IP address. Each
+        entry is the result of actually connecting and reading the
+        device's own greeting -- so the name, model and firmware shown
+        are the device's own claims about itself, not a guess from an
+        mDNS record.
 
         `is_current` marks the one the agent is already monitoring.
 
-        `?host=<ip>` adds one address you typed to the search, for the networks
-        where the automatic half cannot work. mDNS is multicast, and corporate
-        networks, guest SSIDs and some consumer routers filter multicast
-        outright -- on those, browsing returns nothing no matter how long it
-        listens, and knowing your Drobo's address is the only way in. The typed
-        address is probed exactly like a discovered one: connect, read the
-        greeting, report what the device says about itself. It is listed with
-        `found_by: "manual"` so a front-end can be honest about where it came
-        from, and it earns no extra trust for having been typed.
+        `?host=<ip>` adds one address you typed to the search, for the
+        networks where the automatic half cannot work. mDNS is
+        multicast, and corporate networks, guest SSIDs and some consumer
+        routers filter multicast outright -- on those, browsing returns
+        nothing no matter how long it listens, and knowing your Drobo's
+        address is the only way in. The typed address is probed exactly
+        like a discovered one: connect, read the greeting, report what
+        the device says about itself. It is listed with `found_by:
+        "manual"` so a front-end can be honest about where it came from,
+        and it earns no extra trust for having been typed.
 
-        Read-only and safe to call repeatedly, but it does cost a few seconds
-        of mDNS listening, so it is cached briefly. A request naming a host
-        skips the cache in both directions -- it must actually go and look, and
-        its answer must not become the cached answer for callers who didn't ask
-        about that address.
+        Read-only and safe to call repeatedly, but it does cost a few
+        seconds of mDNS listening, so it is cached briefly. A request
+        naming a host skips the cache in both directions -- it must
+        actually go and look, and its answer must not become the cached
+        answer for callers who didn't ask about that address.
         """
         manual_host = (manual_host or "").strip()
         with _ApiRequestHandler._discover_lock:
@@ -1679,8 +1785,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                         {"error": f"could not search the network: {exc}",
                          "devices": []}, 502)
 
-                # The address we already know works belongs in the list even if
-                # mDNS was quiet -- on some Windows networks it always is.
+                # The address we already know works belongs in the list
+                # even if mDNS was quiet -- on some Windows networks it
+                # always is.
                 if current and current not in [c.host for c in candidates]:
                     candidates.insert(0, discovery.Candidate(
                         host=current,
@@ -1693,14 +1800,16 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     continue
                 seen.add(candidate.host)
                 try:
-                    # No expected_esa_id: we are listing what's out there, not
-                    # asserting which one is yours. Identity pinning still
-                    # happens in the driver when you actually connect.
+                    # No expected_esa_id: we are listing what's out
+                    # there, not asserting which one is yours. Identity
+                    # pinning still happens in the driver when you
+                    # actually connect.
                     verified_candidate = discovery.verify_candidate(
                         candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
                 except (OSError, discovery.IdentityMismatchError,
                         esatm.FrameError):
-                    # answered badly or not at all; not a Drobo we can use
+                    # answered badly or not at all; not a Drobo we can
+                    # use
                     continue
                 identity = verified_candidate.identity
                 found.append({
@@ -1710,27 +1819,30 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     "name": identity.get("name", ""),
                     "model": identity.get("model", ""),
                     "firmware": identity.get("firmware", ""),
-                    # The serial identifies the box permanently and is what
-                    # pins a future connection to THIS device. It is not a
-                    # secret -- the Drobo hands it to anyone who connects.
+                    # The serial identifies the box permanently and is
+                    # what pins a future connection to THIS device. It
+                    # is not a secret -- the Drobo hands it to anyone
+                    # who connects.
                     "esa_id": identity.get("esa_id", ""),
                     "is_current": candidate.host == current,
                 })
 
-            # The simulated Drobo has no address, so there is nothing on the
-            # network to find -- which left the device picker empty and the
-            # dashboard unreachable in demo mode. Anyone trying this project
-            # without hardware hit a dead end on the very first screen.
+            # The simulated Drobo has no address, so there is nothing on
+            # the network to find -- which left the device picker empty
+            # and the dashboard unreachable in demo mode. Anyone trying
+            # this project without hardware hit a dead end on the very
+            # first screen.
             #
-            # Appended AFTER the real search rather than replacing it, so the
-            # mock driver changes nothing about how discovery behaves. (The
-            # first attempt at this short-circuited the whole method and broke
-            # ten tests that use the mock driver to exercise the mDNS paths --
-            # the mock is the test harness for real discovery, so it must not
-            # bypass it.)
+            # Appended AFTER the real search rather than replacing it,
+            # so the mock driver changes nothing about how discovery
+            # behaves. (The first attempt at this short-circuited the
+            # whole method and broke ten tests that use the mock driver
+            # to exercise the mDNS paths -- the mock is the test harness
+            # for real discovery, so it must not bypass it.)
             #
-            # Flagged `simulated` so a front-end can label it honestly rather
-            # than letting anyone believe they are looking at a real array.
+            # Flagged `simulated` so a front-end can label it honestly
+            # rather than letting anyone believe they are looking at a
+            # real array.
             if isinstance(driver, MockDriver) and not manual_host:
                 device = self.monitor.snapshot_dict().get("device", {})
                 found.append({
@@ -1749,10 +1861,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                        "searched_for_seconds": self.DISCOVERY_LISTEN_SECONDS}
 
             if manual_host:
-                # Say plainly whether the typed address worked. Without this, a
-                # wrong address and a network with no Drobos produce the same
-                # empty list, and the person who just typed one has no way to
-                # tell "nothing there" from "I got a digit wrong".
+                # Say plainly whether the typed address worked. Without
+                # this, a wrong address and a network with no Drobos
+                # produce the same empty list, and the person who just
+                # typed one has no way to tell "nothing there" from "I
+                # got a digit wrong".
                 payload["manual_host"] = manual_host
                 payload["manual_found"] = any(
                     d["host"] == manual_host for d in found)
@@ -1762,9 +1875,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                         f"Check the address, that the Drobo is powered on, "
                         f"and that this PC is on the same network as it."
                     )
-                # NOT cached: this answer is about one address somebody asked
-                # after, and letting it become the cached reply would serve it
-                # to the next caller who asked a different question.
+                # NOT cached: this answer is about one address somebody
+                # asked after, and letting it become the cached reply
+                # would serve it to the next caller who asked a
+                # different question.
                 return self._send_json(payload)
 
             _ApiRequestHandler._discover_cache = (time.time(), payload)
@@ -1774,19 +1888,21 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         The shares, ready to open.
 
-        Two device reads rather than one: the share list, and the network
-        config for the port-speed check. The network read is best-effort --
-        a missing link report must not cost you the share list, which is the
-        part you actually came for.
+        Two device reads rather than one: the share list, and the
+        network config for the port-speed check. The network read is
+        best-effort -- a missing link report must not cost you the share
+        list, which is the part you actually came for.
         """
-        # The simulator stands in for the DEVICE, not for this method. Only
-        # the fetch is swapped below; the caching, summarising and link check
-        # all still run exactly as they do against real hardware.
+        # The simulator stands in for the DEVICE, not for this method.
+        # Only the fetch is swapped below; the caching, summarising and
+        # link check all still run exactly as they do against real
+        # hardware.
         #
-        # Doing it the other way -- short-circuiting the whole method for the
-        # mock -- is a mistake this file has now made twice. The mock
-        # driver is what the tests use to exercise the real paths, so anything
-        # that jumps over those paths quietly stops testing them.
+        # Doing it the other way -- short-circuiting the whole method
+        # for the mock -- is a mistake this file has now made twice. The
+        # mock driver is what the tests use to exercise the real paths,
+        # so anything that jumps over those paths quietly stops testing
+        # them.
         simulated = getattr(self.monitor.driver, "simulate_config", False)
         if simulated:
             host, esa_id, unavailable_body = "10.0.0.5", "", None
@@ -1795,9 +1911,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if unavailable_body:
             return self._send_json(unavailable_body, 503)
 
-        # One caller at a time, and everyone else gets the cached answer. Two
-        # browser tabs refreshing must not become four connections to a 2013
-        # embedded box.
+        # One caller at a time, and everyone else gets the cached
+        # answer. Two browser tabs refreshing must not become four
+        # connections to a 2013 embedded box.
         with _ApiRequestHandler._shares_lock:
             cached = _ApiRequestHandler._shares_cache
             if cached and time.time() - cached[0] < self.SHARES_CACHE_SECONDS:
@@ -1826,11 +1942,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             except (config_cmd.ConfigError, OSError):
                 pass
 
-            # Read from the SAME config document the shares came from, not a
-            # second fetch: the command port dislikes connection volume, and
-            # two reads could disagree with each other if a write landed in
-            # between. Returns None when the list is present but unreadable,
-            # which access_advice treats as "don't know" rather than "none".
+            # Read from the SAME config document the shares came from,
+            # not a second fetch: the command port dislikes connection
+            # volume, and two reads could disagree with each other if a
+            # write landed in between. Returns None when the list is
+            # present but unreadable, which access_advice treats as
+            # "don't know" rather than "none".
             accounts = nasd_shares.user_accounts(shares_config)
 
             payload = {
@@ -1869,13 +1986,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _mock_sign_in(self) -> None:
         """
-        Check a share login against the simulated Drobo (MockDriver.check_sign_in).
+        Check a share login against the simulated Drobo
+        (MockDriver.check_sign_in).
 
-        The Windows app sends its Connect dialog here, instead of to Windows,
-        only when the agent is running the mock driver. Refused with 409 for
-        any other driver, so it can never be pointed at a real device. The
-        body is read and dropped like every other: nothing here logs it, and
-        the answer carries no part of the password.
+        The Windows app sends its Connect dialog here, instead of to
+        Windows, only when the agent is running the mock driver. Refused
+        with 409 for any other driver, so it can never be pointed at a
+        real device. The body is read and dropped like every other:
+        nothing here logs it, and the answer carries no part of the
+        password.
         """
         driver = self.monitor.driver
         try:
@@ -1920,9 +2039,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             driver.fail_power(path_segments[1])
         elif (action == "write" and len(path_segments) > 1
               and path_segments[1] in drivers.WRITE_FAULTS):
-            # Arms how the simulator ENDS a config write, so both UIs can be
-            # driven through all four outcomes -- including the one measured on
-            # hardware, where the device applies the change and never answers.
+            # Arms how the simulator ENDS a config write, so both UIs
+            # can be driven through all four outcomes -- including the
+            # one measured on hardware, where the device applies the
+            # change and never answers.
             driver.fail_write(path_segments[1])
         else:
             return self._send_json(
@@ -1945,7 +2065,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         try:
-            # Send the current state immediately so a new client isn't blank.
+            # Send the current state immediately so a new client isn't
+            # blank.
             self._send_server_sent_event(
                 {"type": "snapshot", "data": self.monitor.snapshot_dict()})
             while True:
