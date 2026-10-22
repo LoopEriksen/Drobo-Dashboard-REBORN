@@ -274,6 +274,7 @@ released. Every push to this repository carries this file.
     (`droboapps.py`, `identify.py`, `drobosync.py`, `shares.py`,
     `shareedit.py`)
   - The agent's HTTP API (`agent/drobo_agent/api.py`)
+  - The agent's driver layer (`agent/drobo_agent/drivers.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

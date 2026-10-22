@@ -47,7 +47,8 @@ from .models import (
     Volume,
     gigabytes_to_bytes,
 )
-from drobo_nasd import config_cmd, discovery, esatm, eventlog, sharewrite, sysinfo
+from drobo_nasd import (
+    config_cmd, discovery, esatm, eventlog, sharewrite, sysinfo)
 
 
 class DroboNotFoundError(LookupError):
@@ -192,7 +193,9 @@ class MockDriver(DroboDriver):
                     "present": populated,
                     "model": (seeded_random.choice(self._DRIVE_MODELS)
                               if populated else ""),
-                    "serial": f"MOCK{seeded_random.randrange(10**7, 10**8)}" if populated else "",
+                    "serial": (
+                        f"MOCK{seeded_random.randrange(10**7, 10**8)}"
+                        if populated else ""),
                     "capacity_bytes": (gigabytes_to_bytes(4000)
                                        if populated else 0),
                     "baseline_temperature_c": (
@@ -214,7 +217,8 @@ class MockDriver(DroboDriver):
         # against either driver. The simulator has no network to search, so
         # there is nothing here for an address to point AT -- the setting is
         # read and acted on by Drobo5NDriver, which is where discovery lives.
-        self.manual_discovery_ips: list[str] = list(drobo_config.get("manual_discovery_ips", []))
+        self.manual_discovery_ips: list[str] = list(
+            drobo_config.get("manual_discovery_ips", []))
 
         # Whether this mock also stands in for the COMMAND port (shares,
         # network and admin config), not just the status greeting.
@@ -234,8 +238,8 @@ class MockDriver(DroboDriver):
         self._shares = copy.deepcopy(self._MOCK_SHARES)
         self._droboapps = copy.deepcopy(self._MOCK_DROBOAPPS)
         self._dimming: int = self._MOCK_DIMMING
-        self._spindown_delay: int = 14      # the real unit's default, enabled
-        self._feature_states: int = 7       # bits 0,2 set + spin-down bit 1 set
+        self._spindown_delay: int = 14  # the real unit's default, enabled
+        self._feature_states: int = 7   # bits 0,2 set + spin-down bit 1 set
 
         # How many times Identify has been asked for. Exists so a test can
         # prove the command actually reached the driver rather than being
@@ -291,24 +295,34 @@ class MockDriver(DroboDriver):
                         {"ShareName": "Documents", "ShareState": "0",
                          "TimeMachineEnabled": "0",
                          "ShareUsers": {"ShareUser": [
-                             {"ShareUsername": "Everyone", "ShareUserAccess": "1"},
-                             {"ShareUsername": "admin", "ShareUserAccess": "1"}]}},
+                             {"ShareUsername": "Everyone",
+                              "ShareUserAccess": "1"},
+                             {"ShareUsername": "admin",
+                              "ShareUserAccess": "1"}]}},
                         {"ShareName": "Photo Library", "ShareState": "0",
                          "TimeMachineEnabled": "0",
                          "ShareUsers": {"ShareUser": [
-                             {"ShareUsername": "Everyone", "ShareUserAccess": "1"},
-                             {"ShareUsername": "guest", "ShareUserAccess": "0"},
-                             {"ShareUsername": "admin", "ShareUserAccess": "1"}]}},
+                             {"ShareUsername": "Everyone",
+                              "ShareUserAccess": "1"},
+                             {"ShareUsername": "guest",
+                              "ShareUserAccess": "0"},
+                             {"ShareUsername": "admin",
+                              "ShareUserAccess": "1"}]}},
                         {"ShareName": "TimeMachine", "ShareState": "0",
-                         "TimeMachineEnabled": "1", "ShareMaxTMSizeGB": "1000.000000",
+                         "TimeMachineEnabled": "1",
+                         "ShareMaxTMSizeGB": "1000.000000",
                          "ShareUsers": {"ShareUser": [
-                             {"ShareUsername": "Everyone", "ShareUserAccess": "1"},
-                             {"ShareUsername": "admin", "ShareUserAccess": "1"}]}},
+                             {"ShareUsername": "Everyone",
+                              "ShareUserAccess": "1"},
+                             {"ShareUsername": "admin",
+                              "ShareUserAccess": "1"}]}},
                         {"ShareName": "Private", "ShareState": "0",
                          "TimeMachineEnabled": "0",
                          "ShareUsers": {"ShareUser": [
-                             {"ShareUsername": "Everyone", "ShareUserAccess": "0"},
-                             {"ShareUsername": "admin", "ShareUserAccess": "1"}]}},
+                             {"ShareUsername": "Everyone",
+                              "ShareUserAccess": "0"},
+                             {"ShareUsername": "admin",
+                              "ShareUserAccess": "1"}]}},
                     ]
                 },
             }
@@ -364,13 +378,15 @@ class MockDriver(DroboDriver):
              "running": False, "status": "", "has_web_ui": True},
             {"name": "betaapp", "version": "2.0.1",
              "description": "Example service.",
-             "running": True, "status": "Example service is running.", "has_web_ui": False},
+             "running": True, "status": "Example service is running.",
+             "has_web_ui": False},
             {"name": "GammaApp", "version": "3.2.0.7",
              "description": "Example app with its own web page.",
              "running": True, "status": "", "has_web_ui": True},
             {"name": "deltaapp", "version": "0.9.4",
              "description": "Example background task.",
-             "running": True, "status": "Waiting for work.", "has_web_ui": False},
+             "running": True, "status": "Waiting for work.",
+             "has_web_ui": False},
         ],
     }
 
@@ -445,16 +461,19 @@ class MockDriver(DroboDriver):
         """
         if self._write_fault == WRITE_FAULT_UNCONFIRMABLE:
             raise SimulatedWriteUnconfirmedError(
-                "the device took the write and then closed the connection, and "
-                "the read-back that would confirm it could not be completed "
-                "either. (injected mock fault)")
+                "the device took the write and then closed the connection, "
+                "and the read-back that would confirm it could not be "
+                "completed either. (injected mock fault)")
         return {"verified": True,
                 "acknowledged": self._write_fault != WRITE_FAULT_HANGS_UP}
 
     def set_dimming(self, value: int) -> dict:
         from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX
-        if isinstance(value, bool) or not isinstance(value, int) or not (_DIMMING_MIN <= value <= _DIMMING_MAX):
-            raise ValueError(f"brightness must be a whole number {_DIMMING_MIN}-{_DIMMING_MAX}")
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or not (_DIMMING_MIN <= value <= _DIMMING_MAX)):
+            raise ValueError(
+                f"brightness must be a whole number "
+                f"{_DIMMING_MIN}-{_DIMMING_MAX}")
         with self._lock:
             self._refuse_if_injected()
             self._dimming = value
@@ -475,13 +494,18 @@ class MockDriver(DroboDriver):
                 self._record_event(SEVERITY_INFO,
                                    "Drive spin-down disabled (mock driver)")
                 return self._write_ending()
-            if isinstance(delay, bool) or not isinstance(delay, int) or delay <= 0 or delay > _SPINDOWN_MAX:
-                raise ValueError(f"spin-down delay must be 1-{_SPINDOWN_MAX}; a bare 0 does not "
-                                 f"disable (the device coerces it) -- disable explicitly")
+            if (isinstance(delay, bool) or not isinstance(delay, int)
+                    or delay <= 0 or delay > _SPINDOWN_MAX):
+                raise ValueError(
+                    f"spin-down delay must be 1-{_SPINDOWN_MAX}; "
+                    f"a bare 0 does not disable (the device coerces it) "
+                    f"-- disable explicitly")
             self._refuse_if_injected()
             self._feature_states |= _SPINDOWN_ENABLED_BIT
             self._spindown_delay = delay
-            self._record_event(SEVERITY_INFO, f"Drive spin-down delay set to {delay} (mock driver)")
+            self._record_event(
+                SEVERITY_INFO,
+                f"Drive spin-down delay set to {delay} (mock driver)")
             return self._write_ending()
 
     def get_spindown(self) -> dict:
@@ -491,7 +515,8 @@ class MockDriver(DroboDriver):
         value nobody can observe."""
         from drobo_nasd.droboapps import _SPINDOWN_ENABLED_BIT
         with self._lock:
-            return {"enabled": bool(self._feature_states & _SPINDOWN_ENABLED_BIT),
+            return {"enabled": bool(
+                        self._feature_states & _SPINDOWN_ENABLED_BIT),
                     "delay": self._spindown_delay}
 
     def droboapps_action(self, name: str, action: str) -> None:
@@ -504,8 +529,9 @@ class MockDriver(DroboDriver):
         from drobo_nasd.droboapps import _APP_ACTIONS
         if action not in _APP_ACTIONS:
             raise ValueError(
-                f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- the "
-                f"device's verbs are case-sensitive and only these two are confirmed")
+                f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- "
+                f"the device's verbs are case-sensitive and only these two "
+                f"are confirmed")
         app_name = (name or "").strip()
         with self._lock:
             apps = self._droboapps["apps"]
@@ -543,10 +569,17 @@ class MockDriver(DroboDriver):
                     if access_code:
                         allowed_codes.add(access_code)
             if access not in allowed_codes:
-                raise ValueError(f"access code {access!r} is neither confirmed nor on this device "
-                                 f"(allowed: {sorted(allowed_codes)}); refusing to invent a code")
-            exact_matches = [share_node for share_node in shares if (share_node.get("ShareName") or "").strip() == share]
-            case_folded_matches = [share_node for share_node in shares if (share_node.get("ShareName") or "").strip().lower() == share.lower()]
+                raise ValueError(
+                    f"access code {access!r} is neither confirmed nor on "
+                    f"this device (allowed: {sorted(allowed_codes)}); "
+                    f"refusing to invent a code")
+            exact_matches = [
+                share_node for share_node in shares
+                if (share_node.get("ShareName") or "").strip() == share]
+            case_folded_matches = [
+                share_node for share_node in shares
+                if (share_node.get("ShareName") or "").strip().lower()
+                == share.lower()]
             if len(exact_matches) == 1:
                 target_share = exact_matches[0]
             elif len(case_folded_matches) == 1:
@@ -554,7 +587,9 @@ class MockDriver(DroboDriver):
             elif not case_folded_matches:
                 raise ValueError(f"no share named {share!r} on this device")
             else:
-                raise ValueError(f"{len(case_folded_matches)} shares fold to {share!r}; ambiguous -- refusing")
+                raise ValueError(
+                    f"{len(case_folded_matches)} shares fold to {share!r}; "
+                    f"ambiguous -- refusing")
             # A share created by create_share holds ShareUsers None -- the dict
             # rendering of the empty <ShareUsers/> element a real device stores
             # for a share nobody can reach yet. `or {}` covers that as well as
@@ -564,21 +599,32 @@ class MockDriver(DroboDriver):
             user_element = share_users_node.get("ShareUser") or []
             users = (user_element if isinstance(user_element, list)
                      else [user_element])
-            matching_users = [user_node for user_node in users if (user_node.get("ShareUsername") or "").strip().lower() == user.lower()]
+            matching_users = [
+                user_node for user_node in users
+                if (user_node.get("ShareUsername") or "").strip().lower()
+                == user.lower()]
             if len(matching_users) > 1:
-                raise ValueError(f"{len(matching_users)} user rows fold to {user!r} on {share!r}; ambiguous -- refusing")
+                raise ValueError(
+                    f"{len(matching_users)} user rows fold to {user!r} "
+                    f"on {share!r}; ambiguous -- refusing")
             # Last point at which nothing has changed yet -- where an injected
             # refusal has to happen for it to leave the device untouched.
             self._refuse_if_injected()
             if matching_users:
                 matching_users[0]["ShareUserAccess"] = access
             else:
-                users.append({"ShareUsername": user, "ShareUserAccess": access})
+                users.append(
+                    {"ShareUsername": user, "ShareUserAccess": access})
             share_users_node["ShareUser"] = (users[0] if len(users) == 1
                                              else users)
             target_share["ShareUsers"] = share_users_node
-            share_config_node["ConfigVersionBasis"] = str(int(share_config_node.get("ConfigVersionBasis", "0") or 0) + 1)
-            self._record_event(SEVERITY_INFO, f"{user!r} on {share!r} set to access {access} (mock driver)")
+            share_config_node["ConfigVersionBasis"] = str(
+                int(share_config_node.get("ConfigVersionBasis", "0") or 0)
+                + 1)
+            self._record_event(
+                SEVERITY_INFO,
+                f"{user!r} on {share!r} set to access {access} "
+                f"(mock driver)")
             return self._write_ending()
 
     def create_share(self, name: str) -> dict:
@@ -599,30 +645,38 @@ class MockDriver(DroboDriver):
         share_name = name if isinstance(name, str) else ""
         if share_name != share_name.strip():
             raise ValueError(
-                f"invalid share name {share_name!r}: surrounding whitespace is refused "
-                f"rather than silently stripped -- a stripped name could never be "
-                f"verified against the device's read-back")
+                f"invalid share name {share_name!r}: surrounding whitespace "
+                f"is refused rather than silently stripped -- a stripped "
+                f"name could never be verified against the device's "
+                f"read-back")
         if not sharewrite._SHARE_NAME_PATTERN.match(share_name):
             raise ValueError(
-                f"invalid share name {share_name!r}: must be {sharewrite._SHARE_NAME_RULE}")
+                f"invalid share name {share_name!r}: "
+                f"must be {sharewrite._SHARE_NAME_RULE}")
         with self._lock:
             share_config_node = self._shares["DRINASConfig"]["DRIShareConfig"]
             share_element = share_config_node["Shares"]["Share"]
             shares = (share_element if isinstance(share_element, list)
                       else [share_element])
-            clashing_names = [(share_node.get("ShareName") or "").strip()
-                              for share_node in shares
-                              if (share_node.get("ShareName") or "").strip().lower() == share_name.lower()]
+            clashing_names = [
+                (share_node.get("ShareName") or "").strip()
+                for share_node in shares
+                if (share_node.get("ShareName") or "").strip().lower()
+                == share_name.lower()]
             if clashing_names:
                 raise ValueError(
-                    f"a share named {clashing_names[0]!r} already exists on this device, "
-                    f"and share names differing only by case could never be "
-                    f"addressed apart afterwards -- refusing the duplicate")
+                    f"a share named {clashing_names[0]!r} already exists on "
+                    f"this device, and share names differing only by case "
+                    f"could never be addressed apart afterwards -- refusing "
+                    f"the duplicate")
             self._refuse_if_injected()
             shares.append({"ShareName": share_name, "ShareState": "0",
                            "TimeMachineEnabled": "0", "ShareUsers": None})
-            share_config_node["Shares"]["Share"] = shares[0] if len(shares) == 1 else shares
-            share_config_node["ConfigVersionBasis"] = str(int(share_config_node.get("ConfigVersionBasis", "0") or 0) + 1)
+            share_config_node["Shares"]["Share"] = (
+                shares[0] if len(shares) == 1 else shares)
+            share_config_node["ConfigVersionBasis"] = str(
+                int(share_config_node.get("ConfigVersionBasis", "0") or 0)
+                + 1)
             self._record_event(SEVERITY_INFO,
                                f"share {share_name!r} created (mock driver)")
             return self._write_ending()
@@ -641,22 +695,35 @@ class MockDriver(DroboDriver):
             share_element = share_config_node["Shares"]["Share"]
             shares = (share_element if isinstance(share_element, list)
                       else [share_element])
-            exact_matches = [share_node for share_node in shares if (share_node.get("ShareName") or "").strip() == share_name]
-            case_folded_matches = [share_node for share_node in shares
-                                   if (share_node.get("ShareName") or "").strip().lower() == share_name.lower()]
+            exact_matches = [
+                share_node for share_node in shares
+                if (share_node.get("ShareName") or "").strip() == share_name]
+            case_folded_matches = [
+                share_node for share_node in shares
+                if (share_node.get("ShareName") or "").strip().lower()
+                == share_name.lower()]
             if len(exact_matches) == 1:
                 target_share = exact_matches[0]
             elif len(case_folded_matches) == 1:
                 target_share = case_folded_matches[0]
             elif not case_folded_matches:
-                existing_names = sorted((share_node.get("ShareName") or "").strip() for share_node in shares)
-                raise ValueError(f"no share named {share_name!r} on this device (have: {existing_names})")
+                existing_names = sorted(
+                    (share_node.get("ShareName") or "").strip()
+                    for share_node in shares)
+                raise ValueError(
+                    f"no share named {share_name!r} on this device "
+                    f"(have: {existing_names})")
             else:
-                raise ValueError(f"{len(case_folded_matches)} shares fold to {share_name!r}; ambiguous -- refusing")
+                raise ValueError(
+                    f"{len(case_folded_matches)} shares fold to "
+                    f"{share_name!r}; ambiguous -- refusing")
             self._refuse_if_injected()
             shares.remove(target_share)
-            share_config_node["Shares"]["Share"] = shares[0] if len(shares) == 1 else shares
-            share_config_node["ConfigVersionBasis"] = str(int(share_config_node.get("ConfigVersionBasis", "0") or 0) + 1)
+            share_config_node["Shares"]["Share"] = (
+                shares[0] if len(shares) == 1 else shares)
+            share_config_node["ConfigVersionBasis"] = str(
+                int(share_config_node.get("ConfigVersionBasis", "0") or 0)
+                + 1)
             self._record_event(SEVERITY_INFO,
                                f"share {share_name!r} deleted (mock driver)")
             return self._write_ending()
@@ -686,7 +753,8 @@ class MockDriver(DroboDriver):
             self._identify_count += 1
             self._identify_last_interval = interval
             self._record_event(SEVERITY_INFO,
-                               f"Identify: front lights flashing, interval={interval} (mock driver)")
+                               f"Identify: front lights flashing, "
+                               f"interval={interval} (mock driver)")
 
     #: The simulated Drobo's one account: user admin, password admin, set at
     #: the maintainer's request on 2026-09-14. Plain text on purpose and only here:
@@ -721,11 +789,14 @@ class MockDriver(DroboDriver):
                       .get("DRIShareConfig", {})
                       .get("Shares") or {}).get("Share") or []
             shares = shares if isinstance(shares, list) else [shares]
-            target_share = next((share_node for share_node in shares
-                                 if (share_node.get("ShareName") or "").lower() == (share or "").lower()), None)
+            target_share = next(
+                (share_node for share_node in shares
+                 if (share_node.get("ShareName") or "").lower()
+                 == (share or "").lower()), None)
             if target_share is None:
                 return {"ok": False, "win32_error": self._ERROR_BAD_NET_NAME,
-                        "error": f"The simulated Drobo has no share called {share!r}."}
+                        "error": (f"The simulated Drobo has no share "
+                                  f"called {share!r}.")}
 
             account = next((name for name in self._MOCK_ACCOUNTS
                             if name.lower() == (username or "").lower()), None)
@@ -736,13 +807,16 @@ class MockDriver(DroboDriver):
             users = ((target_share.get("ShareUsers") or {})
                      .get("ShareUser") or [])
             users = users if isinstance(users, list) else [users]
-            access_by_user = {(user_node.get("ShareUsername") or "").lower(): str(user_node.get("ShareUserAccess", ""))
-                              for user_node in users}
+            access_by_user = {
+                (user_node.get("ShareUsername") or "").lower():
+                    str(user_node.get("ShareUserAccess", ""))
+                for user_node in users}
             access = access_by_user.get(account.lower(),
                                         access_by_user.get("everyone", "0"))
             if access == "0":
                 return {"ok": False, "win32_error": self._ERROR_ACCESS_DENIED,
-                        "error": f"{account} has no access to {target_share.get('ShareName')}."}
+                        "error": (f"{account} has no access to "
+                                  f"{target_share.get('ShareName')}.")}
             return {"ok": True, "win32_error": 0, "error": ""}
 
     def get_config(self, section: str) -> dict:
@@ -757,7 +831,8 @@ class MockDriver(DroboDriver):
             raise ValueError(f"unknown section {section!r}") from None
 
     def _record_event(self, severity: str, message: str) -> None:
-        self._event_log.append(EventLogEntry(ts=time.time(), severity=severity, message=message))
+        self._event_log.append(EventLogEntry(
+            ts=time.time(), severity=severity, message=message))
 
     # -- fault injection ---------------------------------------------------
 
@@ -801,10 +876,14 @@ class MockDriver(DroboDriver):
         """
         if write_fault not in WRITE_FAULTS:
             raise ValueError(
-                f"unknown write fault {write_fault!r}; choose from {list(WRITE_FAULTS)}")
+                f"unknown write fault {write_fault!r}; "
+                f"choose from {list(WRITE_FAULTS)}")
         with self._lock:
             self._write_fault = write_fault
-            self._record_event(SEVERITY_INFO, f"config writes will now end as {write_fault!r} (mock driver)")
+            self._record_event(
+                SEVERITY_INFO,
+                f"config writes will now end as {write_fault!r} "
+                f"(mock driver)")
 
     def reset(self) -> None:
         with self._lock:
@@ -827,7 +906,8 @@ class MockDriver(DroboDriver):
                 bay = bay_spec["bay"]
                 override = self._bay_state_overrides.get(bay)
                 if override == "pulled" or not bay_spec["present"]:
-                    drives.append(DriveSlot(bay=bay, present=False, state=STATE_EMPTY))
+                    drives.append(DriveSlot(
+                        bay=bay, present=False, state=STATE_EMPTY))
                     continue
                 raw_bytes += bay_spec["capacity_bytes"]
                 drive_temperature_c = (
@@ -850,16 +930,20 @@ class MockDriver(DroboDriver):
                         model=bay_spec["model"],
                         serial=bay_spec["serial"],
                         capacity_bytes=bay_spec["capacity_bytes"],
-                        temperature_c=round(drive_temperature_c, 1) if drive_temperature_c is not None else None,
+                        temperature_c=(
+                            round(drive_temperature_c, 1)
+                            if drive_temperature_c is not None else None),
                         note=note,
                     )
                 )
 
             healthy_raw_bytes = sum(
-                d.capacity_bytes for d in drives if d.present and d.state != STATE_FAILED
+                d.capacity_bytes for d in drives
+                if d.present and d.state != STATE_FAILED
             )
             # Single-disk redundancy: usable is roughly raw minus the largest drive.
-            largest_drive_bytes = max((d.capacity_bytes for d in drives if d.present), default=0)
+            largest_drive_bytes = max(
+                (d.capacity_bytes for d in drives if d.present), default=0)
             usable_bytes = max(healthy_raw_bytes - largest_drive_bytes, 0)
             used_bytes = min(self._used_bytes, usable_bytes)
             capacity = Capacity(
@@ -922,23 +1006,30 @@ class MockDriver(DroboDriver):
         if self._battery_override == STATE_FAILED:
             return BatteryInfo(
                 state=STATE_FAILED, charge_pct=0.0,
-                note="cache battery failed (mock driver) -- write cache is not safe across a power loss",
+                note="cache battery failed (mock driver) -- "
+                     "write cache is not safe across a power loss",
             )
         if self._battery_override == STATE_WARNING:
             charge = max(0.0, 35.0 + 2.0 * math.sin(elapsed_seconds / 300.0))
             return BatteryInfo(
                 state=STATE_WARNING, charge_pct=round(charge, 1),
-                note="cache battery is weak (mock driver) -- consider a replacement",
+                note="cache battery is weak (mock driver) -- "
+                     "consider a replacement",
             )
-        charge = self._battery_charge_baseline_pct + 1.5 * math.sin(elapsed_seconds / 600.0) + random.uniform(-0.3, 0.3)
+        charge = (self._battery_charge_baseline_pct
+                  + 1.5 * math.sin(elapsed_seconds / 600.0)
+                  + random.uniform(-0.3, 0.3))
         charge = max(0.0, min(100.0, charge))
-        return BatteryInfo(state=STATE_OK, charge_pct=round(charge, 1), note="")
+        return BatteryInfo(
+            state=STATE_OK, charge_pct=round(charge, 1), note="")
 
     def _read_fan(self, elapsed_seconds: float) -> FanInfo:
         """eCmdGetFanInfo. RPM drifts a little; stalls if the fan bay was
         also given a state via the drive overrides (not modelled -- fans
         just idle around their baseline for now)."""
-        rpm = self._fan_rpm_baseline + 60.0 * math.sin(elapsed_seconds / 180.0) + random.uniform(-15.0, 15.0)
+        rpm = (self._fan_rpm_baseline
+               + 60.0 * math.sin(elapsed_seconds / 180.0)
+               + random.uniform(-15.0, 15.0))
         rpm = max(0, int(rpm))
         state = STATE_OK if rpm > 800 else STATE_WARNING
         return FanInfo(rpm=rpm, state=state)
@@ -972,7 +1063,8 @@ class MockDriver(DroboDriver):
         return PerformanceInfo(
             read_mb_per_s=read_mb_per_s,
             write_mb_per_s=write_mb_per_s,
-            iops=max(0, int(read_mb_per_s * 4 + write_mb_per_s * 2 + random.uniform(-5, 5))),
+            iops=max(0, int(read_mb_per_s * 4 + write_mb_per_s * 2
+                            + random.uniform(-5, 5))),
             measured=True,
             measured_at=time.time(),  # simulated afresh on every poll
         )
@@ -1050,7 +1142,9 @@ class Drobo5NDriver(DroboDriver):
         # placeholder that nothing read; it is now the real thing, on the real
         # driver, where it can actually reach a device.
         self.manual_discovery_ips: list[str] = [
-            str(ip).strip() for ip in (drobo_config.get("manual_discovery_ips") or []) if str(ip).strip()
+            str(ip).strip()
+            for ip in (drobo_config.get("manual_discovery_ips") or [])
+            if str(ip).strip()
         ]
 
         # In-memory only. _resolved_host/_port is whatever address actually
@@ -1119,7 +1213,8 @@ class Drobo5NDriver(DroboDriver):
             self._known_esa_id = esa_id
 
     def _discover(self) -> discovery.VerificationResult:
-        last_known_host = self._resolved_host or (self.host if not self._uses_auto_discovery else "")
+        last_known_host = self._resolved_host or (
+            self.host if not self._uses_auto_discovery else "")
         try:
             verified = discovery.resolve(
                 expected_esa_id=self._known_esa_id,
@@ -1148,7 +1243,8 @@ class Drobo5NDriver(DroboDriver):
             # network that blocks mDNS, which is the rarer case.
             raise DroboNotFoundError(
                 "Could not find the Drobo automatically (tried mDNS"
-                + (f", {len(self.manual_discovery_ips)} manually-added address(es)"
+                + (f", {len(self.manual_discovery_ips)} "
+                   f"manually-added address(es)"
                    if self.manual_discovery_ips else "")
                 + (f", hostname {self.hostname!r}" if self.hostname else "")
                 + (f", last-known IP {last_known_host!r}"
@@ -1158,19 +1254,24 @@ class Drobo5NDriver(DroboDriver):
                 "Check the Drobo is switched on and this PC is on the same "
                 "network. If both are true and this network blocks mDNS, set "
                 '"drobo": {"driver": "drobo5n", "host": "<drobo-ip>"} in '
-                "config.json, or find the IP with:  py tools/drobo_probe.py mdns"
+                "config.json, or find the IP with:  "
+                "py tools/drobo_probe.py mdns"
             ) from exc
-        self._remember_working_address(verified.identity["esa_id"], verified.candidate.host, verified.candidate.port)
+        self._remember_working_address(
+            verified.identity["esa_id"], verified.candidate.host,
+            verified.candidate.port)
         if verified.first_run:
             print(
-                "[drobo5n] first-run pairing: no expected_esa_id configured yet. "
-                f"This device identifies as esa_id={verified.identity['esa_id']!r} "
+                "[drobo5n] first-run pairing: no expected_esa_id "
+                "configured yet. This device identifies as "
+                f"esa_id={verified.identity['esa_id']!r} "
                 f"({verified.identity.get('name', '?')!r}, "
                 f"{verified.identity.get('model', '?')!r}, "
                 f"firmware {verified.identity.get('firmware', '?')!r}). "
-                f'Add  "expected_esa_id": "{verified.identity["esa_id"]}"  to the '
-                '"drobo" block in config.json so a future stranger on this IP can '
-                "never be silently trusted.",
+                f'Add  "expected_esa_id": '
+                f'"{verified.identity["esa_id"]}"  to the '
+                '"drobo" block in config.json so a future stranger on this '
+                "IP can never be silently trusted.",
                 flush=True,
             )
         return verified
@@ -1179,7 +1280,8 @@ class Drobo5NDriver(DroboDriver):
         if self._uses_auto_discovery:
             verified = self._discover()
             print(
-                f"[drobo5n] discovered {verified.candidate.host}:{verified.candidate.port} "
+                f"[drobo5n] discovered "
+                f"{verified.candidate.host}:{verified.candidate.port} "
                 f"via {verified.candidate.source} -- "
                 f"{verified.identity.get('name', '?')} "
                 f"(esa_id={verified.identity['esa_id']})",
@@ -1197,7 +1299,8 @@ class Drobo5NDriver(DroboDriver):
             raise discovery.IdentityMismatchError(
                 f"refusing {self.host}:{self.port} -- it identifies as "
                 f"esa_id={snapshot.device.serial!r}, not the expected "
-                f"{self.expected_esa_id!r}. This is not your Drobo; not connecting."
+                f"{self.expected_esa_id!r}. This is not your Drobo; "
+                f"not connecting."
             )
         self._remember_working_address(snapshot.device.serial, self.host,
                                        self.port)
@@ -1353,7 +1456,8 @@ class Drobo5NDriver(DroboDriver):
         try:
             entries = eventlog.get_event_log(
                 host, self._known_esa_id, timeout=min(self.timeout, 6.0))
-        except (OSError, config_cmd.ConfigError, eventlog.EventLogError) as exc:
+        except (OSError, config_cmd.ConfigError,
+                eventlog.EventLogError) as exc:
             error_text = str(exc)
             if error_text != self._eventlog_last_warning:
                 self._eventlog_last_warning = error_text
@@ -1373,5 +1477,6 @@ DRIVERS: dict[str, type[DroboDriver]] = {
 def build(drobo_config: dict) -> DroboDriver:
     driver_name = (drobo_config.get("driver") or "mock").lower()
     if driver_name not in DRIVERS:
-        raise ValueError(f"unknown driver {driver_name!r}; choose from {sorted(DRIVERS)}")
+        raise ValueError(
+            f"unknown driver {driver_name!r}; choose from {sorted(DRIVERS)}")
     return DRIVERS[driver_name](drobo_config)
