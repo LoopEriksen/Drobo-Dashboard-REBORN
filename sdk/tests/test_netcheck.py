@@ -1,11 +1,13 @@
 """
-Offline tests for netcheck.py -- "is this PC even on the Drobo's network?".
+Offline tests for netcheck.py -- "is this PC even on the Drobo's
+network?".
 
 Every parser case uses REAL output shapes from the three tools involved
-(ipconfig, ip -o -4 addr, ifconfig), including a localised Windows listing,
-because the whole design claim of parse_interfaces is that it reads none of the
-labels. No subprocess is spawned and no socket is opened: local_interfaces() is
-only exercised through its injectable seam.
+(ipconfig, ip -o -4 addr, ifconfig), including a localised Windows
+listing, because the whole design claim of parse_interfaces is that it
+reads none of the labels. No subprocess is spawned and no socket is
+opened: local_interfaces() is only exercised through its injectable
+seam.
 
     py test_netcheck.py
 """
@@ -38,8 +40,9 @@ def networks_in(text):
 
 # --------------------------------------------------------------------------
 print("\n== telling a netmask from an address ==")
-# This is the whole trick the label-blind parser rests on: a host address is
-# never a contiguous netmask, so the classification is exact, not a heuristic.
+# This is the whole trick the label-blind parser rests on: a host
+# address is never a contiguous netmask, so the classification is exact,
+# not a heuristic.
 check(
     "255.255.255.0 is a /24", netcheck._prefix_from_mask("255.255.255.0") == 24
 )
@@ -60,10 +63,10 @@ check(
     "a non-contiguous mask is refused",
     netcheck._prefix_from_mask("255.0.255.0") is None,
 )
-# 0.0.0.0 IS a valid contiguous netmask, and Windows prints it as the gateway
-# of an adapter that has none. Accepting it would declare this PC to be on a
-# network containing every address there is -- silently disabling every warning
-# this module exists to raise.
+# 0.0.0.0 IS a valid contiguous netmask, and Windows prints it as the
+# gateway of an adapter that has none. Accepting it would declare this
+# PC to be on a network containing every address there is -- silently
+# disabling every warning this module exists to raise.
 check(
     "0.0.0.0 is refused as a mask",
     netcheck._prefix_from_mask("0.0.0.0") is None,
@@ -96,9 +99,9 @@ check("both adapters found",
       networks_in(WINDOWS_IPCONFIG) == ["10.9.9.0/24", "10.9.7.0/24"],
       networks_in(WINDOWS_IPCONFIG))
 # The regression that made this parser label-blind in the first place: a
-# gateway and a DNS server are lone IPv4 addresses on their own lines, exactly
-# like an interface address. Recording 8.8.8.8 as ours would have claimed this
-# PC is on 8.8.8.0/24.
+# gateway and a DNS server are lone IPv4 addresses on their own lines,
+# exactly like an interface address. Recording 8.8.8.8 as ours would
+# have claimed this PC is on 8.8.8.0/24.
 WINDOWS_IPCONFIG_WITH_DNS = """
    IPv4 Address. . . . . . . . . . . : 192.168.1.10
    Subnet Mask . . . . . . . . . . . : 255.255.255.0
@@ -117,8 +120,8 @@ check("DNS servers are not mistaken for our networks",
       networks_in(WINDOWS_IPCONFIG_WITH_DNS))
 
 print("\n== the same listing in German, which reads no differently ==")
-# The point of matching zero labels: this must work without the parser knowing
-# the word "Subnetzmaske" -- or "Subnet", for that matter.
+# The point of matching zero labels: this must work without the parser
+# knowing the word "Subnetzmaske" -- or "Subnet", for that matter.
 GERMAN_IPCONFIG = """
 Drahtlos-LAN-Adapter WLAN:
 
@@ -158,9 +161,9 @@ en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
 """
 check("hex mask parsed", networks_in(BSD_IFCONFIG) == ["192.168.1.0/24"],
       networks_in(BSD_IFCONFIG))
-# broadcast 192.168.1.255 sits on the same line as the address. It is not a
-# valid netmask, so it is never read as one -- and the address is taken from
-# the first token, not the last.
+# broadcast 192.168.1.255 sits on the same line as the address. It is
+# not a valid netmask, so it is never read as one -- and the address is
+# taken from the first token, not the last.
 check(
     "the broadcast address is not read as an interface",
     "192.168.1.255"
@@ -184,9 +187,9 @@ APIPA_IPCONFIG = """
    Autoconfiguration IPv4 Address. . : 169.254.14.9
    Subnet Mask . . . . . . . . . . . : 255.255.0.0
 """
-# A self-assigned APIPA address means DHCP FAILED -- the opposite of "on a
-# network". Treating it as one would let a disconnected PC claim it shares a
-# network with something.
+# A self-assigned APIPA address means DHCP FAILED -- the opposite of "on
+# a network". Treating it as one would let a disconnected PC claim it
+# shares a network with something.
 check("link-local (APIPA) dropped", networks_in(APIPA_IPCONFIG) == [],
       networks_in(APIPA_IPCONFIG))
 check("an empty listing yields nothing", netcheck.parse_interfaces("") == [])
@@ -197,8 +200,8 @@ check("an address with no mask anywhere is discarded, not guessed at",
 
 # --------------------------------------------------------------------------
 print("\n== the diagnosis: the failure this module was written for ==")
-# A common cause of a timeout is Windows auto-joining a different SSID while
-# the array is healthy.
+# A common cause of a timeout is Windows auto-joining a different SSID
+# while the array is healthy.
 WIFI_INTERFACES = [Interface("10.9.9.41", 24), Interface("10.9.7.1", 24)]
 diagnosis = netcheck.diagnose("10.0.0.50", WIFI_INTERFACES)
 check("a different network is spotted",
@@ -213,8 +216,9 @@ check(
     "nothing needs changing" in diagnosis.detail,
     diagnosis.detail,
 )
-# The claim is an explanation, never a proof: routed networks exist, and a
-# tool that confidently blames the wrong thing is worse than a silent one.
+# The claim is an explanation, never a proof: routed networks exist, and
+# a tool that confidently blames the wrong thing is worse than a silent
+# one.
 check("a mismatch is never stated without its caveat", bool(diagnosis.caveat))
 check(
     "the caveat admits routing exists",
@@ -240,9 +244,9 @@ check(
     "same network -> same_network is True",
     same_network_diagnosis is not None and same_network_diagnosis.same_network,
 )
-# "Checked, and the network layout isn't the story" is a different answer from
-# "couldn't check" -- so a Diagnosis is still returned, but with no text, so
-# nothing can display it.
+# "Checked, and the network layout isn't the story" is a different
+# answer from "couldn't check" -- so a Diagnosis is still returned, but
+# with no text, so nothing can display it.
 check(
     "same network -> nothing to display",
     same_network_diagnosis.message == "",
@@ -253,9 +257,9 @@ check(
     netcheck.explain("10.0.0.50", SAME_NETWORK_INTERFACES) == "",
 )
 
-# A wider mask is honoured rather than second-guessed: 10.0.9.41/16 really does
-# contain 10.0.0.50, so there is nothing to warn about. Assuming /24 everywhere
-# would have invented a mismatch here.
+# A wider mask is honoured rather than second-guessed: 10.0.9.41/16
+# really does contain 10.0.0.50, so there is nothing to warn about.
+# Assuming /24 everywhere would have invented a mismatch here.
 check(
     "a /16 that really does contain the target is respected",
     netcheck.diagnose("10.0.0.50", [Interface("10.0.9.41", 16)]).same_network,

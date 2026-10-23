@@ -1,24 +1,31 @@
 """
-Tests for read-back arbitration: what a write means when the device never
-answers it.
+Tests for read-back arbitration: what a write means when the device
+never answers it.
 
     py test_write_arbitration.py
 
 WHAT THIS IS ABOUT
 ------------------
-MEASURED 2026-08-25/26 on a real Drobo 5N: a share-create was sent, the device
-CLOSED THE SOCKET without sending a result frame, and the share was created
-anyway. Every layer above reported a failure. That false negative invites a
-retry of a write that already applied -- the worst thing this SDK could do.
+MEASURED 2026-08-25/26 on a real Drobo 5N: a share-create was sent, the
+device CLOSED THE SOCKET without sending a result frame, and the share
+was created anyway. Every layer above reported a failure. That false
+negative invites a retry of a write that already applied -- the worst
+thing this SDK could do.
 
-So config_cmd's write tail now decides an unanswered write by asking the device
-what it holds, and the tests below pin every branch of that decision:
+So config_cmd's write tail now decides an unanswered write by asking the
+device what it holds, and the tests below pin every branch of that
+decision:
 
-  frame sent, no answer, read-back shows the change   -> success, unacknowledged
-  frame sent, no answer, read-back shows it absent    -> genuine failure
-  frame sent, no answer, read-back unusable           -> outcome UNKNOWN
-  connect/login failed before the frame went out      -> plain failure
-  a real result frame arrives                         -> exactly as before
+  frame sent, no answer, read-back shows the change
+      -> success, unacknowledged
+  frame sent, no answer, read-back shows it absent
+      -> genuine failure
+  frame sent, no answer, read-back unusable
+      -> outcome UNKNOWN
+  connect/login failed before the frame went out
+      -> plain failure
+  a real result frame arrives
+      -> exactly as before
 
 Everything runs against fake devices on loopback. No hardware.
 """
@@ -50,8 +57,8 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-# HANGUP is the measured symptom: the device reads the command frame, then
-# closes the connection without sending a result frame at all.
+# HANGUP is the measured symptom: the device reads the command frame,
+# then closes the connection without sending a result frame at all.
 HANGUP = "hangup"
 
 SET_CONFIG_ID = commands.COMMANDS["eCmdSetConfig"]
@@ -59,12 +66,13 @@ SET_CONFIG_ID = commands.COMMANDS["eCmdSetConfig"]
 
 class ScriptedDrobo:
     """
-    A fake device driven by a per-connection script. Each entry is either the
-    reply bytes to send, or HANGUP: read the command and close, silently.
+    A fake device driven by a per-connection script. Each entry is
+    either the reply bytes to send, or HANGUP: read the command and
+    close, silently.
 
     When the script runs out the listening socket closes, so the NEXT
-    connection fails -- which is how "the read-back is unreachable too" is
-    staged without any special casing.
+    connection fails -- which is how "the read-back is unreachable too"
+    is staged without any special casing.
     """
 
     def __init__(self, script):
@@ -103,9 +111,10 @@ class ScriptedDrobo:
                 self.sent.append(
                     (payload or b"").rstrip(b"\x00").decode("utf-8", "replace")
                 )
-                # The command frame is fully read either way -- the client's
-                # sendall must complete before the socket goes away, or the
-                # test would be measuring a SEND failure, not an ACK failure.
+                # The command frame is fully read either way -- the
+                # client's sendall must complete before the socket goes
+                # away, or the test would be measuring a SEND failure,
+                # not an ACK failure.
                 if step is not HANGUP:
                     connection.sendall(
                         config_cmd._build_frame(config_cmd.TYPE_RESULT, step))
@@ -115,7 +124,8 @@ class ScriptedDrobo:
         self.server_socket.close()
 
     def set_config_writes(self):
-        """Just the eCmdSetConfig frames -- how a retry would show up."""
+        """Just the eCmdSetConfig frames -- how a retry would show up.
+        """
         return [s for s in self.sent if f"<CmdID>{SET_CONFIG_ID}</CmdID>" in s]
 
 
@@ -128,7 +138,8 @@ def refused_port():
     return port
 
 
-# --- share fixtures, the same shapes test_sharelifecycle uses ---------------
+# --- share fixtures, the same shapes test_sharelifecycle uses
+# ---------------
 
 def _pretty_printed_share(name, access_code="1"):
     return ("\n\t\t\t<Share>"
@@ -219,8 +230,8 @@ def _recording_readback(readback_answer):
     return readback, readback_calls
 
 
-# A refused connection: the frame never left this process, so nothing can have
-# happened and the arbiter must not even be asked.
+# A refused connection: the frame never left this process, so nothing
+# can have happened and the arbiter must not even be asked.
 readback, readback_calls = _recording_readback(True)
 try:
     config_cmd._send_section_document("127.0.0.1", SAMPLE_ESA_ID, "general",
@@ -295,7 +306,8 @@ check("...and does NOT read the device back", readback_calls == [],
 check("...and carries no 'verified' of its own",
       "verified" not in result, result)
 
-# A device that answers with a non-accept code still fails, on its own word.
+# A device that answers with a non-accept code still fails, on its own
+# word.
 scripted_drobo = ScriptedDrobo(
     [("<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"]
 )
@@ -392,7 +404,8 @@ except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         message,
     )
 
-# With no arbiter at all the outcome is equally unknown -- never a failure.
+# With no arbiter at all the outcome is equally unknown -- never a
+# failure.
 scripted_drobo = ScriptedDrobo([HANGUP])
 try:
     config_cmd._send_section_document("127.0.0.1", SAMPLE_ESA_ID, "general",
@@ -406,8 +419,8 @@ except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         str(exc),
     )
 
-# An arbiter that fails in an unexpected way still yields UNKNOWN, never a
-# claim that the write failed.
+# An arbiter that fails in an unexpected way still yields UNKNOWN, never
+# a claim that the write failed.
 scripted_drobo = ScriptedDrobo([HANGUP])
 
 
@@ -435,7 +448,8 @@ check(
 
 print("\n== create_share: the write the hardware actually did this to ==")
 
-# Sent, hung up on, and the share IS there -- the measured 2026-08-25/26 case.
+# Sent, hung up on, and the share IS there -- the measured 2026-08-25/26
+# case.
 scripted_drobo = ScriptedDrobo(
     [_read_reply(ORIGINAL_SHARE_CONFIG), HANGUP,
      _read_reply(CONFIG_WITH_FRESH_SHARE)])
@@ -475,7 +489,8 @@ except config_cmd.ConfigWriteError as exc:
 check("...and the create was never re-sent",
       len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
 
-# Sent, hung up on, and the read-back is unreachable -- genuinely unknown.
+# Sent, hung up on, and the read-back is unreachable -- genuinely
+# unknown.
 scripted_drobo = ScriptedDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), HANGUP])
 try:
     sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "Fresh",
@@ -708,8 +723,8 @@ print("\n== a reply we cannot read is noise, not a verdict ==")
 
 
 def _serve_garbled_reply(port_holder):
-    """Accept the login, take the command frame in full, then answer with a
-    frame type that is not TYPE_RESULT."""
+    """Accept the login, take the command frame in full, then answer
+    with a frame type that is not TYPE_RESULT."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(("127.0.0.1", 0))
@@ -740,9 +755,9 @@ def _serve_garbled_reply(port_holder):
     threading.Thread(target=serve, daemon=True).start()
 
 
-# The device answered with SOMETHING unreadable. The command frame is already
-# on the wire, so this says no more about the outcome than silence does: the
-# read-back has to settle it.
+# The device answered with SOMETHING unreadable. The command frame is
+# already on the wire, so this says no more about the outcome than
+# silence does: the read-back has to settle it.
 garbled_port_holder = []
 _serve_garbled_reply(garbled_port_holder)
 readback, readback_calls = _recording_readback(True)
@@ -760,8 +775,8 @@ check("...marked as never acknowledged by the device",
 check("...and carries no result code, because none was readable",
       result.get("result_code") is None, result)
 
-# Same unreadable reply, but the change is genuinely absent: that IS a failure,
-# and it must not be dressed up as merely unconfirmed.
+# Same unreadable reply, but the change is genuinely absent: that IS a
+# failure, and it must not be dressed up as merely unconfirmed.
 garbled_port_holder = []
 _serve_garbled_reply(garbled_port_holder)
 readback, readback_calls = _recording_readback(False)
@@ -780,8 +795,8 @@ except config_cmd.ConfigWriteError as exc:
     check("...and the read-back was what decided it",
           readback_calls == [False], readback_calls)
 
-# A stated refusal is still a verdict: the device read the command and said no,
-# so a read-back may not overrule it.
+# A stated refusal is still a verdict: the device read the command and
+# said no, so a read-back may not overrule it.
 refusing_drobo = ScriptedDrobo(
     [
         (
@@ -811,9 +826,10 @@ print(
     "\n== a failure before the frame goes out is typed as a write failure =="
 )
 
-# The layers above read an untyped ConfigError as "this may have applied".
-# Everything above THE LINE must therefore be a ConfigWriteError, or a login
-# that never sent the command would be reported as possibly-applied.
+# The layers above read an untyped ConfigError as "this may have
+# applied". Everything above THE LINE must therefore be a
+# ConfigWriteError, or a login that never sent the command would be
+# reported as possibly-applied.
 login_hangup_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 login_hangup_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 login_hangup_server.bind(("127.0.0.1", 0))
@@ -852,10 +868,11 @@ check("...and the read-back was never consulted", readback_calls == [],
 
 print("\n== nothing in the write path can ever re-send ==")
 
-# Structural, not behavioural: there is exactly ONE place in config_cmd that
-# puts a command frame on the wire for a write. A second one -- a retry, a
-# fallback connection -- is the failure mode this whole change exists to
-# prevent, and it would show up here before it ever reached hardware.
+# Structural, not behavioural: there is exactly ONE place in config_cmd
+# that puts a command frame on the wire for a write. A second one -- a
+# retry, a fallback connection -- is the failure mode this whole change
+# exists to prevent, and it would show up here before it ever reached
+# hardware.
 _CONFIG_CMD_SOURCE = open(
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "..", "drobo_nasd", "config_cmd.py"),

@@ -94,12 +94,14 @@ check("DO_NOT_SEND is both groups combined",
 check("the two groups don't overlap",
       commands.ESCAPE_HATCHES.isdisjoint(commands.DESTRUCTIVE))
 
-# The whole point of the destructive group. Before 2026-07-26 the guard held
-# only the escape hatches, so none of these were refused -- on a project whose
-# first rule is that it never writes to the pack and never flashes firmware.
+# The whole point of the destructive group. Before 2026-07-26 the guard
+# held only the escape hatches, so none of these were refused -- on a
+# project whose first rule is that it never writes to the pack and never
+# flashes firmware.
 print("\n== SAFE_WRITES: the one narrow exception to read-only ==")
-# Opened 2026-07-27. This is the boundary that keeps "we don't write to the
-# hardware" true, so it is tested harder than anything else in this file.
+# Opened 2026-07-27. This is the boundary that keeps "we don't write to
+# the hardware" true, so it is tested harder than anything else in this
+# file.
 check(
     "eCmdIdentify is an approved write", commands.is_safe_write("eCmdIdentify")
 )
@@ -118,9 +120,9 @@ check("refused and approved sets cannot overlap",
 check("every approved write is a real command",
       all(n in commands.COMMANDS for n in commands.SAFE_WRITES))
 
-# The things that must NOT have crept in on Identify's coat-tails. Each of
-# these fails at least one of the four tests in commands.SAFE_WRITES, and a
-# future change that quietly adds one should fail here loudly.
+# The things that must NOT have crept in on Identify's coat-tails. Each
+# of these fails at least one of the four tests in commands.SAFE_WRITES,
+# and a future change that quietly adds one should fail here loudly.
 for name in (
     "eCmdSetDimming",
     "eCmdRename",
@@ -159,7 +161,8 @@ check("eCmdForceSingleInitiator is refused (reads like a query, is a write)",
 check("eCmdGetNextUniqueLUNID is refused (starts with Get, but ALLOCATES)",
       commands.is_dangerous("eCmdGetNextUniqueLUNID"))
 
-# ...without the guard becoming so broad it blocks the reads we depend on.
+# ...without the guard becoming so broad it blocks the reads we depend
+# on.
 print("\n== ordinary reads are still allowed ==")
 for name in ("eCmdGetConfig", "eCmdGetSysInfo", "eCmdGetSharesConfig",
              "eCmdGetFirmwareInfo", "eCmdGetVersion", "eCmdGetAdminConfig"):
@@ -200,11 +203,12 @@ print("\n== envelope.py: build/parse round trip ==")
 envelope_cases = [
     ("eCmdGetVersion", None),
     ("eCmdGetAllDevicesStatusXML", {"Verbose": 1}),
-    # Note: "Name" is deliberately non-numeric text -- envelope.py's wire
-    # format has no type tags, so a digit-only *string* like "1" is
-    # indistinguishable from the int 1 after a round trip (both come back as
-    # int). Use non-numeric strings and ints here to keep the round-trip
-    # comparison meaningful instead of exercising that documented ambiguity.
+    # Note: "Name" is deliberately non-numeric text -- envelope.py's
+    # wire format has no type tags, so a digit-only *string* like "1" is
+    # indistinguishable from the int 1 after a round trip (both come
+    # back as int). Use non-numeric strings and ints here to keep the
+    # round-trip comparison meaningful instead of exercising that
+    # documented ambiguity.
     (
         "eCmdGetSysInfo",
         {"Name": "unit-test", "Count": 5, "Nested": {"A": "alpha", "B": 2}},
@@ -351,7 +355,8 @@ check("nothing left after both frames", remainder_after_second == b"")
 print("\n== framing.py: FrameAssembler handles fragmented delivery ==")
 assembler = framing.FrameAssembler()
 whole_frame = framing.encode_frame(b"fragmented-payload")
-# split the frame into three arbitrary chunks, as a real socket.recv() would
+# split the frame into three arbitrary chunks, as a real socket.recv()
+# would
 chunk_points = [3, 9]
 chunks = [
     whole_frame[: chunk_points[0]],
@@ -389,9 +394,10 @@ check(
 print(
     "\n== framing.py: NasdHeader candidates are internally self-consistent =="
 )
-# This does NOT prove any candidate matches a real Drobo -- see NasdHeader's
-# docstring. It only proves each candidate's own encode/decode pair agrees
-# with itself, which is what client.py depends on structurally.
+# This does NOT prove any candidate matches a real Drobo -- see
+# NasdHeader's docstring. It only proves each candidate's own
+# encode/decode pair agrees with itself, which is what client.py depends
+# on structurally.
 for candidate_name, (encoder,
                      decoder) in framing.NasdHeader.CANDIDATES.items():
     header_bytes = encoder(42)
@@ -440,9 +446,10 @@ try:
 except NotImplementedError:
     check("discover() is explicitly not implemented here", True)
 
-# Fake being logged in with a real (but unconnected-to-anything-real) socket
-# object, so this genuinely proves the DO_NOT_SEND guard fires before any
-# send-side code runs -- not just before a None-socket check would have.
+# Fake being logged in with a real (but unconnected-to-anything-real)
+# socket object, so this genuinely proves the DO_NOT_SEND guard fires
+# before any send-side code runs -- not just before a None-socket check
+# would have.
 
 nasd_client.state = client.ConnectionState.LOGGED_IN
 nasd_client._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -458,10 +465,10 @@ finally:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# esatm.py -- parsing a REAL <ESATMUpdate> captured from a live Drobo 5N.
-# Fixture: sdk/tests/fixtures/esatm-sample.xml, firmware 4.3.1-8.126.117497.
-# These lock in behaviour confirmed against actual hardware, so a future
-# refactor can't silently regress it.
+# esatm.py -- parsing a REAL <ESATMUpdate> captured from a live Drobo
+# 5N. Fixture: sdk/tests/fixtures/esatm-sample.xml, firmware
+# 4.3.1-8.126.117497. These lock in behaviour confirmed against actual
+# hardware, so a future refactor can't silently regress it.
 # ---------------------------------------------------------------------------
 print("\n== esatm.py: real Drobo 5N greeting ==")
 
@@ -485,7 +492,8 @@ else:
     check("firmware read", snapshot.device.firmware.startswith("4.3.1"),
           snapshot.device.firmware)
 
-    # The device reports mSlotCountExp=6, but a 5N has five physical bays.
+    # The device reports mSlotCountExp=6, but a 5N has five physical
+    # bays.
     check("phantom 6th bay trimmed", len(snapshot.drives) == 5,
           len(snapshot.drives))
     check("bays numbered 1..5",
@@ -506,8 +514,9 @@ else:
         [drive.serial for drive in snapshot.drives],
     )
 
-    # mTemperature is 0 on this hardware. It must read as "unknown", never as a
-    # literal 0 C, or the alert rules would treat a healthy array as freezing.
+    # mTemperature is 0 on this hardware. It must read as "unknown",
+    # never as a literal 0 C, or the alert rules would treat a healthy
+    # array as freezing.
     check("temperature reported as unknown, not 0 C",
           all(drive.temperature_c is None for drive in snapshot.drives),
           [drive.temperature_c for drive in snapshot.drives])

@@ -1,17 +1,17 @@
 """
-Tests for sharewrite.create_share and delete_share -- the 2026-08-25 capture
-mirrored, byte for byte.
+Tests for sharewrite.create_share and delete_share -- the 2026-08-25
+capture mirrored, byte for byte.
 
     py test_sharelifecycle.py
 
-The capture shows the original Dashboard creating a share by resending the
-whole DRIShareConfig with ONE compact single-line <Share> node appended before
-</Shares>, and deleting one by resending the config with that node absent plus
-<ShareDeleteConfirm>Y</ShareDeleteConfirm> appended after </Shares>. So the
-tests assert byte-exactness both ways: the new node matches the captured shape
-to the byte, and everything that was not the change is sent exactly as the
-read-reserialize pipeline (hardware-verified 2026-08-12) would send it
-untouched.
+The capture shows the original Dashboard creating a share by resending
+the whole DRIShareConfig with ONE compact single-line <Share> node
+appended before </Shares>, and deleting one by resending the config with
+that node absent plus <ShareDeleteConfirm>Y</ShareDeleteConfirm>
+appended after </Shares>. So the tests assert byte-exactness both ways:
+the new node matches the captured shape to the byte, and everything that
+was not the change is sent exactly as the read-reserialize pipeline
+(hardware-verified 2026-08-12) would send it untouched.
 
 Runs against a fake device on loopback. No hardware.
 """
@@ -43,8 +43,9 @@ def check(label, condition, failure_detail=""):
 
 
 def _pretty_printed_share(name):
-    """One stored share, pretty-printed with tabs the way the capture shows the
-    device's own document (no VolumeName -- stored shares carry none)."""
+    """One stored share, pretty-printed with tabs the way the capture
+    shows the device's own document (no VolumeName -- stored shares
+    carry none)."""
     return ("\n\t\t\t<Share>"
             "\n\t\t\t\t<ShareName>" + name + "</ShareName>"
             "\n\t\t\t\t<ShareState>0</ShareState>"
@@ -60,8 +61,9 @@ def _pretty_printed_share(name):
 
 
 def _compact_share_with_volume(name, volume):
-    """A share in the compact shape our own create writes -- the plausible
-    read-back of one, used as derivation input for <VolumeName>."""
+    """A share in the compact shape our own create writes -- the
+    plausible read-back of one, used as derivation input for
+    <VolumeName>."""
     return ("\n\t\t\t<Share><ShareName>" + name + "</ShareName>"
             "<VolumeName>" + volume + "</VolumeName>"
             "<TimeMachineEnabled>0</TimeMachineEnabled>"
@@ -79,8 +81,9 @@ def _pretty_printed_share_config(pretty_printed_shares_xml,
 
 
 def _read_reply(share_config_xml):
-    """A read reply in the shape the real 5N sends: DRIShareConfig nested under
-    a <DRINASConfig> wrapper inside ResultDetails (measured 2026-08-10)."""
+    """A read reply in the shape the real 5N sends: DRIShareConfig
+    nested under a <DRINASConfig> wrapper inside ResultDetails
+    (measured 2026-08-10)."""
     return (
         f"<TMCmd><CmdID>30</CmdID><ResultDetails>"
         f"<DRINASConfig>{share_config_xml}"
@@ -95,14 +98,15 @@ def _accepted_reply():
 
 
 def _reserialized(share_config_xml):
-    """What the surgical pipeline sends for this document when nothing is
-    edited: the read reserialized by ElementTree."""
+    """What the surgical pipeline sends for this document when nothing
+    is edited: the read reserialized by ElementTree."""
     return ElementTree.tostring(ElementTree.fromstring(share_config_xml),
                                 encoding="unicode")
 
 
 def _written_share_config(raw_command):
-    """The inner DRIShareConfig document a captured write actually carried."""
+    """The inner DRIShareConfig document a captured write actually
+    carried."""
     params_match = re.search(r"<Params>(.*)</Params>", raw_command, re.S)
     wrapped_share_config = html.unescape(params_match.group(1))
     assert wrapped_share_config.startswith(
@@ -158,8 +162,9 @@ class FakeDrobo:
 
 SAMPLE_ESA_ID = "drb000000SAMPLE"
 
-# The capture's world: Alpha and Beta stored pretty-printed, no volume named
-# anywhere, and the throwaway share's node in the exact captured compact shape.
+# The capture's world: Alpha and Beta stored pretty-printed, no volume
+# named anywhere, and the throwaway share's node in the exact captured
+# compact shape.
 CAPTURED_NODE = ("<Share><ShareName>ZZTESTZZ</ShareName>"
                  "<VolumeName>Volume1</VolumeName>"
                  "<TimeMachineEnabled>0</TimeMachineEnabled>"
@@ -212,7 +217,8 @@ check("the node appears exactly once",
 check("ConfigVersionBasis is echoed, not invented",
       "<ConfigVersionBasis>21</ConfigVersionBasis>" in written_document)
 
-# verify=False stops after the accepted write: two connections, no verdict.
+# verify=False stops after the accepted write: two connections, no
+# verdict.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 result = sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "ZZTESTZZ",
                                  volume="Volume1",
@@ -249,8 +255,8 @@ for good_name in ["A", "a" * 27, "My Share_2-b", "0numeric", "x-", "x _-9"]:
     check(f"good name {good_name!r} passes the pattern",
           sharewrite._SHARE_NAME_PATTERN.match(good_name) is not None)
 
-# A duplicate -- even one differing only by case -- is refused after the read,
-# before any write.
+# A duplicate -- even one differing only by case -- is refused after the
+# read, before any write.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 try:
     sharewrite.create_share(
@@ -273,7 +279,8 @@ check("...and only the read happened, no write", len(fake_drobo.sent) == 1,
 
 print("\n== create: volume derivation from the device's own data ==")
 
-# Exactly one volume named anywhere in the read -> used without being passed.
+# Exactly one volume named anywhere in the read -> used without being
+# passed.
 ONE_VOLUME_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Alpha")
     + _compact_share_with_volume("Made", "VolX"))
@@ -295,7 +302,8 @@ check("a single on-device volume is derived and used",
       _written_share_config(fake_drobo.sent[1]))
 check("...and the create verifies", result.get("verified") is True, result)
 
-# No volume named anywhere (the captured unit's own shape) -> refuse to guess.
+# No volume named anywhere (the captured unit's own shape) -> refuse to
+# guess.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 try:
     sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "Fresh",
@@ -307,7 +315,8 @@ except ShareEditError as exc:
           "names no volume" in str(exc), str(exc))
 check("...nothing written", len(fake_drobo.sent) == 1, fake_drobo.sent)
 
-# Two different volumes named -> ambiguous, refuse; explicit volume= resolves it.
+# Two different volumes named -> ambiguous, refuse; explicit volume=
+# resolves it.
 TWO_VOLUME_CONFIG = _pretty_printed_share_config(
     _compact_share_with_volume("A", "Vol1")
     + _compact_share_with_volume("B", "Vol2"))
@@ -344,7 +353,8 @@ check(
     result,
 )
 
-# A volume needing XML escaping was never observed on the wire -> refused early.
+# A volume needing XML escaping was never observed on the wire ->
+# refused early.
 try:
     sharewrite.create_share(
         "127.0.0.1", SAMPLE_ESA_ID, "Fresh", volume="V<ol", port=1, timeout=1
@@ -420,7 +430,8 @@ check(
     and "<ShareName>Beta</ShareName>" in written_document,
 )
 
-# Deleting a MIDDLE pretty-printed share leaves the others byte-identical too.
+# Deleting a MIDDLE pretty-printed share leaves the others
+# byte-identical too.
 THREE_SHARE_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Alpha") + _pretty_printed_share("Beta")
     + _pretty_printed_share("Gamma"))
@@ -510,7 +521,8 @@ print(
     "are named apart =="
 )
 
-# Write accepted, verify connection refused -> ShareWriteOutcomeUnknownError, both ways.
+# Write accepted, verify connection refused ->
+# ShareWriteOutcomeUnknownError, both ways.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 try:
     sharewrite.create_share(
@@ -563,7 +575,8 @@ except ShareEditError as exc:
         str(exc),
     )
 
-# Device accepts but the read-back does not show the change -> received, not applied.
+# Device accepts but the read-back does not show the change -> received,
+# not applied.
 fake_drobo = FakeDrobo(
     [_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply(),
      _read_reply(ORIGINAL_SHARE_CONFIG)])
@@ -593,13 +606,14 @@ except ShareEditError as exc:
     check("a delete the read-back still shows raises",
           "Received, not applied" in str(exc), str(exc))
 
-# A volume name carrying an XML metacharacter. The share NAME cannot (the
-# pattern refuses it) but the VOLUME is the device's own string, read through
-# ElementTree and therefore unescaped. The captured create node carries the
-# volume as plain text and an escaped one has never been seen on the wire, so
-# the module REFUSES rather than guessing what the device's parser accepts.
-# Pinned here (2026-09-01 audit) because the obvious "fix" -- escape it --
-# would be a guessed wire format, exactly what this project does not send.
+# A volume name carrying an XML metacharacter. The share NAME cannot
+# (the pattern refuses it) but the VOLUME is the device's own string,
+# read through ElementTree and therefore unescaped. The captured create
+# node carries the volume as plain text and an escaped one has never
+# been seen on the wire, so the module REFUSES rather than guessing what
+# the device's parser accepts. Pinned here (2026-09-01 audit) because
+# the obvious "fix" -- escape it -- would be a guessed wire format,
+# exactly what this project does not send.
 print()
 print("== a volume name with & is refused, never escaped and sent ==")
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])

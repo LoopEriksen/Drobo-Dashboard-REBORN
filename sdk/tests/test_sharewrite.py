@@ -4,12 +4,13 @@ highest-stakes write in the SDK.
 
     py test_sharewrite.py
 
-The whole point of the surgical design is that changing ONE user's access on ONE
-share leaves every other byte the device's own: every other share, every other
-user, ConfigVersionBasis, UserList. So the tests assert exactly that -- not just
-that the target changed, but that nothing else did -- because a share silently
-dropped from the write would be a share gone from a device that may hold the
-only copy of somebody's data.
+The whole point of the surgical design is that changing ONE user's
+access on ONE share leaves every other byte the device's own: every
+other share, every other user, ConfigVersionBasis, UserList. So the
+tests assert exactly that -- not just that the target changed, but that
+nothing else did -- because a share silently dropped from the write
+would be a share gone from a device that may hold the only copy of
+somebody's data.
 
 Runs against a fake device on loopback. No hardware.
 """
@@ -59,17 +60,18 @@ def _compact_share(name, access_code, user="Everyone"):
 
 
 def _compact_share_config(shares_xml, version_basis="15"):
-    """A DRIShareConfig with ConfigVersionBasis and an empty UserList, the exact
-    shape the capture confirmed."""
+    """A DRIShareConfig with ConfigVersionBasis and an empty UserList,
+    the exact shape the capture confirmed."""
     return (f"<DRIShareConfig><ConfigVersionBasis>{version_basis}"
             "</ConfigVersionBasis>"
             f"<UserList /><Shares>{shares_xml}</Shares></DRIShareConfig>")
 
 
 def _read_reply(share_config_xml):
-    """A read reply in the shape the real 5N sends: DRIShareConfig nested under a
-    <DRINASConfig> wrapper inside ResultDetails (measured 2026-08-10 -- the
-    wrapper is what get_config_element must dig through)."""
+    """A read reply in the shape the real 5N sends: DRIShareConfig
+    nested under a <DRINASConfig> wrapper inside ResultDetails
+    (measured 2026-08-10 -- the wrapper is what get_config_element must
+    dig through)."""
     return (
         f"<TMCmd><CmdID>30</CmdID><ResultDetails>"
         f"<DRINASConfig>{share_config_xml}"
@@ -252,8 +254,8 @@ check(
 )
 
 print("\n== a code already on the device is allowed even if unconfirmed ==")
-# If some share already carries code 2, copying it to another is allowed --
-# it is a real code on this device, not an invented one.
+# If some share already carries code 2, copying it to another is allowed
+# -- it is a real code on this device, not an invented one.
 CONFIG_WITH_ACCESS_CODE_TWO = _compact_share_config(
     _compact_share("A", "2") + _compact_share("B", "0"))
 after_code_two_copied_config = _compact_share_config(
@@ -329,9 +331,10 @@ except ShareEditError as exc:
 print(
     "\n== duplicate/case-colliding user rows are refused, not half-changed =="
 )
-# A share whose ShareUsers holds TWO entries folding to the same name. Changing
-# the first and leaving the second is how a revoke silently half-succeeds --
-# so this must refuse before any write, and send nothing.
+# A share whose ShareUsers holds TWO entries folding to the same name.
+# Changing the first and leaving the second is how a revoke silently
+# half-succeeds -- so this must refuse before any write, and send
+# nothing.
 CASE_DUPLICATE_USERS_SHARE = (
     "<Share><ShareName>Photos</ShareName><ShareState>0</ShareState>"
     "<TimeMachineEnabled>0</TimeMachineEnabled><ShareUsers>"
@@ -366,8 +369,9 @@ except ShareEditError as exc:
 check("...and NOTHING was written -- no half-revoke on the wire",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
 
-# Verify requires EVERY matching row to equal the target: a device that reads
-# back one Everyone at 0 and a residual one at 1 must NOT report success.
+# Verify requires EVERY matching row to equal the target: a device that
+# reads back one Everyone at 0 and a residual one at 1 must NOT report
+# success.
 RESIDUAL_GRANT_SHARE = ("<Share><ShareName>Photos</ShareName><ShareUsers>"
                         "<ShareUser><ShareUsername>Everyone</ShareUsername>"
                         "<ShareUserAccess>0</ShareUserAccess></ShareUser>"
@@ -386,9 +390,9 @@ print(
     "\n== share names differing only by case: exact wins, "
     "else refuse (audit HIGH) =="
 )
-# 'Photos' and 'photos' both exist. Requesting 'photos' must hit 'photos'
-# exactly -- never the first case-insensitive match. Verified by asserting the
-# write changed the SECOND share, not the first.
+# 'Photos' and 'photos' both exist. Requesting 'photos' must hit
+# 'photos' exactly -- never the first case-insensitive match. Verified
+# by asserting the write changed the SECOND share, not the first.
 CASE_COLLIDING_CONFIG = _compact_share_config(_compact_share("Photos", "0")
                                               + _compact_share("photos", "0"))
 after_lowercase_unlock_config = _compact_share_config(
@@ -422,7 +426,8 @@ check(
     result,
 )
 
-# Requesting 'PHOTOS' -- no exact match, two folds -> refuse, send nothing.
+# Requesting 'PHOTOS' -- no exact match, two folds -> refuse, send
+# nothing.
 fake_drobo = FakeDrobo(
     [_read_reply(CASE_COLLIDING_CONFIG), _accepted_reply(),
      _read_reply(CASE_COLLIDING_CONFIG)])
@@ -445,8 +450,8 @@ except ShareEditError as exc:
     )
 check("...and nothing was written", len(fake_drobo.sent) == 1, fake_drobo.sent)
 
-# Verify must not confirm the wrong share either: read-back where 'Photos'=1
-# but the requested 'photos'=0 must be False.
+# Verify must not confirm the wrong share either: read-back where
+# 'Photos'=1 but the requested 'photos'=0 must be False.
 fake_drobo = FakeDrobo(
     [
         _read_reply(
@@ -471,7 +476,8 @@ check(
 )
 
 print("\n== a no-op write is skipped, not sent ==")
-# Row already holds the target code -> nothing on the wire, reported as unchanged.
+# Row already holds the target code -> nothing on the wire, reported as
+# unchanged.
 fake_drobo = FakeDrobo(
     [_read_reply(_compact_share_config(_compact_share("Locked", "1")))])
 result = sharewrite.set_share_user_access(
@@ -526,8 +532,9 @@ print(
     "\n== an accepted write whose verify read-back fails is named "
     "as ACCEPTED-unverified =="
 )
-# Read OK, write accepted, then the verify connection dies -> must NOT look like
-# a rejected write. Only two replies queued: the third connection is refused.
+# Read OK, write accepted, then the verify connection dies -> must NOT
+# look like a rejected write. Only two replies queued: the third
+# connection is refused.
 fake_drobo = FakeDrobo(
     [_read_reply(TWO_LOCKED_SHARES_CONFIG), _accepted_reply()])
 try:
@@ -563,8 +570,9 @@ check("...it is still a ShareEditError subclass so broad handlers catch it",
       issubclass(sharewrite.ShareWriteOutcomeUnknownError, ShareEditError))
 
 print("\n== a truncated reply is truncation, not a rejection ==")
-# A reply whose declared length exceeds what arrives must raise 'short payload',
-# not be parsed as a body lacking <Result> (which read as 'did not accept').
+# A reply whose declared length exceeds what arrives must raise 'short
+# payload', not be parsed as a body lacking <Result> (which read as 'did
+# not accept').
 truncating_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 truncating_server.bind(("127.0.0.1", 0))
 truncating_server.listen(1)

@@ -3,11 +3,11 @@ Tests for building a modified share configuration.
 
     py test_shareedit.py
 
-These matter more than most. The only way to change a share on a Drobo is
-eCmdSetConfig, which replaces the ENTIRE configuration document -- so a bug
-that drops the network block does not produce a wrong share list, it produces
-a Drobo that is no longer on the network, on hardware with no vendor recovery
-tool left.
+These matter more than most. The only way to change a share on a Drobo
+is eCmdSetConfig, which replaces the ENTIRE configuration document -- so
+a bug that drops the network block does not produce a wrong share list,
+it produces a Drobo that is no longer on the network, on hardware with
+no vendor recovery tool left.
 
 So the tests below spend most of their effort on what must NOT happen.
 
@@ -33,8 +33,8 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-# Shaped exactly like the live device's reply, including the quirk that one
-# user arrives as a dict and several as a list.
+# Shaped exactly like the live device's reply, including the quirk that
+# one user arrives as a dict and several as a list.
 DEVICE_CONFIG = {
     "DRINASConfig": {
         "DRINasNetworkConfig": {
@@ -110,8 +110,8 @@ check(
     revoked_documents_share["ShareUsers"]["ShareUser"]["ShareUserAccess"]
     == "0",
 )
-# Deliberate: the row stays. We cannot interpret access codes, so we could not
-# faithfully restore a deleted one.
+# Deliberate: the row stays. We cannot interpret access codes, so we
+# could not faithfully restore a deleted one.
 check("revoking does NOT delete the user row",
       revoked_documents_share["ShareUsers"]["ShareUser"]["ShareUsername"]
       == "Everyone", revoked_documents_share)
@@ -124,8 +124,9 @@ check("no share disappeared",
       shareedit.share_names(private_granted_config)
       == shareedit.share_names(DEVICE_CONFIG))
 
-# The central refusal. Code 2's meaning is still unconfirmed (only 0 and 1 are
-# known), and it is not on this device, so it is not something to send.
+# The central refusal. Code 2's meaning is still unconfirmed (only 0 and
+# 1 are known), and it is not on this device, so it is not something to
+# send.
 try:
     shareedit.set_user_access(DEVICE_CONFIG, "Documents", "Everyone", "2")
     check("an unconfirmed, unseen access code is refused", False)
@@ -143,9 +144,10 @@ check("code 0 is always allowed -- it is the one we are surest of",
       shareedit.set_user_access(DEVICE_CONFIG, "Documents", "Everyone", "0")
       is not None)
 
-# The capability that actually unlocks a locked share: code 1 (read/write) is
-# CONFIRMED, so it may be set even on a device whose shares are ALL zero and
-# thus have no non-zero code to copy -- the case this capability exists for.
+# The capability that actually unlocks a locked share: code 1
+# (read/write) is CONFIRMED, so it may be set even on a device whose
+# shares are ALL zero and thus have no non-zero code to copy -- the case
+# this capability exists for.
 ALL_ZERO_CONFIG = {
     "DRINASConfig": {
         "DRIShareConfig": {

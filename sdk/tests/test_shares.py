@@ -4,10 +4,11 @@ Tests for the share list -- the "open my files" path.
 Runs entirely offline. The fixtures are the exact shape a live Drobo 5N
 returned on 2026-07-26, with the share names and addresses changed.
 
-The interesting cases here are the awkward ones: a share with one user versus
-several (the XML->dict conversion gives a dict for one and a list for many), a
-share with no users at all, and an access code the device emits that we have
-never seen before -- which must be reported honestly rather than guessed at.
+The interesting cases here are the awkward ones: a share with one user
+versus several (the XML->dict conversion gives a dict for one and a list
+for many), a share with no users at all, and an access code the device
+emits that we have never seen before -- which must be reported honestly
+rather than guessed at.
 
     py test_shares.py
 """
@@ -32,7 +33,8 @@ def check(label, condition, failure_detail=""):
 
 HOST = "10.0.0.5"
 
-# Two shares, each with a single ShareUser -> the conversion yields a dict.
+# Two shares, each with a single ShareUser -> the conversion yields a
+# dict.
 TWO_SHARES = {"DRINASConfig": {"DRIShareConfig": {
     "ConfigVersionBasis": "14",
     "Shares": {"Share": [
@@ -56,10 +58,11 @@ check("UNC path is built for Windows",
 check("Time Machine flag read", share_summaries[0]["time_machine"] is False
       and share_summaries[1]["time_machine"] is True,
       [s["time_machine"] for s in share_summaries])
-# Code 1 is CONFIRMED as read/write: a capture of Drobo Dashboard 3.5.0 on
-# 2026-08-05 showed a share the maintainer states is set to Read/Write carrying
-# ShareUserAccess=1. Code 0 stays labelled by its number -- see ACCESS_LEVELS
-# for why an intention ("supposed to be read") was not treated as a measurement.
+# Code 1 is CONFIRMED as read/write: a capture of Drobo Dashboard 3.5.0
+# on 2026-08-05 showed a share the maintainer states is set to
+# Read/Write carrying ShareUserAccess=1. Code 0 stays labelled by its
+# number -- see ACCESS_LEVELS for why an intention ("supposed to be
+# read") was not treated as a measurement.
 check("Everyone access surfaced, using the confirmed meaning of code 1",
       share_summaries[0]["everyone"] == "read/write (code 1)",
       share_summaries[0]["everyone"])
@@ -162,10 +165,10 @@ check("...and a UI is not told to disable anything",
 
 
 print("\n== reading the device's user accounts ==")
-# The empty case is CONFIRMED -- it is what this project's own 5N returns.
-# The populated case is inference: a UserList with users in it has never been
-# observed, so user_accounts() is written to say "I don't know" rather than
-# guess wrong. These tests pin that distinction down.
+# The empty case is CONFIRMED -- it is what this project's own 5N
+# returns. The populated case is inference: a UserList with users in it
+# has never been observed, so user_accounts() is written to say "I don't
+# know" rather than guess wrong. These tests pin that distinction down.
 SELF_CLOSING_USER_LIST = {"DRIShareConfig": {"UserList": None, "Shares": {}}}
 EMPTY_STRING_USER_LIST = {"DRIShareConfig": {"UserList": "", "Shares": {}}}
 check(
@@ -206,9 +209,9 @@ check(
 
 
 print("\n== advice when the Drobo has no accounts to sign in with ==")
-# The bug this fixes: the old text told everyone to "connect with your Drobo
-# user name", which on a device with zero accounts is a door with nothing
-# behind it.
+# The bug this fixes: the old text told everyone to "connect with your
+# Drobo user name", which on a device with zero accounts is a door with
+# nothing behind it.
 no_accounts_advice = shares.access_advice(share_summaries, [])
 check(
     "the headline stops promising a sign-in will work",
@@ -252,8 +255,9 @@ check("...and does not disable a control for no reason",
 
 
 print("\n== and the second, separate problem: unconfirmed access codes ==")
-# Alpha is code 1 (confirmed read/write); Beta is code 0 (not confirmed). Only
-# Beta should be called out, or the warning becomes noise.
+# Alpha is code 1 (confirmed read/write); Beta is code 0 (not
+# confirmed). Only Beta should be called out, or the warning becomes
+# noise.
 check("only the unconfirmed share is named",
       "Beta is currently set to" in no_accounts_advice["detail"],
       no_accounts_advice["detail"])

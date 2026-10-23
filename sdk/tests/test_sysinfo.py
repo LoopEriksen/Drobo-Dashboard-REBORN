@@ -1,12 +1,12 @@
 """
 Tests for eCmdGetSysInfo -- the Drobo's own temperature and uptime.
 
-The fixture is the real reply from a live 5N on 2026-07-26, byte for byte
-apart from the uptime, which is a synthetic value. The important thing it
-captures is the *escaping*: the device puts an entity-escaped XML document
-inside <ResultDetails>, not real child elements, and reading it as though it
-were plain XML is exactly the mistake that made this command look broken for
-weeks.
+The fixture is the real reply from a live 5N on 2026-07-26, byte for
+byte apart from the uptime, which is a synthetic value. The important
+thing it captures is the *escaping*: the device puts an entity-escaped
+XML document inside <ResultDetails>, not real child elements, and
+reading it as though it were plain XML is exactly the mistake that made
+this command look broken for weeks.
 
     py test_sysinfo.py
 """
@@ -140,10 +140,11 @@ check("SysInfoError is catchable as ConfigError (callers already handle that)",
 
 
 # ---------------------------------------------------------------------------
-# eCmdGetPerformance -- added 2026-07-26, after the re-sweep found this command
-# answers on a plain login. The first sweep filed it as "empty" only because
-# its whole payload arrives as an entity-escaped document, which the tool
-# counted as zero fields. Same blind spot that hid temperature.
+# eCmdGetPerformance -- added 2026-07-26, after the re-sweep found this
+# command answers on a plain login. The first sweep filed it as "empty"
+# only because its whole payload arrives as an entity-escaped document,
+# which the tool counted as zero fields. Same blind spot that hid
+# temperature.
 # ---------------------------------------------------------------------------
 print("\n== eCmdGetPerformance ==")
 
@@ -169,8 +170,8 @@ check("write throughput parsed", performance["write_mb_per_s"] == 789,
 check("iops parsed", performance["iops"] == 12, performance)
 check("tier iops parsed", performance["tier_iops"] == 4, performance)
 
-# An idle array really does send all zeros. That is a READING, not a gap --
-# the driver relies on being able to tell those apart.
+# An idle array really does send all zeros. That is a READING, not a gap
+# -- the driver relies on being able to tell those apart.
 idle_performance = sysinfo.parse_performance(
     _performance_reply(
         "<Performance><Iops>0</Iops><ReadThroughout>0</ReadThroughout>"
@@ -182,8 +183,8 @@ check("an idle array's zeros parse as 0, not None",
       idle_performance["iops"] == 0 and idle_performance["read_mb_per_s"] == 0,
       idle_performance)
 
-# The device also sometimes answers with real child elements rather than an
-# escaped document; both shapes must work.
+# The device also sometimes answers with real child elements rather than
+# an escaped document; both shapes must work.
 plain_performance = sysinfo.parse_performance(
     b"<TMCmd><ResultDetails><Performance><Iops>7</Iops>"
     b"<ReadThroughout>10</ReadThroughout></Performance>"
@@ -231,10 +232,10 @@ check("eCmdGetPerformance is resolved by NAME and is not a write",
       and "eCmdGetPerformance" not in commands.DO_NOT_SEND)
 
 print("\n== eCmdGetDemoModeInfo: is this unit showing fabricated capacity? ==")
-# One of the seven commands that answers with real data. Obscure, and worth
-# having for exactly one reason: a Drobo left in shop-display mode reports
-# capacity it does not have, and every number this project shows would be a
-# lie with nothing else to catch it.
+# One of the seven commands that answers with real data. Obscure, and
+# worth having for exactly one reason: a Drobo left in shop-display mode
+# reports capacity it does not have, and every number this project shows
+# would be a lie with nothing else to catch it.
 
 
 def _result_reply(inner_xml: str) -> bytes:
@@ -268,8 +269,8 @@ check(
     demo_on_reading,
 )
 
-# "Didn't say" is not "off". Defaulting an absent field to False would quietly
-# assert a unit is genuine when we simply have not been told.
+# "Didn't say" is not "off". Defaulting an absent field to False would
+# quietly assert a unit is genuine when we simply have not been told.
 for payload in (
     b"",
     _result_reply(""),
