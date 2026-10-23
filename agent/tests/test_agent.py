@@ -12,16 +12,19 @@ Drobo is contacted.
 Run this after changing anything under drobo_agent/ -- especially before
 switching the driver over to the real Drobo 5N.
 """
-import atexit, contextlib, hashlib, io, json, os, shutil, socket, sys, tempfile, threading, time, urllib.request, urllib.error
+import atexit, contextlib, hashlib, io, json, os, shutil, socket, sys, \
+    tempfile, threading, time, urllib.request, urllib.error  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from drobo_agent import api, config, drivers, notify, qr
-from drobo_agent.models import Capacity, DeviceInfo, DriveSlot, PackHealth, SEVERITY_CRITICAL, Snapshot
-from drobo_agent.monitor import Monitor, _PACK_STATUS_BASELINE
-from drobo_agent.photos import PhotoStore
-from drobo_nasd import config_cmd, discovery, droboapps, drobosync
-from drobo_nasd import esatm, eventlog, netcheck, sysinfo
+from drobo_agent import api, config, drivers, notify, qr  # noqa: E402
+from drobo_agent.models import (  # noqa: E402
+    Capacity, DeviceInfo, DriveSlot, PackHealth, SEVERITY_CRITICAL, Snapshot)
+from drobo_agent.monitor import Monitor, _PACK_STATUS_BASELINE  # noqa: E402
+from drobo_agent.photos import PhotoStore  # noqa: E402
+from drobo_nasd import (  # noqa: E402
+    config_cmd, discovery, droboapps, drobosync)
+from drobo_nasd import esatm, eventlog, netcheck, sysinfo  # noqa: E402
 
 temp_dir = tempfile.mkdtemp(prefix="droboagent-")
 # Removed when the script exits, however it exits: a failed check or an
@@ -52,16 +55,19 @@ TOKEN = agent_config["agent"]["token"]
 BASE_URL = "http://127.0.0.1:7431"
 
 monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
-photo_store = PhotoStore(agent_config["photos"]); photo_store.load()
+photo_store = PhotoStore(agent_config["photos"])
+photo_store.load()
 monitor.start()
 http_server = api.serve(agent_config, monitor, photo_store)
 threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.2)
 
+
 def call(path, data=None, headers=None, method=None, raw=False):
     request_headers = {"X-Agent-Token": TOKEN}
     request_headers.update(headers or {})
-    request = urllib.request.Request(BASE_URL + path, data=data, headers=request_headers, method=method)
+    request = urllib.request.Request(
+        BASE_URL + path, data=data, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             body = response.read()
@@ -69,10 +75,17 @@ def call(path, data=None, headers=None, method=None, raw=False):
     except urllib.error.HTTPError as http_error:
         return http_error.code, json.loads(http_error.read())
 
+
 failures = []
+
+
 def check(label, condition, failure_detail=""):
-    print(("  PASS  " if condition else "  FAIL  ") + label + ("  " + str(failure_detail) if failure_detail and not condition else ""))
-    if not condition: failures.append(label)
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + ("  " + str(failure_detail)
+             if failure_detail and not condition else ""))
+    if not condition:
+        failures.append(label)
+
 
 print("\n== auth ==")
 status, reply = call("/api/ping")
@@ -124,11 +137,16 @@ _events_socket.sendall(
 _response_head, _deadline = b"", time.time() + 10
 while b"\r\n\r\n" not in _response_head and time.time() < _deadline:
     _chunk = _events_socket.recv(256)
-    if not _chunk: break
+    if not _chunk:
+        break
     _response_head += _chunk
 _events_socket.close()
-check("/api/events still takes a query token", b" 200 " in _response_head.split(b"\r\n")[0], _response_head[:80])
-check("-- and it is still an event stream", b"text/event-stream" in _response_head, _response_head[:120])
+check("/api/events still takes a query token",
+      b" 200 " in _response_head.split(b"\r\n")[0],
+      _response_head[:80])
+check("-- and it is still an event stream",
+      b"text/event-stream" in _response_head,
+      _response_head[:120])
 
 print("\n== telemetry ==")
 status, reply = call("/api/status")
@@ -138,10 +156,12 @@ check("5 bays reported", len(reply["drives"]) == 5,
 check("overall ok", reply["overall_state"] == "ok", reply["overall_state"])
 check("model is 5N", reply["device"]["model"] == "Drobo 5N",
       reply["device"]["model"])
-status, reply = call("/api/capacity"); check("capacity has used_fraction", "used_fraction" in reply, reply)
+status, reply = call("/api/capacity")
+check("capacity has used_fraction", "used_fraction" in reply, reply)
 status, reply = call("/api/drives")
 check("drives endpoint", len(reply["drives"]) == 5)
-status, reply = call("/api/history"); check("history accumulating", len(reply["points"]) >= 1, len(reply["points"]))
+status, reply = call("/api/history")
+check("history accumulating", len(reply["points"]) >= 1, len(reply["points"]))
 
 print("\n== alerts via fault injection ==")
 status, reply = call("/api/mock/fail/3", data=b"", method="POST")
@@ -157,15 +177,20 @@ check("severity critical", severities == ["critical"], severities)
 status, reply = call("/api/mock/reset", data=b"", method="POST")
 time.sleep(0.3)
 status, reply = call("/api/alerts")
-check("alert cleared after reset", not [a for a in reply["alerts"] if a["key"] == "drive-failed-3"], reply["alerts"])
+check("alert cleared after reset",
+      not [a for a in reply["alerts"] if a["key"] == "drive-failed-3"],
+      reply["alerts"])
 status, reply = call("/api/alerts?all=1")
-check("cleared alert kept in history", any(a["key"] == "drive-failed-3" for a in reply["alerts"]))
+check("cleared alert kept in history",
+      any(a["key"] == "drive-failed-3" for a in reply["alerts"]))
 
 print("\n== Phase 1 scope additions (health telemetry) ==")
 status, reply = call("/api/battery")
 check("battery endpoint 200", status == 200, reply)
 check("battery state ok by default", reply.get("state") == "ok", reply)
-check("battery has a charge_pct", isinstance(reply.get("charge_pct"), (int, float)), reply)
+check("battery has a charge_pct",
+      isinstance(reply.get("charge_pct"), (int, float)),
+      reply)
 
 status, reply = call("/api/eventlog")
 check("eventlog endpoint 200", status == 200, reply)
@@ -182,7 +207,9 @@ check("performance says when it was measured",
 
 status, reply = call("/api/status")
 check("status carries battery/fan/power/performance",
-      all(k in reply for k in ("battery", "fan", "power", "performance", "event_log")), reply)
+      all(k in reply
+          for k in ("battery", "fan", "power", "performance", "event_log")),
+      reply)
 
 print("\n== health: /api/health (pack-level values) ==")
 status, reply = call("/api/health")
@@ -191,12 +218,15 @@ check("health endpoint 200", status == 200, reply)
 # these should all be sitting at their honest "not reported" defaults.
 check("health relayout_count defaults to 0", reply.get("relayout_count") == 0,
       reply)
-check("health double_degraded_count defaults to 0", reply.get("double_degraded_count") == 0, reply)
+check("health double_degraded_count defaults to 0",
+      reply.get("double_degraded_count") == 0,
+      reply)
 check("health opaque status codes default to null, not a made-up value",
       reply.get("disk_pack_status") is None
       and reply.get("device_status") is None, reply)
 
-print("\n== health: alert rules via monitor._evaluate_alerts() on constructed Snapshots ==")
+print("\n== health: alert rules via monitor._evaluate_alerts() on "
+      "constructed Snapshots ==")
 
 
 def make_snapshot(**overrides):
@@ -215,17 +245,20 @@ def make_snapshot(**overrides):
 with monitor._lock:
     fired = monitor._evaluate_alerts(make_snapshot(
         drives=[DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1,
-                           error_count=3, model="TestDisk")]))
+                          error_count=3, model="TestDisk")]))
 keys = [a.key for a in fired]
-check("drive error_count > 0 raises a warning naming the bay", "drive-errors-1" in keys, keys)
+check("drive error_count > 0 raises a warning naming the bay",
+      "drive-errors-1" in keys, keys)
 severities = [a.severity for a in fired if a.key == "drive-errors-1"]
 check("drive error alert severity is warning", severities == ["warning"],
       severities)
 
 with monitor._lock:
-    fired = monitor._evaluate_alerts(make_snapshot(pack_health=PackHealth(double_degraded_count=2)))
+    fired = monitor._evaluate_alerts(
+        make_snapshot(pack_health=PackHealth(double_degraded_count=2)))
 keys = [a.key for a in fired]
-check("double_degraded_count > 0 raises a critical alert", "double-degraded" in keys, keys)
+check("double_degraded_count > 0 raises a critical alert",
+      "double-degraded" in keys, keys)
 severities = [a.severity for a in fired if a.key == "double-degraded"]
 check("double-degraded severity is critical", severities == ["critical"],
       severities)
@@ -240,8 +273,10 @@ check("relayout alert severity is info (this is normal)",
       severities == ["info"], severities)
 
 with monitor._lock:
-    fired = monitor._evaluate_alerts(make_snapshot(
-        pack_health=PackHealth(disk_pack_status=1, dnas_status=6, device_status=98304, status_ex=0)))
+    fired = monitor._evaluate_alerts(
+        make_snapshot(pack_health=PackHealth(
+            disk_pack_status=1, dnas_status=6, device_status=98304,
+            status_ex=0)))
 keys = [a.key for a in fired]
 check("pack status deviating from the healthy baseline raises a warning",
       "pack-status-disk_pack_status" in keys, keys)
@@ -251,28 +286,36 @@ check("pack status deviation severity is warning", severities == ["warning"],
       severities)
 messages = [a.message for a in fired if a.key
             == "pack-status-disk_pack_status"]
-check("pack status message quotes old and new values without interpreting them",
-      messages and "0" in messages[0] and "1" in messages[0], messages)
+check("pack status message quotes old and new values "
+      "without interpreting them",
+      messages and "0" in messages[0] and "1" in messages[0],
+      messages)
 
 with monitor._lock:
-    fired = monitor._evaluate_alerts(make_snapshot(
-        pack_health=PackHealth(disk_pack_status=0, dnas_status=6, device_status=98304, status_ex=0)))
+    fired = monitor._evaluate_alerts(
+        make_snapshot(pack_health=PackHealth(
+            disk_pack_status=0, dnas_status=6, device_status=98304,
+            status_ex=0)))
 keys = [a.key for a in fired]
 # Newly-*raised* pack-status alerts, as opposed to the "...-cleared" notice
 # this call is expected to emit for the deviation the previous snapshot fired.
-check("pack status matching the healthy baseline raises no new deviation alert",
-      not any(k.startswith("pack-status-") and not k.endswith("-cleared") for k in keys), keys)
+check("pack status matching the healthy baseline "
+      "raises no new deviation alert",
+      not any(k.startswith("pack-status-") and not k.endswith("-cleared")
+              for k in keys), keys)
 check("matching the baseline clears the previous deviation alert",
       "pack-status-disk_pack_status-cleared" in keys, keys)
 
 # The device's own capacity thresholds must be preferred over our config
 # defaults (0.85/0.95) when the greeting reports them.
 with monitor._lock:
-    fired = monitor._evaluate_alerts(make_snapshot(
-        capacity=Capacity(usable_bytes=100, used_bytes=40),
-        pack_health=PackHealth(yellow_threshold_fraction=0.3, red_threshold_fraction=0.9)))
+    fired = monitor._evaluate_alerts(
+        make_snapshot(capacity=Capacity(usable_bytes=100, used_bytes=40),
+                      pack_health=PackHealth(yellow_threshold_fraction=0.3,
+                                             red_threshold_fraction=0.9)))
 keys = [a.key for a in fired]
-check("device's own (lower) yellow threshold is honoured over the 0.85 config default",
+check("device's own (lower) yellow threshold is honoured over the 0.85 "
+      "config default",
       "capacity-warning" in keys, keys)
 
 print("\n== absent pack-status fields raise no false alarm ==")
@@ -313,9 +356,10 @@ check("...but a present field that deviates still does",
 # empty list and failed for exactly that reason -- the assertion was wrong,
 # not the code.
 with monitor._lock:
-    fired = monitor._evaluate_alerts(make_snapshot(pack_health=PackHealth(**_PACK_STATUS_BASELINE)))
-new_alarms = [a.key for a in fired
-              if a.key.startswith("pack-status-") and not a.key.endswith("-cleared")]
+    fired = monitor._evaluate_alerts(
+        make_snapshot(pack_health=PackHealth(**_PACK_STATUS_BASELINE)))
+new_alarms = [a.key for a in fired if a.key.startswith("pack-status-")
+              and not a.key.endswith("-cleared")]
 check("a pack matching the healthy baseline exactly raises no NEW alert",
       new_alarms == [], new_alarms)
 check("...and returning to baseline resolves the earlier one",
@@ -335,7 +379,9 @@ _critical_threshold_c = agent_config["alerts"]["temperature_critical_c"]
 def chassis_alerts(temperature_c):
     snapshot = monitor.driver.read_snapshot()
     snapshot.device.temperature_c = temperature_c
-    return {a.key: a for a in monitor._evaluate_alerts(snapshot) if a.key.startswith("chassis-temp")}
+    return {a.key: a
+            for a in monitor._evaluate_alerts(snapshot)
+            if a.key.startswith("chassis-temp")}
 
 
 check("no reading -> no alert (never invent a temperature)",
@@ -392,7 +438,9 @@ status, reply = call("/api/mock/reset", data=b"", method="POST")
 time.sleep(0.3)
 status, reply = call("/api/alerts")
 check("battery alert cleared after reset",
-      not [a for a in reply["alerts"] if a["key"] in ("battery-warning", "battery-failed")],
+      not [a
+           for a in reply["alerts"]
+           if a["key"] in ("battery-warning", "battery-failed")],
       reply["alerts"])
 status, reply = call("/api/battery")
 check("battery back to ok after reset", reply.get("state") == "ok", reply)
@@ -407,7 +455,9 @@ call("/api/mock/reset", data=b"", method="POST")
 print("\n== photo backup ==")
 jpeg_bytes = b"\xff\xd8\xff\xe0" + os.urandom(4096)
 jpeg_sha256 = hashlib.sha256(jpeg_bytes).hexdigest()
-status, reply = call("/api/photos/have", data=json.dumps({"hashes": [jpeg_sha256]}).encode(), method="POST")
+status, reply = call("/api/photos/have",
+                     data=json.dumps({"hashes": [jpeg_sha256]}).encode(),
+                     method="POST")
 check("unseen hash reported missing", reply["missing"] == [jpeg_sha256], reply)
 status, reply = call("/api/photos", data=jpeg_bytes, method="POST",
                      headers={"X-Filename": "IMG_0042.JPG",
@@ -416,15 +466,26 @@ check("upload stored", status == 200 and reply["status"] == "stored", reply)
 check("filed by date", reply["path"].startswith("2023/2023-11"),
       reply.get("path"))
 stored_at = os.path.join(photo_dir, reply["path"].replace("/", os.sep))
-check("file actually on disk", os.path.exists(stored_at) and os.path.getsize(stored_at) == len(jpeg_bytes))
-status, duplicate_reply = call("/api/photos", data=jpeg_bytes, method="POST", headers={"X-Filename": "IMG_0042.JPG"})
+check("file actually on disk",
+      os.path.exists(stored_at)
+      and os.path.getsize(stored_at) == len(jpeg_bytes))
+status, duplicate_reply = call(
+    "/api/photos",
+    data=jpeg_bytes,
+    method="POST",
+    headers={"X-Filename": "IMG_0042.JPG"})
 check("re-upload deduped", duplicate_reply["status"] == "duplicate",
       duplicate_reply)
-status, reply = call("/api/photos/have", data=json.dumps({"hashes": [jpeg_sha256]}).encode(), method="POST")
+status, reply = call("/api/photos/have",
+                     data=json.dumps({"hashes": [jpeg_sha256]}).encode(),
+                     method="POST")
 check("known hash no longer missing", reply["missing"] == [], reply)
 
 print("\n== photo safety ==")
-status, reply = call("/api/photos", data=b"hello", method="POST", headers={"X-Filename": "notes.txt"})
+status, reply = call("/api/photos",
+                     data=b"hello",
+                     method="POST",
+                     headers={"X-Filename": "notes.txt"})
 check("rejects disallowed type", status == 400, reply)
 traversal_jpeg = b"\xff\xd8\xff\xe0" + os.urandom(64)
 status, reply = call("/api/photos", data=traversal_jpeg, method="POST",
@@ -432,8 +493,13 @@ status, reply = call("/api/photos", data=traversal_jpeg, method="POST",
 check("path traversal neutralised",
       status == 200 and ".." not in reply["path"], reply)
 resolved_path = os.path.abspath(os.path.join(photo_dir, reply["path"]))
-check("stayed inside target dir", resolved_path.startswith(os.path.abspath(photo_dir)), resolved_path)
-status, reply = call("/api/photos", data=b"\xff\xd8\xff\xe0", method="POST", headers={"X-Filename": ""})
+check("stayed inside target dir",
+      resolved_path.startswith(os.path.abspath(photo_dir)),
+      resolved_path)
+status, reply = call("/api/photos",
+                     data=b"\xff\xd8\xff\xe0",
+                     method="POST",
+                     headers={"X-Filename": ""})
 check("missing filename rejected", status == 400, reply)
 
 print("\n== name collision ==")
@@ -441,7 +507,9 @@ same_name_jpeg = b"\xff\xd8\xff\xe0" + os.urandom(2048)
 status, reply = call("/api/photos", data=same_name_jpeg, method="POST",
                      headers={"X-Filename": "IMG_0042.JPG",
                               "X-Taken-At": "1700000000"})
-check("same name different content kept separately", status == 200 and reply["status"] == "stored" and "~1" in reply["path"], reply)
+check("same name different content kept separately",
+      status == 200 and reply["status"] == "stored" and "~1" in reply["path"],
+      reply)
 
 print("\n== chunked video upload ==")
 video = b"\x00\x00\x00\x18ftypmp42" + os.urandom(300_000)
@@ -449,7 +517,9 @@ video_sha256 = hashlib.sha256(video).hexdigest()
 status, reply = call("/api/photos/begin", method="POST", data=json.dumps(
     {"filename": "IMG_7788.MOV", "size": len(video),
      "sha256": video_sha256, "taken_at": 1700000000}).encode())
-check("begin accepted", status == 200 and reply["status"] == "ready" and reply["received"] == 0, reply)
+check("begin accepted",
+      status == 200 and reply["status"] == "ready" and reply["received"] == 0,
+      reply)
 
 CHUNK_SIZE = 100_000
 status, reply = call("/api/photos/chunk", method="POST",
@@ -464,7 +534,8 @@ check("second chunk stored", reply.get("received") == CHUNK_SIZE * 2, reply)
 
 # simulate iOS suspending the app: the phone forgets where it was
 status, reply = call("/api/photos/begin", method="POST", data=json.dumps(
-    {"filename": "IMG_7788.MOV", "size": len(video), "sha256": video_sha256}).encode())
+    {"filename": "IMG_7788.MOV", "size": len(video),
+     "sha256": video_sha256}).encode())
 check("resume reports bytes already held",
       reply.get("received") == CHUNK_SIZE * 2, reply)
 status, reply = call("/api/photos/session?id=" + video_sha256)
@@ -477,7 +548,9 @@ check("wrong offset refused, reports true position",
       reply.get("status") == "offset-mismatch" and reply.get("received")
       == CHUNK_SIZE * 2, reply)
 
-status, reply = call("/api/photos/finish", method="POST", headers={"X-Upload-Id": video_sha256})
+status, reply = call("/api/photos/finish",
+                     method="POST",
+                     headers={"X-Upload-Id": video_sha256})
 check("finish refuses an incomplete file", reply.get("status") == "incomplete",
       reply)
 
@@ -486,15 +559,22 @@ status, reply = call("/api/photos/chunk", method="POST",
                      headers={"X-Upload-Id": video_sha256,
                               "X-Offset": str(CHUNK_SIZE * 2)})
 check("final chunk completes", reply.get("complete") is True, reply)
-status, reply = call("/api/photos/finish", method="POST", headers={"X-Upload-Id": video_sha256})
+status, reply = call("/api/photos/finish",
+                     method="POST",
+                     headers={"X-Upload-Id": video_sha256})
 check("finish stores the video", status == 200 and reply["status"] == "stored",
       reply)
 video_path = os.path.join(photo_dir, reply["path"].replace("/", os.sep))
 check("video on disk, byte-identical",
       os.path.exists(video_path) and open(video_path, "rb").read() == video)
-check("video filed by date", reply["path"].startswith("2023/2023-11"), reply.get("path"))
-status, reply = call("/api/photos/begin", method="POST", data=json.dumps(
-    {"filename": "IMG_7788.MOV", "size": len(video), "sha256": video_sha256}).encode())
+check("video filed by date",
+      reply["path"].startswith("2023/2023-11"),
+      reply.get("path"))
+status, reply = call("/api/photos/begin",
+                     method="POST",
+                     data=json.dumps({"filename": "IMG_7788.MOV",
+                                      "size": len(video),
+                                      "sha256": video_sha256}).encode())
 check("re-offering a stored video is deduped", reply["status"] == "duplicate",
       reply)
 
@@ -506,8 +586,12 @@ call("/api/photos/begin", method="POST", data=json.dumps(
      "sha256": claimed_sha256}).encode())
 call("/api/photos/chunk", method="POST", data=mismatched_bytes,
      headers={"X-Upload-Id": claimed_sha256, "X-Offset": "0"})
-status, reply = call("/api/photos/finish", method="POST", headers={"X-Upload-Id": claimed_sha256})
-check("mismatched hash rejected", status == 400 and "sha256" in reply.get("error", ""), reply)
+status, reply = call("/api/photos/finish",
+                     method="POST",
+                     headers={"X-Upload-Id": claimed_sha256})
+check("mismatched hash rejected",
+      status == 400 and "sha256" in reply.get("error", ""),
+      reply)
 status, reply = call("/api/photos/begin", method="POST", data=json.dumps(
     {"filename": "notes.txt", "size": 10, "sha256": "a" * 64}).encode())
 check("chunked path enforces file types", status == 400, reply)
@@ -520,14 +604,20 @@ check("chunk without begin rejected", status == 400, reply)
 
 print("\n== pairing ==")
 status, reply = call("/api/pair")
-check("pair returns url and token", status == 200 and reply["token"] == TOKEN and "url" in reply, reply)
-check("pair url is not loopback", "127.0.0.1" not in reply["url"] or True, reply["url"])
+check("pair returns url and token",
+      status == 200 and reply["token"] == TOKEN and "url" in reply,
+      reply)
+check("pair url is not loopback",
+      "127.0.0.1" not in reply["url"] or True,
+      reply["url"])
 
 check("qr generator poly nsym=10 matches spec",
-      qr._generator_polynomial(10) == [1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193],
+      qr._generator_polynomial(10) == [
+          1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193],
       qr._generator_polynomial(10))
 check("qr generator poly nsym=7 matches spec",
-      qr._generator_polynomial(7) == [1, 127, 122, 154, 164, 11, 68, 117], qr._generator_polynomial(7))
+      qr._generator_polynomial(7) == [1, 127, 122, 154, 164, 11, 68, 117],
+      qr._generator_polynomial(7))
 
 
 def _expected_format_bits(mask):
@@ -544,9 +634,13 @@ check("qr format bits match spec BCH for all 8 masks",
 
 _pairing_matrix = qr.matrix("http://10.0.0.50:7420/?token=" + "A" * 32)
 _matrix_size = len(_pairing_matrix)
-_FINDER_PATTERN = [[1,1,1,1,1,1,1],[1,0,0,0,0,0,1],[1,0,1,1,1,0,1],
-                   [1,0,1,1,1,0,1],[1,0,1,1,1,0,1],[1,0,0,0,0,0,1],
-                   [1,1,1,1,1,1,1]]
+_FINDER_PATTERN = [[1, 1, 1, 1, 1, 1, 1],
+                   [1, 0, 0, 0, 0, 0, 1],
+                   [1, 0, 1, 1, 1, 0, 1],
+                   [1, 0, 1, 1, 1, 0, 1],
+                   [1, 0, 1, 1, 1, 0, 1],
+                   [1, 0, 0, 0, 0, 0, 1],
+                   [1, 1, 1, 1, 1, 1, 1]]
 check("qr matrix is square, correct size",
       all(len(row) == _matrix_size for row in _pairing_matrix)
       and (_matrix_size - 17) % 4 == 0, _matrix_size)
@@ -562,10 +656,14 @@ check("qr timing patterns correct",
 check("qr dark module set", _pairing_matrix[_matrix_size - 8][8] == 1)
 
 status, reply = call("/api/pair.svg", raw=True)
-check("pair.svg served", status == 200 and reply.startswith(b"<svg") and reply.endswith(b"</svg>"))
+check("pair.svg served",
+      status == 200
+      and reply.startswith(b"<svg")
+      and reply.endswith(b"</svg>"))
 check("pair.svg has no external refs", b"href" not in reply)
 try:
-    urllib.request.urlopen(urllib.request.Request(BASE_URL + "/api/pair.svg"), timeout=5)
+    urllib.request.urlopen(urllib.request.Request(BASE_URL + "/api/pair.svg"),
+                           timeout=5)
     check("pair.svg requires a token", False)
 except urllib.error.HTTPError as http_error:
     check("pair.svg requires a token", http_error.code == 401, http_error.code)
@@ -622,7 +720,8 @@ def qr_decode(matrix):
     for i in range(max(block_lengths)):
         for block_index, block_length in enumerate(block_lengths):
             if i < block_length:
-                blocks[block_index].append(codewords[position]); position += 1
+                blocks[block_index].append(codewords[position])
+                position += 1
     data_codewords = [codeword for block in blocks for codeword in block]
 
     data_bits = []
@@ -644,7 +743,8 @@ def qr_decode(matrix):
     return mode, mask, bytes(decoded)
 
 
-for payload in ['{"url":"http://192.0.2.50:7420","token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+for payload in ['{"url":"http://192.0.2.50:7420",'
+                '"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
                 "short", "x" * 180, "x" * 213]:
     matrix = qr.matrix(payload)
     mode, mask, decoded_payload = qr_decode(matrix)
@@ -669,26 +769,34 @@ print("\n== index persistence ==")
 photo_store.flush()
 index_path = os.path.join(photo_dir, ".drobo-agent-photo-index.json")
 check("index written", os.path.exists(index_path))
-reloaded_store = PhotoStore(agent_config["photos"]); reloaded_store.load()
+reloaded_store = PhotoStore(agent_config["photos"])
+reloaded_store.load()
 check("index reloads", reloaded_store.missing([jpeg_sha256]) == [],
       reloaded_store.missing([jpeg_sha256]))
 
 print("\n== web dashboard ==")
 status, reply = call("/", raw=True)
-check("dashboard served without a token", status == 200 and b"<!doctype html>" in reply.lower())
-check("dashboard has no data baked in", b"MOCK-5N-0001" not in reply and b"ST4000" not in reply)
-check("dashboard wires up the API", b"/api/status" in reply and b"/api/events" in reply)
+check("dashboard served without a token",
+      status == 200 and b"<!doctype html>" in reply.lower())
+check("dashboard has no data baked in",
+      b"MOCK-5N-0001" not in reply and b"ST4000" not in reply)
+check("dashboard wires up the API",
+      b"/api/status" in reply and b"/api/events" in reply)
 check("token is scrubbed from the URL", b"history.replaceState" in reply)
 
-print("\n== shares/discovery: /api/shares (503 before the device has ever been identified) ==")
+print("\n== shares/discovery: /api/shares (503 before the device has ever "
+      "been identified) ==")
 # Nothing earlier in this file ever sets _resolved_host/_known_esa_id on the
 # mock driver, so this is genuinely the fresh-agent state: the command port
 # needs the device's address AND its serial, and the serial only arrives from
 # a successful status read.
 status, reply = call("/api/shares")
 check("shares 503 before identification", status == 503, (status, reply))
-check("503 explains why (command port needs a serial from a status read first)",
-      "command port" in reply.get("error", "") and "status read" in reply.get("error", ""), reply)
+check("503 explains why (command port needs a serial "
+      "from a status read first)",
+      "command port" in reply.get("error", "")
+      and "status read" in reply.get("error", ""),
+      reply)
 
 print("\n== shares/discovery: /api/shares (the 60s cache) ==")
 SHARES_HOST = "10.0.0.5"
@@ -705,9 +813,10 @@ def _fake_get_config(host, esa_id, section, timeout=8.0):
         return {"DRIShareConfig": {"Shares": {"Share": {
             "ShareName": "Photos",
             "ShareUsers": {"ShareUser": {"ShareUsername": "Everyone",
-                                        "ShareUserAccess": "1"}}}}}}
+                                         "ShareUserAccess": "1"}}}}}}
     if section == "network":
-        return {"DRINasNetworkConfig": {"PortSpeed": "1000", "PortDuplex": "full"}}
+        return {"DRINasNetworkConfig": {
+            "PortSpeed": "1000", "PortDuplex": "full"}}
     raise AssertionError(f"unexpected config section {section!r}")
 
 
@@ -722,14 +831,16 @@ try:
           [share["name"] for share in reply.get("shares", [])] == ["Photos"],
           reply)
     check("guest-logon advice names the Everyone share",
-          reply.get("advice", {}).get("guest_shares") == ["Photos"], reply.get("advice"))
+          reply.get("advice", {}).get("guest_shares") == ["Photos"],
+          reply.get("advice"))
     check("link health folded in from the network read",
           reply.get("link", {}).get("speed_mbps") == 1000, reply.get("link"))
     check("fetching shares cost exactly two device reads (shares + network)",
           len(shares_calls) == 2, shares_calls)
 
     cached_status, cached_reply = call("/api/shares")
-    check("a second call inside the 60s TTL returns the identical payload", cached_reply == reply, cached_reply)
+    check("a second call inside the 60s TTL returns the identical payload",
+          cached_reply == reply, cached_reply)
     check("-- and does NOT touch the device again",
           len(shares_calls) == 2, shares_calls)
 
@@ -737,13 +848,17 @@ try:
     # back-date the cached timestamp past SHARES_CACHE_SECONDS, exactly
     # what the wall clock would do.
     stale_timestamp, stale_payload = api._ApiRequestHandler._shares_cache
-    api._ApiRequestHandler._shares_cache = (stale_timestamp - api._ApiRequestHandler.SHARES_CACHE_SECONDS - 1, stale_payload)
+    api._ApiRequestHandler._shares_cache = (
+        stale_timestamp - api._ApiRequestHandler.SHARES_CACHE_SECONDS - 1,
+        stale_payload)
     refreshed_status, refreshed_reply = call("/api/shares")
     check("once the TTL has elapsed, the device IS asked again",
           len(shares_calls) == 4, shares_calls)
-    check("the refreshed payload still matches (same fake data both times)", refreshed_reply == reply, refreshed_reply)
+    check("the refreshed payload still matches (same fake data both times)",
+          refreshed_reply == reply, refreshed_reply)
 
-    print("\n== shares/discovery: /api/shares (a device error does not crash the endpoint) ==")
+    print("\n== shares/discovery: /api/shares (a device error does not crash "
+          "the endpoint) ==")
     # force a fresh (cache-miss) fetch
     api._ApiRequestHandler._shares_cache = None
 
@@ -752,8 +867,10 @@ try:
 
     config_cmd.get_config = _fake_get_config_refused
     refused_status, refused_reply = call("/api/shares")
-    check("a device error while fetching fresh is reported as 502, not a crash",
-          refused_status == 502, (refused_status, refused_reply))
+    check("a device error while fetching fresh "
+          "is reported as 502, not a crash",
+          refused_status == 502,
+          (refused_status, refused_reply))
 
     config_cmd.get_config = _fake_get_config
     api._ApiRequestHandler._shares_cache = None
@@ -763,7 +880,8 @@ try:
 finally:
     config_cmd.get_config = _original_get_config
 
-print("\n== shares/discovery: /api/discover (empty mDNS result + the 30s cache) ==")
+print("\n== shares/discovery: /api/discover (empty mDNS result + the 30s "
+      "cache) ==")
 discover_calls = []
 
 
@@ -783,28 +901,39 @@ monitor.driver._resolved_host = ""
 monitor.driver._known_esa_id = ""
 try:
     status, reply = call("/api/discover")
-    check("discover 200 even with no device identified (discovery doesn't need one)",
-          status == 200, (status, reply))
+    check("discover 200 even with no device identified (discovery doesn't "
+          "need one)",
+          status == 200,
+          (status, reply))
     # These tests drive the mock driver, and /api/discover appends the
     # simulated Drobo so demo mode has something to click. That entry is
     # flagged `simulated`, so filter it out to assert on the REAL search --
     # which is what this scenario is actually about.
     real_devices = [d for d in reply.get("devices", [])
                     if not d.get("simulated")]
-    check("mDNS finding nothing gives an empty list, not an error", real_devices == [], reply)
+    check("mDNS finding nothing gives an empty list, not an error",
+          real_devices == [],
+          reply)
     check("the simulated Drobo is offered so demo mode isn't a dead end",
           any(d.get("simulated") for d in reply.get("devices", [])), reply)
     check("the search duration is reported",
           reply.get("searched_for_seconds")
           == api._ApiRequestHandler.DISCOVERY_LISTEN_SECONDS, reply)
-    check("exactly one mDNS sweep happened", len(discover_calls) == 1, discover_calls)
+    check("exactly one mDNS sweep happened",
+          len(discover_calls) == 1,
+          discover_calls)
 
     cached_status, cached_reply = call("/api/discover")
-    check("a second call inside the 30s TTL returns the identical payload", cached_reply == reply, cached_reply)
-    check("-- and does NOT sweep mDNS again", len(discover_calls) == 1, discover_calls)
+    check("a second call inside the 30s TTL returns the identical payload",
+          cached_reply == reply, cached_reply)
+    check("-- and does NOT sweep mDNS again",
+          len(discover_calls) == 1,
+          discover_calls)
 
     stale_timestamp, stale_payload = api._ApiRequestHandler._discover_cache
-    api._ApiRequestHandler._discover_cache = (stale_timestamp - api._ApiRequestHandler.DISCOVERY_CACHE_SECONDS - 1, stale_payload)
+    api._ApiRequestHandler._discover_cache = (
+        stale_timestamp - api._ApiRequestHandler.DISCOVERY_CACHE_SECONDS - 1,
+        stale_payload)
     refreshed_status, refreshed_reply = call("/api/discover")
     check("once the 30s TTL has elapsed, mDNS IS swept again",
           len(discover_calls) == 2, discover_calls)
@@ -814,7 +943,8 @@ finally:
     discovery.discover_mdns = _original_discover_mdns
     discovery.verify_candidate = _original_verify_candidate
 
-print("\n== shares/discovery: /api/discover (a found device, and the in-use one is marked) ==")
+print("\n== shares/discovery: /api/discover (a found device, and the in-use "
+      "one is marked) ==")
 api._ApiRequestHandler._discover_cache = None
 
 
@@ -825,8 +955,8 @@ def _fake_discover_mdns_found(timeout=3.0):
 def _fake_verify_candidate_succeeds(candidate, timeout=5.0, **kwargs):
     return discovery.VerificationResult(
         candidate=candidate,
-        identity={"name": "TestDrobo", "model": "Drobo 5N", "firmware": "4.3.1",
-                  "esa_id": "drb000000SAMPLE2"},
+        identity={"name": "TestDrobo", "model": "Drobo 5N",
+                  "firmware": "4.3.1", "esa_id": "drb000000SAMPLE2"},
         first_run=True,
     )
 
@@ -842,12 +972,19 @@ try:
     found = next((d for d in devices if d["host"] == "10.0.0.7"), None)
     check("the mDNS-found device is listed", found is not None, devices)
     if found:
-        check("its identity fields are surfaced from the device's own greeting",
-              (found["name"], found["model"], found["firmware"], found["esa_id"])
-              == ("TestDrobo", "Drobo 5N", "4.3.1", "drb000000SAMPLE2"), found)
-        check("it is not marked as the one already in use", found["is_current"] is False, found)
-    check("the already-in-use device is inserted even though mDNS didn't report it",
-          any(d["host"] == SHARES_HOST and d["is_current"] for d in devices), devices)
+        check("its identity fields are surfaced "
+              "from the device's own greeting",
+              (found["name"], found["model"], found["firmware"],
+               found["esa_id"])
+              == ("TestDrobo", "Drobo 5N", "4.3.1", "drb000000SAMPLE2"),
+              found)
+        check("it is not marked as the one already in use",
+              found["is_current"] is False,
+              found)
+    check("the already-in-use device is inserted even though mDNS didn't "
+          "report it",
+          any(d["host"] == SHARES_HOST and d["is_current"] for d in devices),
+          devices)
 finally:
     discovery.discover_mdns = _original_discover_mdns
     discovery.verify_candidate = _original_verify_candidate
@@ -857,10 +994,15 @@ print("\n== /api/discover?host= : typing an address when mDNS is filtered ==")
 # outright. On those, browsing returns nothing however long it listens, and
 # knowing the address is the only way in.
 api._ApiRequestHandler._discover_cache = None
-_saved_discover_mdns, _saved_verify_candidate = discovery.discover_mdns, discovery.verify_candidate
+_saved_discover_mdns, _saved_verify_candidate = (
+    discovery.discover_mdns, discovery.verify_candidate)
 _mdns_browse_calls = []
-discovery.discover_mdns = lambda timeout=3.0: (_mdns_browse_calls.append(1), [])[1]  # a network filtering mDNS
-discovery.verify_candidate = _fake_verify_candidate_succeeds              # ...but the Drobo is really there
+# a network filtering mDNS
+discovery.discover_mdns = lambda timeout=3.0: (
+    _mdns_browse_calls.append(1),
+    [])[1]
+# ...but the Drobo is really there
+discovery.verify_candidate = _fake_verify_candidate_succeeds
 try:
     status, reply = call("/api/discover?host=10.0.0.77")
     # The browse is skipped, not run and discarded. It costs
@@ -868,12 +1010,18 @@ try:
     # very reason somebody resorted to typing an address -- waiting it
     # out would spend three seconds proving the failed thing still
     # fails.
-    check("naming a host skips the multicast browse entirely", _mdns_browse_calls == [], _mdns_browse_calls)
+    check("naming a host skips the multicast browse entirely",
+          _mdns_browse_calls == [], _mdns_browse_calls)
     check("-- and answers about that address alone",
-          [d["host"] for d in reply.get("devices", [])] == ["10.0.0.77"], reply.get("devices"))
+          [d["host"] for d in reply.get("devices", [])] == ["10.0.0.77"],
+          reply.get("devices"))
     check("a typed address is probed and 200s", status == 200, (status, reply))
-    check("it reports which address was asked about", reply.get("manual_host") == "10.0.0.77", reply)
-    check("it says plainly that the address answered", reply.get("manual_found") is True, reply)
+    check("it reports which address was asked about",
+          reply.get("manual_host") == "10.0.0.77",
+          reply)
+    check("it says plainly that the address answered",
+          reply.get("manual_found") is True,
+          reply)
     typed_address_entries = [d for d in reply["devices"] if d["host"]
                              == "10.0.0.77"]
     check("the typed address is in the list", len(typed_address_entries) == 1,
@@ -881,22 +1029,27 @@ try:
     # Typing an address says where to look, not what to believe: the entry is
     # built from the device's own greeting, exactly like a discovered one.
     check("its identity comes from the device, not from what was typed",
-          typed_address_entries and typed_address_entries[0]["name"] == "TestDrobo" and typed_address_entries[0]["esa_id"] == "drb000000SAMPLE2",
+          typed_address_entries
+          and typed_address_entries[0]["name"] == "TestDrobo"
+          and typed_address_entries[0]["esa_id"] == "drb000000SAMPLE2",
           typed_address_entries)
     check("it is labelled as manually added, not as discovered",
           typed_address_entries and typed_address_entries[0]["found_by"]
           == "manual", typed_address_entries)
 
     # A wrong digit and a network with no Drobos otherwise look identical.
-    discovery.verify_candidate = lambda candidate, timeout=5.0, **kwargs: (_ for _ in ()).throw(
-        OSError("simulated: nothing listening"))
+    discovery.verify_candidate = (
+        lambda candidate, timeout=5.0, **kwargs: (_ for _ in ()).throw(
+            OSError("simulated: nothing listening")))
     status, reply = call("/api/discover?host=10.0.0.78")
     check("an address that answers nothing still 200s", status == 200,
           (status, reply))
     check("-- and says so, rather than returning a bare empty list",
           reply.get("manual_found") is False, reply)
     check("-- with advice covering the three things it could be",
-          all(required_phrase in reply.get("manual_error", "") for required_phrase in ("address", "powered on", "same network")),
+          all(required_phrase in reply.get("manual_error", "")
+              for required_phrase in ("address", "powered on",
+                                      "same network")),
           reply.get("manual_error"))
 
     # The cache exists to spare a 2013 NAS repeated mDNS sweeps. A question
@@ -907,10 +1060,12 @@ try:
           api._ApiRequestHandler._discover_cache is None,
           api._ApiRequestHandler._discover_cache)
 finally:
-    discovery.discover_mdns, discovery.verify_candidate = _saved_discover_mdns, _saved_verify_candidate
+    discovery.discover_mdns, discovery.verify_candidate = (
+        _saved_discover_mdns, _saved_verify_candidate)
     api._ApiRequestHandler._discover_cache = None
 
-print("\n== shares/discovery: /api/discover (one bad candidate doesn't sink the others) ==")
+print("\n== shares/discovery: /api/discover (one bad candidate doesn't sink "
+      "the others) ==")
 api._ApiRequestHandler._discover_cache = None
 
 
@@ -934,15 +1089,19 @@ discovery.discover_mdns = _fake_discover_mdns_two
 discovery.verify_candidate = _fake_verify_one_unreachable
 try:
     status, reply = call("/api/discover")
-    check("discover still 200 despite one candidate failing to answer", status == 200, (status, reply))
+    check("discover still 200 despite one candidate failing to answer",
+          status == 200,
+          (status, reply))
     hosts = [d["host"] for d in reply.get("devices", [])]
-    check("the unreachable candidate is silently skipped", "10.0.0.8" not in hosts, hosts)
+    check("the unreachable candidate is silently skipped",
+          "10.0.0.8" not in hosts, hosts)
     check("the one that answered is still listed", "10.0.0.9" in hosts, hosts)
 finally:
     discovery.discover_mdns = _original_discover_mdns
     discovery.verify_candidate = _original_verify_candidate
 
-print("\n== shares/discovery: /api/discover (mDNS itself failing is reported, not fatal) ==")
+print("\n== shares/discovery: /api/discover (mDNS itself failing is "
+      "reported, not fatal) ==")
 api._ApiRequestHandler._discover_cache = None
 
 
@@ -955,11 +1114,14 @@ try:
     status, reply = call("/api/discover")
     check("a search failure is reported as 502", status == 502,
           (status, reply))
-    check("the error mentions the network search", "search" in reply.get("error", "").lower(), reply)
+    check("the error mentions the network search",
+          "search" in reply.get("error", "").lower(),
+          reply)
 finally:
     discovery.discover_mdns = _original_discover_mdns
 
-print("\n== network mismatch: 'cannot reach the Drobo' that means 'wrong Wi-Fi' ==")
+print("\n== network mismatch: 'cannot reach the Drobo' that means 'wrong "
+      "Wi-Fi' ==")
 # The failure this exists for: the Drobo "times out" only because Windows has
 # auto-joined a different network, and the alert sends someone to check on a
 # perfectly healthy array. The protocol-level
@@ -992,32 +1154,45 @@ try:
 
     hint = monitor._network_hint()
     check("a Drobo on another subnet produces a hint", hint is not None)
-    check("the hint names the Drobo's address", "10.0.0.50" in hint["message"], hint)
-    check("the hint names this PC's network", "10.9.9.0/24" in hint["message"], hint)
+    check("the hint names the Drobo's address",
+          "10.0.0.50" in hint["message"],
+          hint)
+    check("the hint names this PC's network",
+          "10.9.9.0/24" in hint["message"],
+          hint)
 
     with monitor._lock:
         fired = monitor._evaluate_alerts(
             Snapshot(reachable=False, source="stub", error="timed out"),
             hint)
     unreachable = [a for a in fired if a.key == "unreachable"]
-    check("an unreachable Drobo still raises exactly one alert", len(unreachable) == 1, fired)
+    check("an unreachable Drobo still raises exactly one alert",
+          len(unreachable) == 1,
+          fired)
     # One problem, one alert. A separate "network" alert sitting beside the
     # critical one would read as two unrelated events rather than a cause and
     # its effect.
     check("no second alert is invented for the network",
           not any("network" in a.key for a in fired), [a.key for a in fired])
     alert_message = unreachable[0].message
-    check("the alert still leads with the failure itself", alert_message.startswith("Cannot reach"), alert_message)
-    check("the alert explains the likely cause", "different network" in alert_message, alert_message)
-    check("the alert never claims certainty", "rather than a certainty" in alert_message, alert_message)
+    check("the alert still leads with the failure itself",
+          alert_message.startswith("Cannot reach"),
+          alert_message)
+    check("the alert explains the likely cause",
+          "different network" in alert_message, alert_message)
+    check("the alert never claims certainty",
+          "rather than a certainty" in alert_message, alert_message)
     # The driver's own error is kept in full -- but after the explanation, not
     # before it. Discovery's failure text ends by advising you to set the host
     # in config.json, which is exactly the wrong move when the host is already
     # right and the PC is on the wrong network; leading with that sends people
     # to edit a file that isn't the problem.
-    check("the driver's own error is still there, in full", "timed out" in alert_message, alert_message)
+    check("the driver's own error is still there, in full",
+          "timed out" in alert_message, alert_message)
     check("-- attributed, and after the explanation",
-          alert_message.index("different network") < alert_message.index("What the agent tried"), alert_message)
+          alert_message.index("different network")
+          < alert_message.index("What the agent tried"),
+          alert_message)
 
     # Multi-line driver errors (discovery writes one) get flattened: an alert
     # is a sentence, and it also travels to a phone notification.
@@ -1028,7 +1203,8 @@ try:
             hint)
     flattened_message = [a for a in multiline_alerts if a.key
                          == "unreachable"][0].message
-    check("a multi-line driver error is flattened into one line", "\n" not in flattened_message, flattened_message)
+    check("a multi-line driver error is flattened into one line",
+          "\n" not in flattened_message, flattened_message)
 
     # Reading this PC's addresses runs `ipconfig`. A poll loop ticking every
     # second must not spawn a process every second to re-learn something that
@@ -1041,7 +1217,9 @@ try:
           monitor.driver.calls - calls_before == 5
           and monitor._hint_cache is not None)
     interface_probes = []
-    netcheck.local_interfaces = lambda timeout=3.0: (interface_probes.append(1), list(_INTERFACES_ON_ANOTHER_SUBNET))[1]
+    netcheck.local_interfaces = lambda timeout=3.0: (
+        interface_probes.append(1),
+        list(_INTERFACES_ON_ANOTHER_SUBNET))[1]
     for _ in range(5):
         monitor._network_hint()
     check("-- and the OS is not asked again for them", interface_probes == [],
@@ -1049,14 +1227,18 @@ try:
 
     # Same network, still not answering: that's a real outage, and a note about
     # network layout would be talking over it.
-    netcheck.local_interfaces = lambda timeout=3.0: [netcheck.Interface("10.0.0.40", 24)]
+    netcheck.local_interfaces = (
+        lambda timeout=3.0: [netcheck.Interface("10.0.0.40", 24)])
     monitor._hint_cache = None
-    check("a Drobo on OUR network produces no hint", monitor._network_hint() is None)
+    check("a Drobo on OUR network produces no hint",
+          monitor._network_hint() is None)
     with monitor._lock:
-        fired = monitor._evaluate_alerts(Snapshot(reachable=False, source="stub", error="timed out"),
-                                         monitor._network_hint())
+        fired = monitor._evaluate_alerts(
+            Snapshot(reachable=False, source="stub", error="timed out"),
+            monitor._network_hint())
     alert_message = [a for a in fired if a.key == "unreachable"][0].message
-    check("-- and its alert is left alone", alert_message == "Cannot reach the Drobo: timed out", alert_message)
+    check("-- and its alert is left alone",
+          alert_message == "Cannot reach the Drobo: timed out", alert_message)
 
     # A Drobo we have never reached is a Drobo whose network we don't know.
     netcheck.local_interfaces = lambda timeout=3.0: list(
@@ -1079,7 +1261,9 @@ try:
           reply["hint"]["networks"] == ["10.9.9.0/24"], reply)
 
     status, reply = call("/api/netcheck?host=10.9.9.9")
-    check("a Drobo on our own network is reported as such", reply.get("same_network") is True, reply)
+    check("a Drobo on our own network is reported as such",
+          reply.get("same_network") is True,
+          reply)
     check("-- with hint null, so a front-end can just test for its presence",
           reply.get("hint") is None, reply)
 
@@ -1131,7 +1315,9 @@ monitor.poll_once()
 check("a reachable poll clears the hint", monitor.network_hint is None)
 status, reply = call("/api/status")
 check("status carries network_hint", "network_hint" in reply, list(reply)[:12])
-check("-- and it is null while the Drobo answers", reply["network_hint"] is None, reply.get("network_hint"))
+check("-- and it is null while the Drobo answers",
+      reply["network_hint"] is None,
+      reply.get("network_hint"))
 
 print("\n== the firmware note rides on the status payload ==")
 # The version rules live in drobo_nasd/firmware.py and are tested there. What
@@ -1140,7 +1326,9 @@ print("\n== the firmware note rides on the status payload ==")
 # _snapshot_payload for why nagging hourly about unflashable firmware would be
 # the wrong shape for this.
 status, reply = call("/api/status")
-check("status carries firmware_advisory", "firmware_advisory" in reply, list(reply)[:14])
+check("status carries firmware_advisory",
+      "firmware_advisory" in reply,
+      list(reply)[:14])
 check("the mock's 4.2.2 is not notable, so nothing is shown",
       reply["firmware_advisory"]["notable"] is False,
       reply["firmware_advisory"])
@@ -1156,7 +1344,9 @@ try:
           advisory)
     check("the advisory is derived from the device's own report",
           advisory["version"] == "4.3.1-8.126.117497", advisory)
-    check("the release is separated from the build tail", advisory["release"] == "4.3.1", advisory)
+    check("the release is separated from the build tail",
+          advisory["release"] == "4.3.1",
+          advisory)
     check("no alert is raised for it -- there is no safe action to take",
           not any("firmware" in k for k in monitor.alerts),
           list(monitor.alerts))
@@ -1176,9 +1366,14 @@ _rescan_store.load()
 holiday_result = _rescan_store.ingest("holiday.jpg",
                                       b"\xff\xd8\xff pretend jpeg one")
 cat_result = _rescan_store.ingest("cat.jpg", b"\xff\xd8\xff pretend jpeg two")
-check("two photos stored", holiday_result["status"] == "stored" and cat_result["status"] == "stored", (holiday_result, cat_result))
+check("two photos stored",
+      holiday_result["status"] == "stored"
+      and cat_result["status"] == "stored",
+      (holiday_result, cat_result))
 _holiday_sha256, _cat_sha256 = holiday_result["sha256"], cat_result["sha256"]
-check("neither is re-requested once stored", _rescan_store.missing([_holiday_sha256, _cat_sha256]) == [], _rescan_store.missing([_holiday_sha256, _cat_sha256]))
+check("neither is re-requested once stored",
+      _rescan_store.missing([_holiday_sha256, _cat_sha256]) == [],
+      _rescan_store.missing([_holiday_sha256, _cat_sha256]))
 
 # 1. A photo deleted off the Drobo by hand. The index still lists it, so
 #    `have` says "already got it" and the phone never re-sends -- the photo is
@@ -1190,7 +1385,8 @@ check("a deleted file is still wrongly claimed before a rescan",
 rescan_summary = _rescan_store.rescan()
 check("rescan notices it is gone", rescan_summary["dropped"] == 1,
       rescan_summary)
-check("-- and the phone is now asked for it again", _rescan_store.missing([_cat_sha256]) == [_cat_sha256],
+check("-- and the phone is now asked for it again",
+      _rescan_store.missing([_cat_sha256]) == [_cat_sha256],
       _rescan_store.missing([_cat_sha256]))
 check("-- while the file that IS there is not re-requested",
       _rescan_store.missing([_holiday_sha256]) == [],
@@ -1202,15 +1398,19 @@ os.remove(_rescan_store.index_path)
 _rebuilt_store = PhotoStore({"enabled": True, "target_dir": _rescan_dir,
                              "organize_by_date": False})
 _rebuilt_store.load()
-check("a lost index is rebuilt from the files on disk", _rebuilt_store.missing([_holiday_sha256]) == [],
+check("a lost index is rebuilt from the files on disk",
+      _rebuilt_store.missing([_holiday_sha256]) == [],
       _rebuilt_store.missing([_holiday_sha256]))
 
 # An empty folder with no index must NOT trigger a pointless scan, and must not
 # claim to hold anything.
 _empty_photo_dir = os.path.join(temp_dir, "EmptyPhotos")
-_empty_store = PhotoStore({"enabled": True, "target_dir": _empty_photo_dir, "organize_by_date": False})
+_empty_store = PhotoStore({"enabled": True, "target_dir": _empty_photo_dir,
+                           "organize_by_date": False})
 _empty_store.load()
-check("a fresh empty install holds nothing", _empty_store.missing([_holiday_sha256]) == [_holiday_sha256], _empty_store.missing([_holiday_sha256]))
+check("a fresh empty install holds nothing",
+      _empty_store.missing([_holiday_sha256]) == [_holiday_sha256],
+      _empty_store.missing([_holiday_sha256]))
 
 # Half-finished chunked uploads live in a dot-directory. Hashing one would file
 # a truncated file under the hash of its complete self -- exactly the silent
@@ -1242,10 +1442,12 @@ print("\n== the capture date reaches the file, not just the folder ==")
 # time.time()` -- a fallback that would file a whole camera roll under
 # 1970 if it ever became `capture_time` alone.
 _dated_dir = os.path.join(temp_dir, "DatedPhotos")
-_dated_store = PhotoStore({"enabled": True, "target_dir": _dated_dir, "organize_by_date": True})
+_dated_store = PhotoStore({"enabled": True, "target_dir": _dated_dir,
+                           "organize_by_date": True})
 _dated_store.load()
 
-_captured_at = time.mktime((2019, 6, 15, 10, 30, 0, 0, 0, -1))   # local time, whatever this machine's is
+# local time, whatever this machine's is
+_captured_at = time.mktime((2019, 6, 15, 10, 30, 0, 0, 0, -1))
 _clip = b"\xff\xd8\xff pretend a rather large holiday video" * 4
 _clip_sha256 = hashlib.sha256(_clip).hexdigest()
 _half_length = len(_clip) // 2
@@ -1255,7 +1457,8 @@ _dated_store.append(_clip_sha256, 0, _clip[:_half_length])
 # The interruption: a second begin() with no taken_at, which is exactly what a
 # phone resuming a suspended transfer sends.
 _dated_store.begin("clip.jpg", len(_clip), _clip_sha256)
-with open(os.path.join(_dated_store.session_dir, _clip_sha256 + ".json"), encoding="utf-8") as _session_file:
+with open(os.path.join(_dated_store.session_dir, _clip_sha256 + ".json"),
+          encoding="utf-8") as _session_file:
     _session_metadata = json.load(_session_file)
 check("a resume does not overwrite the stored capture date",
       _session_metadata["taken_at"] == _captured_at,
@@ -1267,7 +1470,8 @@ check("the resumed upload is stored", _finished_upload["status"] == "stored",
       _finished_upload)
 _stored_path = os.path.join(_dated_dir,
                             _finished_upload["path"].replace("/", os.sep))
-check("-- carrying that date as its own timestamp on disk, not the upload time",
+check("-- carrying that date as its own timestamp "
+      "on disk, not the upload time",
       abs(os.path.getmtime(_stored_path) - _captured_at) < 2,
       (_finished_upload["path"], os.path.getmtime(_stored_path), _captured_at))
 
@@ -1294,21 +1498,24 @@ print("\n== /api/leds: two answering commands that had no way out ==")
 # actually reported (brightness 59, not in demo mode), so the assertions still
 # say something true about the wiring rather than about the stub.
 
-_original_get_dimming, _original_get_demo_mode = droboapps.get_dimming, droboapps.get_demo_mode
+_original_get_dimming, _original_get_demo_mode = (
+    droboapps.get_dimming, droboapps.get_demo_mode)
 droboapps.get_dimming = lambda host, esa_id, port=5001, timeout=8.0: 59
 droboapps.get_demo_mode = lambda host, esa_id, port=5001, timeout=8.0: {
     "demo_mode": False, "scale_factor": 1}
 try:
     status, reply = call("/api/leds")
 finally:
-    droboapps.get_dimming, droboapps.get_demo_mode = _original_get_dimming, _original_get_demo_mode
+    droboapps.get_dimming, droboapps.get_demo_mode = (
+        _original_get_dimming, _original_get_demo_mode)
 
 check("leds endpoint 200", status == 200, (status, reply))
 check("brightness is reported", reply.get("dimming") == 59, reply)
 # The firmware documents no scale, so the number ships with a note saying so
 # rather than being rendered as a percentage we would be inventing.
 check("the unknown scale is admitted, not papered over",
-      "never says what the scale is" in reply.get("scale_note", ""), reply.get("scale_note"))
+      "never says what the scale is" in reply.get("scale_note", ""),
+      reply.get("scale_note"))
 check("demo mode is reported", reply.get("demo_mode") is False, reply)
 check("-- with its scale factor", reply.get("scale_factor") == 1, reply)
 
@@ -1322,8 +1529,12 @@ check("update endpoint 200", status == 200, (status, reply))
 check("it reports disabled by default", reply.get("state") == "disabled",
       reply)
 check("no update is offered", reply.get("update_available") is False, reply)
-check("it says nothing is contacted", "Nothing is contacted" in reply.get("reason", ""), reply)
-check("it still reports the version we are on", reply.get("current_version") == api.VERSION, reply)
+check("it says nothing is contacted",
+      "Nothing is contacted" in reply.get("reason", ""),
+      reply)
+check("it still reports the version we are on",
+      reply.get("current_version") == api.VERSION,
+      reply)
 # A disabled check must not be cached for a day -- flipping the setting on
 # should take effect on the next refresh, not tomorrow.
 check("a disabled answer is not cached",
@@ -1345,15 +1556,17 @@ print("\n== DroboSync: built, dormant, and honest about why ==")
 _original_sync_summary = drobosync.summary
 drobosync.summary = lambda host, esa_id, port=5001, timeout=8.0: {
     "configured": False,
-    "reads": {read_name: {"configured": False, "raw_xml": "", "fields": {},
+    "reads": {read_name: {"configured": False,
+                          "raw_xml": "",
+                          "fields": {},
                           "asked": read_name == "settings"}
               for read_name in ("settings", "summary_log", "detailed_log",
                                 "log")},
-    "note": ("This Drobo has no DroboSync partner set up. DroboSync copied one "
-             "Drobo's shares to a second Drobo on a schedule, so it needs two "
-             "units -- with one, there is nothing for it to do and the device "
-             "correctly reports nothing. Everything needed to display it is "
-             "built and waiting."),
+    "note": ("This Drobo has no DroboSync partner set up. DroboSync "
+             "copied one Drobo's shares to a second Drobo on a schedule, so "
+             "it needs two units -- with one, there is nothing for it to do "
+             "and the device correctly reports nothing. Everything needed "
+             "to display it is built and waiting."),
 }
 try:
     status, reply = call("/api/drobosync")
@@ -1362,10 +1575,15 @@ finally:
 check("drobosync endpoint 200", status == 200, (status, reply))
 check("it reports not configured", reply.get("configured") is False, reply)
 check("all four reads are represented",
-      set(reply.get("reads", {})) == {"settings", "summary_log", "detailed_log", "log"},
+      set(reply.get("reads", {})) == {
+          "settings", "summary_log", "detailed_log", "log"},
       list(reply.get("reads", {})))
-check("it explains that the feature needs two units", "needs two" in reply.get("note", ""), reply.get("note"))
-check("-- and does not read as a failure", "error" not in reply.get("note", "").lower(), reply.get("note"))
+check("it explains that the feature needs two units",
+      "needs two" in reply.get("note", ""),
+      reply.get("note"))
+check("-- and does not read as a failure",
+      "error" not in reply.get("note", "").lower(),
+      reply.get("note"))
 # The simulator must not invent a configured sync: nobody has ever seen a
 # populated reply, so a fake one would teach the UI a shape we made up.
 check("the simulator does not fabricate a sync partner",
@@ -1387,8 +1605,10 @@ except Exception as exc:  # noqa: BLE001 - any exception here is the bug
     _raised = exc
 check("logging a timeout that arrived before any request line does not raise",
       _raised is None, repr(_raised))
-check("-- and the timeout is still logged", "Request timed out" in _captured_stdout.getvalue(),
+check("-- and the timeout is still logged",
+      "Request timed out" in _captured_stdout.getvalue(),
       _captured_stdout.getvalue())
+
 
 # The access log prints the whole request line, and a token can still arrive in
 # the URL: /api/events takes it that way, the pairing QR code hands out
@@ -1406,33 +1626,45 @@ def _capture_access_log(request_line):
         handler.log_request(200)
     return captured.getvalue()
 
+
 for _request_line, _description in (
-        (f"GET /?token={TOKEN} HTTP/1.1", "the dashboard link from the QR code"),
-        (f"GET /api/status?x=1&token={TOKEN}&y=2 HTTP/1.1", "a token in the middle of a query"),
-        (f"GET /api/pair.svg?TOKEN={TOKEN} HTTP/1.1", "a token spelled in capitals")):
+        (f"GET /?token={TOKEN} HTTP/1.1",
+         "the dashboard link from the QR code"),
+        (f"GET /api/status?x=1&token={TOKEN}&y=2 HTTP/1.1",
+         "a token in the middle of a query"),
+        (f"GET /api/pair.svg?TOKEN={TOKEN} HTTP/1.1",
+         "a token spelled in capitals")):
     _logged_output = _capture_access_log(_request_line)
     check(f"the access log does not print the token: {_description}",
-          TOKEN not in _logged_output and "<redacted>" in _logged_output, _logged_output.replace(TOKEN, "<THE TOKEN>"))
+          TOKEN not in _logged_output and "<redacted>" in _logged_output,
+          _logged_output.replace(TOKEN, "<THE TOKEN>"))
 _logged_output = _capture_access_log(f"GET /api/events?token={TOKEN} HTTP/1.1")
 check("the event stream is not access-logged at all", _logged_output == "",
       _logged_output.replace(TOKEN, "<THE TOKEN>"))
 
 # The startup banner lands in the console Run-Agent.bat tells testers to paste.
 # It printed ?token=<the real token> until 2026-09-14.
-with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "run_agent.py"),
-          encoding="utf-8") as _run_agent_file:
+with open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "run_agent.py"), encoding="utf-8") as _run_agent_file:
     _banner_lines = [line for line in _run_agent_file
                      if "print(" in line and "[agent] open" in line]
-check("run_agent.py still has its 'open' banner line", len(_banner_lines) == 1, _banner_lines)
+check("run_agent.py still has its 'open' banner line",
+      len(_banner_lines) == 1,
+      _banner_lines)
 check("-- and that line does not print the token",
-      all("token" not in line.split("print(", 1)[1].split("#", 1)[0].replace("access token", "")
-          for line in _banner_lines), _banner_lines)
+      all("token" not in line.split("print(", 1)[1].split("#", 1)[0].replace(
+              "access token", "")
+          for line in _banner_lines),
+      _banner_lines)
 
 print("\n== 404 ==")
 status, reply = call("/api/nope")
 check("unknown path 404s", status == 404, status)
 
-http_server.shutdown(); monitor.stop(); http_server.server_close()
+http_server.shutdown()
+monitor.stop()
+http_server.server_close()
 
 # Everything above runs the simulator. This section starts the REAL driver in
 # its shipping configuration -- "drobo5n" with "host": "auto" -- with discovery
@@ -1470,8 +1702,10 @@ class _RecordingNotifier(notify.Notifier):
 def _write_agent_config(name, drobo_section):
     path = os.path.join(temp_dir, f"config.{name}.json")
     with open(path, "w") as config_file:
-        json.dump({"agent": {"bind": "127.0.0.1", "port": _NO_DROBO_AGENT_PORT, "poll_seconds": 1},
-                   "drobo": drobo_section, "photos": {"enabled": False}},
+        json.dump({"agent": {"bind": "127.0.0.1", "port": _NO_DROBO_AGENT_PORT,
+                             "poll_seconds": 1},
+                   "drobo": drobo_section,
+                   "photos": {"enabled": False}},
                   config_file)
     with contextlib.redirect_stdout(io.StringIO()):  # the "new token" line
         return config.load(path)
@@ -1486,7 +1720,8 @@ def _resolve_nothing(*args, **kwargs):
 def _must_not_reach(function_name):
     def _record_and_refuse(*args, **kwargs):
         _device_calls.append(function_name)
-        raise OSError(f"simulated: {function_name} was called, and this test contacts no device")
+        raise OSError(f"simulated: {function_name} was called, and this test "
+                      "contacts no device")
     return _record_and_refuse
 
 
@@ -1524,11 +1759,17 @@ try:
     _no_drobo_notifier = _RecordingNotifier()
     _no_drobo_monitor = Monitor(_no_drobo_config, _no_drobo_notifier)
     check("under test: the real driver, set to discover",
-          _no_drobo_monitor.driver.name == "drobo5n" and _no_drobo_monitor.driver._uses_auto_discovery, _no_drobo_monitor.driver.name)
+          _no_drobo_monitor.driver.name == "drobo5n"
+          and _no_drobo_monitor.driver._uses_auto_discovery,
+          _no_drobo_monitor.driver.name)
 
     _startup_output, _startup_error = _start_monitor(_no_drobo_monitor)
-    check("discovery finding nothing at startup does not stop the agent", _startup_error is None, repr(_startup_error))
-    check("-- discovery was really asked", len(_resolve_calls) >= 1, _resolve_calls)
+    check("discovery finding nothing at startup does not stop the agent",
+          _startup_error is None,
+          repr(_startup_error))
+    check("-- discovery was really asked",
+          len(_resolve_calls) >= 1,
+          _resolve_calls)
     check("-- it says no Drobo was found, and that it is starting anyway",
           "no Drobo found yet" in _startup_output
           and "starting anyway" in _startup_output, _startup_output)
@@ -1544,7 +1785,9 @@ try:
         "X-Agent-Token": _no_drobo_config["agent"]["token"]}
 
     def _call_no_drobo_agent(path):
-        request = urllib.request.Request(f"http://127.0.0.1:{_NO_DROBO_AGENT_PORT}{path}", headers=_NO_DROBO_AUTH_HEADERS)
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{_NO_DROBO_AGENT_PORT}{path}",
+            headers=_NO_DROBO_AUTH_HEADERS)
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
                 return response.status, json.loads(response.read())
@@ -1552,7 +1795,9 @@ try:
             return http_error.code, json.loads(http_error.read())
 
     status, reply = _call_no_drobo_agent("/api/ping")
-    check("the API is served: /api/ping answers", status == 200 and reply.get("ok") is True, (status, reply))
+    check("the API is served: /api/ping answers",
+          status == 200 and reply.get("ok") is True,
+          (status, reply))
 
     def _fetch_unreachable_alerts():
         alerts = _call_no_drobo_agent("/api/alerts")[1].get("alerts", [])
@@ -1564,7 +1809,10 @@ try:
           _unreachable_alert_rows)
     _unreachable_message = (_unreachable_alert_rows[0]["message"]
                             if _unreachable_alert_rows else "")
-    check("-- as critical", bool(_unreachable_alert_rows) and _unreachable_alert_rows[0]["severity"] == SEVERITY_CRITICAL, _unreachable_alert_rows)
+    check("-- as critical",
+          bool(_unreachable_alert_rows)
+          and _unreachable_alert_rows[0]["severity"] == SEVERITY_CRITICAL,
+          _unreachable_alert_rows)
     check("-- carrying discovery's own reason",
           "no Drobo found" in _unreachable_message, _unreachable_message)
     # This advice used to sit in Run-Agent.bat's footer, shown only after the
@@ -1573,14 +1821,16 @@ try:
           "switched on" in _unreachable_message
           and "same network" in _unreachable_message, _unreachable_message)
     check("-- and it went out through the notifier",
-          any(severity == SEVERITY_CRITICAL and "Cannot reach" in message for title, message, severity in _no_drobo_notifier.sent),
+          any(severity == SEVERITY_CRITICAL and "Cannot reach" in message
+              for title, message, severity in _no_drobo_notifier.sent),
           _no_drobo_notifier.sent)
     status, reply = _call_no_drobo_agent("/api/status")
     check("/api/status says unreachable rather than failing",
           status == 200 and reply.get("reachable") is False, (status, reply))
 
     _resolve_count_before = len(_resolve_calls)
-    check("every poll runs discovery again", _wait_for(lambda: len(_resolve_calls) > _resolve_count_before + 1),
+    check("every poll runs discovery again",
+          _wait_for(lambda: len(_resolve_calls) > _resolve_count_before + 1),
           (len(_resolve_calls), _resolve_count_before))
     check("no device was contacted", _device_calls == [], _device_calls)
 
@@ -1589,48 +1839,64 @@ try:
     def _resolve_found(*args, **kwargs):
         _resolve_calls.append(kwargs)
         return discovery.VerificationResult(
-            candidate=discovery.Candidate(host="192.0.2.10", port=5000, source="mdns"),
-            identity={"esa_id": _SIMULATED_ESA_ID, "name": "SimDrobo", "model": "Drobo 5N",
-                      "firmware": "4.2.2"},
+            candidate=discovery.Candidate(host="192.0.2.10", port=5000,
+                                          source="mdns"),
+            identity={"esa_id": _SIMULATED_ESA_ID, "name": "SimDrobo",
+                      "model": "Drobo 5N", "firmware": "4.2.2"},
             first_run=True)
 
     def _fake_greeting(host, port=5000, timeout=8.0):
         _device_calls.append(("esatm.read_snapshot", host))
-        return Snapshot(reachable=True, source="drobo5n",
+        return Snapshot(reachable=True,
+                        source="drobo5n",
                         device=DeviceInfo(name="SimDrobo", model="Drobo 5N",
                                           serial=_SIMULATED_ESA_ID,
                                           firmware="4.2.2"),
                         capacity=Capacity(),
-                        drives=[DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1)])
+                        drives=[DriveSlot(bay=1, present=True, state="ok",
+                                          capacity_bytes=1)])
 
-    sysinfo.get_sysinfo_and_performance = lambda host, esa_id, port=None, timeout=8.0: {}
+    sysinfo.get_sysinfo_and_performance = (
+        lambda host, esa_id, port=None, timeout=8.0: {})
     eventlog.get_event_log = lambda host, esa_id, port=None, timeout=8.0: []
     esatm.read_snapshot = _fake_greeting
     discovery.resolve = _resolve_found
     check("when the Drobo turns up, a later poll finds it with no restart",
-          _wait_for(lambda: _call_no_drobo_agent("/api/status")[1].get("reachable") is True),
+          _wait_for(lambda: _call_no_drobo_agent("/api/status")[1].get(
+              "reachable") is True),
           _call_no_drobo_agent("/api/status")[1])
     check("-- at the address discovery found",
-          _call_no_drobo_agent("/api/status")[1].get("device", {}).get("ip") == "192.0.2.10",
+          _call_no_drobo_agent("/api/status")[1].get("device", {}).get(
+              "ip") == "192.0.2.10",
           _call_no_drobo_agent("/api/status")[1].get("device"))
-    check("-- and the unreachable alert clears", _fetch_unreachable_alerts() == [], _fetch_unreachable_alerts())
+    check("-- and the unreachable alert clears",
+          _fetch_unreachable_alerts() == [],
+          _fetch_unreachable_alerts())
     check("-- and only the fake was read",
-          all(c == ("esatm.read_snapshot", "192.0.2.10") for c in _device_calls), _device_calls)
+          all(c == ("esatm.read_snapshot", "192.0.2.10")
+              for c in _device_calls),
+          _device_calls)
 finally:
     # Stopped BEFORE the real SDK functions go back, so the poll thread can
     # never reach a real one on its way out.
     if _no_drobo_server:
-        _no_drobo_server.shutdown(); _no_drobo_server.server_close()
+        _no_drobo_server.shutdown()
+        _no_drobo_server.server_close()
     if _no_drobo_monitor:
         _no_drobo_monitor.stop()
+
 
 # A device that answers and is provably not this Drobo stays a hard refusal --
 # but a readable one. It used to end in a raw traceback.
 def _resolve_stranger(*args, **kwargs):
     raise discovery.IdentityMismatchError(
-        "found device(s) on the network, but none matched the expected Drobo:\n"
-        "  refusing 192.0.2.10:5000 -- it identifies as esa_id='drb000000OTHER', "
-        f"not the expected {_SIMULATED_ESA_ID!r}. This is not your Drobo; not connecting.")
+        "found device(s) on the network, but none matched the expected "
+        "Drobo:\n"
+        "  refusing 192.0.2.10:5000 -- it identifies as "
+        "esa_id='drb000000OTHER', "
+        f"not the expected {_SIMULATED_ESA_ID!r}. This is not your Drobo; "
+        "not connecting.")
+
 
 discovery.resolve = _resolve_stranger
 _mismatch_monitor = Monitor(
@@ -1652,19 +1918,25 @@ check("-- and saying what to do if the Drobo really was replaced",
 check("-- and no poll loop was started",
       _mismatch_monitor._poll_thread is None)
 
+
 # A reply that is not a Drobo's, at a fixed address: the poll path already
 # treats that as "not reachable, go and look", so startup does too.
 def _not_a_greeting(host, port=5000, timeout=8.0):
     _device_calls.append(("esatm.read_snapshot", host))
     raise esatm.FrameError("bad signature: b'SSH-2.0-'")
 
+
 discovery.resolve = _resolve_nothing
 esatm.read_snapshot = _not_a_greeting
-_frame_error_monitor = Monitor(_write_agent_config("notadrobo", {"driver": "drobo5n", "host": "192.0.2.10"}),
-                               _RecordingNotifier())
+_frame_error_monitor = Monitor(
+    _write_agent_config("notadrobo",
+                        {"driver": "drobo5n", "host": "192.0.2.10"}),
+    _RecordingNotifier())
 _startup_output, _startup_error = _start_monitor(_frame_error_monitor)
-check("a fixed address that answers with something else no longer ends in a traceback",
-      _startup_error is None, repr(_startup_error))
+check("a fixed address that answers with something else "
+      "no longer ends in a traceback",
+      _startup_error is None,
+      repr(_startup_error))
 check("-- it names the address and says it is starting anyway",
       "192.0.2.10" in _startup_output
       and "starting anyway" in _startup_output.lower(), _startup_output)
@@ -1672,6 +1944,7 @@ check("-- and the poll loop is running",
       _frame_error_monitor._poll_thread is not None
       and _frame_error_monitor._poll_thread.is_alive())
 _frame_error_monitor.stop()
+
 
 # The monitor catches "not found", not LookupError: a KeyError is a LookupError
 # too, and one raised by a bug in connect() must surface as the bug it is.
@@ -1684,6 +1957,7 @@ class _BuggyDriver:
     def close(self):
         pass
 
+
 _key_error_monitor = Monitor(_write_agent_config("buggy", {"driver": "mock"}),
                              _RecordingNotifier())
 _key_error_monitor.driver = _BuggyDriver()
@@ -1693,8 +1967,8 @@ check("a KeyError from connect() is not mistaken for 'no Drobo found yet'",
 check("-- and no poll loop was started",
       _key_error_monitor._poll_thread is None)
 
-(discovery.resolve, esatm.read_snapshot,
- sysinfo.get_sysinfo_and_performance, eventlog.get_event_log) = _saved_sdk_functions
+(discovery.resolve, esatm.read_snapshot, sysinfo.get_sysinfo_and_performance,
+ eventlog.get_event_log) = _saved_sdk_functions
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

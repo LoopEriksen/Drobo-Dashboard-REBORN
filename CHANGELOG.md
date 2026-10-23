@@ -278,6 +278,7 @@ released. Every push to this repository carries this file.
   - The rest of the agent: its monitor, backup, photo, notification,
     update-check, QR and config modules, the web page's code, the package
     entry points and `run_agent.py` / `check_updates.py`
+  - The agent's end-to-end test suite (`agent/tests/test_agent.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in
