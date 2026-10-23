@@ -236,8 +236,8 @@ def _query_reply_body(host: str, esa_id: str, command_name: str,
 
 def get_dimming(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> int | None:
-    """LED brightness as the device reports it. Read-only; see
-    parse_dimming."""
+    """LED brightness as the device reports it.
+    Read-only; see parse_dimming."""
     return parse_dimming(
         _query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
 
@@ -272,13 +272,14 @@ class GeneralWriteError(SysInfoError):
 
 
 class DimmingWriteError(GeneralWriteError):
-    """LED brightness could not be set safely, or the device refused
-    it."""
+    """
+    LED brightness could not be set safely, or the device refused it.
+    """
 
 
 class SpindownWriteError(GeneralWriteError):
-    """The spin-down delay could not be set safely, or the device
-    refused it."""
+    """The spin-down delay could not be set safely,
+    or the device refused it."""
 
 
 def _extract_general_block(before: dict) -> dict:
@@ -309,8 +310,7 @@ def _extract_general_block(before: dict) -> dict:
         raise GeneralWriteError(
             "the device's General config did not parse into the expected "
             "fields; refusing to write a block built from an unrecognised "
-            "shape "
-            f"(got keys {sorted(block) if isinstance(block, dict) else type(block).__name__})")
+            f"shape (got keys {sorted(block) if isinstance(block, dict) else type(block).__name__})")  # noqa: E501
     return block
 
 
@@ -661,8 +661,9 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
 
 def get_demo_mode(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
-    """Whether this unit is in shop-display mode. See
-    parse_demo_mode."""
+    """
+    Whether this unit is in shop-display mode. See parse_demo_mode.
+    """
     return parse_demo_mode(
         _query_reply_body(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
 
@@ -705,8 +706,7 @@ _APP_ACTIONS = ("Start", "Stop")
 
 class DroboAppsActionError(SysInfoError):
     """Starting or stopping a DroboApp could not be done safely, or the
-    device
-    refused it."""
+    device refused it."""
 
 
 def droboapps_action(host: str, esa_id: str, name: str, action: str,

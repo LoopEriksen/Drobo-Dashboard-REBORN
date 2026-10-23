@@ -47,10 +47,11 @@ GUEST_LOGON_BLOCKED = 0xC05D0003
 # vendor is gone and there is no document to check against. Same
 # discipline as the pack status codes in monitor.py: report what the
 # device said, label it honestly, and do not invent a meaning that a UI
-# would then present as fact. MEASURED 2026-08-05, from a packet capture
-# of Drobo Dashboard 3.5.0 talking to this project's own 5N. The
-# maintainer confirmed the word the old UI showed for one of them, which
-# is the half that cannot be recovered from the bytes.
+# would then present as fact.
+# MEASURED 2026-08-05, from a packet capture of Drobo Dashboard 3.5.0
+# talking to this project's own 5N. The maintainer confirmed the word
+# the old UI showed for one of them, which is the half that cannot be
+# recovered from the bytes.
 #
 #   1  Read/Write   CONFIRMED. The capture shows a share the maintainer
 #                   states is set to Read/Write carrying
@@ -78,12 +79,9 @@ ACCESS_LEVELS: dict[str, str] = {
 }
 
 #: The codes whose meaning is CONFIRMED against the original Dashboard,
-# as
-#: opposed to described from their number. A UI can use this to decide
-# whether
-#: to show a word confidently or hedge -- see ACCESS_LEVELS for what is
-# still
-#: open and why.
+#: as opposed to described from their number. A UI can use this to
+#: decide whether to show a word confidently or hedge -- see
+#: ACCESS_LEVELS for what is still open and why.
 CONFIRMED_ACCESS_CODES: frozenset[str] = frozenset({"1"})
 
 
@@ -98,8 +96,9 @@ def _as_list(node):
 
 
 def _find_share_config(config: dict) -> dict:
-    """Dig `DRIShareConfig` out of whatever wrapper depth it arrived
-    in."""
+    """
+    Dig `DRIShareConfig` out of whatever wrapper depth it arrived in.
+    """
     if not isinstance(config, dict):
         return {}
     if "DRIShareConfig" in config:
@@ -111,18 +110,15 @@ def _find_share_config(config: dict) -> dict:
 
 
 def unc_path(host: str, share_name: str) -> str:
-    r"""`\\10.0.0.5\Documents` -- what Explorer, `net use` and the phone
-    all want."""
+    r"""`\\10.0.0.5\Documents` -- what Explorer,
+    `net use` and the phone all want."""
     return "\\\\" + host + "\\" + share_name
 
 
 #: Element names a user record might be called inside <UserList>. A
-# populated
-#: UserList has never been observed -- the only device this project can
-# read
-#: has none -- so this is a best effort across the spellings the rest of
-# this
-#: firmware uses, not a confirmed schema.
+#: populated UserList has never been observed -- the only device this
+#: project can read has none -- so this is a best effort across the
+#: spellings the rest of this firmware uses, not a confirmed schema.
 _USER_ELEMENT_TAGS = ("User", "ShareUser", "NasUser")
 _USERNAME_TAGS = ("UserName", "ShareUsername", "Username", "Name")
 
@@ -325,11 +321,10 @@ def access_advice(shares: list[dict],
     if unconfirmed_share_names:
         detail += (
             " Separately, " + _list_phrase(unconfirmed_share_names)
-            + " currently set to an "
-            "access level this project has not confirmed the meaning of. "
-            "If it "
-            "turns out to mean no access, permissions are a second and quite "
-            "different problem, and signing in will not solve it."
+            + " currently set to an access level this project has not "
+            "confirmed the meaning of. If it turns out to mean no access, "
+            "permissions are a second and quite different problem, and "
+            "signing in will not solve it."
         )
 
     return {
@@ -342,8 +337,9 @@ def access_advice(shares: list[dict],
 
 
 def _list_phrase(names: list[str]) -> str:
-    """`Alpha is` / `Alpha and Beta are` -- so the sentence reads
-    properly."""
+    """
+    `Alpha is` / `Alpha and Beta are` -- so the sentence reads properly.
+    """
     if len(names) == 1:
         return f"{names[0]} is"
     return ", ".join(names[:-1]) + f" and {names[-1]} are"

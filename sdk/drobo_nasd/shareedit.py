@@ -71,9 +71,8 @@ import copy
 from .shares import CONFIRMED_ACCESS_CODES
 
 #: No access. Every share observed with `0` was unreachable. Kept as a
-# named
-#: constant because it is the one code this module will set
-# unconditionally.
+#: named constant because it is the one code this module will set
+#: unconditionally.
 NO_ACCESS_CODE = "0"
 
 
@@ -94,8 +93,9 @@ def _share_block(config: dict) -> dict:
 
 
 def _share_entries(block: dict) -> list:
-    """The share list, always as a list even when the device sent one
-    dict."""
+    """
+    The share list, always as a list even when the device sent one dict.
+    """
     entries = (block.get("Shares") or {}).get("Share")
     if entries is None:
         return []
@@ -103,8 +103,9 @@ def _share_entries(block: dict) -> list:
 
 
 def share_names(config: dict) -> list[str]:
-    """Every share name in the document, in the order the device gave
-    them."""
+    """
+    Every share name in the document, in the order the device gave them.
+    """
     return [(s.get("ShareName") or "").strip()
             for s in _share_entries(_share_block(config))
             if (s.get("ShareName") or "").strip()]
@@ -143,8 +144,9 @@ def _assert_only_shares_changed(before: dict, after: dict) -> None:
 
 def _assert_no_share_lost(before: dict, after: dict,
                           allow_removed: str | None = None) -> None:
-    """No share may disappear except the one explicitly being
-    removed."""
+    """
+    No share may disappear except the one explicitly being removed.
+    """
     lost_share_names = set(share_names(before)) - set(share_names(after))
     if allow_removed is not None:
         lost_share_names.discard(allow_removed)

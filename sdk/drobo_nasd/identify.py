@@ -127,43 +127,33 @@ from .config_cmd import (
 )
 
 #: Pulled with a regex rather than an XML parse: this runs on a reply
-# that may
-#: be empty or truncated, and a parse failure there must not turn "the
-# lights
-#: may or may not be blinking" into an exception.
+#: that may be empty or truncated, and a parse failure there must not
+#: turn "the lights may or may not be blinking" into an exception.
 _RESULT_RE = re.compile(r"<Result>\s*(-?\d+)\s*</Result>")
 
 COMMAND_NAME = "eCmdIdentify"
 
 #: The element the original Dashboard carries in <Params>. CONFIRMED on
-# the
-#: wire (2026-07-25 capture) and as a tag name in Drobo Dashboard.exe
-# 3.5.0;
-#: see the module docstring.
+#: the wire (2026-07-25 capture) and as a tag name in Drobo
+#: Dashboard.exe 3.5.0; see the module docstring.
 INTERVAL_TAG = "IdentifyInterval"
 
 #: This project's own guess, NOT what the original Dashboard sends --
-# that is
-#: 900 (2026-07-25 capture). Left at 15 until 900 has been sent while
-# someone
-#: watches the unit; see the module docstring.
+#: that is 900 (2026-07-25 capture). Left at 15 until 900 has been sent
+#: while someone watches the unit; see the module docstring.
 DEFAULT_INTERVAL = 15
 
 #: Sending zero is how "Turn Blink Lights OFF" most plausibly works, the
-# UI
-#: being a toggle driven by one command. GUESS: no capture shows the off
-#: press. It is allowed because zero is what an absent interval already
-#: behaved like, so it cannot be worse than what this module sent for
-# months.
+#: UI being a toggle driven by one command. GUESS: no capture shows the
+#: off press. It is allowed because zero is what an absent interval
+#: already behaved like, so it cannot be worse than what this module
+#: sent for months.
 STOP_INTERVAL = 0
 
 #: Refuse anything wilder than this. Not a device limit -- nothing tells
-# us
-#: what the device's limit is -- but a typo guard. If the unit turns out
-# to be
-#: seconds, this still allows well over a day of blinking; if minutes,
-# far
-#: longer than anyone means to ask for.
+#: us what the device's limit is -- but a typo guard. If the unit turns
+#: out to be seconds, this still allows well over a day of blinking; if
+#: minutes, far longer than anyone means to ask for.
 MAX_INTERVAL = 86_400
 
 
@@ -326,8 +316,9 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
 def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
                timeout: float, command_id: int,
                interval: int | None = None) -> dict:
-    """One attempt. Connection problems propagate for the caller to
-    retry."""
+    """
+    One attempt. Connection problems propagate for the caller to retry.
+    """
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     try:

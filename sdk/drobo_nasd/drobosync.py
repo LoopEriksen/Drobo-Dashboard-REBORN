@@ -63,8 +63,7 @@ from .config_cmd import (
 from .sysinfo import SysInfoError, _inner_document
 
 #: The read-only half. Keys are what a caller asks for; values are the
-# firmware
-#: command names.
+#: firmware command names.
 READ_COMMANDS = {
     "settings": "eCmdGetDroboSyncSettings",
     "summary_log": "eCmdGetDroboSyncSummaryLog",
@@ -73,9 +72,8 @@ READ_COMMANDS = {
 }
 
 #: The write half, listed so this module's refusal is visible rather
-# than
-#: implied by their absence. Every one is in DO_NOT_SEND; see the
-# assertion.
+#: than implied by their absence. Every one is in DO_NOT_SEND; see the
+#: assertion.
 WRITE_COMMANDS = ("eCmdSetDroboSyncSettings", "eCmdSyncNow", "eCmdStopSync")
 
 
@@ -193,10 +191,8 @@ def read(host: str, esa_id: str, read_kind: str = "settings",
 
 
 #: What an unasked read looks like. Distinct from a read that happened
-# and came
-#: back empty -- see summary(), which stops early and must not claim to
-# have
-#: asked things it did not ask.
+#: and came back empty -- see summary(), which stops early and must not
+#: claim to have asked things it did not ask.
 _NOT_ASKED_READ = {"configured": False, "raw_xml": "", "fields": {},
                    "asked": False}
 
