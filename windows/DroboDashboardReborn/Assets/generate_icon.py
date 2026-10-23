@@ -3,34 +3,35 @@
 Produces two multi-resolution .ico files next to this script:
 
     AppIcon.ico       -- the normal app / taskbar / tray icon
-    AppIconAlert.ico  -- the same mark with a small red badge added in the
-                         corner, swapped in by the tray icon while a critical
-                         alert is active (see TrayIconManager.cs)
+    AppIconAlert.ico  -- the same mark with a small red badge added in
+                         the corner, swapped in by the tray icon while
+                         a critical alert is active (see
+                         TrayIconManager.cs)
 
-Design -- a text lockup, deliberately NOT a copy of Drobo's own logo (this
-project is unaffiliated; see the repo README). The letterforms below are a
-plain geometric 5x7 block font written for this file, not traced from any
-existing typeface:
+Design -- a text lockup, deliberately NOT a copy of Drobo's own logo
+(this project is unaffiliated; see the repo README). The letterforms
+below are a plain geometric 5x7 block font written for this file, not
+traced from any existing typeface:
 
     - "drobo", lowercase, in front, in near-white.
     - "REBORN" behind it, larger and in red, so it reads as a stamp the
       wordmark is sitting on top of.
     - A thin dark halo around the front word, so "drobo" stays readable
       exactly where it crosses the red rather than dissolving into it.
-    - A dark rounded plate behind everything, so the mark holds up against a
-      light title bar or wallpaper instead of disappearing.
+    - A dark rounded plate behind everything, so the mark holds up
+      against a light title bar or wallpaper instead of disappearing.
 
-Sized smallest-first, because 16x16 is the taskbar and tray size and that is
-the one that decides whether an icon works. Six letters across sixteen pixels
-is under three pixels per letter -- unavoidably grey mush -- so below 48px the
-lockup is dropped entirely in favour of a single bold lowercase "d" on a red
-plate. That preserves the two things which actually identify an icon at a
-glance: its colour and its silhouette.
+Sized smallest-first, because 16x16 is the taskbar and tray size and
+that is the one that decides whether an icon works. Six letters across
+sixteen pixels is under three pixels per letter -- unavoidably grey mush
+-- so below 48px the lockup is dropped entirely in favour of a single
+bold lowercase "d" on a red plate. That preserves the two things which
+actually identify an icon at a glance: its colour and its silhouette.
 
-Pure Python standard library only (zlib for PNG compression/CRC32, struct for
-binary packing) -- no Pillow, no third-party packages, so this reproduces
-identically on any machine with plain Python 3 installed. Re-run this script
-any time the design changes:
+Pure Python standard library only (zlib for PNG compression/CRC32,
+struct for binary packing) -- no Pillow, no third-party packages, so
+this reproduces identically on any machine with plain Python 3
+installed. Re-run this script any time the design changes:
 
     python windows/DroboDashboardReborn/Assets/generate_icon.py"""
 from __future__ import annotations
@@ -43,7 +44,8 @@ from functools import partial
 ICON_SIZES = [16, 32, 48, 64, 128, 256]
 SUBSAMPLES_PER_AXIS = 4  # per output pixel, for anti-aliased edges
 
-# ---- palette -----------------------------------------------------------
+# ---- palette
+# -----------------------------------------------------------
 WORDMARK_HALO = (46, 52, 61, 255)    # dark halo around the front word
 REBORN_RED = (211, 58, 46, 255)      # the REBORN stamp
 WORDMARK = (238, 242, 247, 255)      # the "drobo" lettering in front
@@ -54,9 +56,10 @@ ALERT_RED = (226, 43, 36, 255)
 ALERT_RING = (255, 255, 255, 230)
 TRANSPARENT = (0, 0, 0, 0)
 
-# ---- a tiny, original 5x7 block font, only the letters REBORN needs ----
-# ('1' = ink, '0' = empty; original plain geometric letterforms, not traced
-# from any existing typeface.)
+# ---- a tiny, original 5x7 block font, only the letters REBORN needs
+# ----
+# ('1' = ink, '0' = empty; original plain geometric letterforms, not
+# traced from any existing typeface.)
 FONT_5X7 = {
     # Uppercase -- the REBORN stamp behind.
     "R": ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
@@ -64,8 +67,9 @@ FONT_5X7 = {
     "B": ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
     "O": ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
     "N": ["10001", "11001", "10101", "10101", "10011", "10001", "10001"],
-    # Lowercase -- the "drobo" wordmark in front. Drawn with a full 7-row box
-    # so ascenders (d, b) and x-height letters (r, o) share one baseline.
+    # Lowercase -- the "drobo" wordmark in front. Drawn with a full
+    # 7-row box so ascenders (d, b) and x-height letters (r, o) share
+    # one baseline.
     "d": ["00001", "00001", "01111", "10001", "10001", "10001", "01111"],
     "r": ["00000", "00000", "10110", "11001", "10000", "10000", "10000"],
     "o": ["00000", "00000", "01110", "10001", "10001", "10001", "01110"],
@@ -141,31 +145,35 @@ def in_circle(x: float, y: float, centre_x: float, centre_y: float,
 
 def build_shapes(size: float, with_badge: bool):
     """
-    Front-to-back list of (predicate, rgba). `sample` returns the FIRST match,
-    so earlier entries are drawn in front.
+    Front-to-back list of (predicate, rgba). `sample` returns the FIRST
+    match, so earlier entries are drawn in front.
 
-    The mark is a text lockup: the word "drobo" in lowercase, sitting in front
-    of a larger "REBORN" in red. Lowercase is deliberate -- it is what the
-    maintainer asked for, and at icon sizes a lowercase word with ascenders (d, b)
-    has a more distinctive silhouette than an all-caps block.
+    The mark is a text lockup: the word "drobo" in lowercase, sitting in
+    front of a larger "REBORN" in red. Lowercase is deliberate -- it is
+    what the maintainer asked for, and at icon sizes a lowercase word
+    with ascenders (d, b) has a more distinctive silhouette than an
+    all-caps block.
 
-    Below 48px none of that survives. Six letters across sixteen pixels is
-    under three pixels per letter, which renders as grey mush -- so small sizes
-    get a single bold "d" on a red plate instead. That keeps the two things
-    that actually identify an icon in a taskbar: its colour and its shape.
+    Below 48px none of that survives. Six letters across sixteen pixels
+    is under three pixels per letter, which renders as grey mush -- so
+    small sizes get a single bold "d" on a red plate instead. That keeps
+    the two things that actually identify an icon in a taskbar: its
+    colour and its shape.
     """
     shapes = []
     draw_lockup = size >= 48
 
     if not draw_lockup:
-        # --- small: one letter, high contrast --------------------------------
+        # --- small: one letter, high contrast
+        # --------------------------------
         margin = 0.08 * size
         in_plate = partial(in_rounded_rectangle, left=margin, top=margin,
                            right=size - margin, bottom=size - margin,
                            radius=0.22 * size)
 
-        # A "d" filling most of the plate. dot_size is chosen so the glyph's 5x7
-        # box fits with a margin; the letter is what carries recognition here.
+        # A "d" filling most of the plate. dot_size is chosen so the
+        # glyph's 5x7 box fits with a margin; the letter is what carries
+        # recognition here.
         dot_size = (size * 0.52) / 7.0
         glyph_width = word_width("d", dot_size)
         glyph_left = (size - glyph_width) / 2.0
@@ -175,42 +183,46 @@ def build_shapes(size: float, with_badge: bool):
         shapes.append((in_plate, REBORN_RED))
         return _add_alert_badge(shapes, size, with_badge)
 
-    # --- large: the full lockup ---------------------------------------------
-    # REBORN sits BEHIND, set wide across the icon. "drobo" sits in front of
-    # it, overlapping -- not stacked underneath, which is what a first pass at
-    # this produced and which just read as two separate lines of text.
+    # --- large: the full lockup
+    # ---------------------------------------------
+    # REBORN sits BEHIND, set wide across the icon. "drobo" sits in
+    # front of it, overlapping -- not stacked underneath, which is what
+    # a first pass at this produced and which just read as two separate
+    # lines of text.
     #
-    # Both are positioned from their vertical CENTRE rather than their top
-    # edge, because that is what makes the overlap controllable: give them
-    # centres a little apart and they interleave, give them the same centre
-    # and "drobo" sits squarely across REBORN's waist.
+    # Both are positioned from their vertical CENTRE rather than their
+    # top edge, because that is what makes the overlap controllable:
+    # give them centres a little apart and they interleave, give them
+    # the same centre and "drobo" sits squarely across REBORN's waist.
     def top_from_centre(centre_y: float, dot_size: float) -> float:
         return centre_y - 3.5 * dot_size
 
-    # REBORN: nearly the full width, so it is unmistakably the larger of the two.
+    # REBORN: nearly the full width, so it is unmistakably the larger of
+    # the two.
     behind_dot_size = (size * 0.90) / word_width(BEHIND_WORD, 1.0)
     behind_width = word_width(BEHIND_WORD, behind_dot_size)
     behind_left = (size - behind_width) / 2.0
     behind_top = top_from_centre(size * 0.50, behind_dot_size)
 
     # drobo: narrower and set on a centre slightly below REBORN's, so it
-    # crosses the lower half of the red letters. Sitting dead-centre hides
-    # REBORN's midsection and makes it hard to read; a little low leaves the
-    # tops of the red letters clear.
+    # crosses the lower half of the red letters. Sitting dead-centre
+    # hides REBORN's midsection and makes it hard to read; a little low
+    # leaves the tops of the red letters clear.
     front_dot_size = (size * 0.66) / word_width(FRONT_WORD, 1.0)
     front_width = word_width(FRONT_WORD, front_dot_size)
     front_left = (size - front_width) / 2.0
     front_top = top_from_centre(size * 0.60, front_dot_size)
 
-    # A soft dark plate behind everything, so the mark reads on any wallpaper
-    # or title bar rather than dissolving into it.
+    # A soft dark plate behind everything, so the mark reads on any
+    # wallpaper or title bar rather than dissolving into it.
     margin = 0.05 * size
     in_plate = partial(in_rounded_rectangle, left=margin, top=margin,
                        right=size - margin, bottom=size - margin,
                        radius=0.20 * size)
 
-    # A thin dark outline around the front word, so "drobo" stays legible
-    # exactly where it crosses the red. Cheap halo: the same glyph, grown.
+    # A thin dark outline around the front word, so "drobo" stays
+    # legible exactly where it crosses the red. Cheap halo: the same
+    # glyph, grown.
     halo_offset = front_dot_size * 0.55
     shapes.append((
         lambda x, y, covers_front_word=word_predicate(
@@ -225,7 +237,8 @@ def build_shapes(size: float, with_badge: bool):
     ))
     shapes[-1] = (shapes[-1][0], WORDMARK_HALO)
 
-    # ...but the letter itself must win over its own halo, so insert it first.
+    # ...but the letter itself must win over its own halo, so insert it
+    # first.
     shapes.insert(0, (word_predicate(FRONT_WORD, front_left, front_top,
                                      front_dot_size), WORDMARK))
 
@@ -236,7 +249,8 @@ def build_shapes(size: float, with_badge: bool):
 
 
 def _add_alert_badge(shapes, size: float, with_badge: bool):
-    """The critical-alert dot, sized so it signals at 16px without dominating at 256."""
+    """The critical-alert dot, sized so it signals at 16px without
+    dominating at 256."""
     if not with_badge:
         return shapes
     radius_fraction = 0.20 if size <= 32 else 0.15 if size <= 64 else 0.115
@@ -288,7 +302,8 @@ def render(size: int, with_badge: bool):
     return pixel_rows
 
 
-# ---- minimal PNG encoder (stdlib zlib only) -----------------------------
+# ---- minimal PNG encoder (stdlib zlib only)
+# -----------------------------
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return (struct.pack(">I", len(data)) + chunk_type + data
@@ -311,7 +326,8 @@ def encode_png(pixels) -> bytes:
             + _png_chunk(b"IEND", b""))
 
 
-# ---- minimal ICO container (PNG-compressed frames, one per size) --------
+# ---- minimal ICO container (PNG-compressed frames, one per size)
+# --------
 
 def write_ico(path: str, frames) -> None:
     frame_count = len(frames)

@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 """
-scan_for_pii.py — scan the Drobo Dashboard REBORN repository for personal or
-identifying information before you push.
+scan_for_pii.py — scan the Drobo Dashboard REBORN repository for
+personal or identifying information before you push.
 
 Run it any time from the repo root:
 
     py scripts/scan_for_pii.py
 
 Exits 0 when clean and 1 when it finds something -- or when it could not
-check a category, because a scan that quietly skipped names is not a clean
-scan. It covers everything the pre-commit hook blocks, plus two shapes the
-hook does not know about -- the device serial and its MAC -- across every
-file git tracks, so problems surface before anything is even staged.
+check a category, because a scan that quietly skipped names is not a
+clean scan. It covers everything the pre-commit hook blocks, plus two
+shapes the hook does not know about -- the device serial and its MAC --
+across every file git tracks, so problems surface before anything is
+even staged.
 
   --all            walk every file in the tree, build output included
   --tracked        the files git tracks: the default, spelled out for CI
-  --generic-only   check only the built-in categories, and say that names
-                   were not checked (what CI runs; see load_local_patterns)
+  --generic-only   check only the built-in categories, and say that
+                   names were not checked (what CI runs; see
+                   load_local_patterns)
 
-It is deliberately GENERIC — it names no real person or username, so this
-script carries no identifying data of its own. Names live in
+It is deliberately GENERIC — it names no real person or username, so
+this script carries no identifying data of its own. Names live in
 scripts/pii_patterns.local (gitignored, one regex per line). Reviewed
 exceptions live in scripts/pii_allow.txt (committed).
 
@@ -35,29 +37,31 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Generic patterns — no hardcoded personal identifiers.
 # A real user-profile path, but not the placeholders documentation is
-# *supposed* to use. Without this exclusion every "C:\Users\you\..." example
-# in the docs was reported, and 4 of the scanner's 16 tracked hits on
-# 2026-09-08 were exactly that. A scanner whose every hit is a false positive
-# does not get read, which is how the real ones get through.
+# *supposed* to use. Without this exclusion every "C:\Users\you\..."
+# example in the docs was reported, and 4 of the scanner's 16 tracked
+# hits on 2026-09-08 were exactly that. A scanner whose every hit is a
+# false positive does not get read, which is how the real ones get
+# through.
 # Note the two alternatives are shaped differently on purpose. An
-# angle-bracket placeholder needs NO trailing \b: "<you>" is followed by a
-# backslash, and two non-word characters in a row give no word boundary, so
-# an earlier version with \b on both forms silently failed to exclude every
-# "C:\Users\<you>\..." in the docs. Bare words still need the boundary, or
-# "name" would also swallow a real user called "nameless".
+# angle-bracket placeholder needs NO trailing \b: "<you>" is followed by
+# a backslash, and two non-word characters in a row give no word
+# boundary, so an earlier version with \b on both forms silently failed
+# to exclude every "C:\Users\<you>\..." in the docs. Bare words still
+# need the boundary, or "name" would also swallow a real user called
+# "nameless".
 _PLACEHOLDER_EXCLUSION = (
     r"(?!(?:<[^>\\/]{1,24}>"
     r"|(?:you|your-?name|username|name|user|Public|All\sUsers)\b))")
 
-# The account name after Users\ is part of the match, not just the prefix.
-# Matching only "C:\Users\" said a path existed but not whose, so every hit
-# read alike and scripts/pii_allow.txt could not accept one reviewed account
-# without accepting every account. The name is required: a bare "C:\Users\"
-# -- a redaction rule, a truncated path -- identifies nobody.
-# The class is "anything but a separator, whitespace or a quote" rather than
-# a list of letters, because account names are not ASCII-only, and a
-# letters-first class does not match a name like "Ölaf" at all. redact()
-# masks the name before anything is printed.
+# The account name after Users\ is part of the match, not just the
+# prefix. Matching only "C:\Users\" said a path existed but not whose,
+# so every hit read alike and scripts/pii_allow.txt could not accept one
+# reviewed account without accepting every account. The name is
+# required: a bare "C:\Users\" -- a redaction rule, a truncated path --
+# identifies nobody. The class is "anything but a separator, whitespace
+# or a quote" rather than a list of letters, because account names are
+# not ASCII-only, and a letters-first class does not match a name like
+# "Ölaf" at all. redact() masks the name before anything is printed.
 _ACCOUNT_NAME_PATTERN = r"""[^\\/\s"'`]+"""
 
 BUILTIN_PATTERNS = [
@@ -66,49 +70,53 @@ BUILTIN_PATTERNS = [
                 + _ACCOUNT_NAME_PATTERN, re.I)),
     ("email address",
      re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")),
-    # The two shapes that identify the unit itself, and that must never reach
-    # a commit: the device serial number and its MAC address.
-    # Until now neither was checked here at all -- they were checked only by
-    # windows/build-installer.ps1 on the STAGED PAYLOAD, which is the last
-    # gate before a shipped artifact and no help at all to a commit. So the
-    # scanner that exists to stop identifying data reaching a commit was
-    # blind to the two identifiers that matter most about the hardware.
+    # The two shapes that identify the unit itself, and that must never
+    # reach a commit: the device serial number and its MAC address.
+    # Until now neither was checked here at all -- they were checked
+    # only by windows/build-installer.ps1 on the STAGED PAYLOAD, which
+    # is the last gate before a shipped artifact and no help at all to a
+    # commit. So the scanner that exists to stop identifying data
+    # reaching a commit was blind to the two identifiers that matter
+    # most about the hardware.
     #
-    # Both are SHAPES, deliberately: this file is tracked, so it must be able
-    # to describe what it hunts without carrying one real value. They are
-    # taken from the staged-payload check in windows/build-installer.ps1
-    # (the $identifierPatterns list in step 5b), but they are not
-    # character-for-character the same, and the differences are on purpose:
-    # the serial is that check's pattern with
-    # word boundaries added, while the MAC is narrowed to the OUI plus three
-    # more octets (that check fires on the bare OUI) and widened to accept an
-    # address written without separators. So the two gates agree on what a
-    # real identifier looks like and differ, knowingly, at the edges -- see
-    # the next paragraph for why each edge is where it is.
+    # Both are SHAPES, deliberately: this file is tracked, so it must be
+    # able to describe what it hunts without carrying one real value.
+    # They are taken from the staged-payload check in
+    # windows/build-installer.ps1 (the $identifierPatterns list in step
+    # 5b), but they are not character-for-character the same, and the
+    # differences are on purpose: the serial is that check's pattern
+    # with word boundaries added, while the MAC is narrowed to the OUI
+    # plus three more octets (that check fires on the bare OUI) and
+    # widened to accept an address written without separators. So the
+    # two gates agree on what a real identifier looks like and differ,
+    # knowingly, at the edges -- see the next paragraph for why each
+    # edge is where it is.
     #
-    # The serial is the format stamped on every unit. The MAC is anchored to
-    # Drobo Inc's registered OUI (a public vendor allocation, not anybody's
-    # address), which is exactly what separates a real unit's MAC from the
-    # invented ones the test fixtures use -- 02:00:..., aa:bb:..., e0:ab:...
-    # -- so those stay clean. Separators are optional and may be ':' or '-',
-    # because an address arrives written however the tool that printed it
-    # writes it: `arp -a` on Windows uses '-', `ip neigh` uses ':', and some
-    # device pages print it bare. Requiring all three unit octets means the
-    # bare OUI on its own -- vendor trivia, in a comment or a lookup table --
-    # is not reported as if it identified a unit.
+    # The serial is the format stamped on every unit. The MAC is
+    # anchored to Drobo Inc's registered OUI (a public vendor
+    # allocation, not anybody's address), which is exactly what
+    # separates a real unit's MAC from the invented ones the test
+    # fixtures use -- 02:00:..., aa:bb:..., e0:ab:... -- so those stay
+    # clean. Separators are optional and may be ':' or '-', because an
+    # address arrives written however the tool that printed it writes
+    # it: `arp -a` on Windows uses '-', `ip neigh` uses ':', and some
+    # device pages print it bare. Requiring all three unit octets means
+    # the bare OUI on its own -- vendor trivia, in a comment or a lookup
+    # table -- is not reported as if it identified a unit.
     ("Drobo device serial",
      re.compile(r"\bDRB\d{6}[A-Z]\d{5}\b", re.I)),
     ("Drobo MAC address",
      re.compile(r"\b00[:-]?1A[:-]?62(?:[:-]?[0-9A-F]{2}){3}\b", re.I)),
 ]
 
-# Emails that are fine: demo accounts, and the names the RFCs reserve for
-# documentation and testing -- example.com/.net/.org plus the .example, .test,
-# .invalid and .localhost names (RFC 2606, RFC 6761). The agent's notification
-# tests use .invalid addresses precisely because they can never resolve, and
-# every one of them was being reported as a leak. The dot before the reserved
-# name is required, so a real domain that merely ends in the same letters is
-# not waved through with them.
+# Emails that are fine: demo accounts, and the names the RFCs reserve
+# for documentation and testing -- example.com/.net/.org plus the
+# .example, .test, .invalid and .localhost names (RFC 2606, RFC 6761).
+# The agent's notification tests use .invalid addresses precisely
+# because they can never resolve, and every one of them was being
+# reported as a leak. The dot before the reserved name is required, so a
+# real domain that merely ends in the same letters is not waved through
+# with them.
 ALLOWED_EMAIL_DOMAIN = re.compile(
     r"@(demo\.com|example\.(com|org|net)"
     r"|[A-Za-z0-9.-]+\.(example|test|invalid|localhost))$", re.I)
@@ -123,20 +131,21 @@ SKIP_EXTENSIONS = {
 
 
 def load_local_patterns():
-    """User-private regexes from scripts/pii_patterns.local (gitignored).
+    """User-private regexes from scripts/pii_patterns.local
+    (gitignored).
 
     This is where names live: the maintainer's real name, their Windows
-    username, the real share names. They cannot be listed in a
-    tracked file without the tracked file becoming the leak, so the list is
+    username, the real share names. They cannot be listed in a tracked
+    file without the tracked file becoming the leak, so the list is
     per-machine and ignored by git.
 
-    Returns (patterns, notes). The notes matter as much as the patterns. On
-    2026-09-08 a privacy audit found this file absent, which meant NAME
-    DETECTION WAS ENTIRELY OFF -- and the scanner still printed "clean",
-    because a missing list returned an empty list and nothing said so. Two
-    real share names had been sitting in tracked test fixtures for a
-    fortnight. A guard that cannot tell you it is not guarding is worse than
-    no guard, because it is trusted.
+    Returns (patterns, notes). The notes matter as much as the patterns.
+    On 2026-09-08 a privacy audit found this file absent, which meant
+    NAME DETECTION WAS ENTIRELY OFF -- and the scanner still printed
+    "clean", because a missing list returned an empty list and nothing
+    said so. Two real share names had been sitting in tracked test
+    fixtures for a fortnight. A guard that cannot tell you it is not
+    guarding is worse than no guard, because it is trusted.
     """
     private_patterns, notes = [], []
     path = os.path.join(REPO_ROOT, "scripts", "pii_patterns.local")
@@ -157,8 +166,8 @@ def load_local_patterns():
                 private_patterns.append(("private pattern",
                                          re.compile(line, re.I)))
             except re.error as exc:
-                # Silently dropping a bad pattern used to leave a hole shaped
-                # exactly like the thing it was meant to catch.
+                # Silently dropping a bad pattern used to leave a hole
+                # shaped exactly like the thing it was meant to catch.
                 notes.append(f"pii_patterns.local:{lineno} is not a valid "
                              f"regex and was skipped ({exc}).")
     if not private_patterns:
@@ -170,16 +179,17 @@ def load_local_patterns():
 def load_allowlist():
     """Reviewed exceptions from scripts/pii_allow.txt (committed).
 
-    The mirror image of pii_patterns.local: that file is private and ADDS
-    patterns, this one is published and SUBTRACTS hits somebody has already
-    looked at and accepted. Without it the scan can never reach exit 0 on a
-    tree that contains one intentional address, so it cannot serve as a CI
-    gate -- and a gate that is always red is one nobody reads. One regex per
-    line, matched against the flagged text; keep them tight.
+    The mirror image of pii_patterns.local: that file is private and
+    ADDS patterns, this one is published and SUBTRACTS hits somebody has
+    already looked at and accepted. Without it the scan can never reach
+    exit 0 on a tree that contains one intentional address, so it cannot
+    serve as a CI gate -- and a gate that is always red is one nobody
+    reads. One regex per line, matched against the flagged text; keep
+    them tight.
 
     Returns (patterns, notes). A malformed entry is reported rather than
-    dropped quietly, but unlike a bad private pattern it cannot hide a leak:
-    losing an exception makes the scan stricter, not blinder.
+    dropped quietly, but unlike a bad private pattern it cannot hide a
+    leak: losing an exception makes the scan stricter, not blinder.
     """
     allow_patterns, notes = [], []
     path = os.path.join(REPO_ROOT, "scripts", "pii_allow.txt")
@@ -198,8 +208,9 @@ def load_allowlist():
     return allow_patterns, notes
 
 
-# Files that legitimately contain the shapes being hunted, because hunting is
-# their job. Without this the scanner reports its own siblings for ever.
+# Files that legitimately contain the shapes being hunted, because
+# hunting is their job. Without this the scanner reports its own
+# siblings for ever.
 SKIP_FILES = {"scripts/scan_for_pii.py", "scripts/hooks/pre-commit",
               "scripts/pii_patterns.local", "scripts/pii_allow.txt",
               # the payload identifier check
@@ -207,14 +218,15 @@ SKIP_FILES = {"scripts/scan_for_pii.py", "scripts/hooks/pre-commit",
 
 
 def tracked_files():
-    """The files git TRACKS, repo-relative; None if this is not a checkout.
+    """The files git TRACKS, repo-relative; None if this is not a
+    checkout.
 
     Tracked is the default because the point of this scanner is to stop
-    personal data being committed, and an untracked file cannot be committed.
-    Walking the whole tree instead meant build output under obj/ and bin/ and
-    the vendor binary supplied 1,884 of 1,900 hits on 2026-09-08 -- noise deep
-    enough to bury the 16 that were about real files, which is the same as
-    having no scanner.
+    personal data being committed, and an untracked file cannot be
+    committed. Walking the whole tree instead meant build output under
+    obj/ and bin/ and the vendor binary supplied 1,884 of 1,900 hits on
+    2026-09-08 -- noise deep enough to bury the 16 that were about real
+    files, which is the same as having no scanner.
     """
     try:
         git_result = subprocess.run(["git", "-C", REPO_ROOT, "ls-files", "-z"],
@@ -237,15 +249,15 @@ def walked_files():
     return relative_paths
 
 
-# A line whose context makes a PRIVATE-NAME match legitimate: credit lines for
-# the drobo-utils author, who is named in three places. Without this the
-# scanner reports proper attribution as a leak, every run, for ever. Credit is
-# not a privacy problem; being unable to tell the two apart is. It exempts the
-# private-name patterns only -- a user path, an email address, a serial or a
-# MAC on the same line is still reported.
-# scripts/hooks/pre-commit applies the same regex under the same name,
-# CREDIT_CONTEXT; keep the two identical, or the hook and the scanner
-# disagree about the same line.
+# A line whose context makes a PRIVATE-NAME match legitimate: credit
+# lines for the drobo-utils author, who is named in three places.
+# Without this the scanner reports proper attribution as a leak, every
+# run, for ever. Credit is not a privacy problem; being unable to tell
+# the two apart is. It exempts the private-name patterns only -- a user
+# path, an email address, a serial or a MAC on the same line is still
+# reported. scripts/hooks/pre-commit applies the same regex under the
+# same name, CREDIT_CONTEXT; keep the two identical, or the hook and the
+# scanner disagree about the same line.
 CREDIT_CONTEXT = re.compile(r"drobo-utils|petersilva|Silva", re.I)
 
 _USER_PATH_PARTS = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)", re.I | re.S)
@@ -254,11 +266,12 @@ _USER_PATH_PARTS = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)", re.I | re.S)
 def redact(label, snippet):
     """Never print the identifier itself.
 
-    A tool that finds a name and then writes it to the console has moved the
-    name, not removed it -- into scrollback, into CI output, into whatever the
-    user pastes when they ask for help. Enough is shown to find the line; the
-    file and line number are the actionable part anyway. The user-path match
-    now carries the account name, so that name is masked too.
+    A tool that finds a name and then writes it to the console has moved
+    the name, not removed it -- into scrollback, into CI output, into
+    whatever the user pastes when they ask for help. Enough is shown to
+    find the line; the file and line number are the actionable part
+    anyway. The user-path match now carries the account name, so that
+    name is masked too.
     """
     if label == "private pattern":
         return snippet[0] + "*" * (len(snippet) - 1) if snippet else "?"
@@ -268,12 +281,14 @@ def redact(label, snippet):
         mask = "*" * max(len(local_part) - len(kept_prefix), 1)
         return f"{kept_prefix}{mask}@{domain}"
     if label == "Drobo device serial":
-        # Every unit's serial starts the same way; what follows is the unit.
+        # Every unit's serial starts the same way; what follows is the
+        # unit.
         return snippet[:3] + "*" * max(len(snippet) - 3, 1)
     if label == "Drobo MAC address":
-        # The first three octets are the vendor OUI -- printing them says "a
-        # Drobo", not "which Drobo". The three that identify the unit are
-        # masked, separators kept so the line still reads as an address.
+        # The first three octets are the vendor OUI -- printing them
+        # says "a Drobo", not "which Drobo". The three that identify the
+        # unit are masked, separators kept so the line still reads as an
+        # address.
         redacted_characters, digit_count = [], 0
         for character in snippet:
             if character in ":-":
@@ -298,8 +313,9 @@ def scan_files(patterns, allow_patterns, relative_paths):
             continue
         if os.path.splitext(relative_path)[1].lower() in SKIP_EXTENSIONS:
             continue
-        # git ls-files knows nothing of SKIP_DIRS, so apply them to both file
-        # lists; otherwise the tracked scan and --all disagree about scope.
+        # git ls-files knows nothing of SKIP_DIRS, so apply them to both
+        # file lists; otherwise the tracked scan and --all disagree
+        # about scope.
         if any(part in SKIP_DIRS for part in relative_path.split("/")):
             continue
         try:
@@ -307,10 +323,11 @@ def scan_files(patterns, allow_patterns, relative_paths):
                       encoding="utf-8", errors="ignore") as text_file:
                 for lineno, line in enumerate(text_file, 1):
                     for label, pattern in patterns:
-                        # Every match on the line, not only the first. Stopping
-                        # at the first meant an accepted match early in a line
-                        # -- a reserved test address, a reviewed exception --
-                        # hid a real one later on the same line.
+                        # Every match on the line, not only the first.
+                        # Stopping at the first meant an accepted match
+                        # early in a line -- a reserved test address, a
+                        # reviewed exception -- hid a real one later on
+                        # the same line.
                         for match in pattern.finditer(line):
                             snippet = match.group(0).strip()
                             if (label == "email address"
@@ -329,9 +346,10 @@ def scan_files(patterns, allow_patterns, relative_paths):
 
 
 def main():
-    # --path lets this guard another checkout instead of only the
-    # one it happens to live in. Before this existed, an unknown flag was
-    # silently ignored and you got a clean-looking scan of the WRONG directory.
+    # --path lets this guard another checkout instead of only the one it
+    # happens to live in. Before this existed, an unknown flag was
+    # silently ignored and you got a clean-looking scan of the WRONG
+    # directory.
     global REPO_ROOT
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -365,8 +383,8 @@ def main():
         relative_paths = tracked_files()
         if relative_paths is None:
             if args.tracked:
-                # Walking instead would report on a different file set than
-                # the one that was asked for.
+                # Walking instead would report on a different file set
+                # than the one that was asked for.
                 print(f"Not a git checkout (or git unavailable): {REPO_ROOT}")
                 return 2
             relative_paths = walked_files()
@@ -380,11 +398,12 @@ def main():
 
     print(f"Scanning {REPO_ROOT}")
     if args.generic_only:
-        # CI can never hold the private list: it is gitignored by design, and
-        # putting the names anywhere a runner can read them would publish them.
-        # Saying so beats both alternatives -- failing every run, or calling a
-        # scan clean that never looked for names. The hook checks names on
-        # every clone that has the list.
+        # CI can never hold the private list: it is gitignored by
+        # design, and putting the names anywhere a runner can read them
+        # would publish them. Saying so beats both alternatives --
+        # failing every run, or calling a scan clean that never looked
+        # for names. The hook checks names on every clone that has the
+        # list.
         private_patterns, private_pattern_notes = [], []
         print("  name detection skipped (--generic-only): the private pattern "
               "list is per-machine and never present in CI")
@@ -403,7 +422,8 @@ def main():
     hits = scan_files(BUILTIN_PATTERNS + private_patterns, allow_patterns,
                       relative_paths)
     if not hits:
-        # "Clean" is only honest when every category was actually checked.
+        # "Clean" is only honest when every category was actually
+        # checked.
         if private_pattern_notes:
             print("PII scan: no hits from the patterns that RAN -- but see "
                   "the warnings above; this is not a clean bill of health.")

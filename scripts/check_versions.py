@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-check_versions.py -- one release, one number, in every file that states it.
+check_versions.py -- one release, one number, in every file that states
+it.
 
 Run it any time from the repo root:
 
     py scripts/check_versions.py
 
-Exits 0 when every place agrees and 1 when they do not. It reads the literals
-out of the files rather than importing anything, so it needs no packages on
-sys.path and reports what a release would actually SHIP rather than what an
-import happens to resolve to.
+Exits 0 when every place agrees and 1 when they do not. It reads the
+literals out of the files rather than importing anything, so it needs no
+packages on sys.path and reports what a release would actually SHIP
+rather than what an import happens to resolve to.
 
-WHY THIS EXISTS. The number lives in seven places across three languages, and
-nothing had ever compared them. It has already been wrong in public: the 1.0.0
-release shipped sdk/pyproject.toml still saying 0.1.0, so the package metadata
-a reader installs disagreed with the release it came from. windows/README.md's
-"Versioning" section lists the places and says "if you bump one, bump them
-all" -- which is advice, not a gate. This is the gate.
+WHY THIS EXISTS. The number lives in seven places across three
+languages, and nothing had ever compared them. It has already been wrong
+in public: the 1.0.0 release shipped sdk/pyproject.toml still saying
+0.1.0, so the package metadata a reader installs disagreed with the
+release it came from. windows/README.md's "Versioning" section lists the
+places and says "if you bump one, bump them all" -- which is advice, not
+a gate. This is the gate.
 
-It deliberately does NOT know what the number should be. Picking the next
-version is the maintainer's call; all this asks is that the files agree with each
-other once it is picked.
+It deliberately does NOT know what the number should be. Picking the
+next version is the maintainer's call; all this asks is that the files
+agree with each other once it is picked.
 
 The four-part places (AssemblyVersion, FileVersion) are checked as the
 three-part number plus a fourth field, which is how MSBuild and Windows
@@ -36,9 +38,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_CSPROJ_PATH = os.path.join(
     "windows", "DroboDashboardReborn", "DroboDashboardReborn.csproj")
 
-# (label, path relative to the repo root, regex with one capturing group).
-# Order is the order they are printed in: the csproj first, because it is the
-# number a release is named by and the one a human bumps first.
+# (label, path relative to the repo root, regex with one capturing
+# group). Order is the order they are printed in: the csproj first,
+# because it is the number a release is named by and the one a human
+# bumps first.
 VERSION_PLACES = [
     ("csproj <Version>",
      APP_CSPROJ_PATH,
@@ -63,8 +66,9 @@ VERSION_PLACES = [
      r"^version\s*=\s*[\"']([^\"']+)[\"']"),
 ]
 
-# The two that carry a fourth field. Checked against the three-part number
-# rather than against each other, so "1.0.0 vs 1.0.1.0" is caught too.
+# The two that carry a fourth field. Checked against the three-part
+# number rather than against each other, so "1.0.0 vs 1.0.1.0" is caught
+# too.
 FOUR_PART_LABELS = {"csproj <AssemblyVersion>", "csproj <FileVersion>"}
 
 REFERENCE_LABEL = "csproj <Version>"
@@ -77,7 +81,8 @@ def read_repo_file(path):
 
 
 def collect_versions():
-    """{label: version-or-None}, plus a list of files that could not be read."""
+    """{label: version-or-None}, plus a list of files that could not be
+    read."""
     found, unreadable = {}, []
     text_by_path = {}
     for label, path, pattern in VERSION_PLACES:
@@ -97,7 +102,8 @@ def collect_versions():
 
 
 def find_problems():
-    """Every disagreement, as plain sentences. Empty means the tree is consistent."""
+    """Every disagreement, as plain sentences. Empty means the tree is
+    consistent."""
     found, unreadable = collect_versions()
     problems = list(unreadable)
 
