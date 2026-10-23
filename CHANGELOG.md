@@ -288,6 +288,10 @@ released. Every push to this repository carries this file.
   - The SDK's other nine test suites (`sdk/tests/`: shared fixtures,
     command channel, network check, share edit, share lifecycle, shares,
     share write, system info and write arbitration)
+  - The command-channel probing tools and their tests (`tools/`:
+    `nasd_probe.py`, `nasd_sweep.py`, `nasd_tap.py`,
+    `sweep_last_six.py`, `sweep_remainder.py` and the command-extract,
+    firmware-parameter, dissector and sweep test suites)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

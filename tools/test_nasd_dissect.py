@@ -48,8 +48,10 @@ SERVER_IP = "203.0.113.50"
 CLIENT_PORT = 51000
 SERVER_PORT = 5000
 
-XML_FRAME_1 = b'<?xml version="1.0"?><DRINETTM><Command>10</Command><Params/></DRINETTM>'
-XML_FRAME_2 = b'<?xml version="1.0"?><DRINETTM><Command>85</Command><Params/></DRINETTM>'
+XML_FRAME_1 = (b'<?xml version="1.0"?><DRINETTM><Command>10</Command>'
+               b'<Params/></DRINETTM>')
+XML_FRAME_2 = (b'<?xml version="1.0"?><DRINETTM><Command>85</Command>'
+               b'<Params/></DRINETTM>')
 
 failures: list[str] = []
 
@@ -86,13 +88,16 @@ def eth_frame(ip_packet: bytes) -> bytes:
 
 def ipv4_packet(src_ip: str, dst_ip: str, tcp_segment: bytes) -> bytes:
     total_len = 20 + len(tcp_segment)
-    header = struct.pack(">BBHHHBBH", (4 << 4) | 5, 0, total_len, 0, 0, 64, 6, 0)
+    header = struct.pack(
+        ">BBHHHBBH", (4 << 4) | 5, 0, total_len, 0, 0, 64, 6, 0)
     header += socket.inet_aton(src_ip) + socket.inet_aton(dst_ip)
     return header + tcp_segment
 
 
-def tcp_segment(sport: int, dport: int, seq: int, flags: int, payload: bytes) -> bytes:
-    header = struct.pack(">HHIIBBHHH", sport, dport, seq, 0, (5 << 4), flags, 65535, 0, 0)
+def tcp_segment(sport: int, dport: int, seq: int, flags: int,
+                payload: bytes) -> bytes:
+    header = struct.pack(
+        ">HHIIBBHHH", sport, dport, seq, 0, (5 << 4), flags, 65535, 0, 0)
     return header + payload
 
 
@@ -118,7 +123,8 @@ def write_pcap_classic(path: str, link_frames: list[bytes]) -> None:
     with open(path, "wb") as fh:
         fh.write(struct.pack(">IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
         for i, frame in enumerate(link_frames):
-            fh.write(struct.pack(">IIII", 1_700_000_000 + i, 0, len(frame), len(frame)))
+            fh.write(struct.pack(
+                ">IIII", 1_700_000_000 + i, 0, len(frame), len(frame)))
             fh.write(frame)
 
 
@@ -161,12 +167,14 @@ def _idb(linktype: int = 1, snaplen: int = 65535, endian: str = ">") -> bytes:
 def _epb(iface_id: int, frame: bytes, endian: str = ">") -> bytes:
     pad = (-len(frame)) % 4
     padded = frame + b"\x00" * pad
-    body = (struct.pack(endian + "IIIII", iface_id, 0, 0, len(frame), len(frame))
+    body = (struct.pack(
+        endian + "IIIII", iface_id, 0, 0, len(frame), len(frame))
             + padded)
     return _pcapng_block(0x00000006, body, endian)
 
 
-def write_pcapng(path: str, link_frames: list[bytes], endian: str = ">") -> None:
+def write_pcapng(path: str, link_frames: list[bytes],
+                 endian: str = ">") -> None:
     with open(path, "wb") as fh:
         fh.write(_shb(endian))
         fh.write(_idb(endian=endian))
@@ -180,40 +188,59 @@ def write_pcapng(path: str, link_frames: list[bytes], endian: str = ">") -> None
 def run_against(path: str, label: str) -> None:
     print(f"\n=== dissecting {label} ({path}) ===")
     packets = dissect.read_capture(path)
-    check(len(packets) > 0, f"{label}: capture file parsed into >0 link-layer frames")
+    check(len(packets) > 0,
+          f"{label}: capture file parsed into >0 link-layer frames")
 
     streams = dissect.collect_streams(packets)
-    check(len(streams) == 1, f"{label}: exactly one TCP stream recovered (got {len(streams)})")
+    check(len(streams) == 1,
+          f"{label}: exactly one TCP stream recovered (got {len(streams)})")
     if not streams:
         return
     st = next(iter(streams.values()))
-    check(st["client"] == (CLIENT_IP, CLIENT_PORT), f"{label}: client endpoint identified correctly")
-    check(st["server"] == (SERVER_IP, SERVER_PORT), f"{label}: server endpoint identified correctly")
+    check(st["client"] == (CLIENT_IP, CLIENT_PORT),
+          f"{label}: client endpoint identified correctly")
+    check(st["server"] == (SERVER_IP, SERVER_PORT),
+          f"{label}: server endpoint identified correctly")
 
     buf = dissect.reassemble(st["to_server"])
     expected = build_known_stream()
-    check(buf == expected, f"{label}: reassembled client->server stream matches the known bytes exactly")
+    check(buf == expected,
+          f"{label}: reassembled client->server stream matches "
+          "the known bytes exactly")
 
     login = dissect.infer_login_frame(buf)
     check(login is not None, f"{label}: a login frame was inferred at all")
     if login is None:
         return
-    check(login["signature"] == dissect.SIG4, f"{label}: recovered signature is DRINASD4")
-    check(login["signature_offset"] == 0, f"{label}: signature located at offset 0")
-    check(login["pad"] == 0, f"{label}: length field placed immediately after the signature (no padding)")
-    check(login["length_size"] == 4, f"{label}: length field recovered as 4 bytes")
-    check(login["endian"] == ">", f"{label}: length field recovered as big-endian")
-    check(login["includes_header"] is False, f"{label}: length recovered as payload-only (excludes header)")
-    check(login["payload"] == XML_FRAME_1, f"{label}: first frame's XML payload recovered exactly")
+    check(login["signature"] == dissect.SIG4,
+          f"{label}: recovered signature is DRINASD4")
+    check(login["signature_offset"] == 0,
+          f"{label}: signature located at offset 0")
+    check(login["pad"] == 0,
+          f"{label}: length field placed immediately after the signature "
+          "(no padding)")
+    check(login["length_size"] == 4,
+          f"{label}: length field recovered as 4 bytes")
+    check(login["endian"] == ">",
+          f"{label}: length field recovered as big-endian")
+    check(login["includes_header"] is False,
+          f"{label}: length recovered as payload-only (excludes header)")
+    check(login["payload"] == XML_FRAME_1,
+          f"{label}: first frame's XML payload recovered exactly")
 
     remainder = buf[login["frame_end_absolute"]:]
     cmd = dissect.infer_command_frames(remainder)
-    check(cmd is not None, f"{label}: command-frame region after the login frame was decoded")
+    check(cmd is not None,
+          f"{label}: command-frame region after the login frame "
+          "was decoded")
     if cmd is None:
         return
     check(cmd["signature"] == dissect.SIG4,
-          f"{label}: command frame(s) recovered as also carrying DRINASD4 (repeat-signature framing)")
-    check(len(cmd["frames"]) == 1, f"{label}: exactly one command frame recovered (got {len(cmd['frames'])})")
+          f"{label}: command frame(s) recovered as also carrying DRINASD4 "
+          "(repeat-signature framing)")
+    check(len(cmd["frames"]) == 1,
+          f"{label}: exactly one command frame recovered "
+          f"(got {len(cmd['frames'])})")
     if cmd["frames"]:
         check(cmd["frames"][0]["payload"] == XML_FRAME_2,
               f"{label}: second frame's XML payload recovered exactly")

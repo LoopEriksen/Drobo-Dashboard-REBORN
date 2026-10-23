@@ -31,7 +31,8 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sdk")))
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "sdk")))
 
 import nasd_sweep as sweep  # noqa: E402
 from drobo_nasd import commands  # noqa: E402
@@ -64,13 +65,15 @@ check("every ALLOWLIST name resolves to a confirmed id",
 check("ALLOWLIST has no duplicate names",
       len(set(sweep.ALLOWLIST)) == len(sweep.ALLOWLIST))
 
-check("ALLOWLIST is exactly 39 names (the reviewed set -- change deliberately)",
+check("ALLOWLIST is exactly 39 names "
+      "(the reviewed set -- change deliberately)",
       len(sweep.ALLOWLIST) == 39, len(sweep.ALLOWLIST))
 
 # assert_allowlist_safe() must have already run at import time without
 # raising -- if it had raised, importing nasd_sweep above would have failed
 # and this file would never have reached this line.
-check("module import succeeded, i.e. assert_allowlist_safe() passed on the real list", True)
+check("module import succeeded, i.e. assert_allowlist_safe() "
+      "passed on the real list", True)
 
 # Now prove the guard actually catches bad input, not just that the current
 # list happens to be fine.
@@ -132,13 +135,16 @@ ADMIN_BODY = b"""<?xml version="1.0" encoding="UTF-8"?>
 SECRETS = ("hunter2", "QUJDREVGRw==")
 
 record = sweep._redact_and_summarize(ADMIN_BODY)
-check("redacted record parses successfully", "parse_error" not in record, record)
+check("redacted record parses successfully",
+      "parse_error" not in record, record)
 check("no secret value survives anywhere in the redacted record",
       not any(s in repr(record) for s in SECRETS), record)
-check("the field NAME 'Password' is still visible (names are safe, values are not)",
+check("the field NAME 'Password' is still visible "
+      "(names are safe, values are not)",
       "Password" in record.get("tags", []), record.get("tags"))
 check("username (not a secret) survives",
-      "admin" in repr(record.get("redacted_value")), record.get("redacted_value"))
+      "admin" in repr(record.get("redacted_value")),
+      record.get("redacted_value"))
 
 EMPTY_BODY = b"\x00"
 empty_record = sweep._redact_and_summarize(EMPTY_BODY)
@@ -147,7 +153,8 @@ check("an empty body is reported as empty, not as a parse error",
 
 MALFORMED_BODY = b"<not xml\x00"
 bad_record = sweep._redact_and_summarize(MALFORMED_BODY)
-check("malformed XML is reported, not raised", "parse_error" in bad_record, bad_record)
+check("malformed XML is reported, not raised",
+      "parse_error" in bad_record, bad_record)
 
 
 # ---------------------------------------------------------------------------
@@ -274,13 +281,15 @@ result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
                                 commands.COMMANDS["eCmdGetSysInfo"],
                                 timeout=0.5)
 check("no command reply -> status 'timeout', phase 'command'",
-      result["status"] == "timeout" and result.get("phase") == "command", result)
+      result["status"] == "timeout" and result.get("phase") == "command",
+      result)
 
 # connect() to a closed port -> refused at the connect phase, not a timeout.
 result = sweep.send_one_command("127.0.0.1", 1, TEST_ESAID,
                                 commands.COMMANDS["eCmdGetVersion"], timeout=1)
 check("connection refused outright -> status 'refused', phase 'connect'",
-      result["status"] == "refused" and result.get("phase") == "connect", result)
+      result["status"] == "refused" and result.get("phase") == "connect",
+      result)
 
 
 # ---------------------------------------------------------------------------
@@ -311,13 +320,16 @@ def fake_drobo_login_hangs(port_holder: list) -> None:
 
 ports = []
 fake_drobo_login_hangs(ports)
-outcome = sweep.run_sweep("127.0.0.1", TEST_ESAID, port=ports[0], timeout=0.3, pause=0.05,
-                           names=["eCmdGetVersion", "eCmdGetConfig", "eCmdGetSysInfo",
-                                  "eCmdGetDevices", "eCmdGetFanInfo"])
-check("sweep aborts after exactly 3 attempts", outcome["sent"] == 3, outcome["sent"])
+outcome = sweep.run_sweep(
+    "127.0.0.1", TEST_ESAID, port=ports[0], timeout=0.3, pause=0.05,
+    names=["eCmdGetVersion", "eCmdGetConfig", "eCmdGetSysInfo",
+           "eCmdGetDevices", "eCmdGetFanInfo"])
+check("sweep aborts after exactly 3 attempts",
+      outcome["sent"] == 3, outcome["sent"])
 check("sweep reports aborted=True", outcome["aborted"] is True, outcome)
 check("all 3 recorded attempts are timeouts",
-      all(r["status"] == "timeout" for r in outcome["results"]), outcome["results"])
+      all(r["status"] == "timeout" for r in outcome["results"]),
+      outcome["results"])
 
 
 print("\n" + ("ALL PASS" if not failures

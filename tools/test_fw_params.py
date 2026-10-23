@@ -14,13 +14,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import fw_params
+import fw_params  # noqa: E402
 
 failures = []
 
 
 def check(label, condition, failure_detail=""):
-    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    print(("  PASS  " if condition else "  FAIL  ") + label
+          + (f"  {failure_detail}"
+             if failure_detail and not condition else ""))
     if not condition:
         failures.append(label)
 
@@ -33,10 +35,13 @@ def blob(*parts: str) -> bytes:
 print("\n== strings are found with their offsets ==")
 b = blob("hello", "ESADevice::GetPerformance", "Iops", "TierIOps")
 found = dict((s, o) for o, s in fw_params.extract_strings(b))
-check("every string is extracted", {"hello", "Iops", "TierIOps"} <= set(found), sorted(found))
-check("offsets increase with position", found["Iops"] > found["ESADevice::GetPerformance"])
+check("every string is extracted",
+      {"hello", "Iops", "TierIOps"} <= set(found), sorted(found))
+check("offsets increase with position",
+      found["Iops"] > found["ESADevice::GetPerformance"])
 check("runs shorter than 3 chars are skipped",
-      all(len(s) >= 3 for _, s in fw_params.extract_strings(blob("ab", "abcd"))))
+      all(len(s) >= 3
+          for _, s in fw_params.extract_strings(blob("ab", "abcd"))))
 
 print("\n== the two kinds of anchor, and why the difference matters ==")
 # The bare command names live in ONE contiguous table -- that is how this
@@ -45,13 +50,15 @@ print("\n== the two kinds of anchor, and why the difference matters ==")
 name_table = blob("eCmdSetConfig", "eCmdGetConfig", "eCmdSetDimming",
                   "eCmdGetDimming", "eCmdUploadDiags")
 strings = fw_params.extract_strings(name_table)
-near = fw_params.candidates_near(strings, dict((s, o) for o, s in strings)["eCmdSetDimming"])
+near = fw_params.candidates_near(
+    strings, dict((s, o) for o, s in strings)["eCmdSetDimming"])
 check("a command name's neighbours yield no parameters", near == [], near)
 
 # The useful anchor is the HANDLER's own debug string.
 handler = blob("ESADevice::GetPerformance - failed", "Iops", "ReadThroughout",
                "WriteThroughout", "TierIOps")
-markers = fw_params.find_markers(fw_params.extract_strings(handler), "eCmdGetPerformance")
+markers = fw_params.find_markers(
+    fw_params.extract_strings(handler), "eCmdGetPerformance")
 check("a handler string is matched via the stripped command name",
       len(markers) == 1, markers)
 check("-- and it is the handler, not a bare name",
@@ -60,8 +67,10 @@ check("-- and it is the handler, not a bare name",
 # "::" is required so an ordinary log line mentioning the verb doesn't anchor.
 prose = blob("Now going to GetPerformance for the user", "Iops")
 check("a plain log line is not mistaken for a handler",
-      fw_params.find_markers(fw_params.extract_strings(prose), "eCmdGetPerformance") == [],
-      fw_params.find_markers(fw_params.extract_strings(prose), "eCmdGetPerformance"))
+      fw_params.find_markers(
+          fw_params.extract_strings(prose), "eCmdGetPerformance") == [],
+      fw_params.find_markers(
+          fw_params.extract_strings(prose), "eCmdGetPerformance"))
 
 print("\n== candidate filtering ==")
 noisy = blob("ESADevice::GetPerformance", "Iops", "ERROR", "Failed", "Params",
@@ -70,20 +79,24 @@ strings = fw_params.extract_strings(noisy)
 anchor = dict((s, o) for o, s in strings)["ESADevice::GetPerformance"]
 cands = fw_params.candidates_near(strings, anchor)
 check("real tag names survive", {"Iops", "TierIOps"} <= set(cands), cands)
-check("log-level noise is dropped", "ERROR" not in cands and "Failed" not in cands, cands)
+check("log-level noise is dropped",
+      "ERROR" not in cands and "Failed" not in cands, cands)
 # Params/Result are envelope structure, not parameters -- listing them would
 # send somebody chasing a tag that is already known and already sent.
-check("envelope tags are dropped", "Params" not in cands and "Result" not in cands, cands)
+check("envelope tags are dropped",
+      "Params" not in cands and "Result" not in cands, cands)
 check("command names are dropped", "eCmdGetConfig" not in cands, cands)
 check("lowercase words are dropped", "lower" not in cands, cands)
 check("strings with spaces are dropped", "With Space" not in cands, cands)
 
 print("\n== the window bounds the search ==")
-far = blob("ESADevice::GetPerformance", *["Padding" + str(i) for i in range(120)], "FarAwayTag")
+far = blob("ESADevice::GetPerformance",
+           *["Padding" + str(i) for i in range(120)], "FarAwayTag")
 strings = fw_params.extract_strings(far)
 anchor = dict((s, o) for o, s in strings)["ESADevice::GetPerformance"]
 check("a tag beyond the window is not attributed",
-      "FarAwayTag" not in fw_params.candidates_near(strings, anchor, window=50))
+      "FarAwayTag" not in fw_params.candidates_near(
+          strings, anchor, window=50))
 check("-- but is found with a wide enough window",
       "FarAwayTag" in fw_params.candidates_near(strings, anchor, window=5000))
 
@@ -92,7 +105,8 @@ multi = blob("ESADevice::GetPerformance", "Iops", "Once",
              "ESASession::GetPerformance", "Iops")
 result = fw_params.analyse(multi, "eCmdGetPerformance", window=200)
 check("a tag near several markers outranks one seen once",
-      result["candidates"] and result["candidates"][0] == "Iops", result["candidates"])
+      result["candidates"] and result["candidates"][0] == "Iops",
+      result["candidates"])
 check("the command id is carried", result["id"] == 62, result["id"])
 
 print("\n== validation against the real binary, when it is present ==")

@@ -118,7 +118,8 @@ def describe(data: bytes) -> str:
 
 
 class Tap:
-    def __init__(self, drobo: str, drobo_port: int, jsonl_path: str, bin_path: str):
+    def __init__(self, drobo: str, drobo_port: int, jsonl_path: str,
+                 bin_path: str):
         self.drobo = drobo
         self.drobo_port = drobo_port
         self.jsonl = open(jsonl_path, "w", encoding="utf-8")
@@ -148,9 +149,11 @@ class Tap:
                 self.binf.flush()
 
         arrow = "-->" if direction == "c2s" else "<--"
-        who = "Dashboard --> Drobo" if direction == "c2s" else "Drobo --> Dashboard"
+        who = ("Dashboard --> Drobo" if direction == "c2s"
+               else "Drobo --> Dashboard")
         with _print_lock:
-            print(f"\n[{time.time() - self.started:8.3f}s] conn{conn_id} {arrow} {who}"
+            print(f"\n[{time.time() - self.started:8.3f}s] "
+                  f"conn{conn_id} {arrow} {who}"
                   f"  {len(data)} bytes")
             print(f"    {describe(data)}")
             for line in hexdump(data):
@@ -184,11 +187,13 @@ def pump(src: socket.socket, dst: socket.socket, direction: str,
 
 def handle(client: socket.socket, addr, tap: Tap, conn_id: int) -> None:
     with _print_lock:
-        print(f"\n=== conn{conn_id}: Dashboard connected from {addr[0]}:{addr[1]} ===")
+        print(f"\n=== conn{conn_id}: Dashboard connected from "
+              f"{addr[0]}:{addr[1]} ===")
         print(f"    opening upstream to {tap.drobo}:{tap.drobo_port}")
         sys.stdout.flush()
     try:
-        upstream = socket.create_connection((tap.drobo, tap.drobo_port), timeout=10)
+        upstream = socket.create_connection(
+            (tap.drobo, tap.drobo_port), timeout=10)
     except OSError as exc:
         with _print_lock:
             print(f"    !! could not reach the Drobo: {exc}")
@@ -199,8 +204,12 @@ def handle(client: socket.socket, addr, tap: Tap, conn_id: int) -> None:
     client.settimeout(None)
 
     threads = [
-        threading.Thread(target=pump, args=(client, upstream, "c2s", tap, conn_id), daemon=True),
-        threading.Thread(target=pump, args=(upstream, client, "s2c", tap, conn_id), daemon=True),
+        threading.Thread(
+            target=pump, args=(client, upstream, "c2s", tap, conn_id),
+            daemon=True),
+        threading.Thread(
+            target=pump, args=(upstream, client, "s2c", tap, conn_id),
+            daemon=True),
     ]
     for t in threads:
         t.start()
@@ -214,8 +223,10 @@ def handle(client: socket.socket, addr, tap: Tap, conn_id: int) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--drobo", required=True, help="the real Drobo's IP address")
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--drobo", required=True,
+                    help="the real Drobo's IP address")
     ap.add_argument("--drobo-port", type=int, default=5000)
     ap.add_argument("--listen", default="127.0.0.1",
                     help="address to listen on (default 127.0.0.1)")
@@ -244,11 +255,13 @@ def main(argv=None) -> int:
 
     print(f"nasd tap listening on {args.listen}:{args.listen_port}")
     print(f"  forwarding to the real Drobo at {args.drobo}:{args.drobo_port}")
-    print(f"  writing {os.path.basename(jsonl_path)} and {os.path.basename(bin_path)}")
+    print(f"  writing {os.path.basename(jsonl_path)} "
+          f"and {os.path.basename(bin_path)}")
     print()
     print("  Now: in Drobo Dashboard, add a Drobo manually by IP and enter")
     print(f"       {args.listen}")
-    print("  Then click the status page, the drive detail, and the tools pages.")
+    print("  Then click the status page, the drive detail, "
+          "and the tools pages.")
     print("  Ctrl+C when done.")
     print()
 
@@ -265,8 +278,10 @@ def main(argv=None) -> int:
         srv.close()
         tap.close()
 
-    print(f"  Dashboard -> Drobo : {tap.counts['c2s']} chunks, {tap.bytes['c2s']} bytes")
-    print(f"  Drobo -> Dashboard : {tap.counts['s2c']} chunks, {tap.bytes['s2c']} bytes")
+    print(f"  Dashboard -> Drobo : {tap.counts['c2s']} chunks, "
+          f"{tap.bytes['c2s']} bytes")
+    print(f"  Drobo -> Dashboard : {tap.counts['s2c']} chunks, "
+          f"{tap.bytes['s2c']} bytes")
     print(f"\n  wrote {jsonl_path}")
     print(f"        {bin_path}")
     if tap.counts["c2s"] == 0:

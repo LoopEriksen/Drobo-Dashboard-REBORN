@@ -79,7 +79,8 @@ sys.path.insert(0, _HERE)
 
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
-import nasd_sweep as sweep  # noqa: E402  (reuse its send/redact/report machinery)
+# noqa: E402  (reuse its send/redact/report machinery)
+import nasd_sweep as sweep  # noqa: E402
 
 #: The seven. See the module docstring for why each one is safe, and why the
 #: other six of the thirteen are absent.
@@ -102,13 +103,15 @@ NOT_TESTED: dict[str, str] = {
     "eCmdModeSense": "raw SCSI passthrough to a storage controller",
     "eCmdDoPoll": "makes the device do work of unknown scope on command",
     "eCmdCacheBattery": "name is not unambiguously a read; may be a self-test",
-    "eCmdAuthenticateUser": "needs real credentials over an unencrypted protocol",
+    "eCmdAuthenticateUser":
+        "needs real credentials over an unencrypted protocol",
 }
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("host", nargs="?", default="")
     ap.add_argument("--out", default="")
     args = ap.parse_args(argv)
@@ -116,21 +119,25 @@ def main(argv=None) -> int:
     host = args.host
     if not host:
         try:
-            cfg = json.load(open(os.path.join(_HERE, "..", "agent", "config.json"),
-                                 encoding="utf-8"))
+            cfg = json.load(open(
+                os.path.join(_HERE, "..", "agent", "config.json"),
+                encoding="utf-8"))
             host = cfg["drobo"].get("host", "")
         except (OSError, KeyError, ValueError):
             pass
     if not host or host == "auto":
-        print("No Drobo address. Pass one, e.g.  py tools/sweep_remainder.py 10.0.0.5")
+        print("No Drobo address. Pass one, e.g.  "
+              "py tools/sweep_remainder.py 10.0.0.5")
         return 1
 
     # Same guard the first sweep uses: nothing refused may ever be in the list.
     sweep.assert_allowlist_safe(REMAINDER)
-    print(f"Safety check passed: {len(REMAINDER)} commands, none of them refused.\n")
+    print(f"Safety check passed: {len(REMAINDER)} commands, "
+          "none of them refused.\n")
 
     try:
-        ident = esatm.parse_identity(esatm.fetch_greeting(host, 5000, timeout=8))
+        ident = esatm.parse_identity(
+            esatm.fetch_greeting(host, 5000, timeout=8))
     except OSError as exc:
         print(f"Could not reach the Drobo at {host}: {exc}")
         return 1
@@ -146,7 +153,8 @@ def main(argv=None) -> int:
     for i, name in enumerate(REMAINDER, 1):
         cmd_id = commands.COMMANDS[name]
         print(f"[{i}/{len(REMAINDER)}] {name} (id {cmd_id}) ...", flush=True)
-        rec = sweep.send_one_command(host, sweep.DEFAULT_COMMAND_PORT, esa, cmd_id, 6.0)
+        rec = sweep.send_one_command(
+            host, sweep.DEFAULT_COMMAND_PORT, esa, cmd_id, 6.0)
         rec["name"], rec["cmd_id"] = name, cmd_id
         results.append(rec)
 
@@ -163,8 +171,8 @@ def main(argv=None) -> int:
         if status == "timeout":
             consecutive_timeouts += 1
             if consecutive_timeouts >= 3:
-                print("\n!! three consecutive timeouts -- stopping. The device may "
-                      "be tiring; not sending the rest.")
+                print("\n!! three consecutive timeouts -- stopping. "
+                      "The device may be tiring; not sending the rest.")
                 break
         else:
             consecutive_timeouts = 0
@@ -187,7 +195,8 @@ def main(argv=None) -> int:
     for name, why in NOT_TESTED.items():
         print(f"  {name:24} {why}")
 
-    out = args.out or os.path.join(tempfile.gettempdir(), "drobo-sweep-remainder.json")
+    out = args.out or os.path.join(
+        tempfile.gettempdir(), "drobo-sweep-remainder.json")
     with open(out, "w", encoding="utf-8") as fh:
         json.dump({"host": host, "results": results}, fh, indent=1)
     print(f"\nRedacted report: {out}")

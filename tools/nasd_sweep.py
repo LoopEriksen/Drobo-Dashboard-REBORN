@@ -112,7 +112,8 @@ from xml.etree import ElementTree
 # tools/, agent/ and sdk/ are siblings. The Drobo protocol lives in the SDK
 # (sdk/drobo_nasd) -- the WORKING reference already confirmed against real
 # hardware -- so point at that rather than reimplementing any of it.
-_SDK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sdk")
+_SDK_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "sdk")
 sys.path.insert(0, os.path.abspath(_SDK_DIR))
 
 from drobo_nasd import commands  # noqa: E402
@@ -132,15 +133,23 @@ ALLOWLIST: list[str] = [
     "eCmdGetKernelInterfaceInfo", "eCmdGetConfig", "eCmdGetFirmwareInfo",
     "eCmdGetDroboSyncSettings", "eCmdGetDroboSyncSummaryLog",
     "eCmdGetDroboSyncDetailedLog", "eCmdGetDroboSyncLog",
-    "eCmdGetReservedDriveLetters", "eCmdGetDemoModeInfo", "eCmdGetUserEmailSettings",
-    "eCmdGetDevices", "eCmdIsAutoDiscoveryEnabled", "eCmdGetManualDiscoveryIPList",
-    "eCmdIsSCSIConnAvailable", "eCmdGetSysInfo", "eCmdGetPerformance", "eCmdGetFanInfo",
-    "eCmdGetPowerInfo", "eCmdGetControllerCard", "eCmdGetExpanderCard", "eCmdGetOSInfo",
-    "eCmdGetTMDiagFilePath", "eCmdGetLunInitatorExtraInfo", "eCmdGetDroboAppsStatus",
+    "eCmdGetReservedDriveLetters", "eCmdGetDemoModeInfo",
+    "eCmdGetUserEmailSettings",
+    "eCmdGetDevices", "eCmdIsAutoDiscoveryEnabled",
+    "eCmdGetManualDiscoveryIPList",
+    "eCmdIsSCSIConnAvailable", "eCmdGetSysInfo", "eCmdGetPerformance",
+    "eCmdGetFanInfo",
+    "eCmdGetPowerInfo", "eCmdGetControllerCard", "eCmdGetExpanderCard",
+    "eCmdGetOSInfo",
+    "eCmdGetTMDiagFilePath", "eCmdGetLunInitatorExtraInfo",
+    "eCmdGetDroboAppsStatus",
     "eCmdGetAdminConfig", "eCmdGetSharesConfig", "eCmdGetEventLogs",
-    "eCmdGetSessionIPAddress", "eCmdGetAllDevicesStatusXML", "eCmdGetRegisteredEmail",
-    "eCmdGetUserGroupList", "eCmdGetUserEventLog", "eCmdGetDeviceNamesToShutdown",
-    "eCmdGetDASDeviceNamesWithMountedVolumes", "eCmdGetDeviceMountedVolumesCount",
+    "eCmdGetSessionIPAddress", "eCmdGetAllDevicesStatusXML",
+    "eCmdGetRegisteredEmail",
+    "eCmdGetUserGroupList", "eCmdGetUserEventLog",
+    "eCmdGetDeviceNamesToShutdown",
+    "eCmdGetDASDeviceNamesWithMountedVolumes",
+    "eCmdGetDeviceMountedVolumesCount",
 ]
 
 
@@ -162,7 +171,8 @@ def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
     overlap = sorted(set(allowlist) & set(commands.DO_NOT_SEND))
     if overlap:
         raise SweepSafetyError(
-            f"ALLOWLIST overlaps commands.DO_NOT_SEND -- refusing to run: {overlap}"
+            "ALLOWLIST overlaps commands.DO_NOT_SEND -- refusing to run: "
+            f"{overlap}"
         )
 
     unknown = sorted(n for n in allowlist if n not in commands.COMMANDS)
@@ -259,7 +269,7 @@ def _redact_and_summarize(body: bytes) -> dict:
 
 
 def send_one_command(host: str, port: int, esa_id: str, command_id: int,
-                      timeout: float) -> dict:
+                     timeout: float) -> dict:
     """
     Fresh TCP connection: login, send exactly one command with empty
     <Params></Params>, read exactly one response. Never reuses a socket
@@ -297,12 +307,14 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
         except (TimeoutError, socket.timeout):
             return {"status": "timeout", "phase": "command"}
         except (config_cmd.ConfigError, OSError) as exc:
-            return {"status": "refused", "phase": "command", "detail": str(exc)}
+            return {"status": "refused", "phase": "command",
+                    "detail": str(exc)}
 
         elapsed = time.monotonic() - t0
         if frame_type != config_cmd.TYPE_RESULT:
             return {"status": "refused", "phase": "command",
-                    "detail": f"unexpected type 0x{frame_type:02x}", "elapsed_s": elapsed}
+                    "detail": f"unexpected type 0x{frame_type:02x}",
+                    "elapsed_s": elapsed}
         if not body or not body.rstrip(b"\x00").strip():
             return {"status": "empty", "elapsed_s": elapsed}
 
@@ -338,14 +350,16 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
         tag_count = len(record.get("tags", []))
         extra = f", {tag_count} fields" if status == "answered" else ""
         if record.get("escaped_document"):
-            extra += "  [escaped inner document -- invisible to the first sweep]"
+            extra += ("  [escaped inner document -- "
+                      "invisible to the first sweep]")
         print(f"    -> {status}{extra}", flush=True)
 
         if status == "timeout":
             consecutive_timeouts += 1
             if consecutive_timeouts >= 3:
                 print("\n!! three consecutive timeouts -- stopping the sweep. "
-                      "The device may be unhappy; not sending the rest.", flush=True)
+                      "The device may be unhappy; not sending the rest.",
+                      flush=True)
                 aborted = True
                 break
         else:
@@ -359,7 +373,7 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
 
 
 def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
-                           timeout: float = 8.0) -> dict:
+                          timeout: float = 8.0) -> dict:
     """Reconnect to the status port and confirm the normal greeting still
     arrives. Read-only; this is the post-sweep health check."""
     try:
@@ -370,20 +384,24 @@ def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
         identity = esatm.parse_identity(payload)
     except ElementTree.ParseError as exc:
         return {"healthy": False, "detail": f"greeting did not parse: {exc}"}
-    return {"healthy": bool(identity.get("esa_id")), "detail": "ESATMUpdate greeting received"}
+    return {"healthy": bool(identity.get("esa_id")),
+            "detail": "ESATMUpdate greeting received"}
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("host", help="the Drobo's IP address")
     ap.add_argument("--command-port", type=int, default=DEFAULT_COMMAND_PORT)
     ap.add_argument("--status-port", type=int, default=DEFAULT_STATUS_PORT)
-    ap.add_argument("--timeout", type=float, default=6.0, help="per-command timeout, seconds")
-    ap.add_argument("--pause", type=float, default=0.4, help="pause between commands, seconds")
+    ap.add_argument("--timeout", type=float, default=6.0,
+                    help="per-command timeout, seconds")
+    ap.add_argument("--pause", type=float, default=0.4,
+                    help="pause between commands, seconds")
     ap.add_argument("-o", "--out", default=None,
                     help="where to write the redacted JSON report "
                          "(default: a scratch path OUTSIDE the repo)")
@@ -393,23 +411,29 @@ def main(argv: list[str] | None = None) -> int:
     if out_path is None:
         scratch = os.path.join(
             os.path.expanduser("~"), ".nasd_sweep_scratch")
-        out_path = os.path.join(scratch, "sweep-raw.json") if os.path.isdir(scratch) else \
-            os.path.join(os.path.expanduser("~"), "sweep-raw.json")
+        out_path = (
+            os.path.join(scratch, "sweep-raw.json")
+            if os.path.isdir(scratch)
+            else os.path.join(os.path.expanduser("~"), "sweep-raw.json"))
 
-    print(f"Fetching identity from {args.host}:{args.status_port} (no login needed) ...")
-    greeting = esatm.fetch_greeting(args.host, port=args.status_port, timeout=8.0)
+    print(f"Fetching identity from {args.host}:{args.status_port} "
+          "(no login needed) ...")
+    greeting = esatm.fetch_greeting(
+        args.host, port=args.status_port, timeout=8.0)
     identity = esatm.parse_identity(greeting)
     esa_id = identity.get("esa_id", "")
     if not esa_id:
-        raise SystemExit("could not read mESAID from the status greeting; aborting")
-    print(f"Got esa_id (len {len(esa_id)}). Not printing it -- treat it as sensitive.")
+        raise SystemExit(
+            "could not read mESAID from the status greeting; aborting")
+    print(f"Got esa_id (len {len(esa_id)}). "
+          "Not printing it -- treat it as sensitive.")
 
     print(f"\nSending {len(ALLOWLIST)} allow-listed commands to "
           f"{args.host}:{args.command_port}, one fresh login each, "
           f"{args.timeout}s timeout, {args.pause}s pause between.\n")
 
     sweep = run_sweep(args.host, esa_id, port=args.command_port,
-                       timeout=args.timeout, pause=args.pause)
+                      timeout=args.timeout, pause=args.pause)
 
     print("\nVerifying the device is still healthy on the status port ...")
     health = verify_device_healthy(args.host, port=args.status_port)
@@ -424,7 +448,8 @@ def main(argv: list[str] | None = None) -> int:
     for status in ("answered", "empty", "refused", "timeout"):
         print(f"  {status:10s} {counts.get(status, 0)}")
     if sweep["aborted"]:
-        print(f"  sweep ABORTED after {sweep['sent']} of {sweep['planned']} commands")
+        print(f"  sweep ABORTED after {sweep['sent']} of "
+              f"{sweep['planned']} commands")
 
     report = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),

@@ -70,9 +70,11 @@ import nasd_sweep as sweep  # noqa: E402
 #: Order matters. Identify last -- see the module docstring.
 ORDER: list[tuple[str, str]] = [
     ("eCmdModeSense", "SCSI MODE SENSE -- a read in SCSI terms"),
-    ("eCmdCacheBattery", "battery status, or possibly a self-test; a 5N has no battery"),
+    ("eCmdCacheBattery",
+     "battery status, or possibly a self-test; a 5N has no battery"),
     ("eCmdDoPoll", "makes the device re-read its own state"),
-    ("eCmdAuthenticateUser", "sent ONCE -- repeated failures could lock an account"),
+    ("eCmdAuthenticateUser",
+     "sent ONCE -- repeated failures could lock an account"),
     ("eCmdGetUpdate", "dials a dead vendor server; may hang"),
     ("eCmdIdentify", "flashes the lights -- WATCH THE UNIT"),
 ]
@@ -81,7 +83,8 @@ ORDER: list[tuple[str, str]] = [
 def healthy(host: str) -> tuple[bool, str]:
     """Is the device still greeting on the status port?"""
     try:
-        ident = esatm.parse_identity(esatm.fetch_greeting(host, 5000, timeout=8))
+        ident = esatm.parse_identity(
+            esatm.fetch_greeting(host, 5000, timeout=8))
         return True, ident.get("name", "?")
     except OSError as exc:
         return False, str(exc)
@@ -96,8 +99,9 @@ def main(argv=None) -> int:
     host = args.host
     if not host:
         try:
-            host = json.load(open(os.path.join(_HERE, "..", "agent", "config.json"),
-                                  encoding="utf-8"))["drobo"]["host"]
+            host = json.load(open(
+                os.path.join(_HERE, "..", "agent", "config.json"),
+                encoding="utf-8"))["drobo"]["host"]
         except (OSError, KeyError, ValueError):
             pass
     if not host or host == "auto":
@@ -141,7 +145,8 @@ def main(argv=None) -> int:
         print(f"        -> {rec['status']}{extra}   [{elapsed:.1f}s]")
 
         ok, who = healthy(host)
-        print(f"        device after: {'OK' if ok else 'NOT ANSWERING -- ' + who}\n")
+        print("        device after: "
+              f"{'OK' if ok else 'NOT ANSWERING -- ' + who}\n")
         if not ok:
             print("!! The device stopped greeting. Stopping here rather than "
                   "sending anything else.")
@@ -153,18 +158,22 @@ def main(argv=None) -> int:
         print(f"  {r['name']:24} {r['status']}")
 
     out = os.path.join(tempfile.gettempdir(), "drobo-last-six.json")
-    json.dump({"host": host, "results": results}, open(out, "w", encoding="utf-8"), indent=1)
+    json.dump({"host": host, "results": results},
+              open(out, "w", encoding="utf-8"), indent=1)
     print(f"\nRedacted report: {out}")
     return 0
 
 
 if __name__ == "__main__":
     # esa_id is read once, up front, and shared by every command below.
-    _h = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else ""
+    _h = (sys.argv[1]
+          if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+          else "")
     if not _h:
         try:
-            _h = json.load(open(os.path.join(_HERE, "..", "agent", "config.json"),
-                                encoding="utf-8"))["drobo"]["host"]
+            _h = json.load(open(
+                os.path.join(_HERE, "..", "agent", "config.json"),
+                encoding="utf-8"))["drobo"]["host"]
         except (OSError, KeyError, ValueError):
             _h = ""
     esa_id = ""

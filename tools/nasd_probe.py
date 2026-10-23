@@ -84,7 +84,8 @@ def bodies_for(command: str) -> list[tuple[str, bytes]]:
         ("command-element", f"<Command>{command}</Command>".encode()),
         ("command-attr", f'<Command name="{command}"/>'.encode()),
         ("esa-style", f"<ESA><Command>{command}</Command></ESA>".encode()),
-        ("decl+command", f'<?xml version="1.0"?><Command>{command}</Command>'.encode()),
+        ("decl+command",
+         f'<?xml version="1.0"?><Command>{command}</Command>'.encode()),
         ("tmcmd", f"<TMCmd><Cmd>{command}</Cmd></TMCmd>".encode()),
     ]
 
@@ -123,10 +124,12 @@ FRAMINGS = [
     # signature-prefixed -- the shapes worth trying
     ("sig4+len32be", lambda b: SIG4 + struct.pack(">I", len(b)) + b),
     ("sig4+len32le", lambda b: SIG4 + struct.pack("<I", len(b)) + b),
-    ("sig4+nul+len32be", lambda b: SIG4 + b"\0" + struct.pack(">I", len(b)) + b),
+    ("sig4+nul+len32be",
+     lambda b: SIG4 + b"\0" + struct.pack(">I", len(b)) + b),
     ("sig+len32be", lambda b: SIG + b"\0" + struct.pack(">I", len(b)) + b),
     ("len32be+sig4", lambda b: struct.pack(">I", len(b) + 8) + SIG4 + b),
-    ("sig4+pad8+len32be", lambda b: SIG4 + b"\0" * 8 + struct.pack(">I", len(b)) + b),
+    ("sig4+pad8+len32be",
+     lambda b: SIG4 + b"\0" * 8 + struct.pack(">I", len(b)) + b),
 ]
 
 
@@ -199,7 +202,8 @@ def probe_banner(host: str) -> dict:
         if data:
             result["hexdump"] = hexdump(data)
             result["verdict"] = looks_like_answer(data)
-            print(f"  server sent {len(data)} bytes unprompted -- {result['verdict']}")
+            print(f"  server sent {len(data)} bytes unprompted -- "
+                  f"{result['verdict']}")
             for line in hexdump(data, 128):
                 print("    " + line)
         else:
@@ -213,7 +217,8 @@ def probe_banner(host: str) -> dict:
 def probe_framings(host: str, command: str, persistent: bool) -> list[dict]:
     print(f"\n== 2. framing sweep using {command} ==")
     if command in FORBIDDEN:
-        raise SystemExit(f"refusing to send {command}: it is on the forbidden list")
+        raise SystemExit(
+            f"refusing to send {command}: it is on the forbidden list")
 
     results = []
     sock = None
@@ -244,7 +249,8 @@ def probe_framings(host: str, command: str, persistent: bool) -> list[dict]:
                 entry["hexdump"] = hexdump(data)
                 entry["text"] = data[:1024].decode("utf-8", "replace")
                 entry["verdict"] = looks_like_answer(data)
-                print(f"  {label:34s} -> {len(data):5d} bytes  {entry['verdict']}")
+                print(f"  {label:34s} -> {len(data):5d} bytes  "
+                      f"{entry['verdict']}")
             else:
                 print(f"  {label:34s} -> (nothing)")
             results.append(entry)
@@ -257,12 +263,14 @@ def probe_framings(host: str, command: str, persistent: bool) -> list[dict]:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("host", help="the Drobo's IP address")
     ap.add_argument("-o", "--out", default="nasd-probe.json")
     ap.add_argument("--command", default="eCmdGetVersion",
-                    help=f"which safe command to probe with; one of {SAFE_COMMANDS}")
+                    help="which safe command to probe with; one of "
+                         f"{SAFE_COMMANDS}")
     ap.add_argument("--listen-only", action="store_true",
                     help="connect and read, but never send anything")
     ap.add_argument("--persistent", action="store_true",
@@ -286,11 +294,13 @@ def main(argv=None) -> int:
     if args.listen_only:
         print("\n--listen-only: stopping without sending anything.")
     else:
-        report["framings"] = probe_framings(args.host, args.command, args.persistent)
+        report["framings"] = probe_framings(
+            args.host, args.command, args.persistent)
 
         good = [r for r in report["framings"] if r.get("received_bytes")]
         print(f"\n== summary ==")
-        print(f"  {len(good)} of {len(report['framings'])} attempts got a reply")
+        print(f"  {len(good)} of {len(report['framings'])} "
+              "attempts got a reply")
         best = [r for r in good if "Error" in (r.get("text") or "")
                 or "XML" in (r.get("verdict") or "")]
         if best:
@@ -301,8 +311,10 @@ def main(argv=None) -> int:
             print("  something answered, but nothing looked like XML. "
                   "Check the hexdumps in the report.")
         else:
-            print("  nothing answered. Either the framing guesses are all wrong,")
-            print("  or nasd expects authentication first. Fall back to Wireshark:")
+            print("  nothing answered. "
+                  "Either the framing guesses are all wrong,")
+            print("  or nasd expects authentication first. "
+                  "Fall back to Wireshark:")
             print(f"    tcp port {PORT} and host {args.host}")
 
     with open(args.out, "w", encoding="utf-8") as fh:
