@@ -102,7 +102,8 @@ _LEVEL_M_BLOCK_LAYOUT = {
 
 _ALIGNMENT_PATTERN_CENTRES = {
     1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
-    6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+    6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46],
+    10: [6, 28, 50],
 }
 
 _LEVEL_M_INDICATOR_BITS = 0b00          # level M
@@ -222,17 +223,24 @@ def _new_matrix(version: int):
     centres = _ALIGNMENT_PATTERN_CENTRES[version]
     for centre_row in centres:
         for centre_column in centres:
-            if (centre_row < 8 and centre_column < 8) or (centre_row < 8 and centre_column > size - 9) or (centre_row > size - 9 and centre_column < 8):
+            if ((centre_row < 8 and centre_column < 8)
+                    or (centre_row < 8 and centre_column > size - 9)
+                    or (centre_row > size - 9 and centre_column < 8)):
                 continue
             for row_offset in range(-2, 3):
                 for column_offset in range(-2, 3):
-                    module_grid[centre_row + row_offset][centre_column + column_offset] = 1 if (max(abs(row_offset), abs(column_offset)) != 1) else 0
+                    module_grid[centre_row + row_offset][
+                        centre_column + column_offset
+                    ] = (1 if (max(abs(row_offset), abs(column_offset)) != 1)
+                         else 0)
 
     module_grid[size - 8][8] = 1                  # dark module
 
     for i in range(9):                    # reserve format areas
-        if module_grid[8][i] is None: module_grid[8][i] = 0
-        if module_grid[i][8] is None: module_grid[i][8] = 0
+        if module_grid[8][i] is None:
+            module_grid[8][i] = 0
+        if module_grid[i][8] is None:
+            module_grid[i][8] = 0
     for i in range(8):
         if module_grid[8][size - 1 - i] is None:
             module_grid[8][size - 1 - i] = 0
@@ -361,7 +369,8 @@ def _mask_penalty(module_grid, size: int) -> int:
     # rule 2: 2x2 blocks
     for r in range(size - 1):
         for c in range(size - 1):
-            if module_grid[r][c] == module_grid[r][c + 1] == module_grid[r + 1][c] == module_grid[r + 1][c + 1]:
+            if (module_grid[r][c] == module_grid[r][c + 1]
+                    == module_grid[r + 1][c] == module_grid[r + 1][c + 1]):
                 score += 3
     # rule 3: finder-like patterns
     finder_like_run = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
@@ -409,8 +418,10 @@ def svg(text: str, pixels_per_module: int = 6,
     size = len(grid)
     image_size = (size + quiet_zone_modules * 2) * pixels_per_module
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{image_size}" height="{image_size}" '
-        f'viewBox="0 0 {image_size} {image_size}" role="img" aria-label="Pairing QR code">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{image_size}" '
+        f'height="{image_size}" '
+        f'viewBox="0 0 {image_size} {image_size}" role="img" '
+        f'aria-label="Pairing QR code">',
         f'<rect width="{image_size}" height="{image_size}" fill="#fff"/>',
         '<g fill="#000">',
     ]
@@ -422,7 +433,10 @@ def svg(text: str, pixels_per_module: int = 6,
                 while column < size and row[column]:
                     column += 1
                 parts.append(
-                    f'<rect x="{(start + quiet_zone_modules) * pixels_per_module}" y="{(row_index + quiet_zone_modules) * pixels_per_module}" '
+                    f'<rect x="'
+                    f'{(start + quiet_zone_modules) * pixels_per_module}" '
+                    f'y="'
+                    f'{(row_index + quiet_zone_modules) * pixels_per_module}" '
                     f'width="{(column - start) * pixels_per_module}" '
                     f'height="{pixels_per_module}"/>')
             else:

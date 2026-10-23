@@ -116,7 +116,8 @@ def load(path: str) -> dict:
                 raise SystemExit(
                     f"[config] {path} is not valid JSON: {exc.msg} "
                     f"(line {exc.lineno}, column {exc.colno}).\n"
-                    f"[config] Nothing was changed. Fix the file, or delete it "
+                    f"[config] Nothing was changed. Fix the file, or delete "
+                    f"it "
                     f"to start again from defaults."
                 ) from None
             except UnicodeDecodeError:

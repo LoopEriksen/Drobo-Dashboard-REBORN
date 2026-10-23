@@ -58,7 +58,8 @@ FAILED_BITS = 8 | 16
 #: What each bit means, for a human-readable summary.
 _BIT_MEANINGS = [
     (1, "files were copied"),
-    (2, "extra files or folders exist in the backup that are not on the Drobo"),
+    (2, "extra files or folders exist in the backup that are not on the "
+        "Drobo"),
     (4, "some files or folders did not match"),
     (8, "SOME FILES COULD NOT BE COPIED"),
     (16, "a serious error occurred and nothing was copied"),
@@ -82,7 +83,8 @@ def interpret_exit_code(exit_code: int) -> tuple[bool, str]:
         return False, f"robocopy did not run properly (exit {exit_code})"
     ok = (exit_code & FAILED_BITS) == 0
     if exit_code == 0:
-        return True, "Nothing needed copying -- the backup was already up to date."
+        return True, (
+            "Nothing needed copying -- the backup was already up to date.")
     meanings = [text for bit, text in _BIT_MEANINGS if exit_code & bit]
     if not meanings:
         return ok, f"robocopy exited {exit_code}"
@@ -157,7 +159,8 @@ def check_destination(source: str, destination: str) -> list[str]:
     # Copying a folder into itself makes robocopy walk its own output forever.
     if _is_within(normalised_destination, normalised_source):
         problems.append(
-            "The destination is inside the source. Copying a folder into itself "
+            "The destination is inside the source. Copying a folder into "
+            "itself "
             "never finishes -- it keeps finding the copies it just made.")
 
     # The reverse is the dangerous one, and only with /MIR: mirroring onto a
@@ -166,7 +169,8 @@ def check_destination(source: str, destination: str) -> list[str]:
     if (_is_within(normalised_source, normalised_destination)
             and normalised_source != normalised_destination):
         problems.append(
-            "The source is inside the destination. Backing up into a parent of "
+            "The source is inside the destination. Backing up into a parent "
+            "of "
             "the folder you are backing up is almost never what anyone means.")
 
     # A drive root is where people accidentally point things, and mirroring
@@ -203,12 +207,15 @@ def plan(source: str, destination: str, mirror: bool = False) -> BackupPlan:
 
     if not os.path.exists(destination):
         backup_plan.warnings.append(
-            f"The destination folder does not exist yet and will be created: {destination}")
+            f"The destination folder does not exist yet and will be created: "
+            f"{destination}")
 
     if mirror:
         backup_plan.warnings.append(
-            "MIRROR IS ON. Anything in the backup that is no longer on the Drobo "
-            "will be DELETED from the backup. If you delete a photo by accident "
+            "MIRROR IS ON. Anything in the backup that is no longer on the "
+            "Drobo "
+            "will be DELETED from the backup. If you delete a photo by "
+            "accident "
             "and then run this, the backup copy goes too. Leave mirroring off "
             "unless you specifically want the backup to forget things.")
 
@@ -299,7 +306,9 @@ class BackupRunner:
         with self._lock:
             return self._job
 
-    def start(self, source: str, destination: str, mirror: bool = False) -> BackupJob:
+    def start(
+        self, source: str, destination: str, mirror: bool = False
+    ) -> BackupJob:
         """
         Actually run a backup. Raises BackupError if it must not proceed.
 
@@ -346,7 +355,8 @@ class BackupRunner:
             with self._lock:
                 job.ok, job.error = False, (
                     "robocopy was not found. It ships with Windows, so this "
-                    "usually means the backup was run on something that is not "
+                    "usually means the backup was run on something that is "
+                    "not "
                     "Windows.")
                 job.summary = "Could not start."
         except OSError as exc:

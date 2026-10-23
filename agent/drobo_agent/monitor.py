@@ -66,7 +66,8 @@ class Monitor:
         self._poll_thread: threading.Thread | None = None
 
         self.latest: Snapshot | None = None
-        self.history: deque[Snapshot] = deque(maxlen=int(config["agent"]["history_length"]))
+        self.history: deque[Snapshot] = deque(
+            maxlen=int(config["agent"]["history_length"]))
         self.alerts: dict[str, Alert] = {}
         self._last_sent_at: dict[str, float] = {}
         self._subscribers: list[queue.Queue] = []
@@ -96,7 +97,8 @@ class Monitor:
             raise SystemExit(
                 f"\n[monitor] not starting: {exc}\n"
                 "If your Drobo really was replaced, change expected_esa_id in "
-                'the "drobo" block of config.json to the serial it reports (or '
+                'the "drobo" block of config.json to the serial it reports '
+                '(or '
                 "remove it to pair with the next Drobo found), then start the "
                 "agent again.\n") from exc
         except drivers.DroboNotFoundError as exc:
@@ -155,9 +157,11 @@ class Monitor:
             print(f"[monitor] cannot reach the Drobo yet ({exc}). Starting "
                   f"anyway and will keep trying every {poll_seconds}s.",
                   flush=True)
-        self._poll_thread = threading.Thread(target=self._poll_loop, name="drobo-monitor", daemon=True)
+        self._poll_thread = threading.Thread(
+            target=self._poll_loop, name="drobo-monitor", daemon=True)
         self._poll_thread.start()
-        print(f"[monitor] polling every {poll_seconds}s via the {self.driver.name!r} driver",
+        print(f"[monitor] polling every {poll_seconds}s via the "
+              f"{self.driver.name!r} driver",
               flush=True)
 
     def stop(self) -> None:
@@ -177,8 +181,10 @@ class Monitor:
     def poll_once(self) -> Snapshot:
         try:
             snapshot = self.driver.read_snapshot()
-        except Exception as exc:  # noqa: BLE001 - any driver failure means "unreachable"
-            snapshot = Snapshot(reachable=False, source=self.driver.name, error=str(exc))
+        # noqa: BLE001 - any driver failure means "unreachable"
+        except Exception as exc:  # noqa: BLE001
+            snapshot = Snapshot(
+                reachable=False, source=self.driver.name, error=str(exc))
 
         # Worked out BEFORE the lock is taken: this can shell out to `ipconfig`,
         # and no /api/status reader should ever be made to wait behind a
@@ -235,7 +241,8 @@ class Monitor:
 
         now = time.time()
         cached = self._hint_cache
-        if cached and cached[0] == target and now - cached[1] < self.NETWORK_HINT_TTL_SECONDS:
+        if (cached and cached[0] == target
+                and now - cached[1] < self.NETWORK_HINT_TTL_SECONDS):
             return cached[2]
 
         try:
@@ -253,7 +260,9 @@ class Monitor:
 
     # -- alert rules -------------------------------------------------------
 
-    def _evaluate_alerts(self, snapshot: Snapshot, network_hint: dict | None = None) -> list[Alert]:
+    def _evaluate_alerts(
+        self, snapshot: Snapshot, network_hint: dict | None = None
+    ) -> list[Alert]:
         """Work out which conditions hold right now. Returns newly-fired alerts."""
         alert_config = self.config["alerts"]
         seen: dict[str, tuple[str, str]] = {}  # key -> (severity, message)
@@ -275,8 +284,9 @@ class Monitor:
                 # is simply on another network. The raw error is still here in
                 # full, attributed and last, where a technical reader can find
                 # it and nobody else has to wade through it.
-                message = (f"Cannot reach the Drobo. {network_hint['message']} "
-                           f"(What the agent tried: {error})")
+                message = (
+                    f"Cannot reach the Drobo. {network_hint['message']} "
+                    f"(What the agent tried: {error})")
             else:
                 message = f"Cannot reach the Drobo: {error}"
             seen["unreachable"] = (SEVERITY_CRITICAL, message)
@@ -288,20 +298,23 @@ class Monitor:
                 if drive.state == STATE_FAILED:
                     seen[f"drive-failed-{drive.bay}"] = (
                         SEVERITY_CRITICAL,
-                        f"Drive in {where} has failed ({drive.model or 'unknown model'}). "
+                        f"Drive in {where} has failed "
+                        f"({drive.model or 'unknown model'}). "
                         "Replace it as soon as possible.",
                     )
                 elif drive.state == STATE_WARNING:
                     seen[f"drive-warning-{drive.bay}"] = (
                         SEVERITY_WARNING,
-                        f"Drive in {where} reports a problem. {drive.note}".strip(),
+                        f"Drive in {where} reports a problem. "
+                        f"{drive.note}".strip(),
                     )
                 # mErrorCount is unambiguous -- above zero is a real problem,
                 # regardless of the drive's overall state.
                 if drive.error_count > 0:
                     seen[f"drive-errors-{drive.bay}"] = (
                         SEVERITY_WARNING,
-                        f"Drive in {where} has reported {drive.error_count} error(s) "
+                        f"Drive in {where} has reported {drive.error_count} "
+                        f"error(s) "
                         f"({drive.model or 'unknown model'}).",
                     )
                 drive_temperature_c = drive.temperature_c
@@ -312,7 +325,8 @@ class Monitor:
                             SEVERITY_CRITICAL,
                             f"Drive in {where} is {drive_temperature_c:.1f} C "
                             f"-- above the "
-                            f"{alert_config['temperature_critical_c']:.0f} C critical threshold.",
+                            f"{alert_config['temperature_critical_c']:.0f} C "
+                            f"critical threshold.",
                         )
                     elif (drive_temperature_c
                           >= alert_config["temperature_warning_c"]):
@@ -342,8 +356,10 @@ class Monitor:
                         SEVERITY_CRITICAL,
                         f"The Drobo is {chassis_temperature_c} C inside -- "
                         f"above the "
-                        f"{alert_config['temperature_critical_c']:.0f} C critical threshold. "
-                        "Check it has room to breathe and that the fan is running.",
+                        f"{alert_config['temperature_critical_c']:.0f} C "
+                        f"critical threshold. "
+                        "Check it has room to breathe and that the fan is "
+                        "running.",
                     )
                 elif (chassis_temperature_c
                       >= alert_config["temperature_warning_c"]):
@@ -351,7 +367,8 @@ class Monitor:
                         SEVERITY_WARNING,
                         f"The Drobo is running warm at "
                         f"{chassis_temperature_c} C inside. "
-                        "Worth checking it has space around it and clear vents.",
+                        "Worth checking it has space around it and clear "
+                        "vents.",
                     )
 
             battery = snapshot.battery
@@ -359,7 +376,8 @@ class Monitor:
                 seen["battery-failed"] = (
                     SEVERITY_CRITICAL,
                     "Cache battery has failed. "
-                    f"{battery.note or 'Replace it as soon as possible.'}".strip(),
+                    f"{battery.note or 'Replace it as soon as possible.'}"
+                    .strip(),
                 )
             elif battery.state == STATE_WARNING:
                 seen["battery-warning"] = (
@@ -378,7 +396,9 @@ class Monitor:
             if power.state == STATE_FAILED:
                 seen["power-failed"] = (
                     SEVERITY_CRITICAL,
-                    f"Power supply has failed. {power.note or 'Check the PSU and its connection.'}".strip(),
+                    f"Power supply has failed. "
+                    f"{power.note or 'Check the PSU and its connection.'}"
+                    .strip(),
                 )
             elif power.state == STATE_WARNING:
                 seen["power-warning"] = (
@@ -390,7 +410,8 @@ class Monitor:
             if fan.state == STATE_FAILED:
                 seen["fan-failed"] = (
                     SEVERITY_CRITICAL,
-                    "A cooling fan has failed. The Drobo will overheat without it -- "
+                    "A cooling fan has failed. The Drobo will overheat "
+                    "without it -- "
                     "check airflow and the fan.",
                 )
             elif fan.state == STATE_WARNING:
@@ -417,7 +438,8 @@ class Monitor:
             if used_fraction >= critical_fraction:
                 seen["capacity-critical"] = (
                     SEVERITY_CRITICAL,
-                    f"Only {free_space_text} free ({used_fraction:.0%} used). The array is nearly full.",
+                    f"Only {free_space_text} free ({used_fraction:.0%} "
+                    f"used). The array is nearly full.",
                 )
             elif used_fraction >= warning_fraction:
                 seen["capacity-warning"] = (
@@ -429,14 +451,16 @@ class Monitor:
             if pack_health.double_degraded_count > 0:
                 seen["double-degraded"] = (
                     SEVERITY_CRITICAL,
-                    f"Double-degraded count is {pack_health.double_degraded_count} -- two "
+                    f"Double-degraded count is "
+                    f"{pack_health.double_degraded_count} -- two "
                     "drives were degraded at once; the array's protection may "
                     "have been exhausted.",
                 )
             if pack_health.relayout_count > 0:
                 seen["relayout"] = (
                     SEVERITY_INFO,
-                    f"Relayout count is {pack_health.relayout_count} -- rebuilding, this "
+                    f"Relayout count is {pack_health.relayout_count} -- "
+                    f"rebuilding, this "
                     "is normal after a drive change.",
                 )
             for pack_status_field, baseline in _PACK_STATUS_BASELINE.items():
@@ -444,7 +468,8 @@ class Monitor:
                 if current is not None and current != baseline:
                     seen[f"pack-status-{pack_status_field}"] = (
                         SEVERITY_WARNING,
-                        f"{pack_status_field} changed from the healthy baseline ({baseline}) "
+                        f"{pack_status_field} changed from the healthy "
+                        f"baseline ({baseline}) "
                         f"to {current}. We don't know what this code means -- "
                         "just that it's different from before.",
                     )
@@ -509,7 +534,8 @@ class Monitor:
             try:
                 subscriber_queue.put_nowait(payload)
             except queue.Full:
-                pass  # a slow client just misses updates; it can re-read /api/status
+                # a slow client just misses updates; it can re-read /api/status
+                pass
 
     # -- read helpers used by the API --------------------------------------
 
@@ -572,7 +598,9 @@ class Monitor:
             recent_snapshots = list(self.history)[-limit:]
         points = []
         for snapshot in recent_snapshots:
-            drive_temperatures = [d.temperature_c for d in snapshot.drives if d.temperature_c is not None]
+            drive_temperatures = [
+                d.temperature_c for d in snapshot.drives
+                if d.temperature_c is not None]
             points.append(
                 {
                     "t": round(snapshot.taken_at, 1),

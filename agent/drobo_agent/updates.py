@@ -75,7 +75,8 @@ MAX_MANIFEST_BYTES = 64 * 1024
 #: update check must never be why a status poll is late.
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
-STATE_DISABLED = "disabled"      # no channel configured -- the shipping default
+# no channel configured -- the shipping default
+STATE_DISABLED = "disabled"
 STATE_CURRENT = "current"        # checked, nothing newer
 STATE_AVAILABLE = "available"    # checked, there is a newer version
 STATE_ERROR = "error"            # tried, could not tell
@@ -246,7 +247,8 @@ def _fetch_manifest(url: str, timeout: float) -> dict:
         # rather than silently truncated into something that might still parse.
         body = response.read(MAX_MANIFEST_BYTES + 1)
     if len(body) > MAX_MANIFEST_BYTES:
-        raise ValueError(f"manifest larger than {MAX_MANIFEST_BYTES} bytes; refusing it")
+        raise ValueError(
+            f"manifest larger than {MAX_MANIFEST_BYTES} bytes; refusing it")
     return json.loads(body.decode("utf-8"))
 
 
@@ -293,8 +295,9 @@ def check(config: dict, current_version: str,
     if "channels" in manifest and isinstance(manifest["channels"], dict):
         manifest = manifest["channels"].get(channel) or {}
         if not manifest:
-            return UpdateStatus(STATE_ERROR, current_version,
-                                reason=f"No {channel!r} channel in the update manifest.")
+            return UpdateStatus(
+                STATE_ERROR, current_version,
+                reason=f"No {channel!r} channel in the update manifest.")
 
     release = _read_release(manifest)
     if release is None:
@@ -318,8 +321,8 @@ def check(config: dict, current_version: str,
     if download_problem:
         return UpdateStatus(
             STATE_ERROR, current_version, latest=release,
-            reason=(f"Version {version} was announced, but its link is not usable "
-                    f"({download_problem}). Not offering it."))
+            reason=(f"Version {version} was announced, but its link is not "
+                    f"usable ({download_problem}). Not offering it."))
 
     # The checksum is a different matter. An earlier version of this module
     # REFUSED to mention an update with no SHA-256, on the reasoning that
@@ -333,19 +336,22 @@ def check(config: dict, current_version: str,
     # the news is unhelpful; implying it is verified when it is not would be a
     # lie. Neither shape is ever downloaded or installed automatically, which
     # is the control that actually matters.
-    verified = len(sha256) == 64 and all(c in "0123456789abcdef" for c in sha256)
+    verified = (len(sha256) == 64
+                and all(c in "0123456789abcdef" for c in sha256))
     if verified:
-        assurance = ("A SHA-256 is published with it -- check the file you download "
-                     "against it before running anything.")
+        assurance = ("A SHA-256 is published with it -- check the file you "
+                     "download against it before running anything.")
     else:
-        assurance = ("No checksum is published with it, so there is nothing to check "
-                     "the download against beyond the site it came from. Get it from "
+        assurance = ("No checksum is published with it, so there is nothing "
+                     "to check "
+                     "the download against beyond the site it came from. Get "
+                     "it from "
                      "the official page and nowhere else.")
 
     return UpdateStatus(
         STATE_AVAILABLE, current_version, latest=release,
-        reason=(f"Version {version} is available. This software will not download "
-                f"or install it for you. {assurance}"))
+        reason=(f"Version {version} is available. This software will not "
+                f"download or install it for you. {assurance}"))
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +393,8 @@ def _installed_version(agent_dir: str) -> str:
                     return recorded
         except OSError:
             continue
-    from . import api  # local import: api imports plenty, and this is a rare path
+    # local import: api imports plenty, and this is a rare path
+    from . import api
     return api.VERSION
 
 

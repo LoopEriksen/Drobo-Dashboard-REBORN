@@ -29,7 +29,8 @@ from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+DEFAULT_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-    parser.add_argument("--once", action="store_true", help="one reading, then exit")
+    parser.add_argument("--once", action="store_true",
+                        help="one reading, then exit")
     parser.add_argument("--open", action="store_true",
                         help="open the dashboard in your browser once it's up")
     args = parser.parse_args(argv)
@@ -74,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
           f"once for the access token, which is in this agent's "
           f"config.json", flush=True)
     if bind_address == "0.0.0.0":
-        print("[agent] bound to all interfaces - LAN only, never port-forward this",
+        print("[agent] bound to all interfaces - LAN only, never "
+              "port-forward this",
               flush=True)
 
     if args.open:

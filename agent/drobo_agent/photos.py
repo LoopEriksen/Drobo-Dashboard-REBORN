@@ -24,7 +24,8 @@ import time
 # Anything not on this list is refused. Keep it tight -- this endpoint accepts
 # files from a phone, so it should not become a general-purpose file drop.
 ALLOWED_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp", ".tif", ".tiff",
+    ".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp", ".tif",
+    ".tiff",
     ".dng", ".raw", ".cr2", ".nef", ".arw",
     ".mov", ".mp4", ".m4v", ".avi", ".hevc",
 }
@@ -60,7 +61,8 @@ class PhotoStore:
         self.max_single_upload_bytes = (
             int(config.get("max_upload_mb", 512)) * 1024 * 1024)
         # Ceiling for a chunked upload. iPhone 4K video runs to several GB.
-        self.max_chunked_file_bytes = int(config.get("max_file_gb", 32)) * 1024 * 1024 * 1024
+        self.max_chunked_file_bytes = (
+            int(config.get("max_file_gb", 32)) * 1024 * 1024 * 1024)
 
         self._lock = threading.Lock()
         self._index: dict[str, str] = {}  # sha256 -> relative path
@@ -78,13 +80,15 @@ class PhotoStore:
         if not self.enabled:
             return
         if not self.target_dir:
-            print("[photos] no target_dir configured -- photo backup is off", flush=True)
+            print("[photos] no target_dir configured -- photo backup is off",
+                  flush=True)
             self.enabled = False
             return
         try:
             os.makedirs(self.target_dir, exist_ok=True)
         except OSError as exc:
-            print(f"[photos] cannot use target_dir {self.target_dir!r}: {exc}", flush=True)
+            print(f"[photos] cannot use target_dir {self.target_dir!r}: "
+                  f"{exc}", flush=True)
             self.enabled = False
             return
         had_index = os.path.exists(self.index_path)
@@ -112,10 +116,12 @@ class PhotoStore:
         # and has no business running on every ordinary startup.
         if not had_index and self._has_any_files():
             print("[photos] no usable index but the folder has files -- "
-                  "rebuilding it from disk rather than asking for everything again",
+                  "rebuilding it from disk rather than asking for everything "
+                  "again",
                   flush=True)
             summary = self.rescan()
-            print(f"[photos] rebuilt index from {summary['found']} file(s)", flush=True)
+            print(f"[photos] rebuilt index from {summary['found']} file(s)",
+                  flush=True)
 
         print(f"[photos] {len(self._index)} file(s) already backed up to "
               f"{self.target_dir}", flush=True)
@@ -175,7 +181,8 @@ class PhotoStore:
                     # why a skipped file does not get dropped from the index.
                     continue
                 found += 1
-                rebuilt[digest] = os.path.relpath(full_path, self.target_dir).replace("\\", "/")
+                rebuilt[digest] = os.path.relpath(
+                    full_path, self.target_dir).replace("\\", "/")
 
         with self._lock:
             indexed_digests = set(self._index)
@@ -291,7 +298,8 @@ class PhotoStore:
         name = safe_filename(filename)
         extension = os.path.splitext(name)[1].lower()
         if extension not in ALLOWED_EXTENSIONS:
-            raise PhotoStoreError(f"file type {extension or '(none)'} is not accepted")
+            raise PhotoStoreError(
+                f"file type {extension or '(none)'} is not accepted")
 
         with self._lock:
             if digest in self._index:
@@ -315,7 +323,9 @@ class PhotoStore:
             capture_time = taken_at
             if capture_time is None and os.path.exists(metadata_path):
                 try:
-                    capture_time = json.load(open(metadata_path, encoding="utf-8")).get("taken_at")
+                    capture_time = json.load(
+                        open(metadata_path, encoding="utf-8")
+                    ).get("taken_at")
                 except (OSError, ValueError):
                     capture_time = None
             with open(metadata_path, "w", encoding="utf-8") as metadata_file:
@@ -349,7 +359,8 @@ class PhotoStore:
                 part_file.flush()
                 os.fsync(part_file.fileno())
             received += len(chunk)
-            return {"status": "ok", "received": received, "total": session_metadata["total"],
+            return {"status": "ok", "received": received,
+                    "total": session_metadata["total"],
                     "complete": received >= session_metadata["total"]}
 
     def session_progress(self, digest: str) -> dict:
@@ -362,7 +373,8 @@ class PhotoStore:
                 return {"status": "none", "received": 0}
             session_metadata = json.load(open(metadata_path, encoding="utf-8"))
             return {"status": "ready",
-                    "received": os.path.getsize(partial_path) if os.path.exists(partial_path) else 0,
+                    "received": (os.path.getsize(partial_path)
+                                 if os.path.exists(partial_path) else 0),
                     "total": session_metadata["total"]}
 
     def finish(self, digest: str) -> dict:
@@ -391,7 +403,8 @@ class PhotoStore:
                 os.remove(partial_path)
                 os.remove(metadata_path)
                 raise PhotoStoreError(
-                    "content does not match the declared sha256; upload discarded")
+                    "content does not match the declared sha256; upload "
+                    "discarded")
 
             relative = self._move_into_library(
                 session_metadata["filename"], session_metadata["taken_at"],
@@ -423,7 +436,9 @@ class PhotoStore:
 
     # -- single-shot upload -------------------------------------------------
 
-    def ingest(self, filename: str, data: bytes, taken_at: float | None = None) -> dict:
+    def ingest(
+        self, filename: str, data: bytes, taken_at: float | None = None
+    ) -> dict:
         if not self.enabled:
             raise PhotoStoreError("photo backup is disabled")
         if not self._loaded:
@@ -439,7 +454,8 @@ class PhotoStore:
         name = safe_filename(filename)
         extension = os.path.splitext(name)[1].lower()
         if extension not in ALLOWED_EXTENSIONS:
-            raise PhotoStoreError(f"file type {extension or '(none)'} is not accepted")
+            raise PhotoStoreError(
+                f"file type {extension or '(none)'} is not accepted")
 
         digest = hashlib.sha256(data).hexdigest()
         taken_at = taken_at or time.time()
@@ -477,7 +493,8 @@ class PhotoStore:
                     os.remove(temporary_path)
                 except OSError:
                     pass
-                raise PhotoStoreError(f"could not write to the Drobo: {exc}") from exc
+                raise PhotoStoreError(
+                    f"could not write to the Drobo: {exc}") from exc
 
             try:
                 os.utime(absolute, (taken_at, taken_at))

@@ -130,13 +130,17 @@ class EmailNotifier(Notifier):
 
         try:
             if self.use_tls:
-                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT_SECONDS) as smtp:
+                with smtplib.SMTP(
+                        self.host, self.port,
+                        timeout=self.TIMEOUT_SECONDS) as smtp:
                     smtp.starttls()
                     if self.username:
                         smtp.login(self.username, self._password)
                     smtp.send_message(mail)
             else:
-                with smtplib.SMTP(self.host, self.port, timeout=self.TIMEOUT_SECONDS) as smtp:
+                with smtplib.SMTP(
+                        self.host, self.port,
+                        timeout=self.TIMEOUT_SECONDS) as smtp:
                     if self.username:
                         smtp.login(self.username, self._password)
                     smtp.send_message(mail)
@@ -159,8 +163,10 @@ class NotifierGroup(Notifier):
         for member in self.members:
             try:
                 member.send(title, message, severity)
-            except Exception as exc:  # noqa: BLE001 - a broken backend must not stop the others
-                print(f"[notify] backend {member.name} failed: {exc}", flush=True)
+            # noqa: BLE001 - a broken backend must not stop the others
+            except Exception as exc:  # noqa: BLE001
+                print(f"[notify] backend {member.name} failed: {exc}",
+                      flush=True)
 
 
 def build(notify_config: dict) -> Notifier:
@@ -171,7 +177,8 @@ def build(notify_config: dict) -> Notifier:
         elif backend == "ntfy":
             ntfy_config = notify_config.get("ntfy", {})
             if not ntfy_config.get("topic"):
-                print("[notify] ntfy is enabled but no topic is set -- skipping", flush=True)
+                print("[notify] ntfy is enabled but no topic is set -- "
+                      "skipping", flush=True)
                 continue
             members.append(NtfyNotifier(ntfy_config.get("server", ""),
                                         ntfy_config["topic"]))
@@ -184,12 +191,15 @@ def build(notify_config: dict) -> Notifier:
             missing = [k for k in ("host", "to") if not email_config.get(k)]
             if missing:
                 print(f"[notify] email is enabled but {', '.join(missing)} "
-                      f"{'is' if len(missing) == 1 else 'are'} not set -- skipping",
+                      f"{'is' if len(missing) == 1 else 'are'} not set -- "
+                      f"skipping",
                       flush=True)
                 continue
             recipients = email_config["to"]
             if isinstance(recipients, str):
-                recipients = [address.strip() for address in recipients.split(",") if address.strip()]
+                recipients = [
+                    address.strip() for address in recipients.split(",")
+                    if address.strip()]
             members.append(EmailNotifier(
                 host=email_config["host"],
                 port=int(email_config.get("port", 587)),
@@ -200,7 +210,8 @@ def build(notify_config: dict) -> Notifier:
                 use_tls=bool(email_config.get("use_tls", True)),
             ))
         else:
-            print(f"[notify] unknown backend {backend!r} -- ignoring", flush=True)
+            print(f"[notify] unknown backend {backend!r} -- ignoring",
+                  flush=True)
     if not members:
         members.append(ConsoleNotifier())
     return NotifierGroup(members)
