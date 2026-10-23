@@ -47,7 +47,14 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk")))
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk"
+        )
+    ),
+)
 
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
@@ -87,7 +94,9 @@ def category_for(key: str) -> str:
         return "battery"
     if key == "unreachable":
         return "unreachable"
-    if key in ("double-degraded", "relayout") or key.startswith("pack-status-"):
+    if key in ("double-degraded", "relayout") or key.startswith(
+        "pack-status-"
+    ):
         return "pack"
     if key.startswith("power-") or key.startswith("fan-"):
         return "hardware"
@@ -121,19 +130,23 @@ temp_dir = tempfile.mkdtemp(prefix="notif-sim-")
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 with open(config_path, "w") as config_file:
-    json.dump({
-        "agent": {"bind": "127.0.0.1", "port": PORT, "poll_seconds": 1},
-        # Explicit mock -- never inherit the driver default, which is the real one.
-        "drobo": {"driver": "mock"},
-        "photos": {"enabled": False},
-        "alerts": {"resend_seconds": 2},
-    }, config_file)
+    json.dump(
+        {
+            "agent": {"bind": "127.0.0.1", "port": PORT, "poll_seconds": 1},
+            # Explicit mock -- never inherit the driver default, which is the real one.
+            "drobo": {"driver": "mock"},
+            "photos": {"enabled": False},
+            "alerts": {"resend_seconds": 2},
+        },
+        config_file,
+    )
 agent_config = config.load(config_path)
 TOKEN = agent_config["agent"]["token"]
 BASE_URL = f"http://127.0.0.1:{PORT}"
 
 monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
-photo_store = PhotoStore(agent_config["photos"]); photo_store.load()
+photo_store = PhotoStore(agent_config["photos"])
+photo_store.load()
 monitor.start()
 http_server = api.serve(agent_config, monitor, photo_store)
 threading.Thread(target=http_server.serve_forever, daemon=True).start()
@@ -141,7 +154,9 @@ time.sleep(1.5)
 
 
 def call(path, method="GET"):
-    request = urllib.request.Request(BASE_URL + path, method=method, headers={"X-Agent-Token": TOKEN})
+    request = urllib.request.Request(
+        BASE_URL + path, method=method, headers={"X-Agent-Token": TOKEN}
+    )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             return response.status, json.loads(response.read() or b"{}")
@@ -166,16 +181,43 @@ def wait_for(predicate, timeout=6.0):
 
 check("agent is up and answering", call("/api/ping")[0] == 200)
 baseline_alert_keys = active_keys()
-check("healthy mock starts with no drive/battery/PSU alerts",
-      not any(k.startswith(("drive-", "battery-")) for k in baseline_alert_keys), baseline_alert_keys)
+check(
+    "healthy mock starts with no drive/battery/PSU alerts",
+    not any(k.startswith(("drive-", "battery-")) for k in baseline_alert_keys),
+    baseline_alert_keys,
+)
 
 # Every fault the API can inject, with the alert key it must produce and the
 # notifier category that key must land in.
 FAULTS = [
-    ("drive fail (bay 3)",     "/api/mock/fail/3",         "drive-failed-3",  "drives",  SEVERITY_CRITICAL),
-    ("drive warn (bay 2)",     "/api/mock/warn/2",         "drive-warning-2", "drives",  SEVERITY_WARNING),
-    ("cache battery failed",   "/api/mock/battery/failed", "battery-failed",  "battery", SEVERITY_CRITICAL),
-    ("cache battery warning",  "/api/mock/battery/warning","battery-warning", "battery", SEVERITY_WARNING),
+    (
+        "drive fail (bay 3)",
+        "/api/mock/fail/3",
+        "drive-failed-3",
+        "drives",
+        SEVERITY_CRITICAL,
+    ),
+    (
+        "drive warn (bay 2)",
+        "/api/mock/warn/2",
+        "drive-warning-2",
+        "drives",
+        SEVERITY_WARNING,
+    ),
+    (
+        "cache battery failed",
+        "/api/mock/battery/failed",
+        "battery-failed",
+        "battery",
+        SEVERITY_CRITICAL,
+    ),
+    (
+        "cache battery warning",
+        "/api/mock/battery/warning",
+        "battery-warning",
+        "battery",
+        SEVERITY_WARNING,
+    ),
 ]
 
 for label, path, key, expected_category, expected_severity in FAULTS:
@@ -183,12 +225,24 @@ for label, path, key, expected_category, expected_severity in FAULTS:
     injection_status, _ = call(path, "POST")
     check(f"injection accepted ({path})", injection_status == 200,
           injection_status)
-    check(f"alert '{key}' is raised", wait_for(lambda: key in active_keys()), active_keys())
+    check(
+        f"alert '{key}' is raised",
+        wait_for(lambda: key in active_keys()),
+        active_keys(),
+    )
     _, reply = call("/api/alerts")
     alert_row = next((a for a in reply.get("alerts", []) if a["key"] == key),
                      None)
-    check(f"severity is {expected_severity}", alert_row is not None and alert_row["severity"] == expected_severity, alert_row)
-    check(f"notifier routes '{key}' -> '{expected_category}'", category_for(key) == expected_category, category_for(key))
+    check(
+        f"severity is {expected_severity}",
+        alert_row is not None and alert_row["severity"] == expected_severity,
+        alert_row,
+    )
+    check(
+        f"notifier routes '{key}' -> '{expected_category}'",
+        category_for(key) == expected_category,
+        category_for(key),
+    )
     call("/api/mock/reset", "POST")
     check(f"'{key}' clears on reset (so 'again if it returns' can work)",
           wait_for(lambda: key not in active_keys()), active_keys())
@@ -208,7 +262,10 @@ check("the pulled bay reads as absent/empty in status",
 pulled_keys = active_keys()
 pulled_notifiable = {k for k in pulled_keys if category_for(k)}
 print(f"      alerts while pulled: {sorted(pulled_keys) or 'none'}")
-print(f"      -> notifiable categories: {sorted({category_for(k) for k in pulled_notifiable}) or 'NONE'}")
+print(
+    "      -> notifiable categories: "
+    f"{sorted({category_for(k) for k in pulled_notifiable}) or 'NONE'}"
+)
 call("/api/mock/reset", "POST")
 time.sleep(1.5)
 
@@ -218,11 +275,26 @@ time.sleep(2.5)
 _, status_body = call("/api/status")
 psu_keys = active_keys()
 psu_state = (status_body.get("power") or {}).get("state")
-check("PSU fault is visible in status", psu_state in ("failed", "warning"), status_body.get("power"))
-check("PSU fault raises 'power-failed'", "power-failed" in psu_keys, sorted(psu_keys))
-check("notifier routes 'power-failed' -> 'hardware'", category_for("power-failed") == "hardware")
+check(
+    "PSU fault is visible in status",
+    psu_state in ("failed", "warning"),
+    status_body.get("power"),
+)
+check(
+    "PSU fault raises 'power-failed'",
+    "power-failed" in psu_keys,
+    sorted(psu_keys),
+)
+check(
+    "notifier routes 'power-failed' -> 'hardware'",
+    category_for("power-failed") == "hardware",
+)
 call("/api/mock/reset", "POST")
-check("'power-failed' clears on reset", wait_for(lambda: "power-failed" not in active_keys()), active_keys())
+check(
+    "'power-failed' clears on reset",
+    wait_for(lambda: "power-failed" not in active_keys()),
+    active_keys(),
+)
 
 http_server.shutdown()
 monitor.stop()
@@ -230,7 +302,10 @@ monitor.stop()
 # ---------------------------------------------------------------------------
 # Part 2: categories the API cannot inject, driven through the monitor directly
 # ---------------------------------------------------------------------------
-print("\n== the categories with no injection endpoint: temperature, capacity, unreachable, pack ==")
+print(
+    "\n== the categories with no injection endpoint: temperature, capacity, "
+    "unreachable, pack =="
+)
 
 
 def make_snapshot(**overrides):
@@ -260,29 +335,57 @@ alert_config = agent_config["alerts"]
 hot = alerts_by_key(make_snapshot(device=DeviceInfo(
     name="Sim", model="Drobo 5N",
     temperature_c=alert_config["temperature_critical_c"] + 1)))
-check("chassis over critical -> chassis-temp-critical", "chassis-temp-critical" in hot, list(hot))
-check("...routes to 'temperature'", category_for("chassis-temp-critical") == "temperature")
+check(
+    "chassis over critical -> chassis-temp-critical",
+    "chassis-temp-critical" in hot,
+    list(hot),
+)
+check(
+    "...routes to 'temperature'",
+    category_for("chassis-temp-critical") == "temperature",
+)
 
 warm = alerts_by_key(make_snapshot(device=DeviceInfo(
     name="Sim", model="Drobo 5N",
     temperature_c=alert_config["temperature_warning_c"] + 1)))
-check("chassis over warning -> chassis-temp-warning", "chassis-temp-warning" in warm, list(warm))
-check("...routes to 'temperature'", category_for("chassis-temp-warning") == "temperature")
+check(
+    "chassis over warning -> chassis-temp-warning",
+    "chassis-temp-warning" in warm,
+    list(warm),
+)
+check(
+    "...routes to 'temperature'",
+    category_for("chassis-temp-warning") == "temperature",
+)
 
 # Capacity: usable 100, used 98 -> 98%. The mock has no pack_health thresholds,
 # so the config defaults (0.85 warning / 0.95 critical) apply.
 full = alerts_by_key(make_snapshot(capacity=Capacity(usable_bytes=100,
                                                      used_bytes=98)))
 check("98% used -> capacity-critical", "capacity-critical" in full, list(full))
-check("...routes to 'capacity'", category_for("capacity-critical") == "capacity")
+check(
+    "...routes to 'capacity'", category_for("capacity-critical") == "capacity"
+)
 
-nearly_full_alerts = alerts_by_key(make_snapshot(capacity=Capacity(usable_bytes=100, used_bytes=88)))
-check("88% used -> capacity-warning", "capacity-warning" in nearly_full_alerts, list(nearly_full_alerts))
+nearly_full_alerts = alerts_by_key(
+    make_snapshot(capacity=Capacity(usable_bytes=100, used_bytes=88))
+)
+check(
+    "88% used -> capacity-warning",
+    "capacity-warning" in nearly_full_alerts,
+    list(nearly_full_alerts),
+)
 
 unreachable_alerts = alerts_by_key(make_snapshot(reachable=False,
                                                  error="connection refused"))
-check("unreachable device -> 'unreachable' alert", "unreachable" in unreachable_alerts, list(unreachable_alerts))
-check("...routes to 'unreachable'", category_for("unreachable") == "unreachable")
+check(
+    "unreachable device -> 'unreachable' alert",
+    "unreachable" in unreachable_alerts,
+    list(unreachable_alerts),
+)
+check(
+    "...routes to 'unreachable'", category_for("unreachable") == "unreachable"
+)
 
 double_degraded_alerts = alerts_by_key(make_snapshot(
     pack_health=PackHealth(double_degraded_count=1)))
@@ -292,7 +395,11 @@ check("...routes to 'pack'", category_for("double-degraded") == "pack")
 
 drive_error_alerts = alerts_by_key(make_snapshot(drives=[DriveSlot(
     bay=1, present=True, state="ok", capacity_bytes=1, error_count=3)]))
-check("drive error_count > 0 -> drive-errors-1", "drive-errors-1" in drive_error_alerts, list(drive_error_alerts))
+check(
+    "drive error_count > 0 -> drive-errors-1",
+    "drive-errors-1" in drive_error_alerts,
+    list(drive_error_alerts),
+)
 check("...routes to 'drives'", category_for("drive-errors-1") == "drives")
 
 # ---------------------------------------------------------------------------
@@ -300,26 +407,60 @@ check("...routes to 'drives'", category_for("drive-errors-1") == "drives")
 # is derived from monitor.py's SOURCE, not a hand-typed list, so a new alert
 # added tomorrow fails here instead of being silently un-notifiable.
 # ---------------------------------------------------------------------------
-print("\n== every alert key the monitor source can emit maps to a notifier category ==")
-monitor_source = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "drobo_agent", "monitor.py"), encoding="utf-8").read()
+print(
+    "\n== every alert key the monitor source can emit maps to a notifier "
+    "category =="
+)
+monitor_source = open(
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "drobo_agent",
+        "monitor.py",
+    ),
+    encoding="utf-8",
+).read()
 # Literal keys and f-string prefixes: seen["key"] and seen[f"prefix-{...}"]
 literal_keys = set(re.findall(r'seen\["([a-z0-9-]+)"\]', monitor_source))
 fstring_key_prefixes = set(re.findall(r'seen\[f"([a-z0-9-]+)\{',
                                       monitor_source))
 # give prefixes a fake suffix
 emitted = literal_keys | {prefix + "X" for prefix in fstring_key_prefixes}
-check("found alert keys in monitor source", len(emitted) >= 10, sorted(emitted))
-unrouted = sorted(k for k in emitted if not category_for(k) and not k.endswith("-cleared"))
+check(
+    "found alert keys in monitor source", len(emitted) >= 10, sorted(emitted)
+)
+unrouted = sorted(
+    k for k in emitted if not category_for(k) and not k.endswith("-cleared")
+)
 check("no monitor alert key is silently un-notifiable", not unrouted, unrouted)
 
 # The Python port must match the C# it mirrors. Assert every prefix rule this
 # test relies on is literally present in AlertNotifier.cs.
-alert_notifier_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "windows", "DroboDashboardReborn", "AlertNotifier.cs")
+alert_notifier_path = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "..",
+    "windows",
+    "DroboDashboardReborn",
+    "AlertNotifier.cs",
+)
 alert_notifier_source = open(alert_notifier_path, encoding="utf-8").read()
-for rule in ('"drive-"', '"temp-"', '"chassis-temp-"', '"capacity-"', '"battery-"',
-             '"unreachable"', '"double-degraded"', '"relayout"', '"pack-status-"', '"-cleared"',
-             '"power-"', '"fan-"'):
-    check(f"C# notifier still contains the {rule} rule this port mirrors", rule in alert_notifier_source)
+for rule in (
+    '"drive-"',
+    '"temp-"',
+    '"chassis-temp-"',
+    '"capacity-"',
+    '"battery-"',
+    '"unreachable"',
+    '"double-degraded"',
+    '"relayout"',
+    '"pack-status-"',
+    '"-cleared"',
+    '"power-"',
+    '"fan-"',
+):
+    check(
+        f"C# notifier still contains the {rule} rule this port mirrors",
+        rule in alert_notifier_source,
+    )
 
 # The categories themselves must match too. The app builds its Settings
 # switches from AlertNotifier.Categories and loads the saved settings

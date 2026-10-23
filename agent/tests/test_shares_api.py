@@ -42,8 +42,14 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk")))
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk"
+        )
+    ),
+)
 
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.drivers import MockDriver  # noqa: E402
@@ -115,7 +121,9 @@ def listed_names():
 def version_basis():
     """The simulated device's own config version -- bumped by every simulated
     write, so an unchanged value is proof nothing touched the (mock) device."""
-    return monitor.driver._shares["DRINASConfig"]["DRIShareConfig"]["ConfigVersionBasis"]
+    return monitor.driver._shares["DRINASConfig"]["DRIShareConfig"][
+        "ConfigVersionBasis"
+    ]
 
 
 driver = monitor.driver
@@ -126,7 +134,10 @@ check("the simulated driver is the one under test",
 BASELINE_SHARE_NAMES = ["Documents", "Photo Library", "Private", "TimeMachine"]
 
 try:
-    print("\n== baseline: /api/shares lists the simulated shares (and fills the cache) ==")
+    print(
+        "\n== baseline: /api/shares lists the simulated shares (and fills the "
+        "cache) =="
+    )
     status, names, reply = listed_names()
     check("shares 200", status == 200, (status, reply))
     check("the four simulated shares are listed",
@@ -134,33 +145,59 @@ try:
 
     print("\n== the simulated Drobo has one account: admin / admin ==")
     advice = reply.get("advice", {})
-    check("the advice names the account", advice.get("accounts") == ["admin"], advice)
-    check("so signing in is offered", advice.get("can_sign_in") is True, advice)
+    check(
+        "the advice names the account",
+        advice.get("accounts") == ["admin"],
+        advice,
+    )
+    check(
+        "so signing in is offered", advice.get("can_sign_in") is True, advice
+    )
 
     def sign_in(share, username, password, token=TOKEN):
-        return call("/api/mock/sign-in",
-                    body={"share": share, "username": username, "password": password},
-                    token=token)
+        return call(
+            "/api/mock/sign-in",
+            body={"share": share, "username": username, "password": password},
+            token=token,
+        )
 
     status, sign_in_result = sign_in("Documents", "admin", "admin")
     check("admin / admin opens Documents",
           status == 200 and sign_in_result.get("ok") is True
           and sign_in_result.get("win32_error") == 0, (status, sign_in_result))
     status, sign_in_result = sign_in("documents", "ADMIN", "admin")
-    check("share and user names are case-insensitive, like SMB", sign_in_result.get("ok") is True, sign_in_result)
+    check(
+        "share and user names are case-insensitive, like SMB",
+        sign_in_result.get("ok") is True,
+        sign_in_result,
+    )
     status, sign_in_result = sign_in("Documents", "admin", "Admin")
     check("the password is case-sensitive", sign_in_result.get("ok") is False
           and sign_in_result.get("win32_error") == 1326, sign_in_result)
     status, sign_in_result = sign_in("Documents", "someone", "admin")
-    check("an unknown user is a logon failure", sign_in_result.get("win32_error") == 1326, sign_in_result)
+    check(
+        "an unknown user is a logon failure",
+        sign_in_result.get("win32_error") == 1326,
+        sign_in_result,
+    )
     status, sign_in_result = sign_in("Documents", "admin", "hunter2-probe")
     check("a wrong password never comes back in the answer",
           "hunter2-probe" not in json.dumps(sign_in_result), sign_in_result)
     status, sign_in_result = sign_in("Private", "admin", "admin")
-    check("admin reaches Private, where Everyone has no access", sign_in_result.get("ok") is True, sign_in_result)
+    check(
+        "admin reaches Private, where Everyone has no access",
+        sign_in_result.get("ok") is True,
+        sign_in_result,
+    )
     status, sign_in_result = sign_in("Nowhere", "admin", "admin")
-    check("an unknown share is 'network name not found'", sign_in_result.get("win32_error") == 67, sign_in_result)
-    status, sign_in_result = call("/api/mock/sign-in", body={"share": "Documents", "password": "admin"})
+    check(
+        "an unknown share is 'network name not found'",
+        sign_in_result.get("win32_error") == 67,
+        sign_in_result,
+    )
+    status, sign_in_result = call(
+        "/api/mock/sign-in", body={"share": "Documents", "password": "admin"}
+    )
     check("a missing username is a 400", status == 400,
           (status, sign_in_result))
     status, sign_in_result = call("/api/mock/sign-in", body=b"{not json")
@@ -170,7 +207,9 @@ try:
     check("without the agent token it is refused", status == 401,
           (status, sign_in_result))
 
-    print("\n== create: the new share appears across the cache invalidation ==")
+    print(
+        "\n== create: the new share appears across the cache invalidation =="
+    )
     status, reply = call("/api/shares/create", body={"name": "Backups"})
     check("create 200 with ok", status == 200 and reply.get("ok") is True,
           (status, reply))
@@ -193,7 +232,9 @@ try:
           backups_shares and backups_shares[0].get("users") == [],
           backups_shares)
 
-    print("\n== the flow the create message promises: grant access afterwards ==")
+    print(
+        "\n== the flow the create message promises: grant access afterwards =="
+    )
     # A new share is stored with an EMPTY <ShareUsers/> -- None once parsed --
     # and the create message tells the user to grant access next. That is the
     # one share on the device whose users container is empty, so it is also the
@@ -201,13 +242,21 @@ try:
     status, reply = call("/api/config/share-access",
                          body={"share": "Backups", "user": "Everyone",
                                "access": "1"})
-    check("granting access on a brand-new share works", status == 200 and reply.get("ok"), (status, reply))
+    check(
+        "granting access on a brand-new share works",
+        status == 200 and reply.get("ok"),
+        (status, reply),
+    )
     status, names, reply = listed_names()
     backups_shares = [share for share in reply.get("shares", [])
                       if share["name"] == "Backups"]
-    check("-- and the user now reads back on it",
-          backups_shares and [user["name"] for user in backups_shares[0].get("users", [])] == ["Everyone"],
-          backups_shares)
+    check(
+        "-- and the user now reads back on it",
+        backups_shares
+        and [user["name"] for user in backups_shares[0].get("users", [])]
+        == ["Everyone"],
+        backups_shares,
+    )
 
     print("\n== delete: the share disappears the same way ==")
     status, reply = call("/api/shares/delete",
@@ -240,11 +289,19 @@ try:
     status, reply = call("/api/shares/create", body={"name": " Backups"})
     check("surrounding whitespace is refused, not stripped", status == 400,
           (status, reply))
-    check("-- and says why", "whitespace" in reply.get("error", ""), reply.get("error"))
+    check(
+        "-- and says why",
+        "whitespace" in reply.get("error", ""),
+        reply.get("error"),
+    )
 
     status, reply = call("/api/shares/create",
                          body={"name": "-leading-hyphen"})
-    check("a non-alphanumeric first character is refused with 400", status == 400, (status, reply))
+    check(
+        "a non-alphanumeric first character is refused with 400",
+        status == 400,
+        (status, reply),
+    )
 
     status, reply = call("/api/shares/create", body={"name": "x" * 28})
     check("a 28-character name is refused with 400", status == 400,
@@ -264,7 +321,11 @@ try:
     status, reply = call("/api/shares/delete",
                          body={"name": "Documents",
                                "confirm_name": "documents"})
-    check("a confirm_name differing only by case is refused with 400", status == 400, (status, reply))
+    check(
+        "a confirm_name differing only by case is refused with 400",
+        status == 400,
+        (status, reply),
+    )
     check("-- saying nothing was sent",
           "nothing was sent" in reply.get("error", ""), reply.get("error"))
 
@@ -283,8 +344,14 @@ try:
           status == 400 and "confirm_name" in reply.get("error", ""),
           (status, reply))
 
-    status, reply = call("/api/shares/delete", body={"name": "Nope", "confirm_name": "Nope"})
-    check("a confirmed delete of an unknown share is refused with 400", status == 400, (status, reply))
+    status, reply = call(
+        "/api/shares/delete", body={"name": "Nope", "confirm_name": "Nope"}
+    )
+    check(
+        "a confirmed delete of an unknown share is refused with 400",
+        status == 400,
+        (status, reply),
+    )
     check("-- listing what the device has",
           "no share named" in reply.get("error", ""), reply.get("error"))
 
@@ -299,7 +366,11 @@ try:
                          token="")
     check("unauthenticated create answers a clean 401", status == 401,
           (status, reply))
-    check("-- with the reason in the body", "X-Agent-Token" in reply.get("error", ""), reply)
+    check(
+        "-- with the reason in the body",
+        "X-Agent-Token" in reply.get("error", ""),
+        reply,
+    )
     status, reply = call("/api/shares/delete",
                          body={"name": "Documents",
                                "confirm_name": "Documents"}, token="wrong")
@@ -314,16 +385,26 @@ try:
     print("\n== the simulator mutates per-instance state only ==")
     call("/api/shares/create", body={"name": "Scratch"})
     fresh_driver = MockDriver({"simulate_config": True})
-    fresh_names = [share["ShareName"] for share in
-                   fresh_driver._shares["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"]]
+    fresh_names = [
+        share["ShareName"]
+        for share in fresh_driver._shares["DRINASConfig"]["DRIShareConfig"][
+            "Shares"
+        ]["Share"]
+    ]
     check("a fresh MockDriver has only the pristine shares",
           sorted(fresh_names) == BASELINE_SHARE_NAMES, fresh_names)
-    class_names = [share["ShareName"] for share in
-                   MockDriver._MOCK_SHARES["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"]]
+    class_names = [
+        share["ShareName"]
+        for share in MockDriver._MOCK_SHARES["DRINASConfig"]["DRIShareConfig"][
+            "Shares"
+        ]["Share"]
+    ]
     check("the class-level pristine table is untouched",
           sorted(class_names) == BASELINE_SHARE_NAMES, class_names)
 
-    print("\n== all four write outcomes, through the mock's injected endings ==")
+    print(
+        "\n== all four write outcomes, through the mock's injected endings =="
+    )
     # The point of this whole section is the two middles. On 2026-08-25 a real
     # 5N was sent a share create, closed the socket without answering, and had
     # created the share -- and every layer above reported a failure. So each
@@ -403,13 +484,21 @@ try:
     accepted, reply = arm_write_ending("none")
     check("the mock accepts being put back to healthy", accepted, reply)
     status, reply = call("/api/shares/create", body={"name": "Healthy"})
-    check("a healthy write is 200 with ok", status == 200 and reply.get("ok") is True, (status, reply))
+    check(
+        "a healthy write is 200 with ok",
+        status == 200 and reply.get("ok") is True,
+        (status, reply),
+    )
     check("-- labelled verified", reply.get("outcome") == "verified", reply)
     check("-- acknowledged true", reply.get("acknowledged") is True, reply)
 
     status, reply = call("/api/shares/delete",
                          body={"name": "Healthy", "confirm_name": "Healthy"})
-    check("delete reports the same vocabulary", reply.get("outcome") == "verified", reply)
+    check(
+        "delete reports the same vocabulary",
+        reply.get("outcome") == "verified",
+        reply,
+    )
 
     # Delete is destructive, so its unacknowledged case matters most of all:
     # reporting a completed delete as a failure is how a share gets deleted
@@ -427,14 +516,22 @@ try:
     status, reply = call("/api/mock/write/nonsense", method="POST")
     check("an unknown write ending is refused with 400", status == 400,
           (status, reply))
-    check("-- listing the ones that exist", "hangs_up" in reply.get("error", ""), reply)
+    check(
+        "-- listing the ones that exist",
+        "hangs_up" in reply.get("error", ""),
+        reply,
+    )
 
     status, reply = call("/api/mock/reset", method="POST")
     check("reset clears the injected write ending too", status == 200,
           (status, reply))
-    check("-- proven by the next write being a plain success",
-          call("/api/shares/create", body={"name": "AfterReset"})[1].get("outcome")
-          == "verified")
+    check(
+        "-- proven by the next write being a plain success",
+        call("/api/shares/create", body={"name": "AfterReset"})[1].get(
+            "outcome"
+        )
+        == "verified",
+    )
 
     print("\n== the SAME four outcomes off the real SDK, without hardware ==")
     # Everything above drives the simulated fork. This drives the HARDWARE fork
@@ -483,15 +580,27 @@ try:
             "the write to section 'shares' WAS sent, then the device closed "
             "the connection without answering."))
         status, reply = call("/api/shares/create", body={"name": "SdkUnknown"})
-        check("SDK: ConfigWriteOutcomeUnknownError is 502 UNKNOWN, not 502 failed",
-              status == 502 and reply.get("outcome") == "unknown",
-              (status, reply))
-        check("-- and keeps the SDK's own words", "WAS sent" in reply.get("error", ""), reply)
+        check(
+            "SDK: ConfigWriteOutcomeUnknownError is 502 UNKNOWN, not 502 "
+            "failed",
+            status == 502 and reply.get("outcome") == "unknown",
+            (status, reply),
+        )
+        check(
+            "-- and keeps the SDK's own words",
+            "WAS sent" in reply.get("error", ""),
+            reply,
+        )
 
         # (d) via sharewrite's translation of the same condition.
-        sdk_answers(sharewrite.ShareWriteOutcomeUnknownError(
-            "the write creating share 'X' WAS sent, but neither the device's "
-            "acknowledgement nor a read-back could settle whether it applied."))
+        sdk_answers(
+            sharewrite.ShareWriteOutcomeUnknownError(
+                "the write creating share 'X' WAS sent, but neither the "
+                "device's "
+                "acknowledgement nor a read-back could settle whether it "
+                "applied."
+            )
+        )
         status, reply = call("/api/shares/create",
                              body={"name": "SdkUnverifiable"})
         check("SDK: ShareWriteOutcomeUnknownError is 502 UNKNOWN too",
@@ -520,13 +629,21 @@ try:
         driver._resolved_host = ""
         driver._known_esa_id = ""
 
-    print("\n== the outcome vocabulary is pinned, not re-derived per caller ==")
-    check("config_cmd's unknown-outcome error maps to 'unknown', by TYPE",
-          config_cmd.ConfigWriteOutcomeUnknownError in api._UNCONFIRMED_WRITE_ERRORS,
-          api._UNCONFIRMED_WRITE_ERRORS)
-    check("the SDK's accepted-but-unverifiable error maps to 'unknown', by TYPE",
-          sharewrite.ShareWriteOutcomeUnknownError in api._UNCONFIRMED_WRITE_ERRORS,
-          api._UNCONFIRMED_WRITE_ERRORS)
+    print(
+        "\n== the outcome vocabulary is pinned, not re-derived per caller =="
+    )
+    check(
+        "config_cmd's unknown-outcome error maps to 'unknown', by TYPE",
+        config_cmd.ConfigWriteOutcomeUnknownError
+        in api._UNCONFIRMED_WRITE_ERRORS,
+        api._UNCONFIRMED_WRITE_ERRORS,
+    )
+    check(
+        "the SDK's accepted-but-unverifiable error maps to 'unknown', by TYPE",
+        sharewrite.ShareWriteOutcomeUnknownError
+        in api._UNCONFIRMED_WRITE_ERRORS,
+        api._UNCONFIRMED_WRITE_ERRORS,
+    )
     check("a plain verified result is 'verified'",
           api._write_outcome({"verified": True}) == (api.WRITE_VERIFIED, True))
     check("verified without an acknowledgement is its own outcome",
@@ -551,8 +668,10 @@ try:
           b"/api/shares/create" in page and b"/api/shares/delete" in page)
     check("the delete gate sends what was typed as confirm_name",
           b"confirm_name" in page)
-    check("the page owns the data loss in the same words as the Windows dialog",
-          b"expected to destroy everything stored in" in page)
+    check(
+        "the page owns the data loss in the same words as the Windows dialog",
+        b"expected to destroy everything stored in" in page,
+    )
     check("it has a third colour for a write nobody could settle",
           b".set-result.warn" in page)
     check("-- chosen from the agent's outcome flag, not from the wording",

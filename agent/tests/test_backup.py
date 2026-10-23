@@ -19,16 +19,26 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk")))
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk"
+        )
+    ),
+)
 
-from drobo_agent import backup
+from drobo_agent import backup  # noqa: E402
 
 failures = []
 
 
 def check(label, condition, failure_detail=""):
-    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    print(
+        ("  PASS  " if condition else "  FAIL  ")
+        + label
+        + (f"  {failure_detail}" if failure_detail and not condition else "")
+    )
     if not condition:
         failures.append(label)
 
@@ -62,8 +72,11 @@ for code, expected_ok, note in [
     (24, False, "8+16"),
 ]:
     ok, summary = backup.interpret_exit_code(code)
-    check(f"exit {code:<2} -> {'ok' if expected_ok else 'FAILURE'}  ({note})", ok == expected_ok,
-          f"got ok={ok} {summary}")
+    check(
+        f"exit {code:<2} -> {'ok' if expected_ok else 'FAILURE'}  ({note})",
+        ok == expected_ok,
+        f"got ok={ok} {summary}",
+    )
 
 _, up_to_date_summary = backup.interpret_exit_code(0)
 check("exit 0 says there was nothing to do, not 'success'",
@@ -77,9 +90,14 @@ check("a negative code is a failure, not a bitmask",
 print("\n== destinations that must be refused ==")
 # Each of these is a way to lose data or hang forever.
 nested_dir = os.path.join(source_dir, "nested")
-check("copying a folder into itself is refused",
-      any("never finishes" in refusal for refusal in backup.check_destination(source_dir, nested_dir)),
-      backup.check_destination(source_dir, nested_dir))
+check(
+    "copying a folder into itself is refused",
+    any(
+        "never finishes" in refusal
+        for refusal in backup.check_destination(source_dir, nested_dir)
+    ),
+    backup.check_destination(source_dir, nested_dir),
+)
 check("source == destination is refused",
       any("same folder" in refusal
           for refusal in backup.check_destination(source_dir, source_dir)))
@@ -89,13 +107,26 @@ check("backing up into a parent of the source is refused",
       backup.check_destination(nested_dir, source_dir))
 # Mirroring onto C:\ would try to delete Windows.
 root_refusals = backup.check_destination(source_dir, "C:\\")
-check("a bare drive root is refused", any("root of" in refusal for refusal in root_refusals), root_refusals)
-check("-- and it suggests a folder instead", any("DroboBackup" in refusal for refusal in root_refusals))
-check("an empty destination is refused", backup.check_destination(source_dir, "") != [])
+check(
+    "a bare drive root is refused",
+    any("root of" in refusal for refusal in root_refusals),
+    root_refusals,
+)
+check(
+    "-- and it suggests a folder instead",
+    any("DroboBackup" in refusal for refusal in root_refusals),
+)
+check(
+    "an empty destination is refused",
+    backup.check_destination(source_dir, "") != [],
+)
 check("an empty source is refused",
       backup.check_destination("", destination_dir) != [])
-check("a sensible destination is allowed", backup.check_destination(source_dir, destination_dir) == [],
-      backup.check_destination(source_dir, destination_dir))
+check(
+    "a sensible destination is allowed",
+    backup.check_destination(source_dir, destination_dir) == [],
+    backup.check_destination(source_dir, destination_dir),
+)
 
 print("\n== plan() describes, and copies NOTHING ==")
 default_plan = backup.plan(source_dir, destination_dir)
@@ -130,7 +161,9 @@ missing_source_plan = backup.plan(os.path.join(temp_dir, "no-such-folder"),
 check("a nonexistent local source is refused", not missing_source_plan.allowed,
       missing_source_plan.refusals)
 
-print("\n== starting a backup that must not run raises, rather than running ==")
+print(
+    "\n== starting a backup that must not run raises, rather than running =="
+)
 runner = backup.BackupRunner()
 try:
     runner.start(source_dir, source_dir)
@@ -150,13 +183,21 @@ else:
             break
         time.sleep(0.1)
     check("the backup finished", not job.running, job.summary)
-    check("it succeeded", job.ok is True, f"exit={job.exit_code} {job.summary} {job.error}")
+    check(
+        "it succeeded",
+        job.ok is True,
+        f"exit={job.exit_code} {job.summary} {job.error}",
+    )
     copied_file = os.path.join(destination_dir, "Photos", "2026", "a.jpg")
     check("the files actually arrived", os.path.exists(copied_file),
           copied_file)
     check("content matches", os.path.exists(copied_file)
           and open(copied_file).read() == "pretend photo a.jpg")
-    check("progress output was captured for a UI to show", len(job.tail) > 0, len(job.tail))
+    check(
+        "progress output was captured for a UI to show",
+        len(job.tail) > 0,
+        len(job.tail),
+    )
     check("the job serialises for the API", "destination" in job.to_dict())
 
     print("\n== a second run finds nothing to do ==")
@@ -179,9 +220,17 @@ else:
     try:
         concurrent_runner.start(source_dir, os.path.join(temp_dir, "backup3"))
         # It may legitimately have finished already on a tiny fixture.
-        check("a second concurrent backup is refused (or the first had finished)", True)
+        check(
+            "a second concurrent backup is refused (or the first had "
+            "finished)",
+            True,
+        )
     except backup.BackupError as exc:
-        check("a second concurrent backup is refused", "already running" in str(exc), str(exc))
+        check(
+            "a second concurrent backup is refused",
+            "already running" in str(exc),
+            str(exc),
+        )
     # Let whichever copy is still running finish before the folder is removed:
     # robocopy still writing into it kept part of the folder from being
     # deleted, so an empty backup folder was left behind in TEMP.

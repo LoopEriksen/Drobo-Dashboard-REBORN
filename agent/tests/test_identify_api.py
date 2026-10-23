@@ -37,8 +37,14 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk")))
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk"
+        )
+    ),
+)
 
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
@@ -103,7 +109,11 @@ try:
     print("\n== the interval reaches the driver ==")
 
     status, reply = post("/api/identify")
-    check("a plain identify succeeds", status == 200 and reply.get("ok"), (status, reply))
+    check(
+        "a plain identify succeeds",
+        status == 200 and reply.get("ok"),
+        (status, reply),
+    )
     check("it is reported as simulated", reply.get("simulated") is True, reply)
     check("the default interval is applied, not left empty",
           reply.get("interval") == identify.DEFAULT_INTERVAL, reply)
@@ -119,7 +129,11 @@ try:
     # Zero is the stop guess, and it is falsy -- exactly the value an
     # `if interval:` somewhere in the chain would quietly turn into "unset".
     status, reply = post("/api/identify?interval=0")
-    check("zero is accepted rather than treated as absent", status == 200, (status, reply))
+    check(
+        "zero is accepted rather than treated as absent",
+        status == 200,
+        (status, reply),
+    )
     check("zero arrives as zero, not as the default",
           driver._identify_last_interval == 0, driver._identify_last_interval)
     check("...and is reported back as zero", reply.get("interval") == 0, reply)
@@ -127,8 +141,11 @@ try:
     # The control case: what this module sent for months.
     status, reply = post("/api/identify?interval=none")
     check("'none' is accepted", status == 200, (status, reply))
-    check("'none' reaches the driver as None, not the string",
-          driver._identify_last_interval is None, driver._identify_last_interval)
+    check(
+        "'none' reaches the driver as None, not the string",
+        driver._identify_last_interval is None,
+        driver._identify_last_interval,
+    )
 
     print("\n== a bad interval is the caller's fault, not the Drobo's ==")
     identify_count_before = driver._identify_count

@@ -28,12 +28,12 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from drobo_agent import drivers
-from drobo_agent.models import DeviceInfo, Snapshot
-from drobo_nasd import config_cmd
-from drobo_nasd import esatm as nasd_esatm
-from drobo_nasd import eventlog as nasd_eventlog
-from drobo_nasd import sysinfo as nasd_sysinfo
+from drobo_agent import drivers  # noqa: E402
+from drobo_agent.models import DeviceInfo, Snapshot  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
+from drobo_nasd import esatm as nasd_esatm  # noqa: E402
+from drobo_nasd import eventlog as nasd_eventlog  # noqa: E402
+from drobo_nasd import sysinfo as nasd_sysinfo  # noqa: E402
 
 failures = []
 
@@ -69,7 +69,10 @@ nasd_eventlog.get_event_log = _eventlog_quiet
 def make_answering_sysinfo(calls, temperature_c, uptime_seconds):
     def _fake(host, esa_id, port=None, timeout=8.0):
         calls.append((host, esa_id))
-        return {"temperature_c": temperature_c, "uptime_seconds": uptime_seconds}
+        return {
+            "temperature_c": temperature_c,
+            "uptime_seconds": uptime_seconds,
+        }
     return _fake
 
 
@@ -78,13 +81,21 @@ default_driver = drivers.Drobo5NDriver({"host": HOST})
 check("sysinfo_seconds defaults to 120.0",
       default_driver.sysinfo_seconds == 120.0,
       default_driver.sysinfo_seconds)
-check("no reading yet means temperature_c is None, not 0", default_driver._temperature_c is None)
+check(
+    "no reading yet means temperature_c is None, not 0",
+    default_driver._temperature_c is None,
+)
 check("no reading yet means uptime is None, not 0",
       default_driver._uptime_seconds is None)
 
-print("\n== rate limit: a second call inside the window never reaches the device ==")
+print(
+    "\n== rate limit: a second call inside the window never reaches the "
+    "device =="
+)
 calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(calls, temperature_c=36, uptime_seconds=1000)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    calls, temperature_c=36, uptime_seconds=1000
+)
 try:
     driver = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 100000})
     driver._known_esa_id = ESA_ID
@@ -107,11 +118,15 @@ try:
           driver._temperature_read_at == first_temperature_read_at,
           (driver._temperature_read_at, first_temperature_read_at))
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
 
 print("\n== rate limit: once the window elapses, a fresh read is allowed ==")
 calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(calls, temperature_c=40, uptime_seconds=2000)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    calls, temperature_c=40, uptime_seconds=2000
+)
 try:
     driver = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.05})
     driver._known_esa_id = ESA_ID
@@ -125,11 +140,15 @@ try:
           driver._temperature_c == 40,
           driver._temperature_c)
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
 
 print("\n== no esa_id yet: the command port needs a serial we don't have ==")
 calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(calls, temperature_c=99, uptime_seconds=1)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    calls, temperature_c=99, uptime_seconds=1
+)
 try:
     driver = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.01})
     # _known_esa_id left blank -- exactly the state before a status read
@@ -140,11 +159,18 @@ try:
     check("temperature stays None", driver._temperature_c is None,
           driver._temperature_c)
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
 
-print("\n== last-known-good survives a device failure, with its original timestamp ==")
+print(
+    "\n== last-known-good survives a device failure, with its original "
+    "timestamp =="
+)
 calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(calls, temperature_c=42, uptime_seconds=5000)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    calls, temperature_c=42, uptime_seconds=5000
+)
 try:
     driver = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.05})
     driver._known_esa_id = ESA_ID
@@ -160,12 +186,22 @@ try:
 
     nasd_sysinfo.get_sysinfo_and_performance = _device_unreachable
     driver._read_sysinfo(HOST)
-    check("a failed read still counts as an attempt (rate limit still applies)",
-          len(calls) == 2, calls)
-    check("last known good temperature is kept, not blanked", driver._temperature_c == 42, driver._temperature_c)
-    check("its original timestamp is kept too -- this reading really is that old",
-          driver._temperature_read_at == good_temperature_read_at,
-          (driver._temperature_read_at, good_temperature_read_at))
+    check(
+        "a failed read still counts as an attempt (rate limit still applies)",
+        len(calls) == 2,
+        calls,
+    )
+    check(
+        "last known good temperature is kept, not blanked",
+        driver._temperature_c == 42,
+        driver._temperature_c,
+    )
+    check(
+        "its original timestamp is kept too -- this reading really is that "
+        "old",
+        driver._temperature_read_at == good_temperature_read_at,
+        (driver._temperature_read_at, good_temperature_read_at),
+    )
     check("uptime is kept too", driver._uptime_seconds == 5000,
           driver._uptime_seconds)
 
@@ -179,15 +215,24 @@ try:
     nasd_sysinfo.get_sysinfo_and_performance = _command_port_refused
     time.sleep(0.08)
     driver._read_sysinfo(HOST)
-    check("ConfigError also leaves the cached temperature intact", driver._temperature_c == 42, driver._temperature_c)
+    check(
+        "ConfigError also leaves the cached temperature intact",
+        driver._temperature_c == 42,
+        driver._temperature_c,
+    )
     check("ConfigError also leaves the cached timestamp intact",
           driver._temperature_read_at == good_temperature_read_at,
           (driver._temperature_read_at, good_temperature_read_at))
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
 
 print("\n== _read_sysinfo never raises on the two declared failure modes ==")
-for declared_error, error_name in ((OSError("boom"), "OSError"), (config_cmd.ConfigError("boom"), "ConfigError")):
+for declared_error, error_name in (
+    (OSError("boom"), "OSError"),
+    (config_cmd.ConfigError("boom"), "ConfigError"),
+):
     def _raise_declared_error(host, esa_id, port=None, timeout=8.0,
                               _error=declared_error):
         raise _error
@@ -201,37 +246,60 @@ for declared_error, error_name in ((OSError("boom"), "OSError"), (config_cmd.Con
         except Exception as caught:  # noqa: BLE001 -- this IS the check
             check(f"{error_name} is swallowed, not propagated", False, caught)
     finally:
-        nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+        nasd_sysinfo.get_sysinfo_and_performance = (
+            _original_get_sysinfo_and_performance
+        )
+
 
 print("\n== an undeclared exception is NOT silently swallowed ==")
+
+
 # The docstring promises "never raises" only in the sense of "a device
 # failure is not an error" -- the except clause is scoped to
 # (OSError, config_cmd.ConfigError). Something else going wrong (a real bug)
 # must still surface, not vanish into "no fresh reading".
 def _raise_undeclared_bug(host, esa_id, port=None, timeout=8.0):
     raise ValueError("this is a bug, not a device failure")
+
+
 nasd_sysinfo.get_sysinfo_and_performance = _raise_undeclared_bug
 try:
     driver = drivers.Drobo5NDriver({"host": HOST, "sysinfo_seconds": 0.0})
     driver._known_esa_id = ESA_ID
     try:
         driver._read_sysinfo(HOST)
-        check("an unexpected exception type propagates rather than being hidden", False)
+        check(
+            "an unexpected exception type propagates rather than being hidden",
+            False,
+        )
     except ValueError:
-        check("an unexpected exception type propagates rather than being hidden", True)
+        check(
+            "an unexpected exception type propagates rather than being hidden",
+            True,
+        )
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
 
-print("\n== derived uptime keeps counting between reads, without re-asking the device ==")
+print(
+    "\n== derived uptime keeps counting between reads, without re-asking the "
+    "device =="
+)
 sysinfo_calls = []
 esatm_calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(sysinfo_calls, temperature_c=33, uptime_seconds=1000)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    sysinfo_calls, temperature_c=33, uptime_seconds=1000
+)
 
 
 def fake_read_snapshot(host, port=None, timeout=8.0):
     esatm_calls.append((host, port))
-    return Snapshot(reachable=True, source="drobo5n",
-                     device=DeviceInfo(name="TestDrobo", model="Drobo 5N", serial=ESA_ID))
+    return Snapshot(
+        reachable=True,
+        source="drobo5n",
+        device=DeviceInfo(name="TestDrobo", model="Drobo 5N", serial=ESA_ID),
+    )
 
 
 nasd_esatm.read_snapshot = fake_read_snapshot
@@ -242,13 +310,27 @@ try:
     driver._known_esa_id = ESA_ID
 
     first_snapshot = driver.read_snapshot()
-    check("temperature carried onto the snapshot", first_snapshot.device.temperature_c == 33,
-          first_snapshot.device.temperature_c)
-    check("temperature_at carried onto the snapshot", first_snapshot.device.temperature_at is not None)
-    check("uptime derived onto the snapshot", first_snapshot.device.uptime_seconds == 1000
-          or first_snapshot.device.uptime_seconds == 1001,  # a whole second may have ticked
-          first_snapshot.device.uptime_seconds)
-    check("only one sysinfo call happened so far", len(sysinfo_calls) == 1, sysinfo_calls)
+    check(
+        "temperature carried onto the snapshot",
+        first_snapshot.device.temperature_c == 33,
+        first_snapshot.device.temperature_c,
+    )
+    check(
+        "temperature_at carried onto the snapshot",
+        first_snapshot.device.temperature_at is not None,
+    )
+    check(
+        "uptime derived onto the snapshot",
+        first_snapshot.device.uptime_seconds == 1000
+        or first_snapshot.device.uptime_seconds
+        == 1001,  # a whole second may have ticked
+        first_snapshot.device.uptime_seconds,
+    )
+    check(
+        "only one sysinfo call happened so far",
+        len(sysinfo_calls) == 1,
+        sysinfo_calls,
+    )
 
     time.sleep(1.1)
     second_snapshot = driver.read_snapshot()
@@ -260,27 +342,47 @@ try:
           > first_snapshot.device.uptime_seconds,
           (first_snapshot.device.uptime_seconds,
            second_snapshot.device.uptime_seconds))
-    check("the underlying temperature reading is untouched (still the same cached value)",
-          second_snapshot.device.temperature_c == 33,
-          second_snapshot.device.temperature_c)
-    check("temperature_at is unchanged too -- it really is the same, aging, reading",
-          second_snapshot.device.temperature_at
-          == first_snapshot.device.temperature_at,
-          (first_snapshot.device.temperature_at,
-           second_snapshot.device.temperature_at))
+    check(
+        "the underlying temperature reading is untouched (still the same "
+        "cached value)",
+        second_snapshot.device.temperature_c == 33,
+        second_snapshot.device.temperature_c,
+    )
+    check(
+        "temperature_at is unchanged too -- it really is the same, aging, "
+        "reading",
+        second_snapshot.device.temperature_at
+        == first_snapshot.device.temperature_at,
+        (
+            first_snapshot.device.temperature_at,
+            second_snapshot.device.temperature_at,
+        ),
+    )
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
     nasd_esatm.read_snapshot = _original_read_snapshot
 
-print("\n== before any successful sysinfo read, the greeting's own uptime is left alone ==")
+print(
+    "\n== before any successful sysinfo read, the greeting's own uptime is "
+    "left alone =="
+)
 esatm_calls = []
 
 
 def fake_read_snapshot_with_uptime(host, port=None, timeout=8.0):
     esatm_calls.append((host, port))
-    return Snapshot(reachable=True, source="drobo5n",
-                     device=DeviceInfo(name="TestDrobo", model="Drobo 5N", serial=ESA_ID,
-                                       uptime_seconds=None))
+    return Snapshot(
+        reachable=True,
+        source="drobo5n",
+        device=DeviceInfo(
+            name="TestDrobo",
+            model="Drobo 5N",
+            serial=ESA_ID,
+            uptime_seconds=None,
+        ),
+    )
 
 
 def _never_answers(host, esa_id, port=None, timeout=8.0):
@@ -302,7 +404,9 @@ try:
           snapshot.device.uptime_seconds is None,
           snapshot.device.uptime_seconds)
 finally:
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
     nasd_esatm.read_snapshot = _original_read_snapshot
 
 print("\n== uptime ages from its own reading, not the temperature's ==")
@@ -490,10 +594,15 @@ finally:
         _original_get_sysinfo_and_performance)
     nasd_esatm.read_snapshot = _original_read_snapshot
 
-print("\n== the device's own event log rides the snapshot; a failure never breaks the poll ==")
+print(
+    "\n== the device's own event log rides the snapshot; a failure never "
+    "breaks the poll =="
+)
 eventlog_calls = []
 esatm_calls = []
-nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo([], temperature_c=30, uptime_seconds=10)
+nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
+    [], temperature_c=30, uptime_seconds=10
+)
 nasd_esatm.read_snapshot = fake_read_snapshot
 
 
@@ -513,7 +622,11 @@ try:
           driver.eventlog_seconds)
 
     first_snapshot = driver.read_snapshot()
-    check("first snapshot fetched the log", len(eventlog_calls) == 1, eventlog_calls)
+    check(
+        "first snapshot fetched the log",
+        len(eventlog_calls) == 1,
+        eventlog_calls,
+    )
     check("entries carried onto the snapshot verbatim",
           [entry.message for entry in first_snapshot.event_log]
           == ["line one", "line two"],
@@ -538,7 +651,11 @@ try:
     # step past the rate limit without a 600s sleep
     driver._eventlog_tried_at = 0.0
     after_failure_snapshot = driver.read_snapshot()
-    check("the failed fetch was attempted", len(eventlog_calls) == 2, eventlog_calls)
+    check(
+        "the failed fetch was attempted",
+        len(eventlog_calls) == 2,
+        eventlog_calls,
+    )
     check("a failed fetch keeps the last good log, and the poll survives",
           [entry.message for entry in after_failure_snapshot.event_log]
           == ["line one", "line two"],
@@ -557,12 +674,17 @@ try:
         fresh_driver._resolved_port = 5000
         fresh_driver._known_esa_id = ESA_ID
         never_fetched_snapshot = fresh_driver.read_snapshot()
-        check(f"{error_name} with nothing cached degrades to an empty list, not a raise",
-              never_fetched_snapshot.event_log == [],
-              never_fetched_snapshot.event_log)
+        check(
+            f"{error_name} with nothing cached degrades to an empty list, "
+            "not a raise",
+            never_fetched_snapshot.event_log == [],
+            never_fetched_snapshot.event_log,
+        )
 finally:
     nasd_eventlog.get_event_log = _original_get_event_log
-    nasd_sysinfo.get_sysinfo_and_performance = _original_get_sysinfo_and_performance
+    nasd_sysinfo.get_sysinfo_and_performance = (
+        _original_get_sysinfo_and_performance
+    )
     nasd_esatm.read_snapshot = _original_read_snapshot
 
 print("\n" + ("ALL PASS" if not failures

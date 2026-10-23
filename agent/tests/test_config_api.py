@@ -19,14 +19,20 @@ import time
 import urllib.error
 import urllib.request
 
-AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the agent/ folder
+AGENT_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)  # the agent/ folder
 sys.path.insert(0, AGENT_DIR)
 sys.path.insert(0, os.path.join(AGENT_DIR, "..", "sdk"))
 
 from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
-from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX, _SPINDOWN_MAX  # noqa: E402
+from drobo_nasd.droboapps import (  # noqa: E402
+    _DIMMING_MIN,
+    _DIMMING_MAX,
+    _SPINDOWN_MAX,
+)  # noqa: E402
 
 failures = []
 
@@ -135,17 +141,30 @@ try:
 
     print("\n== spin-down: disable and enable both succeed simulated ==")
     status, reply = call("/api/config/spindown", body={"enabled": False})
-    check("disable is 200 ok simulated",
-          status == 200 and reply.get("ok") is True and reply.get("simulated") is True, (status, reply))
+    check(
+        "disable is 200 ok simulated",
+        status == 200
+        and reply.get("ok") is True
+        and reply.get("simulated") is True,
+        (status, reply),
+    )
     delay = min(30, _SPINDOWN_MAX)
     status, reply = call("/api/config/spindown", body={"delay": delay})
-    check(f"delay {delay} is 200 ok simulated",
-          status == 200 and reply.get("ok") is True and reply.get("simulated") is True, (status, reply))
+    check(
+        f"delay {delay} is 200 ok simulated",
+        status == 200
+        and reply.get("ok") is True
+        and reply.get("simulated") is True,
+        (status, reply),
+    )
     status, reply = call("/api/spindown")
     check("GET /api/spindown answers 200 afterwards", status == 200,
           (status, reply))
 
-    print("\n== backup/plan: bad plans are structured errors, and a plan copies nothing ==")
+    print(
+        "\n== backup/plan: bad plans are structured errors, and a plan copies "
+        "nothing =="
+    )
     status, reply = call("/api/backup/plan", body=b"nope")
     check("unparseable JSON is 400", status == 400 and "error" in reply,
           (status, reply))
@@ -156,10 +175,18 @@ try:
     check("empty source/destination plans as not allowed",
           status == 200 and reply.get("allowed") is False
           and reply.get("refusals"), (status, reply))
-    check("the refusals name both missing paths",
-          any("source" in refusal.lower()
-              for refusal in reply.get("refusals", []))
-          and any("destination" in refusal.lower() for refusal in reply.get("refusals", [])), reply)
+    check(
+        "the refusals name both missing paths",
+        any(
+            "source" in refusal.lower()
+            for refusal in reply.get("refusals", [])
+        )
+        and any(
+            "destination" in refusal.lower()
+            for refusal in reply.get("refusals", [])
+        ),
+        reply,
+    )
     source_dir = os.path.join(temp_dir, "src")
     destination_dir = os.path.join(temp_dir, "dst")
     os.makedirs(source_dir)
@@ -169,7 +196,10 @@ try:
                          body={"source": source_dir,
                                "destination": destination_dir})
     check("a real plan is 200", status == 200, (status, reply))
-    check("planning copies nothing", not os.path.exists(os.path.join(destination_dir, "a.txt")))
+    check(
+        "planning copies nothing",
+        not os.path.exists(os.path.join(destination_dir, "a.txt")),
+    )
 finally:
     http_server.shutdown()
 
