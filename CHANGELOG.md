@@ -273,6 +273,12 @@ released. Every push to this repository carries this file.
   - The SDK's DroboApps, Identify, DroboSync and share modules
     (`droboapps.py`, `identify.py`, `drobosync.py`, `shares.py`,
     `shareedit.py`)
+  - The rest of the SDK (`sdk/drobo_nasd/`: the package's
+    `__init__.py`, `commands.py`, `envelope.py`, `framing.py`,
+    `client.py`, `esatm.py`, `sysinfo.py`, `eventlog.py`,
+    `discovery.py`, `firmware.py`, `models.py` and `netcheck.py`); a
+    docstring's closing quotes are back on their own line wherever the
+    reflow had joined them to its last sentence
   - The agent's HTTP API (`agent/drobo_agent/api.py`)
   - The agent's driver layer (`agent/drobo_agent/drivers.py`)
   - The rest of the agent: its monitor, backup, photo, notification,

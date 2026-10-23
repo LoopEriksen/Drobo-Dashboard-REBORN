@@ -1,16 +1,19 @@
 """
-nasd command enum -- TMCmd::ECommands, transcribed from docs/protocol-map.md.
+nasd command enum -- TMCmd::ECommands, transcribed from
+docs/protocol-map.md.
 
 Source of truth: the "Full ID table (103 commands)" in
 docs/protocol-map.md, itself recovered from a 103-entry table of `char*`
-pointers in `nasd`'s `.data.rel.ro` at 0x00191ccc (firmware 4.2.1). The array
-index *is* the command's numeric id -- `FIRMWARE`-grade evidence, not a guess.
-What IS a guess (`GUESS` in protocol-map.md): that the enum starts at 0, and
-whether the wire actually carries this integer or the string name instead
-(still open -- see docs/protocol-map.md "Still open").
+pointers in `nasd`'s `.data.rel.ro` at 0x00191ccc (firmware 4.2.1). The
+array index *is* the command's numeric id -- `FIRMWARE`-grade evidence,
+not a guess. What IS a guess (`GUESS` in protocol-map.md): that the enum
+starts at 0, and whether the wire actually carries this integer or the
+string name instead (still open -- see docs/protocol-map.md "Still
+open").
 
-Do not add, remove, renumber, or reorder entries by hand. If protocol-map.md's
-table changes, regenerate this dict from it and re-run the self-check below.
+Do not add, remove, renumber, or reorder entries by hand. If
+protocol-map.md's table changes, regenerate this dict from it and re-run
+the self-check below.
 """
 
 from __future__ import annotations
@@ -91,7 +94,8 @@ COMMANDS: dict[str, int] = {
     "eCmdWriteHostBuffer": 71,
     "eCmdGetTMDiagFilePath": 72,
     "eCmdForceRepair": 73,
-    "eCmdGetLunInitatorExtraInfo": 74,  # sic -- Drobo's own typo, kept verbatim
+    # sic -- Drobo's own typo, kept verbatim
+    "eCmdGetLunInitatorExtraInfo": 74,
     "eCmdDoPoll": 75,
     "eCmdToggleNightMode": 76,
     "eCmdGetDroboAppsStatus": 77,
@@ -125,11 +129,12 @@ COMMANDS: dict[str, int] = {
 # reverse lookup: numeric id -> name
 ID_TO_NAME: dict[int, str] = {v: k for k, v in COMMANDS.items()}
 
-# eCmd* names that appear in the binary's strings but NOT in the recovered
-# 103-entry numeric table, so they have no confirmed id. Tracked here so the
-# gap is documented rather than silently dropped. `eCmdRouter` is the one in the
-# DO-NOT-SEND group below; the iSCSI/shutdown three are ordinary reads that
-# simply never got a table slot. See protocol-map.md "Commands".
+# eCmd* names that appear in the binary's strings but NOT in the
+# recovered 103-entry numeric table, so they have no confirmed id.
+# Tracked here so the gap is documented rather than silently dropped.
+# `eCmdRouter` is the one in the DO-NOT-SEND group below; the
+# iSCSI/shutdown three are ordinary reads that simply never got a table
+# slot. See protocol-map.md "Commands".
 NAMES_WITHOUT_CONFIRMED_ID: frozenset[str] = frozenset({
     "eCmdRouter",
     "eCmdGetiSCSIAdmin",
@@ -140,14 +145,14 @@ NAMES_WITHOUT_CONFIRMED_ID: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 # ESCAPE HATCHES: arbitrary-execution / raw-memory paths.
 #
-# protocol-map.md ("Escape hatches"): "Treat this group as dangerous. They
-# appear to be arbitrary command execution paths on a device with no security
-# updates. The agent must never expose them, and nothing should be sent to
-# them during exploration."
+# protocol-map.md ("Escape hatches"): "Treat this group as dangerous.
+# They appear to be arbitrary command execution paths on a device with
+# no security updates. The agent must never expose them, and nothing
+# should be sent to them during exploration."
 #
-# eCmdRouter has no numeric id (see NAMES_WITHOUT_CONFIRMED_ID above) -- it is
-# still listed by name so any code path that resolves a command by name catches
-# it too.
+# eCmdRouter has no numeric id (see NAMES_WITHOUT_CONFIRMED_ID above) --
+# it is still listed by name so any code path that resolves a command by
+# name catches it too.
 # ---------------------------------------------------------------------------
 ESCAPE_HATCHES: frozenset[str] = frozenset(
     {
@@ -161,14 +166,16 @@ ESCAPE_HATCHES: frozenset[str] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
-# DESTRUCTIVE: anything that changes the device, its data, or its firmware.
+# DESTRUCTIVE: anything that changes the device, its data, or its
+# firmware.
 #
-# Added 2026-07-26 after an audit noticed the omission. Until then DO_NOT_SEND
-# held only the six escape hatches above -- so eCmdFormatDevice,
-# eCmdInstallFirmware, eCmdRevertFirmware, eCmdReset and eCmdRepair were NOT
-# refused by the guard, on a project whose first rule is "never write to the
-# pack, never flash firmware". Nothing had ever sent one, but the guard that is
-# supposed to make that impossible would not have stopped it.
+# Added 2026-07-26 after an audit noticed the omission. Until then
+# DO_NOT_SEND held only the six escape hatches above -- so
+# eCmdFormatDevice, eCmdInstallFirmware, eCmdRevertFirmware, eCmdReset
+# and eCmdRepair were NOT refused by the guard, on a project whose first
+# rule is "never write to the pack, never flash firmware". Nothing had
+# ever sent one, but the guard that is supposed to make that impossible
+# would not have stopped it.
 #
 # Grouped by what going wrong costs you:
 #
@@ -176,15 +183,16 @@ ESCAPE_HATCHES: frozenset[str] = frozenset(
 #   bricks the box           firmware install/revert
 #   interrupts the array     restart, shutdown, standby, mount/unmount,
 #                            insert/remove drive, sync
-#   changes configuration    every eCmdSet*, rename, dimming, night mode,
-#                            time, discovery IPs, user/group edits
-#   has a side effect        test emails, diagnostics upload, support upload,
-#                            FTP fetch, LUN id allocation (it ALLOCATES despite
-#                            the "Get" prefix), eCmdForceSingleInitiator (the
-#                            name reads like a query; it is a write)
+#   changes configuration    every eCmdSet*, rename, dimming, night
+#                            mode, time, discovery IPs, user/group edits
+#   has a side effect        test emails, diagnostics upload, support
+#                            upload, FTP fetch, LUN id allocation (it
+#                            ALLOCATES despite the "Get" prefix),
+#                            eCmdForceSingleInitiator (the name reads
+#                            like a query; it is a write)
 #
-# Naming is not a safe guide here, which is the whole reason this list is
-# explicit rather than derived from a prefix rule.
+# Naming is not a safe guide here, which is the whole reason this list
+# is explicit rather than derived from a prefix rule.
 # ---------------------------------------------------------------------------
 DESTRUCTIVE: frozenset[str] = frozenset(
     {
@@ -219,57 +227,62 @@ DESTRUCTIVE: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # SAFE_WRITES: commands that change something, but nothing that matters.
 #
-# This project was read-only against the hardware for its whole life, which was
-# the right default while the protocol was still being worked out. This set is
-# the deliberate, narrow exception -- opened 2026-07-27 at the maintainer's
-# request, starting with the least consequential write in the entire
-# 103-command table.
+# This project was read-only against the hardware for its whole life,
+# which was the right default while the protocol was still being worked
+# out. This set is the deliberate, narrow exception -- opened 2026-07-27
+# at the maintainer's request, starting with the least consequential
+# write in the entire 103-command table.
 #
 # The bar for entry is strict, and all four must hold:
 #
 #   1. It cannot touch the disk pack, the filesystem, or any file.
-#   2. It cannot affect availability -- no reboot, no unmount, no spin-down.
+#   2. It cannot affect availability -- no reboot, no unmount, no
+#      spin-down.
 #   3. It is reversible, or it undoes itself.
 #   4. Getting it wrong costs nothing worse than mild confusion.
 #
-# eCmdIdentify qualifies on all four: it blinks the front lights so you can
-# tell which box is which in a cupboard, and it stops on its own. There is no
-# state to corrupt and nothing to undo.
+# eCmdIdentify qualifies on all four: it blinks the front lights so you
+# can tell which box is which in a cupboard, and it stops on its own.
+# There is no state to corrupt and nothing to undo.
 #
 # NOTHING is added here without the maintainer saying so explicitly, and
-# anything that fails even one of the four tests above stays in DESTRUCTIVE. In
-# particular eCmdSetDimming and eCmdRename are plausible future members but are
-# NOT here yet -- they persist a setting, so they fail test 3 without a
-# read-back-and-restore path that does not exist.
+# anything that fails even one of the four tests above stays in
+# DESTRUCTIVE. In particular eCmdSetDimming and eCmdRename are plausible
+# future members but are NOT here yet -- they persist a setting, so they
+# fail test 3 without a read-back-and-restore path that does not exist.
 # ---------------------------------------------------------------------------
 SAFE_WRITES: frozenset[str] = frozenset({
     "eCmdIdentify",
 })
 
 # VETTED_WRITES: commands that ARE dangerous sent raw -- so they stay in
-# DESTRUCTIVE / DO_NOT_SEND -- but have exactly one code path allowed to send
-# them, a path that makes them safe by construction rather than by the command
-# id. eCmdSetConfig is the case that forced this distinction: it is the single
-# command the Dashboard uses for every config write (brightness, spin-down,
-# rename, share permissions), so it cannot be blanket-safe, yet it must be
-# sendable. config_cmd.set_config is its only sanctioned sender -- it reads the
-# live document first, confines the change to the section it read, and refuses
-# to write a masked credential -- and it checks membership here before sending.
-# A command in VETTED_WRITES is STILL in DO_NOT_SEND: the ordinary send helpers
-# refuse it, and only its vetted transaction may pass it through.
+# DESTRUCTIVE / DO_NOT_SEND -- but have exactly one code path allowed to
+# send them, a path that makes them safe by construction rather than by
+# the command id. eCmdSetConfig is the case that forced this
+# distinction: it is the single command the Dashboard uses for every
+# config write (brightness, spin-down, rename, share permissions), so it
+# cannot be blanket-safe, yet it must be sendable. config_cmd.set_config
+# is its only sanctioned sender -- it reads the live document first,
+# confines the change to the section it read, and refuses to write a
+# masked credential -- and it checks membership here before sending. A
+# command in VETTED_WRITES is STILL in DO_NOT_SEND: the ordinary send
+# helpers refuse it, and only its vetted transaction may pass it
+# through.
 VETTED_WRITES: frozenset[str] = frozenset({
     "eCmdSetConfig",
-    # Start/stop an installed DroboApp. Dangerous sent blind (a hand-written
-    # action against an unknown app name), so it stays in DESTRUCTIVE, but its
-    # one sanctioned sender -- droboapps.droboapps_action -- validates the app
-    # name against what is actually installed and the action against the two
-    # confirmed verbs before it goes out. Reversible: stop then start again.
+    # Start/stop an installed DroboApp. Dangerous sent blind (a
+    # hand-written action against an unknown app name), so it stays in
+    # DESTRUCTIVE, but its one sanctioned sender --
+    # droboapps.droboapps_action -- validates the app name against what
+    # is actually installed and the action against the two confirmed
+    # verbs before it goes out. Reversible: stop then start again.
     "eCmdDroboAppsAction",
 })
 
 # The guard every caller checks. Everything dangerous, minus nothing --
-# SAFE_WRITES is deliberately NOT subtracted here, because it never overlapped:
-# a command is either in the refused set or in the safe set, never both.
+# SAFE_WRITES is deliberately NOT subtracted here, because it never
+# overlapped: a command is either in the refused set or in the safe set,
+# never both.
 DO_NOT_SEND: frozenset[str] = ESCAPE_HATCHES | DESTRUCTIVE
 
 assert DO_NOT_SEND.isdisjoint(SAFE_WRITES), (
@@ -279,12 +292,14 @@ assert DO_NOT_SEND.isdisjoint(SAFE_WRITES), (
 
 
 def is_safe_write(name: str) -> bool:
-    """True if `name` is one of the narrow, explicitly-approved writes."""
+    """True if `name` is one of the narrow, explicitly-approved
+    writes."""
     return name in SAFE_WRITES
 
 
 def is_dangerous(name_or_id) -> bool:
-    """True if `name_or_id` (a command name or numeric id) is in DO_NOT_SEND."""
+    """True if `name_or_id` (a command name or numeric id) is in
+    DO_NOT_SEND."""
     if isinstance(name_or_id, str):
         return name_or_id in DO_NOT_SEND
     name = ID_TO_NAME.get(name_or_id)
@@ -294,13 +309,16 @@ def is_dangerous(name_or_id) -> bool:
 def _self_check() -> None:
     """
     Cheap internal consistency check, run at import time. This is NOT a
-    substitute for test_nasd.py -- it just guarantees the module never loads
-    in a silently-corrupted state (dropped entry, typo'd id, duplicate id).
+    substitute for test_nasd.py -- it just guarantees the module never
+    loads in a silently-corrupted state (dropped entry, typo'd id,
+    duplicate id).
     """
     assert len(COMMANDS) == 103, f"expected 103 commands, got {len(COMMANDS)}"
 
     sorted_ids = sorted(COMMANDS.values())
-    assert sorted_ids == list(range(103)), "command ids must be exactly 0..102, each used once"
+    assert sorted_ids == list(range(103)), (
+        "command ids must be exactly 0..102, each used once"
+    )
 
     # spot-check a handful of ids against docs/protocol-map.md by hand
     spot_checks = {

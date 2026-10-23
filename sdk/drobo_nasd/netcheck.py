@@ -1,44 +1,47 @@
 """
 Is this machine even on the same network as the Drobo?
 
-When the Drobo stops answering, "timed out" is a true answer and a useless one.
-It reads as "your NAS is broken", and very often the real cause is that the PC
-has drifted onto a different Wi-Fi network -- a phone hotspot, a guest SSID,
-whatever Windows decided to join automatically. The array is usually fine.
+When the Drobo stops answering, "timed out" is a true answer and a
+useless one. It reads as "your NAS is broken", and very often the real
+cause is that the PC has drifted onto a different Wi-Fi network -- a
+phone hotspot, a guest SSID, whatever Windows decided to join
+automatically. The array is usually fine.
 
-So before anything reports "cannot reach the Drobo", it can cheaply check the
-one thing that explains that message more often than a dead NAS does: are we
-even on its network? A Drobo at 10.0.0.50 cannot be reached from a PC on
-10.9.9.41 by any ordinary home setup, and neither can mDNS discovery find it --
-multicast does not cross a subnet boundary either, which is why "the device
-picker is empty" and "the dashboard says unreachable" turn out to be the same
-problem wearing two hats.
+So before anything reports "cannot reach the Drobo", it can cheaply
+check the one thing that explains that message more often than a dead
+NAS does: are we even on its network? A Drobo at 10.0.0.50 cannot be
+reached from a PC on 10.9.9.41 by any ordinary home setup, and neither
+can mDNS discovery find it -- multicast does not cross a subnet boundary
+either, which is why "the device picker is empty" and "the dashboard
+says unreachable" turn out to be the same problem wearing two hats.
 
-(Addresses in this file and its tests are placeholders. Real ones are kept out
-of the source tree on purpose -- see ROADMAP.md Phase 6 -- which is why the
-suite proves the parser against fixture text rather than against whatever this
-machine happens to be plugged into today.)
+(Addresses in this file and its tests are placeholders. Real ones are
+kept out of the source tree on purpose -- see ROADMAP.md Phase 6 --
+which is why the suite proves the parser against fixture text rather
+than against whatever this machine happens to be plugged into today.)
 
-WHAT THIS IS NOT: proof. Two subnets CAN be routed to each other, and plenty of
-real networks do exactly that. A mismatch here does not mean the Drobo is
-unreachable, and a match does not mean it is reachable. This module only ever
-produces an EXPLANATION to attach to a failure that already happened -- never a
-prediction, never a refusal to try. Every message it writes says so, because a
-tool that confidently blames the wrong thing is worse than one that says
-nothing.
+WHAT THIS IS NOT: proof. Two subnets CAN be routed to each other, and
+plenty of real networks do exactly that. A mismatch here does not mean
+the Drobo is unreachable, and a match does not mean it is reachable.
+This module only ever produces an EXPLANATION to attach to a failure
+that already happened -- never a prediction, never a refusal to try.
+Every message it writes says so, because a tool that confidently blames
+the wrong thing is worse than one that says nothing.
 
 Two things are measured, both locally, neither touching the network:
 
-  local_interfaces()  every IPv4 address this machine holds, with its subnet
-                      mask, read from the OS's own tool (ipconfig / ip / ifconfig)
+  local_interfaces()  every IPv4 address this machine holds, with its
+                      subnet mask, read from the OS's own tool
+                      (ipconfig / ip / ifconfig)
 
-  diagnose(target)    whether `target` falls inside any of those subnets, and
-                      a plain-English sentence about it if it doesn't
+  diagnose(target)    whether `target` falls inside any of those
+                      subnets, and a plain-English sentence about it if
+                      it doesn't
 
-No sockets are opened, no packets are sent, and nothing here can fail in a way
-that matters: when the mask cannot be read, or the OS tool is missing, or the
-platform is unfamiliar, the answer degrades to "can't say" and the caller
-carries on exactly as before.
+No sockets are opened, no packets are sent, and nothing here can fail in
+a way that matters: when the mask cannot be read, or the OS tool is
+missing, or the platform is unfamiliar, the answer degrades to "can't
+say" and the caller carries on exactly as before.
 """
 
 from __future__ import annotations
@@ -50,14 +53,15 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-#: Assumed when a real subnet mask cannot be read. Right on essentially every
-#: home network, and WRONG often enough that anything relying on it says so out
-#: loud -- see Diagnosis.caveat.
+#: Assumed when a real subnet mask cannot be read. Right on essentially
+#: every home network, and WRONG often enough that anything relying on
+#: it says so out loud -- see Diagnosis.caveat.
 DEFAULT_PREFIX_LENGTH = 24
 
-#: How many networks a message lists before it starts summarising. A PC with
-#: WSL, Hyper-V, VirtualBox and a VPN can hold six or seven, and a sentence
-#: naming all of them stops being readable long before it stops being accurate.
+#: How many networks a message lists before it starts summarising. A PC
+#: with WSL, Hyper-V, VirtualBox and a VPN can hold six or seven, and a
+#: sentence naming all of them stops being readable long before it stops
+#: being accurate.
 _MAX_NETWORKS_LISTED = 4
 
 _IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
@@ -67,7 +71,8 @@ _HEX_NETMASK_RE = re.compile(r"\b0x([0-9a-fA-F]{8})\b")
 
 @dataclass(frozen=True)
 class Interface:
-    """One IPv4 address this machine holds, and how wide its network is."""
+    """One IPv4 address this machine holds, and how wide its network
+    is."""
 
     address: str
     prefix_length: int
@@ -78,7 +83,9 @@ class Interface:
 
     @property
     def network(self) -> ipaddress.IPv4Network:
-        return ipaddress.ip_network(f"{self.address}/{self.prefix_length}", strict=False)
+        return ipaddress.ip_network(
+            f"{self.address}/{self.prefix_length}", strict=False
+        )
 
     def network_contains(self, address: ipaddress.IPv4Address) -> bool:
         return address in self.network
@@ -86,7 +93,8 @@ class Interface:
 
 @dataclass(frozen=True)
 class Diagnosis:
-    """What we can say about `target` from where this machine is standing."""
+    """What we can say about `target` from where this machine is
+    standing."""
 
     target: str
     interfaces: tuple[Interface, ...]
@@ -95,20 +103,23 @@ class Diagnosis:
     assumed_prefix: bool
     #: One sentence naming the problem. Always safe to show on its own.
     headline: str
-    #: The addresses and what to do about them. Written to FOLLOW the headline
-    #: -- it opens with "It is on ...", so a front-end that shows detail
-    #: without headline leaves the reader guessing what "it" is. Show both, or
-    #: show `message`.
+    #: The addresses and what to do about them. Written to FOLLOW the
+    #: headline -- it opens with "It is on ...", so a front-end that
+    #: shows detail without headline leaves the reader guessing what
+    #: "it" is. Show both, or show `message`.
     detail: str
-    #: The honest limits of the claim above -- routed networks, guessed masks.
-    #: Never empty when same_network is False; a mismatch is never stated
-    #: without it.
+    #: The honest limits of the claim above -- routed networks, guessed
+    #: masks. Never empty when same_network is False; a mismatch is
+    #: never stated without it.
     caveat: str
 
     @property
     def message(self) -> str:
-        """Everything, in one string, for a caller with only one field to fill."""
-        return " ".join(p for p in (self.headline, self.detail, self.caveat) if p)
+        """Everything, in one string, for a caller with only one field
+        to fill."""
+        return " ".join(
+            p for p in (self.headline, self.detail, self.caveat) if p
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -133,18 +144,19 @@ def _prefix_from_mask(dotted_mask: str) -> int | None:
     """
     Prefix length for a dotted netmask, or None if it isn't one.
 
-    ipaddress does the real work, including rejecting non-contiguous masks --
-    which is exactly what makes this usable as a TEST rather than just a
-    conversion. Given "255.255.255.0" it answers 24; given "192.168.1.1" it
-    answers None, and that is how the line-by-line parser below tells an
-    address apart from a mask without knowing a single label in a single
-    language.
+    ipaddress does the real work, including rejecting non-contiguous
+    masks -- which is exactly what makes this usable as a TEST rather
+    than just a conversion. Given "255.255.255.0" it answers 24; given
+    "192.168.1.1" it answers None, and that is how the line-by-line
+    parser below tells an address apart from a mask without knowing a
+    single label in a single language.
 
-    A /0 mask is refused on purpose. Windows prints "Default Gateway . . :
-    0.0.0.0" for an adapter with no gateway, and 0.0.0.0 is a perfectly valid
-    contiguous netmask -- accepting it would silently declare that this machine
-    is on a network containing every address in existence, which would suppress
-    every warning this module exists to raise.
+    A /0 mask is refused on purpose. Windows prints "Default Gateway . .
+    : 0.0.0.0" for an adapter with no gateway, and 0.0.0.0 is a
+    perfectly valid contiguous netmask -- accepting it would silently
+    declare that this machine is on a network containing every address
+    in existence, which would suppress every warning this module exists
+    to raise.
     """
     try:
         prefix = ipaddress.IPv4Network(f"0.0.0.0/{dotted_mask}").prefixlen
@@ -166,10 +178,11 @@ def _is_usable_address(address: str) -> bool:
     """
     Whether an address tells us anything about where this machine is.
 
-    Loopback is not a network anyone's Drobo is on. Link-local (169.254.x.x)
-    is what a NIC gives itself when DHCP fails -- it means the opposite of
-    "connected to a network", so treating it as one would be actively
-    misleading. Anything unparseable is dropped rather than guessed at.
+    Loopback is not a network anyone's Drobo is on. Link-local
+    (169.254.x.x) is what a NIC gives itself when DHCP fails -- it means
+    the opposite of "connected to a network", so treating it as one
+    would be actively misleading. Anything unparseable is dropped rather
+    than guessed at.
     """
     try:
         parsed_address = ipaddress.ip_address(address)
@@ -184,30 +197,33 @@ def _is_usable_address(address: str) -> bool:
 
 def parse_interfaces(text: str) -> list[Interface]:
     """
-    Pull {address, prefix} pairs out of an OS network listing, whatever OS and
-    whatever LANGUAGE it came from.
+    Pull {address, prefix} pairs out of an OS network listing, whatever
+    OS and whatever LANGUAGE it came from.
 
     Deliberately label-blind. `ipconfig` on a German Windows says
-    "Subnetzmaske", on a French one "Masque de sous-reseau", and a parser that
-    looks for the word "Subnet" quietly reports nothing on either. So this
-    matches no labels at all -- only the shape of the numbers:
+    "Subnetzmaske", on a French one "Masque de sous-reseau", and a
+    parser that looks for the word "Subnet" quietly reports nothing on
+    either. So this matches no labels at all -- only the shape of the
+    numbers:
 
-      same line, CIDR      "inet 192.168.1.5/24 brd ..."        (ip -o -4 addr)
-      same line, hex       "inet 192.168.1.5 netmask 0xffffff00" (macOS/BSD)
+      same line, CIDR      "inet 192.168.1.5/24 brd ..." (ip -o -4 addr)
+      same line, hex       "inet 192.168.1.5 netmask 0xffffff00"
+                           (macOS/BSD)
       same line, dotted    "inet 192.168.1.5 netmask 255.255.255.0"
-      next line, dotted    "IPv4 Address . : 192.168.1.5"        (Windows)
+      next line, dotted    "IPv4 Address . : 192.168.1.5" (Windows)
                            "Subnet Mask  . : 255.255.255.0"
 
-    An address with no mask ANYWHERE is discarded, not kept with a guess. That
-    rule is what makes the two-line Windows form safe: "Default Gateway . :
-    192.168.1.1" and "DNS Servers . : 8.8.8.8" are also lone IPv4 addresses on
-    their own lines, and neither is followed by a mask, so both fall out
-    without this needing to recognise the words "gateway" or "DNS" in any
-    language. Recording a DNS server's address as one of ours would have
-    claimed we're on 8.8.8.0/24 -- a network we are emphatically not on.
+    An address with no mask ANYWHERE is discarded, not kept with a
+    guess. That rule is what makes the two-line Windows form safe:
+    "Default Gateway . : 192.168.1.1" and "DNS Servers . : 8.8.8.8" are
+    also lone IPv4 addresses on their own lines, and neither is followed
+    by a mask, so both fall out without this needing to recognise the
+    words "gateway" or "DNS" in any language. Recording a DNS server's
+    address as one of ours would have claimed we're on 8.8.8.0/24 -- a
+    network we are emphatically not on.
 
-    Callers who end up with nothing should fall back to local_interfaces()'
-    routing probe, which is honest about guessing.
+    Callers who end up with nothing should fall back to
+    local_interfaces()' routing probe, which is honest about guessing.
     """
     interfaces: list[Interface] = []
     pending_address: str | None = None  # an address still waiting for its mask
@@ -232,16 +248,18 @@ def parse_interfaces(text: str) -> list[Interface]:
                 pending_address = None
             continue
 
-        # Split this line's IPv4-shaped tokens into "could be a mask" and
-        # "must be an address". A host address is never a contiguous netmask,
-        # so this classification is exact rather than heuristic.
+        # Split this line's IPv4-shaped tokens into "could be a mask"
+        # and "must be an address". A host address is never a contiguous
+        # netmask, so this classification is exact rather than
+        # heuristic.
         addresses = [t for t in ipv4_tokens if _prefix_from_mask(t) is None]
         masks = [p for p in (_prefix_from_mask(t) for t in ipv4_tokens) if p]
 
         if addresses:
-            # A new address supersedes any earlier one still waiting: the
-            # previous line's lone address never got a mask, so it was a
-            # gateway, a DNS server, or something else that isn't ours.
+            # A new address supersedes any earlier one still waiting:
+            # the previous line's lone address never got a mask, so it
+            # was a gateway, a DNS server, or something else that isn't
+            # ours.
             line_address = addresses[0]
             prefix = masks[0] if masks else (
                 _prefix_from_hex(hex_mask_match.group(1))
@@ -272,19 +290,28 @@ def parse_interfaces(text: str) -> list[Interface]:
 
 def _read_interface_text(timeout: float = 3.0) -> str | None:
     """
-    Ask the OS for its network listing. Returns None -- never raises -- on any
-    failure, exactly like discovery._read_arp_table_text, and for the same
-    reason: a missing binary or an unfamiliar platform must never be able to
-    make the agent unusable. Not knowing where we are is a normal outcome here,
-    not an error.
+    Ask the OS for its network listing. Returns None -- never raises --
+    on any failure, exactly like discovery._read_arp_table_text, and for
+    the same reason: a missing binary or an unfamiliar platform must
+    never be able to make the agent unusable. Not knowing where we are
+    is a normal outcome here, not an error.
     """
     if sys.platform.startswith("win"):
         listing_commands = [["ipconfig"]]
     else:
-        listing_commands = [["ip", "-o", "-4", "addr", "show"], ["ifconfig"], ["ifconfig", "-a"]]
+        listing_commands = [
+            ["ip", "-o", "-4", "addr", "show"],
+            ["ifconfig"],
+            ["ifconfig", "-a"],
+        ]
     for listing_command in listing_commands:
         try:
-            result = subprocess.run(listing_command, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                listing_command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except (OSError, subprocess.TimeoutExpired, ValueError):
             continue
         if result.returncode == 0 and result.stdout.strip():
@@ -296,10 +323,11 @@ def _routing_probe() -> str:
     """
     The address this machine would send from, per its own routing table.
 
-    A UDP "connect" to a public address sends no packet -- it only asks the OS
-    which local address it would use -- so this costs nothing and works with no
-    network at all. Returns "" rather than a loopback address on failure: 127.
-    0.0.1 would be a confident, wrong answer about where this machine lives.
+    A UDP "connect" to a public address sends no packet -- it only asks
+    the OS which local address it would use -- so this costs nothing and
+    works with no network at all. Returns "" rather than a loopback
+    address on failure: 127. 0.0.1 would be a confident, wrong answer
+    about where this machine lives.
     """
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -316,12 +344,12 @@ def local_interfaces(timeout: float = 3.0) -> list[Interface]:
     """
     Every IPv4 network this machine is on, best effort.
 
-    Falls back to the routing probe with an ASSUMED /24 when the OS listing
-    can't be read or yields nothing -- flagged assumed=True, so a caller can
-    tell "your PC is on 10.9.9.0/24" (measured) from "your PC is on 10.9.9.41
-    and /24 is the usual mask" (a guess that happens to be right almost
-    everywhere). Returns [] when even that fails, which callers must treat as
-    "no opinion" rather than "no networks".
+    Falls back to the routing probe with an ASSUMED /24 when the OS
+    listing can't be read or yields nothing -- flagged assumed=True, so
+    a caller can tell "your PC is on 10.9.9.0/24" (measured) from "your
+    PC is on 10.9.9.41 and /24 is the usual mask" (a guess that happens
+    to be right almost everywhere). Returns [] when even that fails,
+    which callers must treat as "no opinion" rather than "no networks".
     """
     text = _read_interface_text(timeout)
     if text:
@@ -352,18 +380,24 @@ def _describe_networks(interfaces: tuple[Interface, ...]) -> str:
     if len(network_names) <= _MAX_NETWORKS_LISTED:
         return _join_with_and(network_names)
     unlisted_count = len(network_names) - _MAX_NETWORKS_LISTED
-    return _join_with_and(network_names[:_MAX_NETWORKS_LISTED]) + f" (and {unlisted_count} other{'s' if unlisted_count > 1 else ''})"
+    return (
+        _join_with_and(network_names[:_MAX_NETWORKS_LISTED])
+        + f" (and {unlisted_count} other"
+        f"{'s' if unlisted_count > 1 else ''})"
+    )
 
 
-def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosis | None:
+def diagnose(
+    target: str, interfaces: list[Interface] | None = None
+) -> Diagnosis | None:
     """
     Whether `target` is on a network this machine is also on.
 
-    Returns None -- meaning "no opinion, say nothing" -- when the question
-    can't be answered honestly: a target that isn't an IPv4 literal (a
-    hostname, "auto", an empty string), or a machine whose own addresses
-    couldn't be determined. Callers should treat None as "add nothing to the
-    error you were already going to show".
+    Returns None -- meaning "no opinion, say nothing" -- when the
+    question can't be answered honestly: a target that isn't an IPv4
+    literal (a hostname, "auto", an empty string), or a machine whose
+    own addresses couldn't be determined. Callers should treat None as
+    "add nothing to the error you were already going to show".
 
     `interfaces` is injectable so this is testable against fixed inputs
     without a network, a platform, or a subprocess.
@@ -386,10 +420,11 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
     networks_description = _describe_networks(known_interfaces)
 
     if on_same_network:
-        # Nothing useful to add: the Drobo is on our network and still isn't
-        # answering, so the network layout is not the story. Returned rather
-        # than suppressed so a caller can distinguish "checked, fine" from
-        # "couldn't check" -- but the text stays empty so nobody displays it.
+        # Nothing useful to add: the Drobo is on our network and still
+        # isn't answering, so the network layout is not the story.
+        # Returned rather than suppressed so a caller can distinguish
+        # "checked, fine" from "couldn't check" -- but the text stays
+        # empty so nobody displays it.
         return Diagnosis(
             target=str(target_address), interfaces=known_interfaces,
             same_network=True, assumed_prefix=any_mask_assumed,
@@ -398,13 +433,14 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
 
     headline = "This PC is on a different network from the Drobo."
     detail = (
-        f"It is on {networks_description}, while the Drobo was last seen at {target_address}. Reconnect this "
-        f"PC to the Drobo's network and it should come straight back -- nothing "
-        f"needs changing on the Drobo itself."
+        f"It is on {networks_description}, while the Drobo was last seen "
+        f"at {target_address}. Reconnect this PC to the Drobo's network "
+        f"and it should come straight back -- nothing needs changing "
+        f"on the Drobo itself."
     )
     caveat = (
-        "Worth knowing: separate networks can be routed together, so this is the "
-        "likely explanation rather than a certainty."
+        "Worth knowing: separate networks can be routed together, so this "
+        "is the likely explanation rather than a certainty."
     )
     if any_mask_assumed:
         caveat += (
@@ -420,9 +456,9 @@ def diagnose(target: str, interfaces: list[Interface] | None = None) -> Diagnosi
 
 def explain(target: str, interfaces: list[Interface] | None = None) -> str:
     """
-    One sentence to append to an "unreachable" message, or "" if there is
-    nothing worth saying. The convenience form of diagnose() for callers that
-    only have room for a string.
+    One sentence to append to an "unreachable" message, or "" if there
+    is nothing worth saying. The convenience form of diagnose() for
+    callers that only have room for a string.
     """
     diagnosis = diagnose(target, interfaces)
     return (diagnosis.message
@@ -435,9 +471,10 @@ def _main(argv: list[str] | None = None) -> int:
 
         py -m drobo_nasd.netcheck 10.0.0.50
 
-    Exists so the capture scripts (and anyone debugging at 1am) can ask it
-    directly. Exit status is the answer: 0 same network, 1 different, 2 no
-    opinion -- so a shell script can branch on it without parsing text.
+    Exists so the capture scripts (and anyone debugging at 1am) can ask
+    it directly. Exit status is the answer: 0 same network, 1 different,
+    2 no opinion -- so a shell script can branch on it without parsing
+    text.
     """
     args = list(argv if argv is not None else sys.argv[1:])
     if not args:
@@ -455,12 +492,12 @@ def _main(argv: list[str] | None = None) -> int:
     diagnosis = diagnose(args[0], interfaces)
     print()
     if diagnosis is None:
-        print(f"No opinion about {args[0]!r} -- it is not an IPv4 address, or this "
-              f"machine's own addresses could not be read.")
+        print(f"No opinion about {args[0]!r} -- it is not an IPv4 "
+              f"address, or this machine's own addresses could not be read.")
         return 2
     if diagnosis.same_network:
-        print(f"{diagnosis.target} is on this PC's network. If it still isn't answering, "
-              f"the network layout is not the reason.")
+        print(f"{diagnosis.target} is on this PC's network. If it still "
+              f"isn't answering, the network layout is not the reason.")
         return 0
     print(diagnosis.message)
     return 1

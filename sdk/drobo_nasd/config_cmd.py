@@ -216,7 +216,8 @@ def _read_frame(sock: socket.socket,
     `deadline` (a time.monotonic() instant) bounds header and payload
     together; see _receive_exactly for why a socket timeout alone is not
     a bound. Keyword-optional so existing callers keep working
-    unchanged. """
+    unchanged.
+    """
     header = _receive_exactly(sock, HEADER_BYTES, deadline)
     if len(header) < HEADER_BYTES:
         raise ConfigError(
@@ -489,7 +490,8 @@ def _parse_result_code(payload: bytes) -> int | None:
     outcome into an exception. But it requires EXACTLY ONE <Result> -- a
     body with several is not something to guess the meaning of by taking
     the first, so it returns None (which the caller treats as "not
-    accepted") rather than risk reading the wrong one. """
+    accepted") rather than risk reading the wrong one.
+    """
     matches = re.findall(r"<Result>\s*(-?\d+)\s*</Result>",
                          payload.decode("utf-8", "replace"))
     if len(matches) != 1:
@@ -564,7 +566,8 @@ def set_config(host: str, esa_id: str, section: str, build_section_document,
     but a share write, which sends every share, is where this would bite
     hardest, so callers doing high-stakes writes should prefer a moment
     when nothing else is touching the device. It is documented rather
-    than fixed because the fix (device-side locking) does not exist. """
+    than fixed because the fix (device-side locking) does not exist.
+    """
     if section not in SECTIONS:
         raise ConfigWriteError(
             f"unknown section {section!r}; choose from {sorted(SECTIONS)}")

@@ -65,7 +65,8 @@ stored after closing the socket without answering. Every function here
 therefore decides its outcome from a read-back, and hands config_cmd
 that same read-back to arbitrate an unanswered write (see
 config_cmd._send_section_document). No function here ever re-sends:
-retrying a write that already applied is the harm. """
+retrying a write that already applied is the harm.
+"""
 from __future__ import annotations
 
 import re
@@ -114,7 +115,8 @@ def _resolve_share(share_config: ElementTree.Element,
     only by case cannot be disambiguated by a case-insensitive request,
     and taking the first hit edits and verifies the WRONG share while
     reporting success -- the 2026-08-12 audit's confirmed high finding.
-    Same rule as user rows. """
+    Same rule as user rows.
+    """
     shares = _share_elements(share_config)
     exact_matches = [s for s in shares
                      if _child_text(s, "ShareName") == share_name]
@@ -201,7 +203,8 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
     lost share (which surgical editing should make impossible, but is
     asserted); ShareWriteOutcomeUnknownError when the outcome cannot be
     established; config_cmd.ConfigWriteError propagates for a refused or
-    unreachable device. """
+    unreachable device.
+    """
     share_name = (share_name or "").strip()
     username = (username or "").strip()
     access_code = str(access_code).strip()
@@ -748,7 +751,8 @@ def _access_reads_back_as(host: str, esa_id: str, share_name: str,
     access_code, not just the first. A residual duplicate row that still
     grants the old access must fail verification -- reporting success
     while wrong access survives is exactly the failure this read-back
-    exists to catch. """
+    exists to catch.
+    """
     from .shares import summarize
     shares_section = config_cmd.get_config(host, esa_id, _SHARES_SECTION,
                                            port=port, timeout=timeout)

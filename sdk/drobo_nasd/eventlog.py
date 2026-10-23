@@ -8,32 +8,35 @@ The REQUEST is CONFIRMED: the original Dashboard sends command 91 with
     <Params><Path>/uel.log</Path></Params>
 
 captured on the wire 2026-08-05 (docs/protocol-map.md, "The event log is
-command 91, not 90"). Two earlier failures are worth remembering: this project
-first asked the wrong command entirely (eCmdGetEventLogs, which answers a clean
-empty body), and then asked 91 itself with empty <Params> -- which the device
-does not answer cleanly; it tears the connection down (docs/command-surface.md,
-"a 0-byte header read where 16 bytes were expected"). So this module never
-sends 91 without the captured Path, and a dropped connection mid-reply is
-reported as its own failure mode rather than as a generic short read.
+command 91, not 90"). Two earlier failures are worth remembering: this
+project first asked the wrong command entirely (eCmdGetEventLogs, which
+answers a clean empty body), and then asked 91 itself with empty
+<Params> -- which the device does not answer cleanly; it tears the
+connection down (docs/command-surface.md, "a 0-byte header read where 16
+bytes were expected"). So this module never sends 91 without the
+captured Path, and a dropped connection mid-reply is reported as its own
+failure mode rather than as a generic short read.
 
-The REPLY has never been captured. The 2026-08-05/06 captures recorded the
-request going out, not the body coming back, so the format of what 91 returns
--- line syntax, timestamp style, severity vocabulary -- is unknown. Under the
-project rule that a wire format is never guessed, the parser below does NOT
-invent one. It unwraps the channel's standard TMCmd envelope (the one shape
-every answered command on port 5001 shares -- see sysinfo._inner_document for
-the two encodings) and returns the payload as raw text lines, verbatim. Any
-reply that turns out to be XML-STRUCTURED instead of text is refused with an
-error saying a capture is needed, because flattening an unseen schema into
-"lines" would be exactly the guessing this refuses to do.
+The REPLY has never been captured. The 2026-08-05/06 captures recorded
+the request going out, not the body coming back, so the format of what
+91 returns -- line syntax, timestamp style, severity vocabulary -- is
+unknown. Under the project rule that a wire format is never guessed, the
+parser below does NOT invent one. It unwraps the channel's standard
+TMCmd envelope (the one shape every answered command on port 5001 shares
+-- see sysinfo._inner_document for the two encodings) and returns the
+payload as raw text lines, verbatim. Any reply that turns out to be
+XML-STRUCTURED instead of text is refused with an error saying a capture
+is needed, because flattening an unseen schema into "lines" would be
+exactly the guessing this refuses to do.
 
 Consequently the normalized entries carry TIMESTAMP_NOT_DECODED (0.0)
 and SEVERITY_NOT_DECODED ("") -- explicit "the fetcher could not read
 this from the line" markers, NOT a claim the event happened in 1970 or
 was informational.
-The full raw line rides in `message`, so nothing the device said is lost.
-When a real reply is finally captured, parse_event_log is the single place to
-teach the actual format; the entry shape callers see will not change.
+The full raw line rides in `message`, so nothing the device said is
+lost. When a real reply is finally captured, parse_event_log is the
+single place to teach the actual format; the entry shape callers see
+will not change.
 
 Read-only. Sends one command, which fetches a log file.
 """
@@ -60,26 +63,29 @@ from .sysinfo import SysInfoError
 
 COMMAND_NAME = "eCmdGetUserEventLog"
 
-# The one path the Dashboard was ever seen to ask for. Deliberately NOT a
-# parameter of get_event_log: any other path would be a guessed instruction to
-# the device, and the empty-params variant is known to drop the connection.
+# The one path the Dashboard was ever seen to ask for. Deliberately NOT
+# a parameter of get_event_log: any other path would be a guessed
+# instruction to the device, and the empty-params variant is known to
+# drop the connection.
 USER_EVENT_LOG_PATH = "/uel.log"
 
-# Markers for fields the reply format does not (yet) let us decode. 0.0 and ""
-# rather than None so EventLogEntry keeps its concrete field types and its
-# to_dict stays crash-free; callers compare against these names, not literals.
+# Markers for fields the reply format does not (yet) let us decode. 0.0
+# and "" rather than None so EventLogEntry keeps its concrete field
+# types and its to_dict stays crash-free; callers compare against these
+# names, not literals.
 TIMESTAMP_NOT_DECODED = 0.0
 SEVERITY_NOT_DECODED = ""
 
 
 class EventLogError(SysInfoError):
-    """The device would not, or could not, hand over its user event log --
-    or handed back a shape this code refuses to guess at."""
+    """The device would not, or could not, hand over its user event log
+    -- or handed back a shape this code refuses to guess at."""
 
 
 def _command_xml(esa_id: str) -> bytes:
-    """The exact request the Dashboard was captured sending: command 91 with
-    the /uel.log path, in the CmdID / Params / ESAID order of the capture."""
+    """The exact request the Dashboard was captured sending: command 91
+    with the /uel.log path, in the CmdID / Params / ESAID order of the
+    capture."""
     command_id = _commands.COMMANDS.get(COMMAND_NAME)
     if command_id is None:
         raise EventLogError(f"{COMMAND_NAME} has no confirmed command id")
@@ -89,9 +95,9 @@ def _command_xml(esa_id: str) -> bytes:
 
 
 def _display_lines(text: str) -> list[str]:
-    """Split into display-ready lines: trailing whitespace (and the CR of a
-    CRLF file) stripped, blank lines dropped, leading indentation kept in case
-    the log uses it for continuation."""
+    """Split into display-ready lines: trailing whitespace (and the CR
+    of a CRLF file) stripped, blank lines dropped, leading indentation
+    kept in case the log uses it for continuation."""
     lines = []
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
@@ -104,44 +110,48 @@ def parse_event_log(payload: bytes) -> list[str]:
     """
     Turn an eCmdGetUserEventLog result into the log's raw text lines.
 
-    Separate from the socket work so it is testable with no device present.
-    Deliberately returns LINES, not structure -- the reply format has never
-    been captured (see the module docstring), so this refuses to invent
-    timestamps or severities it cannot have read.
+    Separate from the socket work so it is testable with no device
+    present. Deliberately returns LINES, not structure -- the reply
+    format has never been captured (see the module docstring), so this
+    refuses to invent timestamps or severities it cannot have read.
 
     Accepted shapes, most to least expected:
 
-      * the standard TMCmd envelope with the log text entity-escaped into
-        <ResultDetails> -- how eCmdGetSysInfo replies on this channel;
+      * the standard TMCmd envelope with the log text entity-escaped
+        into <ResultDetails> -- how eCmdGetSysInfo replies on this
+        channel;
       * the same envelope with the text sitting there unescaped;
       * a bare non-XML body, in case a file fetch skips the envelope.
 
-    An empty reply is an empty log ([]), not an error -- though the channel's
-    usual caveat applies: an empty body can also mean "not authorized", and
-    the two cannot be told apart (docs/command-surface.md).
+    An empty reply is an empty log ([]), not an error -- though the
+    channel's usual caveat applies: an empty body can also mean "not
+    authorized", and the two cannot be told apart
+    (docs/command-surface.md).
 
-    Raises EventLogError, refusing rather than guessing, when the reply is
-    XML-STRUCTURED (child elements, or escaped text that unescapes into a
-    well-formed document) -- an unseen schema needs a capture, not a guess --
-    and when an XML-looking body does not parse, which is indistinguishable
-    from a truncated envelope and must not be shown as log lines.
+    Raises EventLogError, refusing rather than guessing, when the reply
+    is XML-STRUCTURED (child elements, or escaped text that unescapes
+    into a well-formed document) -- an unseen schema needs a capture,
+    not a guess -- and when an XML-looking body does not parse, which is
+    indistinguishable from a truncated envelope and must not be shown as
+    log lines.
     """
     trimmed_payload = payload.rstrip(b"\x00")
     if not trimmed_payload.strip():
         return []
 
     if not trimmed_payload.strip().startswith(b"<"):
-        # No envelope at all: treat as the file body served bare. Decoded with
-        # errors="replace" -- a stray byte in somebody's log must not take the
-        # whole fetch down.
+        # No envelope at all: treat as the file body served bare.
+        # Decoded with errors="replace" -- a stray byte in somebody's
+        # log must not take the whole fetch down.
         return _display_lines(trimmed_payload.decode("utf-8", "replace"))
 
     try:
         root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
-        # Could be a truncated envelope, could be a text log whose first line
-        # merely begins with "<". Not distinguishable, so fail loudly -- junk
-        # markup presented as "events" would be worse than an error.
+        # Could be a truncated envelope, could be a text log whose first
+        # line merely begins with "<". Not distinguishable, so fail
+        # loudly -- junk markup presented as "events" would be worse
+        # than an error.
         raise EventLogError(f"XML-shaped reply did not parse: {exc}") from exc
 
     details = root.find("ResultDetails")
@@ -177,11 +187,12 @@ def entries_from_lines(lines: list[str]) -> list[EventLogEntry]:
     serves (models.Snapshot.event_log, /api/eventlog) -- ts, severity,
     message -- so wiring a driver on top of this is trivial.
 
-    ts and severity are the NOT_DECODED markers, honestly: the line format is
-    uncaptured, and a fabricated timestamp or an every-line-is-"info" severity
-    would misinform (imagine a drive failure filed as info). The verbatim line
-    is the message. File order is preserved; which end is newest is one more
-    thing the capture will have to say.
+    ts and severity are the NOT_DECODED markers, honestly: the line
+    format is uncaptured, and a fabricated timestamp or an
+    every-line-is-"info" severity would misinform (imagine a drive
+    failure filed as info). The verbatim line is the message. File order
+    is preserved; which end is newest is one more thing the capture will
+    have to say.
     """
     return [EventLogEntry(ts=TIMESTAMP_NOT_DECODED,
                           severity=SEVERITY_NOT_DECODED,
@@ -194,13 +205,14 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     Fetch the Drobo's user event log. Read-only.
 
-    Same hand-rolled channel dance as droboapps.get_droboapps: connect, plain
-    login, one command, one reply. Returns entries_from_lines() of the reply
-    -- see both docstrings for what is and is not decoded.
+    Same hand-rolled channel dance as droboapps.get_droboapps: connect,
+    plain login, one command, one reply. Returns entries_from_lines() of
+    the reply -- see both docstrings for what is and is not decoded.
 
-    Raises EventLogError on refusal, teardown, or an unparseable reply. A
-    torn-down connection right after the command is the failure the empty-
-    params variant of 91 is known to cause, so it is named in the error.
+    Raises EventLogError on refusal, teardown, or an unparseable reply.
+    A torn-down connection right after the command is the failure the
+    empty- params variant of 91 is known to cause, so it is named in the
+    error.
     """
     if _commands.is_dangerous(COMMAND_NAME):
         raise EventLogError(f"{COMMAND_NAME} is on the do-not-send list")
@@ -220,7 +232,8 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
             raise EventLogError(
                 f"connection lost while reading the event-log reply ({exc}); "
                 f"this is the teardown eCmdGetUserEventLog is known for when "
-                f"sent without its Path -- see docs/command-surface.md") from exc
+                f"sent without its Path -- see docs/command-surface.md"
+            ) from exc
         if frame_type != TYPE_RESULT:
             raise EventLogError(f"unexpected reply type 0x{frame_type:02x}")
         return entries_from_lines(parse_event_log(body))

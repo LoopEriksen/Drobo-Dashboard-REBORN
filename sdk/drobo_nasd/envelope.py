@@ -2,13 +2,14 @@
 DRINETTM XML envelope -- build and parse, per docs/protocol-map.md
 ("Message envelope").
 
-`FIRMWARE`-grade evidence for the vocabulary (recovered from adjacent string
-clusters in `nasd`, not from a capture):
+`FIRMWARE`-grade evidence for the vocabulary (recovered from adjacent
+string clusters in `nasd`, not from a capture):
 
     <?xml version="1.0"?>
     <DRINETTM>
       <ESAID>...</ESAID>
-      <Command>...</Command>        <!-- numeric id OR name -- GUESS which -->
+      <Command>...</Command>        <!-- numeric id OR name
+                                         -- GUESS which -->
       <Params>...</Params>
       <Error>0</Error>              <!-- response only -->
       <Result>...</Result>          <!-- response only -->
@@ -16,16 +17,17 @@ clusters in `nasd`, not from a capture):
     </DRINETTM>
 
 What's confirmed: the root tag, ESAID, Params-as-a-container, and that
-`<Error>N</Error>` is emitted as a literal string (so it appears verbatim on
-the wire, per protocol-map.md). What's guessed: every other child element
-name, and whether Command carries the numeric id or the `eCmd*` name --
-protocol-map.md shows it both ways ("<Command>85</Command> <!-- or the name
--->"). This module supports both so that whichever the capture confirms,
-nothing here has to change shape -- only which form callers pass in.
+`<Error>N</Error>` is emitted as a literal string (so it appears
+verbatim on the wire, per protocol-map.md). What's guessed: every other
+child element name, and whether Command carries the numeric id or the
+`eCmd*` name -- protocol-map.md shows it both ways
+("<Command>85</Command> <!-- or the name -->"). This module supports
+both so that whichever the capture confirms, nothing here has to change
+shape -- only which form callers pass in.
 
 This module only builds and parses the XML text. It knows nothing about
-sockets or the still-unknown byte framing around a message -- see framing.py
-and client.py for that.
+sockets or the still-unknown byte framing around a message -- see
+framing.py and client.py for that.
 """
 
 from __future__ import annotations
@@ -40,16 +42,17 @@ from . import commands
 ROOT_TAG = "DRINETTM"
 
 #: The number a live 5N puts in <Result> when it accepts a command.
-#: MEASURED 2026-08-07, the same value from eCmdGetSysInfo, eCmdGetConfig and
-#: eCmdIdentify -- two commands that demonstrably work and one that
-#: demonstrably does nothing. It also sits, uninterpreted, in a sysinfo test
-#: fixture recorded weeks earlier, so it has been constant for as long as this
-#: project has been looking.
+#: MEASURED 2026-08-07, the same value from eCmdGetSysInfo,
+#: eCmdGetConfig and eCmdIdentify -- two commands that demonstrably work
+#: and one that demonstrably does nothing. It also sits, uninterpreted,
+#: in a sysinfo test fixture recorded weeks earlier, so it has been
+#: constant for as long as this project has been looking.
 #:
-#: WHAT THIS IS NOT: proof that a different value means failure. No command has
-#: ever returned anything else here, so the failure side of the comparison has
-#: never been observed. Treat a match as "the device did not object" and a
-#: mismatch as "worth looking at", never as a confirmed error.
+#: WHAT THIS IS NOT: proof that a different value means failure. No
+#: command has ever returned anything else here, so the failure side of
+#: the comparison has never been observed. Treat a match as "the device
+#: did not object" and a mismatch as "worth looking at", never as a
+#: confirmed error.
 #:
 #: And note what eCmdIdentify proves: ACCEPTED IS NOT THE SAME AS DID
 #: SOMETHING. Identify returns this value and blinks nothing at all.
@@ -68,9 +71,12 @@ class Envelope:
     """The parsed contents of a DRINETTM message."""
 
     esa_id: str
-    command_id: Optional[int]  # None if the wire value didn't resolve to a known id
-    command_name: Optional[str]  # None if command_id has no entry in commands.COMMANDS
-    command_raw: str  # exactly what was in <Command>, before any interpretation
+    # None if the wire value didn't resolve to a known id
+    command_id: Optional[int]
+    # None if command_id has no entry in commands.COMMANDS
+    command_name: Optional[str]
+    # exactly what was in <Command>, before any interpretation
+    command_raw: str
     params: dict = field(default_factory=dict)
     error: Optional[int] = None
     result: Any = None
@@ -89,9 +95,9 @@ def _to_wire_text(value: Any) -> str:
 
 
 def _coerce_wire_value(text: Optional[str]) -> Any:
-    """Best-effort str -> int/float, mirroring what a hand-rolled XML reader
-    on the other end would need to do too -- <Error>0</Error> is a literal
-    string on the wire, not a typed value."""
+    """Best-effort str -> int/float, mirroring what a hand-rolled XML
+    reader on the other end would need to do too -- <Error>0</Error> is
+    a literal string on the wire, not a typed value."""
     if text is None:
         return ""
     if _INTEGER_RE.fullmatch(text):
@@ -108,9 +114,10 @@ def _coerce_wire_value(text: Optional[str]) -> Any:
 
 
 def _build_container(parent: ElementTree.Element, data: dict) -> None:
-    """Recursively populate `parent` from a dict. Nested dicts become nested
-    elements; lists/tuples repeat the same tag once per item (this is how
-    UXMLNode-style trees typically represent repeated records)."""
+    """Recursively populate `parent` from a dict. Nested dicts become
+    nested elements; lists/tuples repeat the same tag once per item
+    (this is how UXMLNode-style trees typically represent repeated
+    records)."""
     for key, value in data.items():
         if isinstance(value, dict):
             child = ElementTree.SubElement(parent, key)
@@ -128,7 +135,8 @@ def _build_container(parent: ElementTree.Element, data: dict) -> None:
 
 
 def _parse_container(element: ElementTree.Element) -> dict:
-    """Inverse of _build_container. Repeated tags collapse into a list."""
+    """Inverse of _build_container. Repeated tags collapse into a
+    list."""
     result: dict = {}
     for child in element:
         value: Any
@@ -147,15 +155,18 @@ def _parse_container(element: ElementTree.Element) -> dict:
     return result
 
 
-def _resolve_command(command: Union[int, str]) -> tuple[str, Optional[int], Optional[str]]:
-    """Returns (wire_text, command_id, command_name) for a caller-supplied
-    command, which may be a numeric id or an `eCmd*` name."""
+def _resolve_command(
+    command: Union[int, str],
+) -> tuple[str, Optional[int], Optional[str]]:
+    """Returns (wire_text, command_id, command_name) for a
+    caller-supplied command, which may be a numeric id or an `eCmd*`
+    name."""
     if isinstance(command, str):
         if command not in commands.COMMANDS:
             raise KeyError(
-                f"{command!r} is not in commands.COMMANDS -- if this is a real "
-                f"eCmd* name missing from the table, fix commands.py; otherwise "
-                f"this is a typo"
+                f"{command!r} is not in commands.COMMANDS -- if this is a "
+                f"real eCmd* name missing from the table, fix commands.py; "
+                f"otherwise this is a typo"
             )
         command_id = commands.COMMANDS[command]
         return str(command_id), command_id, command
@@ -173,13 +184,18 @@ def _serialize(root: ElementTree.Element) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_command(esa_id: Union[str, int], command: Union[int, str], params: Optional[dict] = None) -> str:
+def build_command(
+    esa_id: Union[str, int],
+    command: Union[int, str],
+    params: Optional[dict] = None,
+) -> str:
     """
     Build a DRINETTM *request* message: ESAID, Command, optional Params.
 
     `command` may be a numeric id (int) or an `eCmd*` name (str) -- see
     commands.py. This function does NOT check commands.DO_NOT_SEND; that
-    guard lives in client.py, which is the layer that actually has a socket.
+    guard lives in client.py, which is the layer that actually has a
+    socket.
     """
     wire_text, _, _ = _resolve_command(command)
     root = ElementTree.Element(ROOT_TAG)
@@ -200,10 +216,10 @@ def build_response(
     result_details: Any = None,
 ) -> str:
     """
-    Build a DRINETTM *response* message: everything build_command() has, plus
-    Error (and optionally Result/ResultDetails). Mainly useful for tests --
-    real responses come from the device -- but keeping build and parse
-    symmetric is what makes the round-trip test meaningful.
+    Build a DRINETTM *response* message: everything build_command() has,
+    plus Error (and optionally Result/ResultDetails). Mainly useful for
+    tests -- real responses come from the device -- but keeping build
+    and parse symmetric is what makes the round-trip test meaningful.
     """
     wire_text, _, _ = _resolve_command(command)
     root = ElementTree.Element(ROOT_TAG)
@@ -235,12 +251,14 @@ def build_response(
 
 def parse(xml_text: str) -> Envelope:
     """Parse a DRINETTM message (request or response shape -- whichever
-    elements are present come back populated, the rest stay None/empty)."""
+    elements are present come back populated, the rest stay
+    None/empty)."""
     text = xml_text.strip()
     if text.startswith("<?xml"):
-        # drop the declaration line before handing to ElementTree -- stdlib's
-        # parser is fine with it, but keeping this explicit documents that the
-        # exact declaration text is not itself meaningful to us
+        # drop the declaration line before handing to ElementTree --
+        # stdlib's parser is fine with it, but keeping this explicit
+        # documents that the exact declaration text is not itself
+        # meaningful to us
         text = text.split("?>", 1)[1].strip()
     try:
         root = ElementTree.fromstring(text)
@@ -264,27 +282,34 @@ def parse(xml_text: str) -> Envelope:
         command_name = commands.ID_TO_NAME.get(command_id)
     else:
         command_id = commands.COMMANDS.get(command_raw)
-        command_name = command_raw if command_raw in commands.COMMANDS else None
+        command_name = (command_raw if command_raw in commands.COMMANDS
+                        else None)
 
     params_element = root.find("Params")
     params = (_parse_container(params_element)
               if params_element is not None else {})
 
     error_element = root.find("Error")
-    error = int(error_element.text) if error_element is not None and error_element.text else None
+    error = (int(error_element.text)
+             if error_element is not None and error_element.text
+             else None)
 
-    # See RESULT_ACCEPTED for what the number in here means, and how little of
-    # that is actually known.
+    # See RESULT_ACCEPTED for what the number in here means, and how
+    # little of that is actually known.
     result_element = root.find("Result")
     result: Any = None
     if result_element is not None:
-        result = _parse_container(result_element) if len(result_element) else _coerce_wire_value(result_element.text)
+        result = (_parse_container(result_element)
+                  if len(result_element)
+                  else _coerce_wire_value(result_element.text))
 
     details_element = root.find("ResultDetails")
     result_details: Any = None
     if details_element is not None:
         result_details = (
-            _parse_container(details_element) if len(details_element) else _coerce_wire_value(details_element.text)
+            _parse_container(details_element)
+            if len(details_element)
+            else _coerce_wire_value(details_element.text)
         )
 
     return Envelope(

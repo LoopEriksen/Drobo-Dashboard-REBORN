@@ -3,30 +3,33 @@ The Drobo's own temperature and uptime -- eCmdGetSysInfo.
 
 WHY THIS EXISTS, AND WHY WE THOUGHT IT WAS IMPOSSIBLE
 -----------------------------------------------------
-For a long time this project reported "this Drobo doesn't measure its own
-temperature". That was wrong, and the reason is worth writing down so nobody
-repeats it.
+For a long time this project reported "this Drobo doesn't measure its
+own temperature". That was wrong, and the reason is worth writing down
+so nobody repeats it.
 
 The status document the device pushes on TCP 5000 carries a per-drive
 `mTemperature` field, and on a 5N it is `0` on every slot. From that we
-concluded the hardware had no thermal sensor. It does -- it just isn't in that
-document. The chassis temperature comes from a *command*, `eCmdGetSysInfo`, on
-TCP 5001.
+concluded the hardware had no thermal sensor. It does -- it just isn't
+in that document. The chassis temperature comes from a *command*,
+`eCmdGetSysInfo`, on TCP 5001.
 
-The second mistake was subtler. Early probes of `eCmdGetSysInfo` looked like
-they succeeded about one time in six, which pointed at the RSA challenge-
-response that gates the privileged commands. They were actually succeeding far
-more often than that; the replies were simply being read wrongly.
+The second mistake was subtler. Early probes of `eCmdGetSysInfo` looked
+like they succeeded about one time in six, which pointed at the RSA
+challenge- response that gates the privileged commands. They were
+actually succeeding far more often than that; the replies were simply
+being read wrongly.
 
-`eCmdGetConfig` puts real XML children inside `<ResultDetails>`. `eCmdGetSysInfo`
-puts an **entity-escaped XML document** there instead -- `&lt;Temperature&gt;`,
-not `<Temperature>`. Anything looking for a `<Temperature>` element found
-nothing and called the command unanswered. Measured properly, with the inner
-document unescaped and parsed a second time, it answers **15 out of 15**.
+`eCmdGetConfig` puts real XML children inside `<ResultDetails>`.
+`eCmdGetSysInfo` puts an **entity-escaped XML document** there instead
+-- `&lt;Temperature&gt;`, not `<Temperature>`. Anything looking for a
+`<Temperature>` element found nothing and called the command unanswered.
+Measured properly, with the inner document unescaped and parsed a second
+time, it answers **15 out of 15**.
 
-So: this needs no key, no handshake, and no firmware change. Two different
-commands on the same channel just encode their results two different ways, and
-that is the thing to check first if another command ever looks flaky.
+So: this needs no key, no handshake, and no firmware change. Two
+different commands on the same channel just encode their results two
+different ways, and that is the thing to check first if another command
+ever looks flaky.
 
 Read-only. Sends one command, which is a query.
 """
@@ -50,14 +53,16 @@ from .config_cmd import (
     _read_frame,
 )
 
-# Anything outside this is not a chassis temperature -- it's a parse that went
-# wrong, or a field that means something else. A Drobo that genuinely reached
-# 95 C would have shut itself down long before reporting it.
+# Anything outside this is not a chassis temperature -- it's a parse
+# that went wrong, or a field that means something else. A Drobo that
+# genuinely reached 95 C would have shut itself down long before
+# reporting it.
 PLAUSIBLE_TEMPERATURE_RANGE_C = (1, 95)
 
 
 class SysInfoError(ConfigError):
-    """The device would not, or could not, report its system information."""
+    """The device would not, or could not, report its system
+    information."""
 
 
 def _inner_document(
@@ -70,7 +75,8 @@ def _inner_document(
       * real child elements  -- what eCmdGetConfig returns
       * escaped XML as text  -- what eCmdGetSysInfo returns
 
-    Handle both, so this keeps working if a firmware revision changes its mind.
+    Handle both, so this keeps working if a firmware revision changes
+    its mind.
     """
     if len(details):
         return details
@@ -78,11 +84,11 @@ def _inner_document(
     text = (details.text or "").strip()
     if not text:
         return None
-    # html.unescape rather than a manual replace: the device also emits &quot;
-    # inside the inner XML declaration.
+    # html.unescape rather than a manual replace: the device also emits
+    # &quot; inside the inner XML declaration.
     unescaped = html.unescape(text).strip()
-    # Drop an inner <?xml ...?> declaration; ElementTree rejects one that isn't
-    # at the very start of the string it is handed.
+    # Drop an inner <?xml ...?> declaration; ElementTree rejects one
+    # that isn't at the very start of the string it is handed.
     if unescaped.startswith("<?xml"):
         declaration_end = unescaped.find("?>")
         if declaration_end != -1:
@@ -92,12 +98,15 @@ def _inner_document(
     try:
         return ElementTree.fromstring(unescaped)
     except ElementTree.ParseError as exc:
-        raise SysInfoError(f"could not read the system-info document: {exc}") from exc
+        raise SysInfoError(
+            f"could not read the system-info document: {exc}"
+        ) from exc
 
 
 def _child_int_or_none(element: ElementTree.Element | None,
                        tag: str) -> int | None:
-    """A missing field and a field we can't read both mean 'no answer', not 0."""
+    """A missing field and a field we can't read both mean 'no answer',
+    not 0."""
     if element is None:
         return None
     child = element.find(tag)
@@ -111,11 +120,12 @@ def _child_int_or_none(element: ElementTree.Element | None,
 
 def parse_sysinfo(payload: bytes) -> dict:
     """
-    Turn an eCmdGetSysInfo result into {'temperature_c', 'uptime_seconds'}.
+    Turn an eCmdGetSysInfo result into {'temperature_c',
+    'uptime_seconds'}.
 
-    Separate from the socket work so it is testable with no device present.
-    Either value may be None -- the device answering but omitting a field is a
-    real case, and is not an error.
+    Separate from the socket work so it is testable with no device
+    present. Either value may be None -- the device answering but
+    omitting a field is a real case, and is not an error.
     """
     trimmed_payload = payload.rstrip(b"\x00").rstrip()
     if not trimmed_payload:
@@ -130,8 +140,8 @@ def parse_sysinfo(payload: bytes) -> dict:
         raise SysInfoError("result carried no <ResultDetails>")
 
     inner_document = _inner_document(details)
-    # The device nests <SysInfo> inside <ResultDetails>; tolerate it being
-    # either the root of the inner document or a child of it.
+    # The device nests <SysInfo> inside <ResultDetails>; tolerate it
+    # being either the root of the inner document or a child of it.
     sysinfo_element = inner_document
     if inner_document is not None and inner_document.tag != "SysInfo":
         # `is not None`, never `or`: an Element with no children is
@@ -144,8 +154,8 @@ def parse_sysinfo(payload: bytes) -> dict:
     if temperature_c is not None and not (
             PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temperature_c
             <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
-        # Report nothing rather than something wrong. A bogus reading on a
-        # dashboard is worse than a blank one.
+        # Report nothing rather than something wrong. A bogus reading on
+        # a dashboard is worse than a blank one.
         temperature_c = None
 
     uptime = _child_int_or_none(sysinfo_element, "UpTime")
@@ -167,30 +177,33 @@ def parse_performance(payload: bytes) -> dict:
 
     UNITS: MEGABYTES per second, inferred -- not stated by the device
     -------------------------------------------------------------------------
-    The device sends bare integers with no unit anywhere in the document. These
-    were briefly modelled as bytes/second, which a measurement then disproved.
+    The device sends bare integers with no unit anywhere in the
+    document. These were briefly modelled as bytes/second, which a
+    measurement then disproved.
 
-    Measured 2026-07-26, reading files off the array over SMB while polling:
+    Measured 2026-07-26, reading files off the array over SMB while
+    polling:
 
         idle                    read 0    iops 2
         under sustained load    read 10   iops 21
 
-    A reading of 10 cannot be bytes/second -- that would be ten bytes -- and
-    ten kilobytes/second is far too slow for a sustained SMB read. Megabytes per
-    second is the only unit that gives a plausible figure for that load on this
-    hardware, so MB/s is assumed.
+    A reading of 10 cannot be bytes/second -- that would be ten bytes --
+    and ten kilobytes/second is far too slow for a sustained SMB read.
+    Megabytes per second is the only unit that gives a plausible figure
+    for that load on this hardware, so MB/s is assumed.
 
-    Still inferred rather than confirmed, because Drobo never documented it.
-    Treated as a magnitude worth showing, not a figure to do arithmetic on.
+    Still inferred rather than confirmed, because Drobo never documented
+    it. Treated as a magnitude worth showing, not a figure to do
+    arithmetic on.
 
     THE COUNTERS LAG, BADLY
     -------------------------------------------------------------------------
-    Same measurement: the reading stayed at 0 for the first ~24 seconds of
-    heavy load before rising, and was still reporting 10 a full 25 seconds
-    AFTER the load stopped. So this is a slow-moving average, not an
-    instantaneous rate. Anything displaying it should say "recent activity"
-    rather than implying live throughput, and should never be used to decide
-    whether the array is busy right now.
+    Same measurement: the reading stayed at 0 for the first ~24 seconds
+    of heavy load before rising, and was still reporting 10 a full 25
+    seconds AFTER the load stopped. So this is a slow-moving average,
+    not an instantaneous rate. Anything displaying it should say "recent
+    activity" rather than implying live throughput, and should never be
+    used to decide whether the array is busy right now.
     """
     trimmed_payload = payload.rstrip(b"\x00").rstrip()
     if not trimmed_payload:
@@ -215,7 +228,8 @@ def parse_performance(payload: bytes) -> dict:
 
     def non_negative(tag: str) -> int | None:
         value = _child_int_or_none(performance_element, tag)
-        # A negative rate is meaningless; report nothing rather than nonsense.
+        # A negative rate is meaningless; report nothing rather than
+        # nonsense.
         return None if value is None or value < 0 else value
 
     return {
@@ -227,7 +241,8 @@ def parse_performance(payload: bytes) -> dict:
 
 
 def _command_frame(command_name: str, esa_id: str) -> bytes:
-    """Build one command frame, resolving the id by NAME and refusing writes."""
+    """Build one command frame, resolving the id by NAME and refusing
+    writes."""
     if command_name in _commands.DO_NOT_SEND:
         raise SysInfoError(f"{command_name} is on the do-not-send list")
     command_id = _commands.COMMANDS.get(command_name)
@@ -240,11 +255,14 @@ def _command_frame(command_name: str, esa_id: str) -> bytes:
 
 
 def _send_and_read_result(sock, command_name: str, esa_id: str) -> bytes:
-    """Send one command on an already-logged-in socket and return its body."""
+    """Send one command on an already-logged-in socket and return its
+    body."""
     sock.sendall(_command_frame(command_name, esa_id))
     frame_type, body = _read_frame(sock)
     if frame_type != TYPE_RESULT:
-        raise SysInfoError(f"unexpected reply type 0x{frame_type:02x} for {command_name}")
+        raise SysInfoError(
+            f"unexpected reply type 0x{frame_type:02x} for {command_name}"
+        )
     if not body:
         raise SysInfoError(f"device returned nothing for {command_name}")
     return body
@@ -255,8 +273,9 @@ def get_sysinfo(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     Ask the Drobo how warm it is and how long it has been up. Read-only.
 
-    Raises SysInfoError on anything unexpected. Callers should treat a failure
-    as "unavailable right now" and carry on monitoring -- never as a fault.
+    Raises SysInfoError on anything unexpected. Callers should treat a
+    failure as "unavailable right now" and carry on monitoring -- never
+    as a fault.
     """
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -275,18 +294,20 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
                                 port: int = DEFAULT_PORT,
                                 timeout: float = 8.0) -> dict:
     """
-    Both readings over ONE connection: temperature, uptime and throughput.
+    Both readings over ONE connection: temperature, uptime and
+    throughput.
 
-    Deliberately not two calls. This device gets tired: after roughly ninety
-    command-port connections in an hour it stopped answering `eCmdGetSysInfo`
-    entirely and took about half an hour to recover (docs/command-surface.md).
-    Connection count is the resource worth conserving, so we log in once and
-    ask twice -- one extra command on a socket we already hold is nearly free,
-    a second socket is not.
+    Deliberately not two calls. This device gets tired: after roughly
+    ninety command-port connections in an hour it stopped answering
+    `eCmdGetSysInfo` entirely and took about half an hour to recover
+    (docs/command-surface.md). Connection count is the resource worth
+    conserving, so we log in once and ask twice -- one extra command on
+    a socket we already hold is nearly free, a second socket is not.
 
-    Performance failing does NOT lose the temperature. The sysinfo reading is
-    taken first and returned even if the performance command then errors, since
-    temperature is the one with an alert rule attached to it.
+    Performance failing does NOT lose the temperature. The sysinfo
+    reading is taken first and returned even if the performance command
+    then errors, since temperature is the one with an alert rule
+    attached to it.
     """
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
