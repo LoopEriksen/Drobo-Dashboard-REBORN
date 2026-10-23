@@ -304,7 +304,7 @@ def main(argv=None) -> int:
             args.host, args.command, args.persistent)
 
         good = [r for r in report["framings"] if r.get("received_bytes")]
-        print(f"\n== summary ==")
+        print("\n== summary ==")
         print(f"  {len(good)} of {len(report['framings'])} "
               "attempts got a reply")
         best = [r for r in good if "Error" in (r.get("text") or "")
