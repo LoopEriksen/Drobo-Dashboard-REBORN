@@ -1,66 +1,76 @@
 #!/usr/bin/env python3
 """
-sweep_remainder.py -- test the safe commands the first sweep never tried.
+sweep_remainder.py -- test the safe commands the first sweep never
+tried.
 
 WHY A SECOND SWEEP
 ------------------
 Of the 103 commands in the firmware table:
 
-    51  refused by commands.DO_NOT_SEND -- format, firmware flash, reset,
-        repair, every eCmdSet*. These are not "untested", they are permanently
-        excluded, and building them would be actively wrong.
+    51  refused by commands.DO_NOT_SEND -- format, firmware flash,
+        reset, repair, every eCmdSet*. These are not "untested", they
+        are permanently excluded, and building them would be actively
+        wrong.
     39  covered by tools/nasd_sweep.py
     13  safe by the guard's reckoning, but never actually sent
 
-This handles that last 13 -- or rather, the seven of them that can be tested
-without either risking the device or needing the maintainer standing in front of it.
+This handles that last 13 -- or rather, the seven of them that can be
+tested without either risking the device or needing the maintainer
+standing in front of it.
 
 WHAT IS TESTED HERE, AND WHY EACH IS SAFE
 -----------------------------------------
   eCmdDeviceLogin / eCmdDeviceLogout
-      We already log in on every command, but via the LOGIN FRAME TYPE, which
-      is a different mechanism to these table commands. Whether they do
-      anything at all is genuinely unknown, and finding out costs nothing --
-      worst case is an extra session that the socket close ends anyway.
+      We already log in on every command, but via the LOGIN FRAME TYPE,
+      which is a different mechanism to these table commands. Whether
+      they do anything at all is genuinely unknown, and finding out
+      costs nothing -- worst case is an extra session that the socket
+      close ends anyway.
 
   eCmdGetSavedFileContent, eCmdDownloadConfigFile,
   eCmdDownloadAllConfigFiles, eCmdGetAppDataFile
-      File reads. They need a filename we do not have, so they will almost
-      certainly refuse -- but HOW they refuse is the information wanted. An
-      error naming a missing parameter would tell us the parameter format,
-      which is the thing blocking a configuration backup. Reads only; none of
-      them writes.
+      File reads. They need a filename we do not have, so they will
+      almost certainly refuse -- but HOW they refuse is the information
+      wanted. An error naming a missing parameter would tell us the
+      parameter format, which is the thing blocking a configuration
+      backup. Reads only; none of them writes.
 
   eCmdGetNASUsernamePassword
-      Included deliberately, and this one needs justifying. The name says it
-      hands back a credential, which is exactly why it matters: if this answers
-      on a plain login, then anyone on the LAN can read the share passwords off
-      this device, and the maintainer should know that. Every response goes through
-      the same redaction as everything else BEFORE it is printed or stored, and
-      no raw bytes touch disk.
+      Included deliberately, and this one needs justifying. The name
+      says it hands back a credential, which is exactly why it matters:
+      if this answers on a plain login, then anyone on the LAN can read
+      the share passwords off this device, and the maintainer should
+      know that. Every response goes through the same redaction as
+      everything else BEFORE it is printed or stored, and no raw bytes
+      touch disk.
 
 DELIBERATELY NOT TESTED, WITH REASONS
 -------------------------------------
-  eCmdIdentify        A write. Built and ready, but it flashes lights -- there
-                      is no point sending it unless someone is looking at the
-                      unit. The maintainer's call, not something to slip into a sweep.
-  eCmdGetUpdate       Would make the Drobo dial a vendor server that no longer
-                      exists. A hang on a device that already tires under load
-                      is a bad trade for knowing it times out.
+  eCmdIdentify        A write. Built and ready, but it flashes
+                      lights -- there is no point sending it unless
+                      someone is looking at the unit. The maintainer's
+                      call, not something to slip into a sweep.
+  eCmdGetUpdate       Would make the Drobo dial a vendor server that
+                      no longer exists. A hang on a device that
+                      already tires under load is a bad trade for
+                      knowing it times out.
   eCmdModeSense       Raw SCSI passthrough to a storage controller. No.
-  eCmdDoPoll          Makes the device go and do work on command, with unknown
-                      scope. The status greeting already refreshes on its own.
-  eCmdCacheBattery    The name is not unambiguously a read -- it could as
-                      easily start a battery self-test as report one. A 5N has
-                      no cache battery anyway, so there is nothing to learn.
+  eCmdDoPoll          Makes the device go and do work on command,
+                      with unknown scope. The status greeting already
+                      refreshes on its own.
+  eCmdCacheBattery    The name is not unambiguously a read -- it could
+                      as easily start a battery self-test as report
+                      one. A 5N has no cache battery anyway, so there
+                      is nothing to learn.
   eCmdAuthenticateUser
-                      Needs a real username and password, and would send them
-                      over an unencrypted protocol. Not ours to try.
+                      Needs a real username and password, and would send
+                      them over an unencrypted protocol. Not ours to
+                      try.
 
-Same discipline as the first sweep: names resolved to ids at runtime, never
-hardcoded; an empty <Params> because we never guess parameters; a fresh
-connection per command with a pause between; and a hard stop after three
-consecutive timeouts, because the command port is known to tire.
+Same discipline as the first sweep: names resolved to ids at runtime,
+never hardcoded; an empty <Params> because we never guess parameters; a
+fresh connection per command with a pause between; and a hard stop after
+three consecutive timeouts, because the command port is known to tire.
 
     py tools/sweep_remainder.py 10.0.0.5
 """
@@ -130,7 +140,8 @@ def main(argv=None) -> int:
               "py tools/sweep_remainder.py 10.0.0.5")
         return 1
 
-    # Same guard the first sweep uses: nothing refused may ever be in the list.
+    # Same guard the first sweep uses: nothing refused may ever be in
+    # the list.
     sweep.assert_allowlist_safe(REMAINDER)
     print(f"Safety check passed: {len(REMAINDER)} commands, "
           "none of them refused.\n")

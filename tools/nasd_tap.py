@@ -5,36 +5,40 @@ everything they say to each other.
 
 WHY THIS EXISTS
 ---------------
-This tool was built while the client->device request framing was still the
-project's biggest unknown: we knew what the Drobo *says* (it pushes a DRINASD
-status greeting the moment you connect) but not how to *ask it questions*.
-That framing has since been recovered -- directly, by sending commands
-ourselves and reading the replies, not by tapping Dashboard -- see
-docs/protocol-map.md, "THE COMMAND PROTOCOL -- SOLVED", and
-sdk/drobo_nasd/config_cmd.py / sysinfo.py for the working
+This tool was built while the client->device request framing was still
+the project's biggest unknown: we knew what the Drobo *says* (it pushes
+a DRINASD status greeting the moment you connect) but not how to *ask it
+questions*. That framing has since been recovered -- directly, by
+sending commands ourselves and reading the replies, not by tapping
+Dashboard -- see docs/protocol-map.md, "THE COMMAND PROTOCOL -- SOLVED",
+and sdk/drobo_nasd/config_cmd.py / sysinfo.py for the working
 implementation. So this tool is no longer the way to learn the protocol.
 
-What it can still do: watch whether Dashboard itself ever gets a real answer
-out of the battery/fan/PSU/performance screens on this hardware. Our own
-sweep (tools/nasd_sweep.py, docs/command-surface.md) sends those commands
-directly and mostly gets empty replies or timeouts; tapping Dashboard would
-show whether the *original* client fares any differently, which would settle
-whether that's a sensor this chassis lacks or a request shape we're still
-getting wrong. Nobody has run it for that purpose yet.
+What it can still do: watch whether Dashboard itself ever gets a real
+answer out of the battery/fan/PSU/performance screens on this hardware.
+Our own sweep (tools/nasd_sweep.py, docs/command-surface.md) sends those
+commands directly and mostly gets empty replies or timeouts; tapping
+Dashboard would show whether the *original* client fares any
+differently, which would settle whether that's a sensor this chassis
+lacks or a request shape we're still getting wrong. Nobody has run it
+for that purpose yet.
 
-The obvious route is Wireshark, but capturing packets on Windows needs the Npcap
-kernel driver installed and an elevated shell. This tool needs neither. It is an
-ordinary userspace TCP relay: Dashboard connects to it, it connects to the real
-Drobo, and it copies bytes between them while logging both directions.
+The obvious route is Wireshark, but capturing packets on Windows needs
+the Npcap kernel driver installed and an elevated shell. This tool needs
+neither. It is an ordinary userspace TCP relay: Dashboard connects to
+it, it connects to the real Drobo, and it copies bytes between them
+while logging both directions.
 
-Because it sees the stream *after* TCP reassembly, the output is cleaner than a
-packet capture -- no retransmits, no segmentation, no reassembly guesswork.
+Because it sees the stream *after* TCP reassembly, the output is cleaner
+than a packet capture -- no retransmits, no segmentation, no reassembly
+guesswork.
 
 WHAT IT DOES NOT DO
 -------------------
-It never modifies a byte. Every byte Dashboard sends reaches the Drobo unchanged
-and vice versa, so the Drobo cannot tell the difference. It originates nothing of
-its own: it has no opinion about the protocol and never injects a command.
+It never modifies a byte. Every byte Dashboard sends reaches the Drobo
+unchanged and vice versa, so the Drobo cannot tell the difference. It
+originates nothing of its own: it has no opinion about the protocol and
+never injects a command.
 
 HOW TO USE IT
 -------------
@@ -45,14 +49,15 @@ HOW TO USE IT
    It listens on 127.0.0.1:5000 by default.
 
 2. In Drobo Dashboard, add a Drobo manually by IP and enter  127.0.0.1
-   (Dashboard supports manual discovery by address -- eCmdAddManualDiscoveryIP
-   exists in the firmware, and the UI exposes it.)
+   (Dashboard supports manual discovery by address --
+   eCmdAddManualDiscoveryIP exists in the firmware, and the UI exposes
+   it.)
 
-3. Click around Dashboard: the status page, the drive/bay detail, and the tools
-   pages. Those are the screens that fetch battery, fan, PSU and performance --
-   fields our own commands mostly can't get real data for yet either (see
-   docs/command-surface.md); performance is the exception, reachable directly,
-   just not wired into the driver.
+3. Click around Dashboard: the status page, the drive/bay detail, and
+   the tools pages. Those are the screens that fetch battery, fan, PSU
+   and performance -- fields our own commands mostly can't get real data
+   for yet either (see docs/command-surface.md); performance is the
+   exception, reachable directly, just not wired into the driver.
 
 4. Stop with Ctrl+C. Two files land in docs/captures/:
        nasd-tap-<stamp>.jsonl    every chunk, with direction and timing
@@ -60,10 +65,10 @@ HOW TO USE IT
 
 PRIVACY
 -------
-This protocol is unencrypted. If you type a Drobo password into Dashboard while
-the tap is running, that password is in the log in plain text. Change it to
-something disposable first, or scrub the files before sharing. See
-docs/captures/README.md.
+This protocol is unencrypted. If you type a Drobo password into
+Dashboard while the tap is running, that password is in the log in plain
+text. Change it to something disposable first, or scrub the files before
+sharing. See docs/captures/README.md.
 """
 
 from __future__ import annotations
@@ -97,9 +102,9 @@ def hexdump(data: bytes, limit: int = 160) -> list[str]:
 
 def describe(data: bytes) -> str:
     """
-    Best-effort one-line summary. The server's frames are understood; the
-    client's are exactly what we're trying to learn, so this stays descriptive
-    rather than asserting a structure we haven't confirmed.
+    Best-effort one-line summary. The server's frames are understood;
+    the client's are exactly what we're trying to learn, so this stays
+    descriptive rather than asserting a structure we haven't confirmed.
     """
     if len(data) >= HEADER_BYTES and data[:8] == SIGNATURE:
         major, minor = data[8], data[9]
@@ -142,8 +147,8 @@ class Tap:
                 "hex": data.hex(),
             }) + "\n")
             self.jsonl.flush()
-            # The client->server direction is the unknown one; keep a raw copy
-            # so the dissector has clean bytes to work from.
+            # The client->server direction is the unknown one; keep a
+            # raw copy so the dissector has clean bytes to work from.
             if direction == "c2s":
                 self.binf.write(data)
                 self.binf.flush()

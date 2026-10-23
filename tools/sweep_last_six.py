@@ -2,51 +2,59 @@
 """
 sweep_last_six.py -- the six commands left untested, sent one at a time.
 
-The maintainer's instruction was explicit: test them if they will not make any
-lasting change to the data on the Drobo. By that standard all six qualify --
-none of them writes to the disk pack. What each one DOES risk is different
-from what it risks to the data, so each is named honestly below.
+The maintainer's instruction was explicit: test them if they will not
+make any lasting change to the data on the Drobo. By that standard all
+six qualify -- none of them writes to the disk pack. What each one DOES
+risk is different from what it risks to the data, so each is named
+honestly below.
 
-    eCmdIdentify        Flashes the front lights. Nothing else. The maintainer needs
-                        to be looking at the unit for the result to mean
-                        anything -- the device will not tell us it worked.
+    eCmdIdentify        Flashes the front lights. Nothing else. The
+                        maintainer needs to be looking at the unit for
+                        the result to mean anything -- the device will
+                        not tell us it worked.
 
-    eCmdGetUpdate       Asks the Drobo to check for firmware updates, which
-                        means it dials a vendor server that no longer exists.
-                        No data risk. The risk is the command port hanging
-                        while the device waits for a reply that never comes,
-                        on a port already known to tire.
+    eCmdGetUpdate       Asks the Drobo to check for firmware updates,
+                        which means it dials a vendor server that no
+                        longer exists. No data risk. The risk is the
+                        command port hanging while the device waits for
+                        a reply that never comes, on a port already
+                        known to tire.
 
-    eCmdModeSense       SCSI MODE SENSE. In SCSI this is a read -- it returns
-                        mode pages -- so with an empty parameter block it
-                        either reports or errors. Called "raw passthrough"
-                        earlier out of caution, which was right before anyone
-                        checked what the command actually is.
+    eCmdModeSense       SCSI MODE SENSE. In SCSI this is a read -- it
+                        returns mode pages -- so with an empty
+                        parameter block it either reports or errors.
+                        Called "raw passthrough" earlier out of
+                        caution, which was right before anyone checked
+                        what the command actually is.
 
-    eCmdDoPoll          Makes the device re-read its own state. A refresh, not
-                        a write. The unknown is scope, not permanence.
+    eCmdDoPoll          Makes the device re-read its own state. A
+                        refresh, not a write. The unknown is scope, not
+                        permanence.
 
-    eCmdCacheBattery    Either reports battery health or starts a battery
-                        self-test. Neither touches data, and a 5N has no cache
-                        battery for a self-test to run on.
+    eCmdCacheBattery    Either reports battery health or starts a
+                        battery self-test. Neither touches data, and a
+                        5N has no cache battery for a self-test to run
+                        on.
 
     eCmdAuthenticateUser
-                        Validates a username and password. Sent with an empty
-                        parameter block it cannot be a login attempt with real
-                        credentials -- there are none to send. Worth noting the
-                        one non-data risk: if the device counts failed
-                        authentications, repeated calls could lock an account.
-                        So it is sent ONCE.
+                        Validates a username and password. Sent with an
+                        empty parameter block it cannot be a login
+                        attempt with real credentials -- there are none
+                        to send. Worth noting the one non-data risk: if
+                        the device counts failed authentications,
+                        repeated calls could lock an account. So it is
+                        sent ONCE.
 
 METHOD
 ------
 One at a time, in that order, with the status port checked between every
-single command rather than only at the end. If the device stops greeting, the
-run stops immediately -- the point is to notice trouble at the command that
-caused it, not three commands later.
+single command rather than only at the end. If the device stops
+greeting, the run stops immediately -- the point is to notice trouble at
+the command that caused it, not three commands later.
 
-Identify is sent LAST, so that if anything does upset the device, it happened
-before the one command whose result the maintainer has to observe by eye.
+Identify is sent LAST, so that if anything does upset the device, it
+happened before the one command whose result the maintainer has to
+observe by eye.
 
     py tools/sweep_last_six.py
 """
@@ -121,9 +129,10 @@ def main(argv=None) -> int:
         print(f"[{i}/{len(ORDER)}] {name} (id {cmd_id})")
         print(f"        {why}")
         if refused:
-            # Should be impossible -- none of the six is in DO_NOT_SEND -- but
-            # this is the one script that deliberately sends things previously
-            # held back, so it re-checks rather than trusting the list.
+            # Should be impossible -- none of the six is in DO_NOT_SEND
+            # -- but this is the one script that deliberately sends
+            # things previously held back, so it re-checks rather than
+            # trusting the list.
             print("        REFUSED by the guard -- skipping.\n")
             results.append({"name": name, "status": "refused-by-guard"})
             continue

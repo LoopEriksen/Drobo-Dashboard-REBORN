@@ -7,18 +7,18 @@ in-memory packet capture with a framing we CHOOSE and therefore KNOW:
 
     DRINASD4  +  4-byte big-endian length (payload only)  +  XML body
 
-...repeated for a couple of "frames", split across multiple out-of-order TCP
-segments to also exercise sequence-number reassembly, then written out as
-both a classic pcap file and a pcapng file. The dissector is then run
-against each and must recover:
+...repeated for a couple of "frames", split across multiple out-of-order
+TCP segments to also exercise sequence-number reassembly, then written
+out as both a classic pcap file and a pcapng file. The dissector is then
+run against each and must recover:
 
   - the signature, its offset, and that it is DRINASD4
   - the length field's offset/size/endianness
   - the exact XML payload of each frame
 
 This proves the tool works without ever touching hardware. It does not
-prove the real Drobo's framing matches this -- that still needs a genuine
-capture (see docs/protocol-map.md, "Still open").
+prove the real Drobo's framing matches this -- that still needs a
+genuine capture (see docs/protocol-map.md, "Still open").
 
 Run:
     py tools/test_nasd_dissect.py
@@ -37,12 +37,13 @@ import os
 
 import nasd_dissect as dissect
 
-# Documentation-range addresses (RFC 5737 TEST-NET-1), deliberately not a
-# private 192.168.x range: fixtures written in that form are indistinguishable
-# from addresses copied out of a real capture of a real network, and this
-# project's rule is that no tracked file carries a real one. A documentation
-# range makes the synthetic-ness self-evident. These are synthetic endpoints
-# in a synthetic capture; any pair of addresses works.
+# Documentation-range addresses (RFC 5737 TEST-NET-1), deliberately not
+# a private 192.168.x range: fixtures written in that form are
+# indistinguishable from addresses copied out of a real capture of a
+# real network, and this project's rule is that no tracked file carries
+# a real one. A documentation range makes the synthetic-ness
+# self-evident. These are synthetic endpoints in a synthetic capture;
+# any pair of addresses works.
 CLIENT_IP = "203.0.113.23"
 SERVER_IP = "203.0.113.50"
 CLIENT_PORT = 51000
@@ -65,7 +66,8 @@ def check(condition: bool, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Build the KNOWN framing: signature + 4-byte BE length + XML, per frame.
+# Build the KNOWN framing: signature + 4-byte BE length + XML, per
+# frame.
 # ---------------------------------------------------------------------------
 def build_known_stream() -> bytes:
     out = bytearray()
@@ -78,7 +80,8 @@ def build_known_stream() -> bytes:
 
 # ---------------------------------------------------------------------------
 # Minimal Ethernet + IPv4 + TCP frame builders (checksums left as 0 --
-# nasd_dissect.py never validates them, it only reads the fields it needs).
+# nasd_dissect.py never validates them, it only reads the fields it
+# needs).
 # ---------------------------------------------------------------------------
 def eth_frame(ip_packet: bytes) -> bytes:
     dst_mac = bytes.fromhex("001122334455")
@@ -105,9 +108,9 @@ PSH_ACK = 0x18
 
 
 def build_frames_for_chunks(chunks: list[tuple[int, bytes]]) -> list[bytes]:
-    """chunks: list of (seq, payload_bytes) -- built out of arrival order on
-    purpose, to prove reassembly sorts by sequence number, not by packet
-    order in the file."""
+    """chunks: list of (seq, payload_bytes) -- built out of arrival
+    order on purpose, to prove reassembly sorts by sequence number, not
+    by packet order in the file."""
     frames = []
     for seq, payload in chunks:
         seg = tcp_segment(CLIENT_PORT, SERVER_PORT, seq, PSH_ACK, payload)
@@ -134,17 +137,19 @@ def write_pcap_classic(path: str, link_frames: list[bytes]) -> None:
 #
 # NOTE ON ENDIANNESS -- this is why this file exists in two flavours.
 #
-# These builders were originally big-endian only, and that hid a real bug for
-# weeks. pcapng records its byte order per section, and the dissector was
-# reading every block TYPE as big-endian regardless. The section header block
-# survived that because 0x0A0D0D0A is a byte-palindrome, and block LENGTHS were
-# read correctly, so the parser walked the whole file happily and simply never
-# recognised a packet block -- reporting "Read 0 link-layer frames", which looks
-# exactly like an empty capture rather than a broken parser.
+# These builders were originally big-endian only, and that hid a real
+# bug for weeks. pcapng records its byte order per section, and the
+# dissector was reading every block TYPE as big-endian regardless. The
+# section header block survived that because 0x0A0D0D0A is a
+# byte-palindrome, and block LENGTHS were read correctly, so the parser
+# walked the whole file happily and simply never recognised a packet
+# block -- reporting "Read 0 link-layer frames", which looks exactly
+# like an empty capture rather than a broken parser.
 #
-# Every capture tool on Windows writes LITTLE-endian, so the tool failed on
-# every real file while these tests stayed green. So: both orders are built and
-# both are run, and the little-endian case is the one that matters.
+# Every capture tool on Windows writes LITTLE-endian, so the tool failed
+# on every real file while these tests stayed green. So: both orders are
+# built and both are run, and the little-endian case is the one that
+# matters.
 #
 def _pcapng_block(block_type: int, body: bytes, endian: str = ">") -> bytes:
     total_len = 4 + 4 + len(body) + 4
@@ -153,8 +158,8 @@ def _pcapng_block(block_type: int, body: bytes, endian: str = ">") -> bytes:
 
 
 def _shb(endian: str = ">") -> bytes:
-    # The byte-order magic is the same NUMBER either way -- it is the bytes on
-    # disk that differ, which is the whole point of it.
+    # The byte-order magic is the same NUMBER either way -- it is the
+    # bytes on disk that differ, which is the whole point of it.
     body = struct.pack(endian + "IHHq", 0x1A2B3C4D, 1, 0, -1)
     return _pcapng_block(0x0A0D0D0A, body, endian)
 
@@ -298,8 +303,9 @@ def run_without_login_frame(tmp_dir: str) -> None:
 
 
 def main() -> int:
-    # The synthetic captures go in a temp folder that is removed however the
-    # run ends. Until 2026-09-16 every run left its folder behind in TEMP.
+    # The synthetic captures go in a temp folder that is removed however
+    # the run ends. Until 2026-09-16 every run left its folder behind in
+    # TEMP.
     tmp_dir = tempfile.mkdtemp(prefix="nasd_dissect_test_")
     try:
         return run_checks(tmp_dir)
@@ -310,8 +316,8 @@ def main() -> int:
 def run_checks(tmp_dir: str) -> int:
     known_stream = build_known_stream()
     # Split into three chunks and deliberately list them out of arrival
-    # order, so the dissector has to sort by TCP sequence number to get the
-    # bytes back in the right order.
+    # order, so the dissector has to sort by TCP sequence number to get
+    # the bytes back in the right order.
     split_a = len(dissect.SIG4) + 4 + 5          # partway into frame 1's XML
     split_b = len(known_stream) - 12             # partway into frame 2's XML
     chunk1 = known_stream[0:split_a]
@@ -338,10 +344,10 @@ def run_checks(tmp_dir: str) -> int:
 
     run_against(pcap_path, "classic pcap")
     run_against(pcapng_path, "pcapng (big-endian)")
-    # The one that actually matters: every capture tool on Windows writes
-    # little-endian, and this case failed silently -- reading zero packets --
-    # until 2026-07-26. Without it the suite passes while the tool is useless
-    # on every real file.
+    # The one that actually matters: every capture tool on Windows
+    # writes little-endian, and this case failed silently -- reading
+    # zero packets -- until 2026-07-26. Without it the suite passes
+    # while the tool is useless on every real file.
     run_against(pcapng_le_path, "pcapng (little-endian, as real tools write)")
     run_without_login_frame(tmp_dir)
 
@@ -356,7 +362,7 @@ def run_checks(tmp_dir: str) -> int:
 
 
 if __name__ == "__main__":
-    # Make sure `import nasd_dissect` finds the sibling module regardless of
-    # the working directory this is invoked from.
+    # Make sure `import nasd_dissect` finds the sibling module
+    # regardless of the working directory this is invoked from.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     raise SystemExit(main())

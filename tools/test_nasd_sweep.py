@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-test_nasd_sweep.py - offline self-test for nasd_sweep.py. No hardware needed.
+test_nasd_sweep.py - offline self-test for nasd_sweep.py. No hardware
+needed.
 
-Two things matter most here, because they are the two safety guarantees the
-task depends on:
+Two things matter most here, because they are the two safety guarantees
+the task depends on:
 
-  1. ALLOWLIST must never overlap commands.DO_NOT_SEND, every name in it must
-     resolve to a confirmed numeric id, and assert_allowlist_safe() must
-     actually catch it when a candidate list breaks either rule (not just
-     "happen to pass" on the current list).
-  2. Redaction must fire on every response BEFORE anything is returned to a
-     caller that might print/log/write it -- proven against a response shaped
-     like the real device's admin-config answer, which is known to contain
-     plaintext credentials.
+  1. ALLOWLIST must never overlap commands.DO_NOT_SEND, every name in
+     it must resolve to a confirmed numeric id, and
+     assert_allowlist_safe() must actually catch it when a candidate
+     list breaks either rule (not just "happen to pass" on the current
+     list).
+  2. Redaction must fire on every response BEFORE anything is returned
+     to a caller that might print/log/write it -- proven against a
+     response shaped like the real device's admin-config answer, which
+     is known to contain plaintext credentials.
 
-The rest exercises send_one_command() and run_sweep() end to end against an
-in-process fake Drobo (same technique as sdk/tests/test_config_cmd.py), including
-the three-consecutive-timeouts abort rule.
+The rest exercises send_one_command() and run_sweep() end to end against
+an in-process fake Drobo (same technique as
+sdk/tests/test_config_cmd.py), including the three-consecutive-timeouts
+abort rule.
 
     py tools/test_nasd_sweep.py
 """
@@ -50,7 +53,8 @@ def check(label: str, condition: bool, failure_detail="") -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. The allowlist safety guard -- the most important thing in this file.
+# 1. The allowlist safety guard -- the most important thing in this
+# file.
 # ---------------------------------------------------------------------------
 print("== allowlist safety ==")
 
@@ -70,13 +74,13 @@ check("ALLOWLIST is exactly 39 names "
       len(sweep.ALLOWLIST) == 39, len(sweep.ALLOWLIST))
 
 # assert_allowlist_safe() must have already run at import time without
-# raising -- if it had raised, importing nasd_sweep above would have failed
-# and this file would never have reached this line.
+# raising -- if it had raised, importing nasd_sweep above would have
+# failed and this file would never have reached this line.
 check("module import succeeded, i.e. assert_allowlist_safe() "
       "passed on the real list", True)
 
-# Now prove the guard actually catches bad input, not just that the current
-# list happens to be fine.
+# Now prove the guard actually catches bad input, not just that the
+# current list happens to be fine.
 try:
     sweep.assert_allowlist_safe(["eCmdRunCommand"])
     check("guard rejects a DO_NOT_SEND name", False)
@@ -90,12 +94,13 @@ except sweep.SweepSafetyError:
     check("guard rejects a second DO_NOT_SEND name (write-host-buffer)", True)
 
 # eCmdForceSingleInitiator is a documented near-miss (see the module
-# docstring): its name sounds like a query but it is a write, and it is NOT
-# in commands.DO_NOT_SEND, so assert_allowlist_safe() would happily accept a
-# list containing it -- the guard only enforces DO_NOT_SEND-disjointness and
-# valid ids, it is not a semantic safety oracle. The actual protection is
-# that a human reviewed ALLOWLIST and left it out. Prove that property
-# directly instead of expecting the guard to catch it.
+# docstring): its name sounds like a query but it is a write, and it is
+# NOT in commands.DO_NOT_SEND, so assert_allowlist_safe() would happily
+# accept a list containing it -- the guard only enforces
+# DO_NOT_SEND-disjointness and valid ids, it is not a semantic safety
+# oracle. The actual protection is that a human reviewed ALLOWLIST and
+# left it out. Prove that property directly instead of expecting the
+# guard to catch it.
 check("the near-miss eCmdForceSingleInitiator is simply not in ALLOWLIST",
       "eCmdForceSingleInitiator" not in sweep.ALLOWLIST)
 check("the near-miss eCmdGetNextUniqueLUNID is simply not in ALLOWLIST",
@@ -159,7 +164,7 @@ check("malformed XML is reported, not raised",
 
 # ---------------------------------------------------------------------------
 # 3. End-to-end against an in-process fake Drobo (same technique as
-#    sdk/tests/test_config_cmd.py's fake_drobo).
+# sdk/tests/test_config_cmd.py's fake_drobo).
 # ---------------------------------------------------------------------------
 print("\n== end to end against a fake device ==")
 
@@ -167,8 +172,8 @@ TEST_ESAID = "drb000000SAMPLE"
 
 
 def fake_drobo_answers(reply_body: bytes, port_holder: list) -> None:
-    """Accept one connection, do a normal login, answer the one command with
-    reply_body, then close."""
+    """Accept one connection, do a normal login, answer the one command
+    with reply_body, then close."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -241,7 +246,8 @@ def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
             conn.recv(ln)
             conn.sendall(
                 config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
-            # Read the command, but never reply -- the client must time out.
+            # Read the command, but never reply -- the client must time
+            # out.
             conn.recv(16)
             time.sleep(5)
             conn.close()
@@ -284,7 +290,8 @@ check("no command reply -> status 'timeout', phase 'command'",
       result["status"] == "timeout" and result.get("phase") == "command",
       result)
 
-# connect() to a closed port -> refused at the connect phase, not a timeout.
+# connect() to a closed port -> refused at the connect phase, not a
+# timeout.
 result = sweep.send_one_command("127.0.0.1", 1, TEST_ESAID,
                                 commands.COMMANDS["eCmdGetVersion"], timeout=1)
 check("connection refused outright -> status 'refused', phase 'connect'",
@@ -299,8 +306,8 @@ print("\n== three-consecutive-timeouts abort ==")
 
 
 def fake_drobo_login_hangs(port_holder: list) -> None:
-    """Never answers the login at all -- every command sent to this server
-    times out at the login phase."""
+    """Never answers the login at all -- every command sent to this
+    server times out at the login phase."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -311,7 +318,8 @@ def fake_drobo_login_hangs(port_holder: list) -> None:
         try:
             while True:
                 conn, _ = srv.accept()
-                # Accept and go silent forever; never close, never answer.
+                # Accept and go silent forever; never close, never
+                # answer.
         except OSError:
             pass
 

@@ -2,24 +2,26 @@
 """
 nasd_probe.py - work out how to talk to nasd, without Wireshark.
 
-We know from the firmware that a Drobo 5N runs a daemon called nasd on TCP
-port 5000, that it speaks XML, and what all 106 of its commands are called
-(see docs/protocol-map.md). What we do NOT know is the framing: whether a
-request is length-prefixed, newline-terminated, NUL-terminated, or just raw
-XML on the socket.
+We know from the firmware that a Drobo 5N runs a daemon called nasd on
+TCP port 5000, that it speaks XML, and what all 106 of its commands are
+called (see docs/protocol-map.md). What we do NOT know is the framing:
+whether a request is length-prefixed, newline-terminated,
+NUL-terminated, or just raw XML on the socket.
 
-This tool tries each possibility against a real Drobo and records exactly what
-comes back.
+This tool tries each possibility against a real Drobo and records
+exactly what comes back.
 
-**Set expectations honestly**: firmware analysis has since shown that nasd
-requires a signed binary header and a login exchange before it accepts any
-command (see docs/protocol-map.md, "Connection model"). This probe is therefore
-unlikely to get a successful command response on its own. What it *will* do is
-show how the daemon behaves and how it rejects each attempt, which narrows the
-header layout considerably — and it costs one command to find out.
+**Set expectations honestly**: firmware analysis has since shown that
+nasd requires a signed binary header and a login exchange before it
+accepts any command (see docs/protocol-map.md, "Connection model"). This
+probe is therefore unlikely to get a successful command response on its
+own. What it *will* do is show how the daemon behaves and how it rejects
+each attempt, which narrows the header layout considerably — and it
+costs one command to find out.
 
-If it comes back with nothing useful, that is the expected outcome and the
-answer is a Wireshark capture of the real Dashboard doing the handshake.
+If it comes back with nothing useful, that is the expected outcome and
+the answer is a Wireshark capture of the real Dashboard doing the
+handshake.
 
     py nasd_probe.py 10.0.0.50
     py nasd_probe.py 10.0.0.50 -o docs/captures/nasd-probe.json
@@ -27,19 +29,20 @@ answer is a Wireshark capture of the real Dashboard doing the handshake.
 
 SAFETY
 ------
-This tool only ever sends commands that READ. The command list below is a
-hand-picked subset of harmless ones -- version, status, system info. It will
-not send anything that writes, formats, mounts, unmounts, reboots, updates
-firmware, or touches the disk pack.
+This tool only ever sends commands that READ. The command list below is
+a hand-picked subset of harmless ones -- version, status, system info.
+It will not send anything that writes, formats, mounts, unmounts,
+reboots, updates firmware, or touches the disk pack.
 
 It specifically will NEVER send eCmdRunESACommand, eCmdRunCommand,
-eCmdSendTMCommand, eCmdRouter, eCmdReadHostBuffer or eCmdWriteHostBuffer --
-those look like arbitrary command execution on a device that will never get
-another security patch. They are named here so the list is explicit, and they
-are blocked below.
+eCmdSendTMCommand, eCmdRouter, eCmdReadHostBuffer or eCmdWriteHostBuffer
+-- those look like arbitrary command execution on a device that will
+never get another security patch. They are named here so the list is
+explicit, and they are blocked below.
 
-Even so: this talks to the hardware. If you would rather observe than poke,
-use --listen-only, which connects and reads without sending anything.
+Even so: this talks to the hardware. If you would rather observe than
+poke, use --listen-only, which connects and reads without sending
+anything.
 """
 
 from __future__ import annotations
@@ -75,8 +78,8 @@ PORT = 5000
 
 
 # ---------------------------------------------------------------------------
-# Candidate request bodies. The firmware shows an XML DOM and <Error>N</Error>
-# responses, so these are shaped around that.
+# Candidate request bodies. The firmware shows an XML DOM and
+# <Error>N</Error> responses, so these are shaped around that.
 # ---------------------------------------------------------------------------
 def bodies_for(command: str) -> list[tuple[str, bytes]]:
     return [
@@ -93,28 +96,30 @@ def bodies_for(command: str) -> list[tuple[str, bytes]]:
 # ---------------------------------------------------------------------------
 # Candidate framings.
 #
-# IMPORTANT -- read docs/protocol-map.md "Connection model" first. Firmware
-# analysis has since shown that nasd expects a binary header carrying a
-# SIGNATURE, then a login packet, before it will accept any command:
+# IMPORTANT -- read docs/protocol-map.md "Connection model" first.
+# Firmware analysis has since shown that nasd expects a binary header
+# carrying a SIGNATURE, then a login packet, before it will accept any
+# command:
 #
-#     Command Conn login(from %s): got bad signature.
-#     Command Conn login(from %s): did not receive complete login packet.
-#     SledCommandListener: No session yet so refusing command connection
+#    Command Conn login(from %s): got bad signature.
+#    Command Conn login(from %s): did not receive complete login packet.
+#    SledCommandListener: No session yet so refusing command connection
 #
-# So the plain framings below are expected to FAIL. They are kept because a
-# rejection is itself information -- how nasd rejects us (silence? a reset? an
-# error payload?) narrows down the header. The signature-prefixed variants are
-# the ones with a real chance.
+# So the plain framings below are expected to FAIL. They are kept
+# because a rejection is itself information -- how nasd rejects us
+# (silence? a reset? an error payload?) narrows down the header. The
+# signature-prefixed variants are the ones with a real chance.
 #
 # The signature is "DRINASD4" (or the older "DRINASD"), found beside the
-# SledDiscoveryAgent code in the firmware. Its position and the exact header
-# layout are still unknown, so several placements are tried.
+# SledDiscoveryAgent code in the firmware. Its position and the exact
+# header layout are still unknown, so several placements are tried.
 # ---------------------------------------------------------------------------
 SIG4 = b"DRINASD4"
 SIG = b"DRINASD"
 
 FRAMINGS = [
-    # plain -- expected to be refused, but the manner of refusal is a clue
+    # plain -- expected to be refused, but the manner of refusal is a
+    # clue
     ("raw", lambda b: b),
     ("newline", lambda b: b + b"\n"),
     ("nul", lambda b: b + b"\0"),
@@ -144,7 +149,8 @@ def hexdump(data: bytes, limit: int = 512) -> list[str]:
 
 
 def looks_like_answer(data: bytes) -> str | None:
-    """Score a response. Returns a description if it looks meaningful."""
+    """Score a response. Returns a description if it looks
+    meaningful."""
     if not data:
         return None
     if b"<Error>" in data:

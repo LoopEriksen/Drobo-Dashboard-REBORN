@@ -1,94 +1,105 @@
 #!/usr/bin/env python3
 """
-nasd_sweep.py - measure exactly which nasd commands answer after a plain login.
+nasd_sweep.py - measure exactly which nasd commands answer after a plain
+login.
 
 This project used to believe (docs/protocol-map.md's now-corrected "Two
-privilege tiers" section) that a Drobo 5N's command channel (TCP 5001) had
-two gates: a plain login (just the device serial, sent twice -- see
-config_cmd.py) and, behind that, a second, unreversed authentication step
-(characterized but never confirmed as required -- see
-docs/crypto-handshake.md). That was wrong for at least one important case:
-eCmdGetSysInfo (temperature/uptime) needs no second step at all -- what
-looked like a gate was a parsing bug in this project's own code, reading for
-a literal <Temperature> element when the reply nests an entity-escaped XML
-document instead (see sysinfo.py). eCmdGetConfig is proven to work with
-login alone, and this sweep's own results (docs/command-surface.md) found
-several more commands answering under a plain login too. This tool measures,
-empirically, how many of the other 102 commands answer that way -- so the
-project knows exactly how much of the original Dashboard can be rebuilt
-*today*, without needing to reverse anything further.
+privilege tiers" section) that a Drobo 5N's command channel (TCP 5001)
+had two gates: a plain login (just the device serial, sent twice -- see
+config_cmd.py) and, behind that, a second, unreversed authentication
+step (characterized but never confirmed as required -- see
+docs/crypto-handshake.md). That was wrong for at least one important
+case: eCmdGetSysInfo (temperature/uptime) needs no second step at all --
+what looked like a gate was a parsing bug in this project's own code,
+reading for a literal <Temperature> element when the reply nests an
+entity-escaped XML document instead (see sysinfo.py). eCmdGetConfig is
+proven to work with login alone, and this sweep's own results
+(docs/command-surface.md) found several more commands answering under a
+plain login too. This tool measures, empirically, how many of the other
+102 commands answer that way -- so the project knows exactly how much of
+the original Dashboard can be rebuilt *today*, without needing to
+reverse anything further.
 
-It reuses config_cmd.py's login/framing verbatim (_build_frame, _login_payload,
-_read_frame, the TYPE_* constants) rather than reinventing them -- that module
-is the one piece of this codebase already confirmed against real hardware.
+It reuses config_cmd.py's login/framing verbatim (_build_frame,
+_login_payload, _read_frame, the TYPE_* constants) rather than
+reinventing them -- that module is the one piece of this codebase
+already confirmed against real hardware.
 
     py tools/nasd_sweep.py 10.0.0.5
 
 SAFETY -- read this before touching ALLOWLIST
 -----------------------------------------------------------------------------
-This sends bytes to a real Drobo, which may hold the only copy of somebody's
-data. Two traps in the command table make "just send everything that
-sounds like a read" unsafe:
+This sends bytes to a real Drobo, which may hold the only copy of
+somebody's data. Two traps in the command table make "just send
+everything that sounds like a read" unsafe:
 
   - eCmdForceSingleInitiator (68) sounds like a query. It is a write.
-  - eCmdGetNextUniqueLUNID (5) starts with "Get". It *allocates* an id as a
-    side effect of asking.
+  - eCmdGetNextUniqueLUNID (5) starts with "Get". It *allocates* an id
+    as a side effect of asking.
 
 So this tool uses a hardcoded ALLOWLIST of command NAMES -- never an
-exclusion rule, never a "starts with Get" heuristic, never a numeric range.
-Every name is resolved to its id through commands.COMMANDS[name] at runtime;
-no integer command id is ever hardcoded here. assert_allowlist_safe() runs at
-import time and refuses to let this module load if the allowlist and
-commands.DO_NOT_SEND overlap, if a name has no confirmed id, or if the list
-has a duplicate.
+exclusion rule, never a "starts with Get" heuristic, never a numeric
+range. Every name is resolved to its id through commands.COMMANDS[name]
+at runtime; no integer command id is ever hardcoded here.
+assert_allowlist_safe() runs at import time and refuses to let this
+module load if the allowlist and commands.DO_NOT_SEND overlap, if a name
+has no confirmed id, or if the list has a duplicate.
 
-The allowlist itself is fixed by design review and is not meant to grow by
-editing this file casually. Deliberately excluded, and why:
+The allowlist itself is fixed by design review and is not meant to grow
+by editing this file casually. Deliberately excluded, and why:
 
-  - eCmdGetUpdate       -- may make the device dial a now-dead vendor server
-                           and hang waiting for a response that will never come.
-  - eCmdGetNextUniqueLUNID -- allocates an id; not idempotent, not a read.
-  - eCmdCacheBattery    -- the name is not unambiguously a read; could be a
-                           battery self-test rather than a status query.
+  - eCmdGetUpdate       -- may make the device dial a now-dead vendor
+                           server and hang waiting for a response that
+                           will never come.
+  - eCmdGetNextUniqueLUNID -- allocates an id; not idempotent, not a
+    read.
+  - eCmdCacheBattery    -- the name is not unambiguously a read; could
+                           be a battery self-test rather than a status
+                           query.
   - eCmdModeSense       -- raw SCSI passthrough.
   - eCmdGetSavedFileContent, eCmdDownloadConfigFile,
-    eCmdDownloadAllConfigFiles, eCmdGetAppDataFile -- file-content pulls with
-                           unknown parameters; this tool sends <Params></Params>
-                           empty and never guesses parameters, so anything that
-                           needs a filename/handle to mean anything is left out.
-  - eCmdGetNASUsernamePassword -- the name says it hands back a credential.
-  - everything else in the 103-entry table, including the whole DO_NOT_SEND
-    group -- now both the arbitrary-execution escape hatches AND the
-    destructive group (format, firmware flash, reset, repair, restart, every
-    eCmdSet*, and more -- see commands.py) -- and every write/format/mount/
-    reboot/firmware command not already covered by DO_NOT_SEND.
+    eCmdDownloadAllConfigFiles, eCmdGetAppDataFile -- file-content
+                           pulls with unknown parameters; this tool
+                           sends <Params></Params> empty and never
+                           guesses parameters, so anything that needs a
+                           filename/handle to mean anything is left out.
+  - eCmdGetNASUsernamePassword -- the name says it hands back a
+    credential.
+  - everything else in the 103-entry table, including the whole
+    DO_NOT_SEND group -- now both the arbitrary-execution escape hatches
+    AND the destructive group (format, firmware flash, reset, repair,
+    restart, every eCmdSet*, and more -- see commands.py) -- and every
+    write/format/mount/ reboot/firmware command not already covered by
+    DO_NOT_SEND.
 
-Every command in the allowlist is sent with an empty <Params></Params> body --
-this tool never guesses parameters for a command.
+Every command in the allowlist is sent with an empty <Params></Params>
+body -- this tool never guesses parameters for a command.
 
-Each command gets its own fresh TCP connection and a short timeout, with a
-small pause between commands so the sweep does not hammer the device. If
-three commands in a row time out, the whole sweep stops and reports that --
-back-to-back timeouts are treated as a sign the device may be unhappy, not
-something to push through.
+Each command gets its own fresh TCP connection and a short timeout, with
+a small pause between commands so the sweep does not hammer the device.
+If three commands in a row time out, the whole sweep stops and reports
+that -- back-to-back timeouts are treated as a sign the device may be
+unhappy, not something to push through.
 
 After the sweep, the tool reconnects to TCP 5000 and confirms the device
-still volunteers its normal <ESATMUpdate> greeting, and says so explicitly.
+still volunteers its normal <ESATMUpdate> greeting, and says so
+explicitly.
 
 REDACTION -- also mandatory
 -----------------------------------------------------------------------------
-An earlier version of this note claimed the plain login was enough to make
-the device hand back a plaintext admin password from eCmdGetAdminConfig.
-That was never measured, and it is wrong: measured 2026-07-26 on this
-project's firmware 4.3.1, <Password> comes back as sixteen *identical*
-characters (a mask) and <EncryptedPassword> as a single character -- see
-config_cmd.py's module docstring for the full measurement. eCmdGetAdmin and
-eCmdGetAdminConfig stay in the allowlist because the project needs to know
-*whether* they answer -- and every response this tool receives is still run
-through the same credential-stripping logic as config_cmd._strip_secrets()
-before it is printed, logged, or written to any file, with no exception,
-regardless of what this one firmware happened to send back. One firmware,
-one device, one config section checked is not a promise about every
+An earlier version of this note claimed the plain login was enough to
+make the device hand back a plaintext admin password from
+eCmdGetAdminConfig. That was never measured, and it is wrong: measured
+2026-07-26 on this project's firmware 4.3.1, <Password> comes back as
+sixteen *identical* characters (a mask) and <EncryptedPassword> as a
+single character -- see config_cmd.py's module docstring for the full
+measurement. eCmdGetAdmin and eCmdGetAdminConfig stay in the allowlist
+because the project needs to know *whether* they answer -- and every
+response this tool receives is still run through the same
+credential-stripping logic as config_cmd._strip_secrets() before it is
+printed, logged, or written to any file, with no exception, regardless
+of what this one firmware happened to send back. One firmware, one
+device, one config section checked is not a promise about every
 firmware, every model, or every section -- so the redaction stays. Raw
 (unredacted) response bytes are never written to disk at all, and never
 printed. The only file this tool writes is a JSON report under the OS
@@ -109,9 +120,10 @@ import sys
 import time
 from xml.etree import ElementTree
 
-# tools/, agent/ and sdk/ are siblings. The Drobo protocol lives in the SDK
-# (sdk/drobo_nasd) -- the WORKING reference already confirmed against real
-# hardware -- so point at that rather than reimplementing any of it.
+# tools/, agent/ and sdk/ are siblings. The Drobo protocol lives in the
+# SDK (sdk/drobo_nasd) -- the WORKING reference already confirmed
+# against real hardware -- so point at that rather than reimplementing
+# any of it.
 _SDK_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "sdk")
 sys.path.insert(0, os.path.abspath(_SDK_DIR))
@@ -154,7 +166,8 @@ ALLOWLIST: list[str] = [
 
 
 class SweepSafetyError(Exception):
-    """The allowlist failed a safety check. Never caught -- meant to abort."""
+    """The allowlist failed a safety check. Never caught -- meant to
+    abort."""
 
 
 def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
@@ -190,20 +203,23 @@ assert_allowlist_safe()
 # ---------------------------------------------------------------------------
 def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
     """
-    If this element's TEXT is really an entity-escaped XML document, parse it.
+    If this element's TEXT is really an entity-escaped XML document,
+    parse it.
 
-    This firmware sometimes answers with a document escaped into a text node
-    (`&lt;Temperature&gt;42&lt;/Temperature&gt;`) rather than with real child
-    elements. eCmdGetSysInfo does exactly this -- and because the first sweep
-    only walked child elements, its whole reply counted as zero fields. That is
-    how temperature came to be recorded as unobtainable and blamed on a crypto
-    gate that has nothing to do with it.
+    This firmware sometimes answers with a document escaped into a text
+    node (`&lt;Temperature&gt;42&lt;/Temperature&gt;`) rather than with
+    real child elements. eCmdGetSysInfo does exactly this -- and because
+    the first sweep only walked child elements, its whole reply counted
+    as zero fields. That is how temperature came to be recorded as
+    unobtainable and blamed on a crypto gate that has nothing to do with
+    it.
 
-    So the sweep now looks inside. Returns the parsed inner root, or None if
-    the text is not an XML document.
+    So the sweep now looks inside. Returns the parsed inner root, or
+    None if the text is not an XML document.
 
-    Note ElementTree has already turned `&lt;` back into `<` by the time we see
-    the text, so this looks for a literal angle bracket, not for the entity.
+    Note ElementTree has already turned `&lt;` back into `<` by the time
+    we see the text, so this looks for a literal angle bracket, not for
+    the entity.
     """
     text = (el.text or "").strip()
     if not text or not text.startswith("<"):
@@ -221,8 +237,9 @@ def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
 
 def _collect_tags(el: ElementTree.Element) -> set[str]:
     tags = {el.tag}
-    # Descend into an escaped inner document as if it were ordinary children,
-    # marking it so the report shows the reply needed unwrapping.
+    # Descend into an escaped inner document as if it were ordinary
+    # children, marking it so the report shows the reply needed
+    # unwrapping.
     inner = _unwrap_escaped(el)
     if inner is not None:
         tags.add(f"{el.tag}/[escaped]")
@@ -233,7 +250,8 @@ def _collect_tags(el: ElementTree.Element) -> set[str]:
 
 
 def _has_escaped_document(el: ElementTree.Element) -> bool:
-    """True if any element in this tree hides an escaped XML document."""
+    """True if any element in this tree hides an escaped XML
+    document."""
     return any(_unwrap_escaped(node) is not None for node in el.iter())
 
 
@@ -241,9 +259,9 @@ def _redact_and_summarize(body: bytes) -> dict:
     """
     Turn a raw response body into a report-safe record: redact every
     credential-looking element BEFORE anything else happens to the data,
-    then keep only what is safe to carry around -- the redacted value tree
-    (may still hold serials/IPs, never secrets) and the plain set of element
-    tag names (never carries a value at all).
+    then keep only what is safe to carry around -- the redacted value
+    tree (may still hold serials/IPs, never secrets) and the plain set
+    of element tag names (never carries a value at all).
     """
     text = body.rstrip(b"\x00").rstrip()
     if not text:
@@ -253,10 +271,10 @@ def _redact_and_summarize(body: bytes) -> dict:
     except ElementTree.ParseError as exc:
         return {"parse_error": str(exc)}
 
-    # Redact first. Nothing below this line ever sees an unredacted secret.
-    # BOTH passes: one for real child elements, one for a credential hidden
-    # inside an escaped inner document -- see config_cmd for why that second
-    # pass has to exist.
+    # Redact first. Nothing below this line ever sees an unredacted
+    # secret. BOTH passes: one for real child elements, one for a
+    # credential hidden inside an escaped inner document -- see
+    # config_cmd for why that second pass has to exist.
     escaped = _has_escaped_document(root)
     config_cmd._strip_secrets(root)
     config_cmd._redact_escaped_document(root)
@@ -273,8 +291,8 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
     """
     Fresh TCP connection: login, send exactly one command with empty
     <Params></Params>, read exactly one response. Never reuses a socket
-    across commands -- that is deliberate, so one command's misbehavior can
-    never leak state into the next.
+    across commands -- that is deliberate, so one command's misbehavior
+    can never leak state into the next.
     """
     t0 = time.monotonic()
     try:
@@ -374,8 +392,8 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
 
 def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
                           timeout: float = 8.0) -> dict:
-    """Reconnect to the status port and confirm the normal greeting still
-    arrives. Read-only; this is the post-sweep health check."""
+    """Reconnect to the status port and confirm the normal greeting
+    still arrives. Read-only; this is the post-sweep health check."""
     try:
         payload = esatm.fetch_greeting(host, port=port, timeout=timeout)
     except (OSError, esatm.FrameError) as exc:
