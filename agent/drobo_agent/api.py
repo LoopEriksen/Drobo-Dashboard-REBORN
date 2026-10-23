@@ -118,12 +118,13 @@ accepts ?token= because browser EventSource can't set headers.
                                  BACK, not merely accepted
     POST /api/mock/<action>/<bay>  mock driver only: fail|warn|pull, and
                                  reset
-    POST /api/mock/sign-in      {"share": S, "username": U, "password":
-                                 P} mock driver only: would this login
-                                 open this share on the simulated Drobo?
-                                 Its account is admin / admin. Answers
-                                 {"ok", "win32_error", "error"} and
-                                 never echoes the password.
+    POST /api/mock/sign-in      {"share": S, "username": U,
+                                 "password": P} mock driver only: would
+                                 this login open this share on the
+                                 simulated Drobo? Its account is
+                                 admin / admin. Answers {"ok",
+                                 "win32_error", "error"} and never
+                                 echoes the password.
     POST /api/mock/battery/<warning|failed>  mock driver only:
                                  cache-battery fault injection
     POST /api/mock/power/<warning|failed>  mock driver only: PSU fault
@@ -189,10 +190,10 @@ SPINDOWN_UNIT_NOTE = (
     "as stored rather than converted into a unit we would be guessing at.")
 
 # --- how a configuration write can end
-# --------------------------------------- Four outcomes, named once here
-# and reported in every write answer as "outcome", so the agent, both
-# UIs and the tests share one vocabulary instead of each reading English
-# prose to work out what happened.
+# ---------------------------------------
+# Four outcomes, named once here and reported in every write answer as
+# "outcome", so the agent, both UIs and the tests share one vocabulary
+# instead of each reading English prose to work out what happened.
 #
 # The middle two exist because of a measured hardware fact (2026-08-25):
 # a share create was sent to the real 5N, the device closed the socket
@@ -455,12 +456,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         # 127.0.0.1 with a plain <form>, and a form cannot set
         # X-Agent-Token; if it could put the token in the query string
         # instead, that single request would be enough to fire
-        # /api/backup/start with mirror on, or /api/shares/ delete. A
-        # cross-site fetch() *can* set the header, but then it is a
-        # preflighted request -- and this handler answers no OPTIONS and
-        # sends no Access-Control-* headers, so the preflight fails and
-        # the real request is never sent. Header-only is therefore the
-        # whole fix.
+        # /api/backup/start with mirror on, or /api/shares/
+        # delete. A cross-site fetch() *can* set the header, but then it
+        # is a preflighted request -- and this handler answers no
+        # OPTIONS and sends no Access-Control-* headers, so the
+        # preflight fails and the real request is never sent.
+        # Header-only is therefore the whole fix.
         supplied = self.headers.get("X-Agent-Token", "")
         if not supplied and allow_query:
             supplied = (params.get("token") or [""])[0]
@@ -662,8 +663,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # would hammer whatever host ends up serving the manifest.
             with _ApiRequestHandler._update_lock:
                 cached = _ApiRequestHandler._update_cache
-                cache_seconds = float(self.monitor.config.get(
-                    "updates", {}).get("check_seconds", 86400))
+                cache_seconds = float(
+                    self.monitor.config.get("updates", {})
+                    .get("check_seconds", 86400))
                 if cached and time.time() - cached[0] < cache_seconds:
                     return self._send_json(cached[1])
                 status = updates.check(
@@ -878,8 +880,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # bytes are still unread on a keep-alive connection; the
             # server then closes and Windows aborts the socket, so the
             # client sees a connection error instead of a clean 401 with
-            # a reason. Found by the config- write tests; it affected
-            # every unauthenticated POST.
+            # a reason. Found by the config-
+            # write tests; it affected every unauthenticated POST.
             try:
                 self._read_body(MAX_JSON_BODY_BYTES)
             except Exception:  # noqa: BLE001 - the answer is 401 regardless
@@ -1093,23 +1095,23 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                                     "message": _identify_message(interval)})
 
         # --- device configuration WRITES
-        # --------------------------------- Together with /api/identify
-        # above and /api/droboapps/action below, the only endpoints that
-        # change anything on the Drobo. Brightness, spin-down and share
-        # permissions wrap SDK writes that were adversarially audited
-        # and verified on real hardware (2026-08-12); share
-        # create/delete wrap SDK writes that mirror the 2026-08-25
-        # capture of the original Dashboard byte-for-byte in structure
-        # but have not themselves been run against hardware yet. Every
-        # one is POST, requires the token, and reports the SDK's own
-        # read-back verification -- so "ok" here means "the device reads
-        # back the new value", not merely "accepted" (RESULT_ACCEPTED
-        # means received; two writes this project made were accepted and
-        # silently did the wrong thing). Since 2026-08-25 the reverse
-        # case is known too: a device that answers NOTHING and applies
-        # the write anyway. Every answer therefore carries an "outcome"
-        # field -- see the WRITE_* constants and _config_write for the
-        # four it can hold.
+        # ---------------------------------
+        # Together with /api/identify above and /api/droboapps/action
+        # below, the only endpoints that change anything on the Drobo.
+        # Brightness, spin-down and share permissions wrap SDK writes
+        # that were adversarially audited and verified on real hardware
+        # (2026-08-12); share create/delete wrap SDK writes that mirror
+        # the 2026-08-25 capture of the original Dashboard byte-for-byte
+        # in structure but have not themselves been run against hardware
+        # yet. Every one is POST, requires the token, and reports the
+        # SDK's own read-back verification -- so "ok" here means "the
+        # device reads back the new value", not merely "accepted"
+        # (RESULT_ACCEPTED means received; two writes this project made
+        # were accepted and silently did the wrong thing). Since
+        # 2026-08-25 the reverse case is known too: a device that
+        # answers NOTHING and applies the write anyway. Every answer
+        # therefore carries an "outcome" field -- see the WRITE_*
+        # constants and _config_write for the four it can hold.
         if path == "/api/config/brightness":
             return self._config_write(
                 lambda body: self._parse_whole_number_field(body, "value"),
@@ -1227,17 +1229,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                  (bad JSON, missing/invalid field, an SDK parameter
                  refusal)
             503  no live Drobo yet (command port needs address + serial)
-            502  WRITE_FAILED -- the device refused it, could not be
-            reached,
-                 or took it and reads back unchanged. Nothing applied
+            502  WRITE_FAILED -- the device refused it, could not
+                 be reached, or took it and reads back unchanged.
+                 Nothing applied
             502  WRITE_UNKNOWN -- it went out and could not be settled
-            either
-                 way. Still an error status, because the caller must not
-                 treat it as done, but worded as "may have applied,
-                 re-read first" and never as "nothing happened"
+                 either way. Still an error status, because the caller
+                 must not treat it as done, but worded as "may have
+                 applied, re-read first" and never as "nothing happened"
             200  WRITE_VERIFIED or WRITE_UNACKNOWLEDGED -- the device
-            reads
-                 back the new value. The second means it never
+                 reads back the new value. The second means it never
                  acknowledged the write and the read-back is the only
                  reason we know it applied (measured on hardware
                  2026-08-25); it is a success, and the body says so
@@ -1558,8 +1558,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_droboapps_action(self):
         """
-        POST /api/droboapps/action {"name": ..., "action":
-        "Start"|"Stop"}.
+        POST /api/droboapps/action {"name": ...,
+        "action": "Start"|"Stop"}.
 
         The name must be an app the device CURRENTLY reports installed
         -- checked against a fresh list read here, and then the SDK
@@ -1752,8 +1752,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         with _ApiRequestHandler._discover_lock:
             cached = _ApiRequestHandler._discover_cache
             if (not manual_host and cached
-                    and time.time() - cached[0]
-                    < self.DISCOVERY_CACHE_SECONDS):
+                    and (time.time() - cached[0]
+                         < self.DISCOVERY_CACHE_SECONDS)):
                 return self._send_json(cached[1])
 
             driver = self.monitor.driver
