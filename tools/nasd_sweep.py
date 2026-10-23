@@ -69,7 +69,7 @@ by editing this file casually. Deliberately excluded, and why:
     DO_NOT_SEND group -- now both the arbitrary-execution escape hatches
     AND the destructive group (format, firmware flash, reset, repair,
     restart, every eCmdSet*, and more -- see commands.py) -- and every
-    write/format/mount/ reboot/firmware command not already covered by
+    write/format/mount/reboot/firmware command not already covered by
     DO_NOT_SEND.
 
 Every command in the allowlist is sent with an empty <Params></Params>

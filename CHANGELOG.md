@@ -7,6 +7,13 @@ released. Every push to this repository carries this file.
 ## Unreleased
 
 ### Added
+- **A `.flake8` settings file at the top of the repository.** It holds the
+  limits the PEP 8 pass below works to (79 columns for code, 72 for
+  comments and docstrings, exception names ending in `Error`), exempts
+  only the dashboard page's HTML in `agent/drobo_agent/webui.py` from the
+  line limit, and skips the local-only `vendor/` folder, so a plain
+  `python3 -m flake8` checks the same thing the pass was held to. It is
+  for a local check; CI still only compiles every file. (2026-10-19)
 - **Kept activity figures show how old they are.** When a fetch of the
   Drobo's read/write counters fails, the agent keeps serving the last
   figures, and the command port can stop answering for half an hour. Until
@@ -150,14 +157,20 @@ released. Every push to this repository carries this file.
   program folder, beside `TESTING.md`. (2026-10-19)
 - **Names follow PEP 8 and say what they mean.** Classes, functions,
   variables and constants in the SDK, the agent, the tools and the tests
-  are being renamed so that each name says what it holds or does, and
+  are renamed so that each name says what it holds or does, and
   every exception's name ends in `Error`. This is a rename only: nothing
   sent to a Drobo, no agent route or JSON key, no `config.json` key and no
   command-line option changes, and every suite keeps its check counts.
   There are no compatibility aliases, so a script of your own that
   imports an old name from `drobo_nasd` stops at the import with an
-  `ImportError` or `AttributeError` naming it; the list below gives the
-  new name to use. Renamed so far (2026-10-19):
+  `ImportError` or `AttributeError` naming it. The list below gives the
+  new name for every public name, keyword parameter and module constant
+  that changed in the SDK and the agent, for the private helpers a
+  script of your own is most likely to reach into, and for the names in
+  the repository's scripts and tools that changed in a way a caller
+  would notice; the tools' other functions and constants, local
+  variables and the remaining private names are summarised by area at
+  the end. Renamed (2026-10-19):
   - `drobo_nasd.config_cmd.ConfigWriteOutcomeUnknown` ->
     `ConfigWriteOutcomeUnknownError`
   - `drobo_nasd.sharewrite.ShareVerifyUnavailable` ->
@@ -200,6 +213,8 @@ released. Every push to this repository carries this file.
     values `"info"`, `"warning"` and `"critical"` stay)
   - `drobo_nasd.models._gb` -> `gigabytes_to_bytes`, now public; its
     parameter `n` -> `gigabytes`
+  - `drobo_nasd.framing.decode_frame`'s first parameter `buf` -> `data`
+    (only a call that passes it by keyword changes)
   - `drobo_nasd.discovery.Verified` -> `VerificationResult`
   - `drobo_nasd.discovery.QTYPE_A` / `QTYPE_PTR` / `QTYPE_SRV` ->
     `RECORD_TYPE_A` / `RECORD_TYPE_PTR` / `RECORD_TYPE_SRV`, and
@@ -218,16 +233,49 @@ released. Every push to this repository carries this file.
   - agent `monitor.Monitor`'s `cfg` parameter and attribute -> `config`
   - agent `api._Handler` -> `_ApiRequestHandler`, and its class
     attributes `SHARES_TTL` -> `SHARES_CACHE_SECONDS`, `DISCOVER_TTL` ->
-    `DISCOVERY_CACHE_SECONDS` and `DISCOVER_TIMEOUT` ->
-    `DISCOVERY_LISTEN_SECONDS` (the `searched_for_seconds` key that
-    `/api/discover` answers with stays)
+    `DISCOVERY_CACHE_SECONDS`, `DISCOVER_TIMEOUT` ->
+    `DISCOVERY_LISTEN_SECONDS`, `CONFIG_TIMEOUT` ->
+    `COMMAND_TIMEOUT_SECONDS` and `photos` -> `photo_store` (the
+    `searched_for_seconds` key that `/api/discover` answers with stays)
+  - agent `api.MAX_JSON_BODY` -> `MAX_JSON_BODY_BYTES`, and
+    `api.serve(cfg, monitor, photos)` -> `serve(config, monitor,
+    photo_store)`
+  - agent `monitor.Monitor.NETWORK_HINT_TTL` ->
+    `NETWORK_HINT_TTL_SECONDS`, and `Monitor.unsubscribe`'s parameter
+    `q` -> `subscriber_queue`
+  - agent `notify.EmailNotifier.TIMEOUT` -> `TIMEOUT_SECONDS`, and
+    `notify.build`'s parameter `cfg` -> `notify_config`
+  - agent `updates.DEFAULT_TIMEOUT` -> `DEFAULT_TIMEOUT_SECONDS`
+  - agent `photos.PhotoStore.session()` -> `session_progress()`
+  - agent `backup.BackupRunner.TAIL_LINES` -> `MAX_TAIL_LINES`, and
+    `backup.interpret_exit_code`'s parameter `code` -> `exit_code`
+  - agent `qr.svg(text, scale=6, quiet=4)` -> `svg(text,
+    pixels_per_module=6, quiet_zone_modules=4)`; a call that passes the
+    sizes by keyword must use the new names
+  - agent `config.save(path, cfg)` -> `save(path, config_data)`,
+    `drivers.build(cfg)` -> `build(drobo_config)`, and
+    `drivers.MockDriver.fail_write`'s parameter `mode` -> `write_fault`
+  - `agent/run_agent.py`: `DEFAULT_CONFIG` -> `DEFAULT_CONFIG_PATH`
   - `scripts/check_versions.py`: `PLACES` -> `VERSION_PLACES`, `collect`
-    -> `collect_versions` and `problems` -> `find_problems` (what it
-    prints and its exit codes stay)
+    -> `collect_versions`, `problems` -> `find_problems`, `read` ->
+    `read_repo_file`, `CSPROJ` -> `APP_CSPROJ_PATH`, `FOUR_PART` ->
+    `FOUR_PART_LABELS`, `REFERENCE` -> `REFERENCE_LABEL` and `REPO` ->
+    `REPO_ROOT` (what it prints and its exit codes stay)
+  - `scripts/scan_for_pii.py`: `scan` -> `scan_files`, `PATTERNS` ->
+    `BUILTIN_PATTERNS`, `REPO` -> `REPO_ROOT`, `SKIP_EXT` ->
+    `SKIP_EXTENSIONS`, `EMAIL_OK` -> `ALLOWED_EMAIL_DOMAIN` and
+    `ALLOW_CONTEXT` -> `CREDIT_CONTEXT` (what it reports and its exit
+    codes stay)
+  - `tools/nasd_dissect.py`: `print_proposed_header(report)` now takes
+    the port too, `print_proposed_header(report, port)` (part of the
+    dissector fix under Fixed above)
   - The SDK modules that read XML (`config_cmd`, `discovery`,
     `droboapps`, `drobosync`, `envelope`, `esatm`, `eventlog`,
     `sharewrite` and `sysinfo`) import `ElementTree` under its own name
-    instead of as `ET`, so `drobo_nasd.<module>.ET` -> `ElementTree`
+    instead of as `ET`, so `drobo_nasd.<module>.ET` -> `ElementTree`;
+    the same in `tools/extract_commands.py` and `tools/nasd_sweep.py`,
+    whose SDK aliases `C` and `cc` also go (`nasd_sweep.commands` and
+    `nasd_sweep.config_cmd` now)
   - Private helpers that scripts of your own may reach into:
     `config_cmd._frame` -> `_build_frame`, `config_cmd._send_inner` ->
     `_send_section_document`, `_recv_exact` (in `config_cmd` and
@@ -241,7 +289,11 @@ released. Every push to this repository carries this file.
     `_DIMMING_MIN` / `_DIMMING_MAX`, `droboapps._general_block` ->
     `_extract_general_block`, `identify._interval_xml` ->
     `_interval_params_xml`, `models.Volume._SCHEMES` ->
-    `_PARTITION_SCHEME_NAMES`
+    `_PARTITION_SCHEME_NAMES`. Because `_send_inner`'s parameter is now
+    `build_section_document`, the `ConfigWriteError` that `set_config`
+    raises when that callable returns nothing now reads
+    "build_section_document must return a non-empty document string"
+    (it said `build_inner`)
   - Internal names in the SDK's write path (commands, config, share,
     DroboApps, DroboSync and Identify modules, the envelope and the older
     client and framing code); no behaviour changes
@@ -276,9 +328,18 @@ released. Every push to this repository carries this file.
 - **Code fits in 79 columns and comments in 72 (PEP 8); no behaviour
   changes.** Long lines are wrapped and long comments and docstrings
   reflowed, and the remaining style-checker findings are cleared. Nothing
-  sent to a Drobo, no agent route or JSON key and no text the software
-  shows changes, and every suite keeps its check counts. Done so far
-  (2026-10-19):
+  sent to a Drobo, no agent route or JSON key and no message the software
+  prints changes, and every suite keeps its check counts. The one
+  visible difference: ten command-line programs print their module
+  docstring as the description in `--help`, so `run_agent.py`,
+  `scripts/scan_for_pii.py` and the tools `access_codes.py`,
+  `drobo_probe.py`, `fwtool.py`, `nasd_dissect.py`, `nasd_probe.py`,
+  `nasd_sweep.py`, `nasd_tap.py` and `sweep_remainder.py` show that
+  description re-wrapped to the new line lengths, with the same words and
+  their usage and option lines unchanged; `nasd_sweep.py`'s also names the
+  renamed `_build_frame` where it said `_frame`. With this done, a plain
+  `python3 -m flake8` from the top of the repository reports nothing.
+  Done (2026-10-19):
   - The SDK's config and share-write modules (`config_cmd.py`,
     `sharewrite.py`)
   - The SDK's DroboApps, Identify, DroboSync and share modules
@@ -302,19 +363,17 @@ released. Every push to this repository carries this file.
   - Eight of the SDK's test suites (`sdk/tests/`: config command,
     config write, discovery, DroboSync, status greeting, event log,
     firmware and Identify)
-  - The SDK's other nine test suites (`sdk/tests/`: shared fixtures,
-    command channel, network check, share edit, share lifecycle, shares,
-    share write, system info and write arbitration)
+  - The SDK's other eight test suites and their shared fixtures
+    (`sdk/tests/`: command channel, network check, share edit, share
+    lifecycle, shares, share write, system info and write arbitration,
+    and `conftest.py`)
   - The command-channel probing tools and their tests (`tools/`:
     `nasd_probe.py`, `nasd_sweep.py`, `nasd_tap.py`,
     `sweep_last_six.py`, `sweep_remainder.py` and the command-extract,
     firmware-parameter, dissector and sweep test suites)
   - The other tools (`tools/`: `access_codes.py`,
     `dashboard_strings.py`, `drobo_probe.py`, `extract_commands.py`,
-    `fw_params.py`, `fwtool.py` and `nasd_dissect.py`); the `--help`
-    descriptions of `access_codes.py`, `drobo_probe.py`, `fwtool.py` and
-    `nasd_dissect.py` are re-wrapped to the new line lengths, with the
-    same words and the usage and option lines unchanged
+    `fw_params.py`, `fwtool.py` and `nasd_dissect.py`)
   - The repository's own scripts and the icon generator
     (`scripts/check_versions.py`, `scripts/scan_for_pii.py`,
     `windows/DroboDashboardReborn/Assets/generate_icon.py`)

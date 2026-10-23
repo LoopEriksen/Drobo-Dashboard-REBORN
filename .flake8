@@ -1,0 +1,19 @@
+# Style settings for flake8, so a plain "python3 -m flake8" from the top
+# of the repository checks exactly what the PEP 8 pass of 2026-10 made
+# true. CI does not run flake8 (lint.yml only compiles every file and
+# stays dependency-free); this file is for a local check.
+[flake8]
+# PEP 8's limits: 79 columns for code, 72 for comments and docstrings.
+max-line-length = 79
+max-doc-length = 72
+# pep8-naming leaves N818 (an exception's name should end in "Error")
+# off by default; every exception here follows it, so keep it checked.
+extend-select = N818
+# The dashboard page in webui.py is HTML the agent serves byte for
+# byte, so its long lines stay as they are. The rest of that file is
+# checked like any other.
+per-file-ignores =
+    agent/drobo_agent/webui.py:E501
+# Drobo's own software is kept locally under vendor/ and is not ours to
+# restyle.
+extend-exclude = vendor

@@ -788,6 +788,33 @@ what it reports is a write whose outcome is unknown, and two of its three
 routes are a translation of `ConfigWriteOutcomeUnknownError`; an internal
 signal that is not an error at all became `_NoChangeNeeded`.
 
+The public and cross-module names followed in five more serial steps
+(framing and the write path, shares and the other SDK writers, status and
+discovery, the agent's names other modules reach, and the conventions such
+as importing `ElementTree` under its own name), then the names local to each
+area in eight units: the SDK's write path and read side, its tests, the
+agent's core, its API, its tests, the tools and the repository's own
+scripts. The layout pass came last, area by area, two commits each: one that
+only re-wraps code, proved by an unchanged syntax tree, and one that only
+re-flows comments and docstrings, proved by an unchanged tree once docstring
+whitespace is ignored and an unchanged sequence of comment words. The style
+checker's findings went from 6,273 to 0, and a `.flake8` file now holds the
+limits so a plain `flake8` run checks the same thing.
+
+Three units were held back by their reviews and landed only after the final
+review found the refactor short of done: the tools' renames, and the layout
+of the SDK's read side and of seven tools. By then the tools had been laid
+out without their renames, so the renames were carried onto the laid-out
+files token by token, and each result was proved equal, by the same two
+syntax-tree and comment-word checks, to the reviewed rename. The final
+review also caught a changelog list that left out many agent and script
+renames it promised to list, and an entry claiming no visible text had
+changed when ten programs' `--help` descriptions had been re-wrapped; and
+bringing in the held-back layout showed a reflow slip that had joined some
+docstrings' closing quotes to their last sentence. Through all of it
+nothing sent to a Drobo changed: the same suites with the same counts, and
+the same 239 frames from the 74 recorded calls on loopback, at every step.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
