@@ -1,11 +1,11 @@
 """
 End-to-end smoke test for the Drobo Agent.
 
-Starts a real agent on a spare port using the mock driver and a temporary photo
-folder, exercises every endpoint, and checks the answers. Then starts one on the
-real driver with discovery made to find nothing, as a PC that boots before its
-Drobo would, and checks it still serves and alerts. No hardware needed, and no
-Drobo is contacted.
+Starts a real agent on a spare port using the mock driver and a
+temporary photo folder, exercises every endpoint, and checks the
+answers. Then starts one on the real driver with discovery made to find
+nothing, as a PC that boots before its Drobo would, and checks it still
+serves and alerts. No hardware needed, and no Drobo is contacted.
 
     py test_agent.py
 
@@ -28,8 +28,8 @@ from drobo_nasd import esatm, eventlog, netcheck, sysinfo  # noqa: E402
 
 temp_dir = tempfile.mkdtemp(prefix="droboagent-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 photo_dir = os.path.join(temp_dir, "Photos")
 config_path = os.path.join(temp_dir, "config.json")
@@ -37,14 +37,15 @@ config_path = os.path.join(temp_dir, "config.json")
 with open(config_path, "w") as config_file:
     json.dump({
         "agent": {"bind": "127.0.0.1", "port": 7431, "poll_seconds": 1},
-        # The mock driver, EXPLICITLY -- never inherited from DEFAULTS. This
-        # suite used to omit the drobo block and lean on the default being
-        # "mock"; when the shipping default became the real driver (as it
-        # must -- a health tool that shows a simulated healthy array by
-        # default is lying), this test started discovering and polling
-        # whatever real Drobo was on the developer's network, mid-suite.
-        # A test that reaches real hardware because of a config default is
-        # exactly the accident this line prevents.
+        # The mock driver, EXPLICITLY -- never inherited from DEFAULTS.
+        # This suite used to omit the drobo block and lean on the
+        # default being "mock"; when the shipping default became the
+        # real driver (as it must -- a health tool that shows a
+        # simulated healthy array by default is lying), this test
+        # started discovering and polling whatever real Drobo was on the
+        # developer's network, mid-suite. A test that reaches real
+        # hardware because of a config default is exactly the accident
+        # this line prevents.
         "drobo": {"driver": "mock"},
         "photos": {"enabled": True, "target_dir": photo_dir},
         "alerts": {"resend_seconds": 2},
@@ -99,11 +100,12 @@ except urllib.error.HTTPError as http_error:
           http_error.code)
 status, reply = call("/api/status", headers={"X-Agent-Token": "wrong"})
 check("bad token rejected", status == 401, status)
-# Wrong is easy; wrong *and* not ASCII used to be fatal. A header byte >= 0x80
-# arrives as non-ASCII text, and secrets.compare_digest refuses a str that is
-# not pure ASCII by raising, so the gate blew up inside itself: reset socket,
-# traceback in the console the tester is told to copy into an issue. Anyone who
-# can reach the port could trigger it, so it stays checked.
+# Wrong is easy; wrong *and* not ASCII used to be fatal. A header byte
+# >= 0x80 arrives as non-ASCII text, and secrets.compare_digest refuses
+# a str that is not pure ASCII by raising, so the gate blew up inside
+# itself: reset socket, traceback in the console the tester is told to
+# copy into an issue. Anyone who can reach the port could trigger it, so
+# it stays checked.
 try:
     status, reply = call("/api/status", headers={"X-Agent-Token": "wröng"})
     check("a non-ASCII token is a clean 401, not a crash", status == 401,
@@ -113,13 +115,14 @@ except Exception as _connection_error:
     check("a non-ASCII token is a clean 401, not a crash", False,
           repr(_connection_error))
 
-# ?token= is the header's poor relation: a cross-site <form> can put a token in
-# a URL but cannot set a header, so any route that accepts the query form is
-# forgeable by any page the user happens to be looking at -- and the token has
-# already been in a URL, in the QR code /api/pair.svg hands out. /api/events is
-# the one exemption, because an EventSource genuinely cannot send a header.
-# Both halves are checked: withdraw the exemption and the dashboard goes blind,
-# widen it and /api/backup/start is one forged form away.
+# ?token= is the header's poor relation: a cross-site <form> can put a
+# token in a URL but cannot set a header, so any route that accepts the
+# query form is forgeable by any page the user happens to be looking at
+# -- and the token has already been in a URL, in the QR code
+# /api/pair.svg hands out. /api/events is the one exemption, because an
+# EventSource genuinely cannot send a header. Both halves are checked:
+# withdraw the exemption and the dashboard goes blind, widen it and
+# /api/backup/start is one forged form away.
 _EMPTY_TOKEN_HEADERS = {"X-Agent-Token": ""}
 for _route in ("/api/status", "/api/pair", "/api/shares"):
     status, reply = call(f"{_route}?token={TOKEN}",
@@ -297,8 +300,9 @@ with monitor._lock:
             disk_pack_status=0, dnas_status=6, device_status=98304,
             status_ex=0)))
 keys = [a.key for a in fired]
-# Newly-*raised* pack-status alerts, as opposed to the "...-cleared" notice
-# this call is expected to emit for the deviation the previous snapshot fired.
+# Newly-*raised* pack-status alerts, as opposed to the "...-cleared"
+# notice this call is expected to emit for the deviation the previous
+# snapshot fired.
 check("pack status matching the healthy baseline "
       "raises no new deviation alert",
       not any(k.startswith("pack-status-") and not k.endswith("-cleared")
@@ -319,16 +323,17 @@ check("device's own (lower) yellow threshold is honoured over the 0.85 "
       "capacity-warning" in keys, keys)
 
 print("\n== absent pack-status fields raise no false alarm ==")
-# This check used to live in the SDK's test_esatm.py. It moved here during the
-# SDK split because it is an ALERT question, not a protocol one -- the library's
-# job ends at "an absent field parses as None", and what the monitor then does
-# with that None is the agent's business.
+# This check used to live in the SDK's test_esatm.py. It moved here
+# during the SDK split because it is an ALERT question, not a protocol
+# one -- the library's job ends at "an absent field parses as None", and
+# what the monitor then does with that None is the agent's business.
 #
 # It matters because the healthy baseline contains NON-ZERO values
-# (dnas_status=6, device_status=98304). So a missing field defaulting to 0 would
-# look like a deviation from healthy and fire a "changed, worth a look" alert
-# about a field the device simply never sent. That is the worst kind of alert:
-# confidently wrong, about hardware the user cannot easily check.
+# (dnas_status=6, device_status=98304). So a missing field defaulting to
+# 0 would look like a deviation from healthy and fire a "changed, worth
+# a look" alert about a field the device simply never sent. That is the
+# worst kind of alert: confidently wrong, about hardware the user cannot
+# easily check.
 
 with monitor._lock:
     fired = monitor._evaluate_alerts(make_snapshot(pack_health=PackHealth()))
@@ -337,8 +342,8 @@ false_pack_alert_keys = [a.key for a in fired
 check("a PackHealth with nothing reported raises no pack-status alert",
       false_pack_alert_keys == [], false_pack_alert_keys)
 
-# ...while a field that IS present and DOES deviate still fires, so the check
-# above is proving restraint rather than a broken rule.
+# ...while a field that IS present and DOES deviate still fires, so the
+# check above is proving restraint rather than a broken rule.
 with monitor._lock:
     fired = monitor._evaluate_alerts(make_snapshot(
         pack_health=PackHealth(disk_pack_status=99, dnas_status=6,
@@ -347,14 +352,15 @@ keys = [a.key for a in fired if a.key.startswith("pack-status-")]
 check("...but a present field that deviates still does",
       keys == ["pack-status-disk_pack_status"], keys)
 
-# And a field sitting exactly ON the baseline raises nothing NEW, including the
-# non-zero ones -- the case that makes "absent must not become 0" necessary.
+# And a field sitting exactly ON the baseline raises nothing NEW,
+# including the non-zero ones -- the case that makes "absent must not
+# become 0" necessary.
 #
-# Note the "-cleared" exclusion. Coming back to baseline after the deviation
-# above correctly produces a "Resolved:" notice, which is the alert system
-# working, not a false alarm. A first draft of this check asserted a flatly
-# empty list and failed for exactly that reason -- the assertion was wrong,
-# not the code.
+# Note the "-cleared" exclusion. Coming back to baseline after the
+# deviation above correctly produces a "Resolved:" notice, which is the
+# alert system working, not a false alarm. A first draft of this check
+# asserted a flatly empty list and failed for exactly that reason -- the
+# assertion was wrong, not the code.
 with monitor._lock:
     fired = monitor._evaluate_alerts(
         make_snapshot(pack_health=PackHealth(**_PACK_STATUS_BASELINE)))
@@ -366,12 +372,12 @@ check("...and returning to baseline resolves the earlier one",
       any(a.key.endswith("-cleared") for a in fired), [a.key for a in fired])
 
 print("\n== chassis temperature alerting ==")
-# Added 2026-07-26. The per-drive temperature rules above never fire on a real
-# Drobo 5N -- the status greeting reports mTemperature as 0 for every slot, so
-# drive.temperature_c is always None. The chassis reading (eCmdGetSysInfo) is
-# the only real temperature this hardware gives up, and until this rule existed
-# the dashboard displayed it while nothing whatsoever watched it. A Drobo could
-# have cooked itself in silence.
+# Added 2026-07-26. The per-drive temperature rules above never fire on
+# a real Drobo 5N -- the status greeting reports mTemperature as 0 for
+# every slot, so drive.temperature_c is always None. The chassis reading
+# (eCmdGetSysInfo) is the only real temperature this hardware gives up,
+# and until this rule existed the dashboard displayed it while nothing
+# whatsoever watched it. A Drobo could have cooked itself in silence.
 _warning_threshold_c = agent_config["alerts"]["temperature_warning_c"]
 _critical_threshold_c = agent_config["alerts"]["temperature_critical_c"]
 
@@ -408,7 +414,8 @@ check("the critical message tells you what to actually do",
       if hot.get("chassis-temp-critical") else False)
 
 # Let the background poller (mock driver) clear out the alerts these
-# constructed snapshots injected, so later checks start from a clean slate.
+# constructed snapshots injected, so later checks start from a clean
+# slate.
 time.sleep(1.5)
 
 print("\n== cache-battery alert ==")
@@ -670,9 +677,10 @@ except urllib.error.HTTPError as http_error:
 
 print("\n== qr round-trip (decode what we encoded) ==")
 # Structural checks prove the matrix looks like a QR code. This proves a
-# conforming *reader* would get the payload back: read the format bits from the
-# spec's positions to learn the mask, unmask, walk the placement, de-interleave,
-# drop the error-correction codewords, and decode byte mode.
+# conforming *reader* would get the payload back: read the format bits
+# from the spec's positions to learn the mask, unmask, walk the
+# placement, de-interleave, drop the error-correction codewords, and
+# decode byte mode.
 
 # spec positions for format-info bit i (0 = LSB), top-left copy
 _FORMAT_BIT_POSITIONS = [(8, 0), (8, 1), (8, 2), (8, 3), (8, 4), (8, 5),
@@ -786,10 +794,10 @@ check("token is scrubbed from the URL", b"history.replaceState" in reply)
 
 print("\n== shares/discovery: /api/shares (503 before the device has ever "
       "been identified) ==")
-# Nothing earlier in this file ever sets _resolved_host/_known_esa_id on the
-# mock driver, so this is genuinely the fresh-agent state: the command port
-# needs the device's address AND its serial, and the serial only arrives from
-# a successful status read.
+# Nothing earlier in this file ever sets _resolved_host/_known_esa_id on
+# the mock driver, so this is genuinely the fresh-agent state: the
+# command port needs the device's address AND its serial, and the serial
+# only arrives from a successful status read.
 status, reply = call("/api/shares")
 check("shares 503 before identification", status == 503, (status, reply))
 check("503 explains why (command port needs a serial "
@@ -894,7 +902,8 @@ _original_discover_mdns = discovery.discover_mdns
 _original_verify_candidate = discovery.verify_candidate
 discovery.discover_mdns = _fake_discover_mdns_empty
 api._ApiRequestHandler._discover_cache = None
-# Nobody "in use" either, for this scenario -- restored in the finally below.
+# Nobody "in use" either, for this scenario -- restored in the finally
+# below.
 saved_host, saved_esa_id = (monitor.driver._resolved_host,
                             monitor.driver._known_esa_id)
 monitor.driver._resolved_host = ""
@@ -907,8 +916,8 @@ try:
           (status, reply))
     # These tests drive the mock driver, and /api/discover appends the
     # simulated Drobo so demo mode has something to click. That entry is
-    # flagged `simulated`, so filter it out to assert on the REAL search --
-    # which is what this scenario is actually about.
+    # flagged `simulated`, so filter it out to assert on the REAL search
+    # -- which is what this scenario is actually about.
     real_devices = [d for d in reply.get("devices", [])
                     if not d.get("simulated")]
     check("mDNS finding nothing gives an empty list, not an error",
@@ -990,9 +999,9 @@ finally:
     discovery.verify_candidate = _original_verify_candidate
 
 print("\n== /api/discover?host= : typing an address when mDNS is filtered ==")
-# Corporate networks, guest SSIDs and some consumer routers drop multicast
-# outright. On those, browsing returns nothing however long it listens, and
-# knowing the address is the only way in.
+# Corporate networks, guest SSIDs and some consumer routers drop
+# multicast outright. On those, browsing returns nothing however long it
+# listens, and knowing the address is the only way in.
 api._ApiRequestHandler._discover_cache = None
 _saved_discover_mdns, _saved_verify_candidate = (
     discovery.discover_mdns, discovery.verify_candidate)
@@ -1026,8 +1035,9 @@ try:
                              == "10.0.0.77"]
     check("the typed address is in the list", len(typed_address_entries) == 1,
           reply["devices"])
-    # Typing an address says where to look, not what to believe: the entry is
-    # built from the device's own greeting, exactly like a discovered one.
+    # Typing an address says where to look, not what to believe: the
+    # entry is built from the device's own greeting, exactly like a
+    # discovered one.
     check("its identity comes from the device, not from what was typed",
           typed_address_entries
           and typed_address_entries[0]["name"] == "TestDrobo"
@@ -1037,7 +1047,8 @@ try:
           typed_address_entries and typed_address_entries[0]["found_by"]
           == "manual", typed_address_entries)
 
-    # A wrong digit and a network with no Drobos otherwise look identical.
+    # A wrong digit and a network with no Drobos otherwise look
+    # identical.
     discovery.verify_candidate = (
         lambda candidate, timeout=5.0, **kwargs: (_ for _ in ()).throw(
             OSError("simulated: nothing listening")))
@@ -1052,8 +1063,9 @@ try:
                                       "same network")),
           reply.get("manual_error"))
 
-    # The cache exists to spare a 2013 NAS repeated mDNS sweeps. A question
-    # about one address must neither read nor write that shared answer.
+    # The cache exists to spare a 2013 NAS repeated mDNS sweeps. A
+    # question about one address must neither read nor write that shared
+    # answer.
     api._ApiRequestHandler._discover_cache = None
     call("/api/discover?host=10.0.0.79")
     check("a manual probe is never cached as the general answer",
@@ -1122,15 +1134,17 @@ finally:
 
 print("\n== network mismatch: 'cannot reach the Drobo' that means 'wrong "
       "Wi-Fi' ==")
-# The failure this exists for: the Drobo "times out" only because Windows has
-# auto-joined a different network, and the alert sends someone to check on a
-# perfectly healthy array. The protocol-level
-# logic is covered in sdk/tests/test_netcheck.py; what's tested here is that
-# the agent asks the question at the right moments and never at the wrong ones.
+# The failure this exists for: the Drobo "times out" only because
+# Windows has auto-joined a different network, and the alert sends
+# someone to check on a perfectly healthy array. The protocol-level
+# logic is covered in sdk/tests/test_netcheck.py; what's tested here is
+# that the agent asks the question at the right moments and never at the
+# wrong ones.
 
 
 class _StubDriver:
-    """A driver stuck on the wrong network, and counting how often it's asked."""
+    """A driver stuck on the wrong network, and counting how often
+    it's asked."""
     name = "stub"
 
     def __init__(self, host="10.0.0.50"):
@@ -1169,9 +1183,9 @@ try:
     check("an unreachable Drobo still raises exactly one alert",
           len(unreachable) == 1,
           fired)
-    # One problem, one alert. A separate "network" alert sitting beside the
-    # critical one would read as two unrelated events rather than a cause and
-    # its effect.
+    # One problem, one alert. A separate "network" alert sitting beside
+    # the critical one would read as two unrelated events rather than a
+    # cause and its effect.
     check("no second alert is invented for the network",
           not any("network" in a.key for a in fired), [a.key for a in fired])
     alert_message = unreachable[0].message
@@ -1182,11 +1196,12 @@ try:
           "different network" in alert_message, alert_message)
     check("the alert never claims certainty",
           "rather than a certainty" in alert_message, alert_message)
-    # The driver's own error is kept in full -- but after the explanation, not
-    # before it. Discovery's failure text ends by advising you to set the host
-    # in config.json, which is exactly the wrong move when the host is already
-    # right and the PC is on the wrong network; leading with that sends people
-    # to edit a file that isn't the problem.
+    # The driver's own error is kept in full -- but after the
+    # explanation, not before it. Discovery's failure text ends by
+    # advising you to set the host in config.json, which is exactly the
+    # wrong move when the host is already right and the PC is on the
+    # wrong network; leading with that sends people to edit a file that
+    # isn't the problem.
     check("the driver's own error is still there, in full",
           "timed out" in alert_message, alert_message)
     check("-- attributed, and after the explanation",
@@ -1194,8 +1209,8 @@ try:
           < alert_message.index("What the agent tried"),
           alert_message)
 
-    # Multi-line driver errors (discovery writes one) get flattened: an alert
-    # is a sentence, and it also travels to a phone notification.
+    # Multi-line driver errors (discovery writes one) get flattened: an
+    # alert is a sentence, and it also travels to a phone notification.
     with monitor._lock:
         multiline_alerts = monitor._evaluate_alerts(
             Snapshot(reachable=False, source="stub",
@@ -1206,9 +1221,9 @@ try:
     check("a multi-line driver error is flattened into one line",
           "\n" not in flattened_message, flattened_message)
 
-    # Reading this PC's addresses runs `ipconfig`. A poll loop ticking every
-    # second must not spawn a process every second to re-learn something that
-    # changes only when you join a different network.
+    # Reading this PC's addresses runs `ipconfig`. A poll loop ticking
+    # every second must not spawn a process every second to re-learn
+    # something that changes only when you join a different network.
     monitor.driver.calls = 0
     calls_before = monitor.driver.calls
     for _ in range(5):
@@ -1225,8 +1240,8 @@ try:
     check("-- and the OS is not asked again for them", interface_probes == [],
           interface_probes)
 
-    # Same network, still not answering: that's a real outage, and a note about
-    # network layout would be talking over it.
+    # Same network, still not answering: that's a real outage, and a
+    # note about network layout would be talking over it.
     netcheck.local_interfaces = (
         lambda timeout=3.0: [netcheck.Interface("10.0.0.40", 24)])
     monitor._hint_cache = None
@@ -1240,7 +1255,8 @@ try:
     check("-- and its alert is left alone",
           alert_message == "Cannot reach the Drobo: timed out", alert_message)
 
-    # A Drobo we have never reached is a Drobo whose network we don't know.
+    # A Drobo we have never reached is a Drobo whose network we don't
+    # know.
     netcheck.local_interfaces = lambda timeout=3.0: list(
         _INTERFACES_ON_ANOTHER_SUBNET)
     monitor.driver = _StubDriver(host="")
@@ -1248,7 +1264,8 @@ try:
     check("no known address for the Drobo -> no hint, not a guess",
           monitor._network_hint() is None)
 
-    # /api/netcheck: what the device picker asks before saying "not showing up".
+    # /api/netcheck: what the device picker asks before saying "not
+    # showing up".
     monitor.driver = _StubDriver()
     status, reply = call("/api/netcheck?host=10.0.0.50")
     check("netcheck 200", status == 200, (status, reply))
@@ -1286,10 +1303,10 @@ finally:
 print("\n== the live stream and /api/status describe the same document ==")
 # Not a hypothetical. The web dashboard is driven by /api/events, not by
 # polling /api/status, and the first cut of the network banner broadcast
-# snap.to_dict() while the REST endpoint served an enriched copy. The endpoint
-# was right, every test passed, and the banner never appeared in the one UI it
-# was written for. Both routes now build from the same helper; this is what
-# keeps them that way.
+# snap.to_dict() while the REST endpoint served an enriched copy. The
+# endpoint was right, every test passed, and the banner never appeared
+# in the one UI it was written for. Both routes now build from the same
+# helper; this is what keeps them that way.
 _subscription_queue = monitor.subscribe()
 try:
     monitor.poll_once()
@@ -1309,8 +1326,9 @@ finally:
     monitor.unsubscribe(_subscription_queue)
 
 print("\n== the hint is absent whenever the Drobo IS reachable ==")
-# The mock driver always answers, so this is the healthy case: /api/status
-# carries the key (front-ends can rely on it existing) and it is null.
+# The mock driver always answers, so this is the healthy case:
+# /api/status carries the key (front-ends can rely on it existing) and
+# it is null.
 monitor.poll_once()
 check("a reachable poll clears the hint", monitor.network_hint is None)
 status, reply = call("/api/status")
@@ -1320,11 +1338,11 @@ check("-- and it is null while the Drobo answers",
       reply.get("network_hint"))
 
 print("\n== the firmware note rides on the status payload ==")
-# The version rules live in drobo_nasd/firmware.py and are tested there. What
-# matters here is that the agent derives the advisory from whatever the device
-# actually reported, and that it is NOT an alert -- see the note in
-# _snapshot_payload for why nagging hourly about unflashable firmware would be
-# the wrong shape for this.
+# The version rules live in drobo_nasd/firmware.py and are tested there.
+# What matters here is that the agent derives the advisory from whatever
+# the device actually reported, and that it is NOT an alert -- see the
+# note in _snapshot_payload for why nagging hourly about unflashable
+# firmware would be the wrong shape for this.
 status, reply = call("/api/status")
 check("status carries firmware_advisory",
       "firmware_advisory" in reply,
@@ -1355,9 +1373,10 @@ finally:
         monitor.latest = _saved_latest_snapshot
 
 print("\n== photo dedupe survives the index and the disk disagreeing ==")
-# The index maps sha256 -> path and is what /api/photos/have answers from. It is
-# a CACHE; the files on the Drobo are the truth. Two ways they drift apart, and
-# both end with the phone and the agent believing different things.
+# The index maps sha256 -> path and is what /api/photos/have answers
+# from. It is a CACHE; the files on the Drobo are the truth. Two ways
+# they drift apart, and both end with the phone and the agent believing
+# different things.
 
 _rescan_dir = os.path.join(temp_dir, "RescanPhotos")
 _rescan_store = PhotoStore({"enabled": True, "target_dir": _rescan_dir,
@@ -1375,9 +1394,10 @@ check("neither is re-requested once stored",
       _rescan_store.missing([_holiday_sha256, _cat_sha256]) == [],
       _rescan_store.missing([_holiday_sha256, _cat_sha256]))
 
-# 1. A photo deleted off the Drobo by hand. The index still lists it, so
-#    `have` says "already got it" and the phone never re-sends -- the photo is
-#    gone and the system reports it as safe. The quieter and worse of the two.
+# 1. A photo deleted off the Drobo by hand. The index still lists it,
+#    so `have` says "already got it" and the phone never re-sends --
+#    the photo is gone and the system reports it as safe. The quieter
+#    and worse of the two.
 os.remove(os.path.join(_rescan_dir, cat_result["path"].replace("/", os.sep)))
 check("a deleted file is still wrongly claimed before a rescan",
       _rescan_store.missing([_cat_sha256]) == [],
@@ -1392,8 +1412,9 @@ check("-- while the file that IS there is not re-requested",
       _rescan_store.missing([_holiday_sha256]) == [],
       _rescan_store.missing([_holiday_sha256]))
 
-# 2. The index lost entirely. Without a rebuild the agent asks for the whole
-#    camera roll again -- hours of Wi-Fi to re-copy files already sitting there.
+# 2. The index lost entirely. Without a rebuild the agent asks for the
+#    whole camera roll again -- hours of Wi-Fi to re-copy files already
+#    sitting there.
 os.remove(_rescan_store.index_path)
 _rebuilt_store = PhotoStore({"enabled": True, "target_dir": _rescan_dir,
                              "organize_by_date": False})
@@ -1402,8 +1423,8 @@ check("a lost index is rebuilt from the files on disk",
       _rebuilt_store.missing([_holiday_sha256]) == [],
       _rebuilt_store.missing([_holiday_sha256]))
 
-# An empty folder with no index must NOT trigger a pointless scan, and must not
-# claim to hold anything.
+# An empty folder with no index must NOT trigger a pointless scan, and
+# must not claim to hold anything.
 _empty_photo_dir = os.path.join(temp_dir, "EmptyPhotos")
 _empty_store = PhotoStore({"enabled": True, "target_dir": _empty_photo_dir,
                            "organize_by_date": False})
@@ -1412,9 +1433,9 @@ check("a fresh empty install holds nothing",
       _empty_store.missing([_holiday_sha256]) == [_holiday_sha256],
       _empty_store.missing([_holiday_sha256]))
 
-# Half-finished chunked uploads live in a dot-directory. Hashing one would file
-# a truncated file under the hash of its complete self -- exactly the silent
-# corruption this module exists to prevent.
+# Half-finished chunked uploads live in a dot-directory. Hashing one
+# would file a truncated file under the hash of its complete self --
+# exactly the silent corruption this module exists to prevent.
 _uploads_dir = os.path.join(_rescan_dir, ".drobo-agent-uploads")
 os.makedirs(_uploads_dir, exist_ok=True)
 with open(os.path.join(_uploads_dir, "half.jpg"), "wb") as partial_upload_file:
@@ -1429,10 +1450,11 @@ check("rescan is reachable over the API", status == 200 and "found" in reply,
 
 
 print("\n== the capture date reaches the file, not just the folder ==")
-# The resume itself is already covered end to end above ("video filed by date"):
-# taken_at is sent on the first begin() only, the phone resumes without it, and
-# the finished video still lands under 2023/2023-11. What was NOT covered is
-# what happens to the date after the folder is chosen.
+# The resume itself is already covered end to end above ("video filed by
+# date"): taken_at is sent on the first begin() only, the phone resumes
+# without it, and the finished video still lands under 2023/2023-11.
+# What was NOT covered is what happens to the date after the folder is
+# chosen.
 #
 # Two gaps, both silent. _move_into_library() sets the stored file's own
 # modification time from taken_at inside a try/except OSError, so if
@@ -1454,8 +1476,8 @@ _half_length = len(_clip) // 2
 
 _dated_store.begin("clip.jpg", len(_clip), _clip_sha256, taken_at=_captured_at)
 _dated_store.append(_clip_sha256, 0, _clip[:_half_length])
-# The interruption: a second begin() with no taken_at, which is exactly what a
-# phone resuming a suspended transfer sends.
+# The interruption: a second begin() with no taken_at, which is exactly
+# what a phone resuming a suspended transfer sends.
 _dated_store.begin("clip.jpg", len(_clip), _clip_sha256)
 with open(os.path.join(_dated_store.session_dir, _clip_sha256 + ".json"),
           encoding="utf-8") as _session_file:
@@ -1475,8 +1497,9 @@ check("-- carrying that date as its own timestamp "
       abs(os.path.getmtime(_stored_path) - _captured_at) < 2,
       (_finished_upload["path"], os.path.getmtime(_stored_path), _captured_at))
 
-# The other half of the rule: an upload that never declared a date has nothing
-# to preserve and must fall back to now -- not to 1970, and not to a crash.
+# The other half of the rule: an upload that never declared a date has
+# nothing to preserve and must fall back to now -- not to 1970, and not
+# to a crash.
 _undated_bytes = b"\xff\xd8\xff pretend a photo with no date attached"
 _undated_sha256 = hashlib.sha256(_undated_bytes).hexdigest()
 _dated_store.begin("undated.jpg", len(_undated_bytes), _undated_sha256)
@@ -1487,16 +1510,17 @@ check("an upload that never declared a date is filed under today",
       _undated_upload)
 
 print("\n== /api/leds: two answering commands that had no way out ==")
-# eCmdGetDimming and eCmdGetDemoModeInfo both answer with real data on this
-# firmware and both had working parsers since 2026-07-26 with nothing exposing
-# them. A measurement nobody can see is not a feature.
+# eCmdGetDimming and eCmdGetDemoModeInfo both answer with real data on
+# this firmware and both had working parsers since 2026-07-26 with
+# nothing exposing them. A measurement nobody can see is not a feature.
 #
-# The device reads are faked, like the /api/shares and /api/drobosync tests:
-# earlier blocks leave a _resolved_host on the mock driver so the real command
-# path gets exercised, so an un-patched call here opens a genuine socket to an
-# address nothing is listening on. The values returned are the ones the live 5N
-# actually reported (brightness 59, not in demo mode), so the assertions still
-# say something true about the wiring rather than about the stub.
+# The device reads are faked, like the /api/shares and /api/drobosync
+# tests: earlier blocks leave a _resolved_host on the mock driver so the
+# real command path gets exercised, so an un-patched call here opens a
+# genuine socket to an address nothing is listening on. The values
+# returned are the ones the live 5N actually reported (brightness 59,
+# not in demo mode), so the assertions still say something true about
+# the wiring rather than about the stub.
 
 _original_get_dimming, _original_get_demo_mode = (
     droboapps.get_dimming, droboapps.get_demo_mode)
@@ -1511,8 +1535,9 @@ finally:
 
 check("leds endpoint 200", status == 200, (status, reply))
 check("brightness is reported", reply.get("dimming") == 59, reply)
-# The firmware documents no scale, so the number ships with a note saying so
-# rather than being rendered as a percentage we would be inventing.
+# The firmware documents no scale, so the number ships with a note
+# saying so rather than being rendered as a percentage we would be
+# inventing.
 check("the unknown scale is admitted, not papered over",
       "never says what the scale is" in reply.get("scale_note", ""),
       reply.get("scale_note"))
@@ -1520,10 +1545,10 @@ check("demo mode is reported", reply.get("demo_mode") is False, reply)
 check("-- with its scale factor", reply.get("scale_factor") == 1, reply)
 
 print("\n== the update check is dormant, and says so ==")
-# Built now so it exists before it is needed rather than being assembled in a
-# hurry on release day. Off by default; the unit tests in test_updates.py
-# boobytrap urllib to prove nothing is contacted. Here we only confirm the
-# endpoint reports it honestly.
+# Built now so it exists before it is needed rather than being assembled
+# in a hurry on release day. Off by default; the unit tests in
+# test_updates.py boobytrap urllib to prove nothing is contacted. Here
+# we only confirm the endpoint reports it honestly.
 status, reply = call("/api/update")
 check("update endpoint 200", status == 200, (status, reply))
 check("it reports disabled by default", reply.get("state") == "disabled",
@@ -1535,23 +1560,24 @@ check("it says nothing is contacted",
 check("it still reports the version we are on",
       reply.get("current_version") == api.VERSION,
       reply)
-# A disabled check must not be cached for a day -- flipping the setting on
-# should take effect on the next refresh, not tomorrow.
+# A disabled check must not be cached for a day -- flipping the setting
+# on should take effect on the next refresh, not tomorrow.
 check("a disabled answer is not cached",
       api._ApiRequestHandler._update_cache is None,
       api._ApiRequestHandler._update_cache)
 
 print("\n== DroboSync: built, dormant, and honest about why ==")
-# Needs two Drobos; only a single unit is available. Shipped built rather than
-# absent so the page explains itself instead of a button existing that fails -- ROADMAP
-# decision, 2026-07-28.
+# Needs two Drobos; only a single unit is available. Shipped built
+# rather than absent so the page explains itself instead of a button
+# existing that fails -- ROADMAP decision, 2026-07-28.
 #
-# The device read is faked, exactly as the /api/shares tests fake config_cmd:
-# earlier blocks in this file leave a _resolved_host on the mock driver so the
-# real command path gets exercised, which means an un-patched call here would
-# try to open a genuine socket to an address nothing is listening on. (It did,
-# on the first run of this test, and hung until the client timed out.)
-# (drobosync is imported with the other modules at the top of the file)
+# The device read is faked, exactly as the /api/shares tests fake
+# config_cmd: earlier blocks in this file leave a _resolved_host on the
+# mock driver so the real command path gets exercised, which means an
+# un-patched call here would try to open a genuine socket to an address
+# nothing is listening on. (It did, on the first run of this test, and
+# hung until the client timed out.) (drobosync is imported with the
+# other modules at the top of the file)
 
 _original_sync_summary = drobosync.summary
 drobosync.summary = lambda host, esa_id, port=5001, timeout=8.0: {
@@ -1584,16 +1610,18 @@ check("it explains that the feature needs two units",
 check("-- and does not read as a failure",
       "error" not in reply.get("note", "").lower(),
       reply.get("note"))
-# The simulator must not invent a configured sync: nobody has ever seen a
-# populated reply, so a fake one would teach the UI a shape we made up.
+# The simulator must not invent a configured sync: nobody has ever seen
+# a populated reply, so a fake one would teach the UI a shape we made
+# up.
 check("the simulator does not fabricate a sync partner",
       all(not r.get("configured") for r in reply.get("reads", {}).values()),
       reply)
 
 print("\n== the console never gets a secret or a traceback it did not earn ==")
-# http.server logs a timeout BEFORE it has read a request line, so the handler
-# has no .path attribute at all. log_message used to read self.path first and
-# raise AttributeError there: a traceback for a connection nobody used.
+# http.server logs a timeout BEFORE it has read a request line, so the
+# handler has no .path attribute at all. log_message used to read
+# self.path first and raise AttributeError there: a traceback for a
+# connection nobody used.
 _handler = object.__new__(api._ApiRequestHandler)
 _handler.client_address = ("127.0.0.1", 0)
 _captured_stdout = io.StringIO()
@@ -1610,12 +1638,13 @@ check("-- and the timeout is still logged",
       _captured_stdout.getvalue())
 
 
-# The access log prints the whole request line, and a token can still arrive in
-# the URL: /api/events takes it that way, the pairing QR code hands out
-# /?token=..., and an old bookmark or script may carry it on any route. Redacted
-# at the point of printing since 2026-09-09, but it never had a check, so a
-# later edit to log_message could have put the token back in the console
-# unnoticed. The token itself is never echoed by these checks, pass or fail.
+# The access log prints the whole request line, and a token can still
+# arrive in the URL: /api/events takes it that way, the pairing QR code
+# hands out /?token=..., and an old bookmark or script may carry it on
+# any route. Redacted at the point of printing since 2026-09-09, but it
+# never had a check, so a later edit to log_message could have put the
+# token back in the console unnoticed. The token itself is never echoed
+# by these checks, pass or fail.
 def _capture_access_log(request_line):
     handler = object.__new__(api._ApiRequestHandler)
     handler.client_address = ("127.0.0.1", 0)
@@ -1642,8 +1671,8 @@ _logged_output = _capture_access_log(f"GET /api/events?token={TOKEN} HTTP/1.1")
 check("the event stream is not access-logged at all", _logged_output == "",
       _logged_output.replace(TOKEN, "<THE TOKEN>"))
 
-# The startup banner lands in the console Run-Agent.bat tells testers to paste.
-# It printed ?token=<the real token> until 2026-09-14.
+# The startup banner lands in the console Run-Agent.bat tells testers to
+# paste. It printed ?token=<the real token> until 2026-09-14.
 with open(os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "run_agent.py"), encoding="utf-8") as _run_agent_file:
@@ -1666,19 +1695,21 @@ http_server.shutdown()
 monitor.stop()
 http_server.server_close()
 
-# Everything above runs the simulator. This section starts the REAL driver in
-# its shipping configuration -- "drobo5n" with "host": "auto" -- with discovery
-# made to find nothing, which is what a PC sees when it boots before its Drobo
-# or before its own network is up. Until 2026-09-26 the agent exited at that
-# point, before serving anything, so the boot-time Task Scheduler job that
-# docs/running-the-agent.md recommends ran no monitoring at all on such a PC.
+# Everything above runs the simulator. This section starts the REAL
+# driver in its shipping configuration -- "drobo5n" with "host": "auto"
+# -- with discovery made to find nothing, which is what a PC sees when
+# it boots before its Drobo or before its own network is up. Until
+# 2026-09-26 the agent exited at that point, before serving anything, so
+# the boot-time Task Scheduler job that docs/running-the-agent.md
+# recommends ran no monitoring at all on such a PC.
 #
-# It runs after the simulated agent is shut down because api.serve keeps the
-# monitor on the handler class: a second agent in this process replaces the
-# first one's. No Drobo is contacted. discovery.resolve is replaced before the
-# driver can call it, and each SDK call that could open a socket to a device
-# is replaced by one that records the attempt and fails, so a stray call is
-# counted by a check below rather than going out onto the network.
+# It runs after the simulated agent is shut down because api.serve keeps
+# the monitor on the handler class: a second agent in this process
+# replaces the first one's. No Drobo is contacted. discovery.resolve is
+# replaced before the driver can call it, and each SDK call that could
+# open a socket to a device is replaced by one that records the attempt
+# and fails, so a stray call is counted by a check below rather than
+# going out onto the network.
 print("\n== starting with no Drobo to be found ==")
 
 _NO_DROBO_AGENT_PORT = 7432
@@ -1726,7 +1757,8 @@ def _must_not_reach(function_name):
 
 
 def _start_monitor(monitor_to_start):
-    """Monitor.start, returning (what it printed, what it raised or None)."""
+    """Monitor.start, returning (what it printed, what it raised or
+    None)."""
     captured = io.StringIO()
     try:
         with contextlib.redirect_stdout(captured):
@@ -1815,8 +1847,9 @@ try:
           _unreachable_alert_rows)
     check("-- carrying discovery's own reason",
           "no Drobo found" in _unreachable_message, _unreachable_message)
-    # This advice used to sit in Run-Agent.bat's footer, shown only after the
-    # agent had exited. Nothing exits now, so the alert has to carry it.
+    # This advice used to sit in Run-Agent.bat's footer, shown only
+    # after the agent had exited. Nothing exits now, so the alert has to
+    # carry it.
     check("-- and naming the first thing to check",
           "switched on" in _unreachable_message
           and "same network" in _unreachable_message, _unreachable_message)
@@ -1834,8 +1867,9 @@ try:
           (len(_resolve_calls), _resolve_count_before))
     check("no device was contacted", _device_calls == [], _device_calls)
 
-    # The Drobo comes up. Discovery now finds it (at a documentation address,
-    # 192.0.2.0/24, which nothing real uses) and the status read is a fake.
+    # The Drobo comes up. Discovery now finds it (at a documentation
+    # address, 192.0.2.0/24, which nothing real uses) and the status
+    # read is a fake.
     def _resolve_found(*args, **kwargs):
         _resolve_calls.append(kwargs)
         return discovery.VerificationResult(
@@ -1877,8 +1911,8 @@ try:
               for c in _device_calls),
           _device_calls)
 finally:
-    # Stopped BEFORE the real SDK functions go back, so the poll thread can
-    # never reach a real one on its way out.
+    # Stopped BEFORE the real SDK functions go back, so the poll thread
+    # can never reach a real one on its way out.
     if _no_drobo_server:
         _no_drobo_server.shutdown()
         _no_drobo_server.server_close()
@@ -1886,8 +1920,8 @@ finally:
         _no_drobo_monitor.stop()
 
 
-# A device that answers and is provably not this Drobo stays a hard refusal --
-# but a readable one. It used to end in a raw traceback.
+# A device that answers and is provably not this Drobo stays a hard
+# refusal -- but a readable one. It used to end in a raw traceback.
 def _resolve_stranger(*args, **kwargs):
     raise discovery.IdentityMismatchError(
         "found device(s) on the network, but none matched the expected "
@@ -1908,7 +1942,8 @@ check("a device that is provably not this Drobo still stops the agent",
       isinstance(_startup_error, SystemExit), repr(_startup_error))
 _exit_message = getattr(_startup_error, "code", None)
 # A SystemExit whose code is a string is printed as that string, with no
-# traceback, and the process exits 1 -- which is what Run-Agent.bat looks for.
+# traceback, and the process exits 1 -- which is what Run-Agent.bat
+# looks for.
 check("-- with a message rather than a traceback, naming the stranger",
       isinstance(_exit_message, str) and "drb000000OTHER" in _exit_message,
       repr(_exit_message))
@@ -1919,8 +1954,9 @@ check("-- and no poll loop was started",
       _mismatch_monitor._poll_thread is None)
 
 
-# A reply that is not a Drobo's, at a fixed address: the poll path already
-# treats that as "not reachable, go and look", so startup does too.
+# A reply that is not a Drobo's, at a fixed address: the poll path
+# already treats that as "not reachable, go and look", so startup does
+# too.
 def _not_a_greeting(host, port=5000, timeout=8.0):
     _device_calls.append(("esatm.read_snapshot", host))
     raise esatm.FrameError("bad signature: b'SSH-2.0-'")
@@ -1946,8 +1982,9 @@ check("-- and the poll loop is running",
 _frame_error_monitor.stop()
 
 
-# The monitor catches "not found", not LookupError: a KeyError is a LookupError
-# too, and one raised by a bug in connect() must surface as the bug it is.
+# The monitor catches "not found", not LookupError: a KeyError is a
+# LookupError too, and one raised by a bug in connect() must surface as
+# the bug it is.
 class _BuggyDriver:
     name = "buggy"
 
