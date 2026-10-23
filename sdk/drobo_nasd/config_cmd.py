@@ -110,15 +110,16 @@ SECTIONS = {
 # device's own spelling and must match).
 _WRITE_ROOT_TAG = "DRINASConfig"
 
-# Any element whose name matches this never leaves this module with its
-# value.
+# Any element whose name matches this never leaves this module
+# with its value.
 _CREDENTIAL_NAME_RE = re.compile(r"(?i)pass|secret|credential|\bkey\b|token")
 _REDACTION_SENTINEL = "[redacted]"
 
 
 class ConfigError(Exception):
-    """The command channel refused us, or answered with something
-    unusable."""
+    """The command channel refused us,
+    or answered with something unusable.
+    """
 
 
 def _build_frame(frame_type: int, payload: bytes) -> bytes:
@@ -184,8 +185,8 @@ def _receive_exactly(
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
                     raise ConfigError(
-                        f"timed out reading frame: got {len(received)} of "
-                        f"{byte_count} bytes")
+                        f"timed out reading frame: "
+                        f"got {len(received)} of {byte_count} bytes")
                 # Shrink the per-recv wait as the budget runs down, or
                 # the very last recv could still overshoot by a full
                 # socket timeout.
@@ -245,8 +246,8 @@ def _strip_secrets(node: ElementTree.Element) -> None:
     the document is turned into anything we keep. Recursive, so a
     password nested inside a share or user entry is caught too.
 
-    Two things here are deliberate, and both were holes until
-    2026-07-26:
+    Two things here are deliberate,
+    and both were holes until 2026-07-26:
 
     1. A credential element is emptied ENTIRELY -- children removed, not
        just its own text replaced. Previously a `<Password>` carrying
@@ -333,8 +334,9 @@ def _redact_escaped_document(node: ElementTree.Element) -> None:
 
 
 def _element_to_dict(node: ElementTree.Element):
-    """XML subtree -> plain dict/list/str, with repeated tags becoming
-    lists."""
+    """XML subtree -> plain dict/list/str,
+    with repeated tags becoming lists.
+    """
     children = list(node)
     if not children:
         return (node.text or "").strip()
@@ -482,8 +484,8 @@ class ConfigWriteOutcomeUnknownError(ConfigWriteError):
 
 def _parse_result_code(payload: bytes) -> int | None:
     """
-    The integer in the reply's <Result>, or None if it is absent or
-    ambiguous.
+    The integer in the reply's <Result>,
+    or None if it is absent or ambiguous.
 
     Regex, not a parse: this runs on a reply that may be empty or
     truncated, and a parse failure must not turn an uncertain write
@@ -607,8 +609,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
                            command_id: int, port: float, timeout: float,
                            readback=None) -> dict:
     """
-    The shared tail of every eCmdSetConfig write: confine, escape, send,
-    decide.
+    The shared tail of every eCmdSetConfig write:
+    confine, escape, send, decide.
 
     Split out so the dict path (set_config) and the surgical raw-XML
     path (set_config_raw) run IDENTICAL safety checks and transport --
@@ -871,8 +873,8 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
 def get_config_element(host: str, esa_id: str, section: str,
                        port: int = DEFAULT_PORT, timeout: float = 10.0):
     """
-    Read one section and return its raw XML Element -- un-redacted,
-    un-flattened.
+    Read one section and return its raw XML Element --
+    un-redacted, un-flattened.
 
     The surgical counterpart to get_config's dict. For a whole-section
     write (shares, rename) a dict round-trip is lossy: it drops
@@ -923,9 +925,9 @@ def get_config_element(host: str, esa_id: str, section: str,
     # measured 2026-08-10), or an escaped inner document in the text.
     # `.iter(section_tag)` finds it at any depth in the first two cases;
     # the escaped case is handled below.
-    # An earlier version used details.find(tag), which only searches
-    # direct children and so missed the wrapper the device actually
-    # uses.
+    # An earlier version used details.find(tag), which only
+    # searches direct children and so missed the wrapper the device
+    # actually uses.
     section_element = next(iter(details.iter(section_tag)), None)
     if section_element is not None:
         return section_element

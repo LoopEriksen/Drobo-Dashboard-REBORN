@@ -237,7 +237,8 @@ def _query_reply_body(host: str, esa_id: str, command_name: str,
 def get_dimming(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> int | None:
     """LED brightness as the device reports it.
-    Read-only; see parse_dimming."""
+    Read-only; see parse_dimming.
+    """
     return parse_dimming(
         _query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
 
@@ -279,7 +280,8 @@ class DimmingWriteError(GeneralWriteError):
 
 class SpindownWriteError(GeneralWriteError):
     """The spin-down delay could not be set safely,
-    or the device refused it."""
+    or the device refused it.
+    """
 
 
 def _extract_general_block(before: dict) -> dict:
@@ -544,8 +546,8 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
     current value first and set it back. Units unconfirmed (see
     _SPINDOWN_MAX).
 
-    `verify` re-reads and confirms; RESULT_ACCEPTED means received, not
-    applied.
+    `verify` re-reads and confirms;
+    RESULT_ACCEPTED means received, not applied.
     """
     from .config_cmd import set_config  # noqa: F401
 
@@ -611,8 +613,8 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     the device (measured 2026-08-12), and clearing only the bit leaves a
     stale delay that re-enable would revive.
 
-    Verified by read-back of BOTH fields. Reversible with
-    set_spindown(delay).
+    Verified by read-back of BOTH fields.
+    Reversible with set_spindown(delay).
     """
     from .config_cmd import set_config  # noqa: F401
 
@@ -751,9 +753,9 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
 
     if action not in _APP_ACTIONS:
         raise DroboAppsActionError(
-            f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- the "
-            f"device's verbs are case-sensitive and only these two are "
-            f"confirmed")
+            f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- "
+            f"the device's verbs are case-sensitive "
+            f"and only these two are confirmed")
     app_name = (name or "").strip()
     if not app_name:
         raise DroboAppsActionError("no app name given")

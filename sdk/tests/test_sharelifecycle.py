@@ -105,8 +105,9 @@ def _reserialized(share_config_xml):
 
 
 def _written_share_config(raw_command):
-    """The inner DRIShareConfig document a captured write actually
-    carried."""
+    """The inner DRIShareConfig document a captured write
+    actually carried.
+    """
     params_match = re.search(r"<Params>(.*)</Params>", raw_command, re.S)
     wrapped_share_config = html.unescape(params_match.group(1))
     assert wrapped_share_config.startswith(
@@ -217,8 +218,8 @@ check("the node appears exactly once",
 check("ConfigVersionBasis is echoed, not invented",
       "<ConfigVersionBasis>21</ConfigVersionBasis>" in written_document)
 
-# verify=False stops after the accepted write: two connections, no
-# verdict.
+# verify=False stops after the accepted write:
+# two connections, no verdict.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 result = sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "ZZTESTZZ",
                                  volume="Volume1",
@@ -279,8 +280,8 @@ check("...and only the read happened, no write", len(fake_drobo.sent) == 1,
 
 print("\n== create: volume derivation from the device's own data ==")
 
-# Exactly one volume named anywhere in the read -> used without being
-# passed.
+# Exactly one volume named anywhere in the read -> used
+# without being passed.
 ONE_VOLUME_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Alpha")
     + _compact_share_with_volume("Made", "VolX"))
@@ -302,8 +303,8 @@ check("a single on-device volume is derived and used",
       _written_share_config(fake_drobo.sent[1]))
 check("...and the create verifies", result.get("verified") is True, result)
 
-# No volume named anywhere (the captured unit's own shape) -> refuse to
-# guess.
+# No volume named anywhere (the captured unit's own shape)
+# -> refuse to guess.
 fake_drobo = FakeDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply()])
 try:
     sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "Fresh",

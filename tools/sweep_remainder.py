@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-sweep_remainder.py -- test the safe commands the first sweep never
-tried.
+sweep_remainder.py --
+test the safe commands the first sweep never tried.
 
 WHY A SECOND SWEEP
 ------------------
@@ -89,7 +89,7 @@ sys.path.insert(0, _TOOLS_DIR)
 
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
-# (reuse its send/redact/report machinery)
+# Reuse its send/redact/report machinery.
 import nasd_sweep  # noqa: E402
 
 #: The seven. See the module docstring for why each one is safe, and why

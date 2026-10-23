@@ -90,8 +90,7 @@ class SimulatedWriteUnconfirmedError(Exception):
     """
 
 
-# -- how a simulated configuration write ENDS
-# ---------------------------------
+# -- how a simulated configuration write ENDS --------------------------
 # Fault injection for the write path, named after what the device DOES
 # rather than after the HTTP code it produces. WRITE_FAULT_HANGS_UP is
 # not invented: on 2026-08-25 a real 5N was sent a share create, closed
@@ -122,8 +121,9 @@ WRITE_FAULTS = (WRITE_FAULT_NONE, WRITE_FAULT_HANGS_UP, WRITE_FAULT_REFUSED,
 
 
 class DroboDriver:
-    """Base class. A driver's whole job is to produce a Snapshot on
-    demand."""
+    """Base class.
+    A driver's whole job is to produce a Snapshot on demand.
+    """
 
     name = "base"
 
@@ -268,8 +268,7 @@ class MockDriver(DroboDriver):
         # default; reset() puts it back.
         self._write_fault = WRITE_FAULT_NONE
 
-    # -- simulated configuration
-    # ------------------------------------------
+    # -- simulated configuration ---------------------------------------
 
     #: A believable share layout, in the EXACT shape
     #: config_cmd.get_config returns for a real device. Deliberately so:
@@ -450,8 +449,7 @@ class MockDriver(DroboDriver):
     def get_dimming(self) -> int:
         return self._dimming
 
-    # -- simulated configuration WRITES
-    # -----------------------------------
+    # -- simulated configuration WRITES --------------------------------
     # These mutate PER-INSTANCE copies, never the class-level _MOCK_*
     # tables. A class-level mutation would leak one test's write into
     # every other test and across agent restarts -- a simulator that
@@ -562,8 +560,8 @@ class MockDriver(DroboDriver):
         if action not in _APP_ACTIONS:
             raise ValueError(
                 f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- "
-                f"the device's verbs are case-sensitive and only these two "
-                f"are confirmed")
+                f"the device's verbs are case-sensitive "
+                f"and only these two are confirmed")
         app_name = (name or "").strip()
         with self._lock:
             apps = self._droboapps["apps"]
@@ -658,8 +656,7 @@ class MockDriver(DroboDriver):
                 + 1)
             self._record_event(
                 SEVERITY_INFO,
-                f"{user!r} on {share!r} set to access {access} "
-                f"(mock driver)")
+                f"{user!r} on {share!r} set to access {access} (mock driver)")
             return self._write_ending()
 
     def create_share(self, name: str) -> dict:
@@ -683,9 +680,8 @@ class MockDriver(DroboDriver):
         if share_name != share_name.strip():
             raise ValueError(
                 f"invalid share name {share_name!r}: surrounding whitespace "
-                f"is refused rather than silently stripped -- a stripped "
-                f"name could never be verified against the device's "
-                f"read-back")
+                f"is refused rather than silently stripped -- a stripped name "
+                f"could never be verified against the device's read-back")
         if not sharewrite._SHARE_NAME_PATTERN.match(share_name):
             raise ValueError(
                 f"invalid share name {share_name!r}: "
@@ -704,8 +700,8 @@ class MockDriver(DroboDriver):
                 raise ValueError(
                     f"a share named {clashing_names[0]!r} already exists on "
                     f"this device, and share names differing only by case "
-                    f"could never be addressed apart afterwards -- refusing "
-                    f"the duplicate")
+                    f"could never be addressed apart afterwards -- "
+                    f"refusing the duplicate")
             self._refuse_if_injected()
             shares.append({"ShareName": share_name, "ShareState": "0",
                            "TimeMachineEnabled": "0", "ShareUsers": None})
@@ -825,8 +821,8 @@ class MockDriver(DroboDriver):
         own entry on a share decides, and without one the Everyone entry
         does.
 
-        Returns {"ok", "win32_error", "error"}. Never returns the
-        password.
+        Returns {"ok", "win32_error", "error"}.
+        Never returns the password.
         """
         with self._lock:
             shares = (self._shares.get("DRINASConfig", {})
@@ -839,8 +835,8 @@ class MockDriver(DroboDriver):
                  == (share or "").lower()), None)
             if target_share is None:
                 return {"ok": False, "win32_error": self._ERROR_BAD_NET_NAME,
-                        "error": (f"The simulated Drobo has no share "
-                                  f"called {share!r}.")}
+                        "error": (f"The simulated Drobo has "
+                                  f"no share called {share!r}.")}
 
             account = next((name for name in self._MOCK_ACCOUNTS
                             if name.lower() == (username or "").lower()), None)
@@ -864,8 +860,9 @@ class MockDriver(DroboDriver):
             return {"ok": True, "win32_error": 0, "error": ""}
 
     def get_config(self, section: str) -> dict:
-        """Stand in for config_cmd.get_config against a simulated
-        device."""
+        """Stand in for config_cmd.get_config
+        against a simulated device.
+        """
         try:
             return {
                 "shares": self._shares,
@@ -879,8 +876,7 @@ class MockDriver(DroboDriver):
         self._event_log.append(EventLogEntry(
             ts=time.time(), severity=severity, message=message))
 
-    # -- fault injection
-    # ---------------------------------------------------
+    # -- fault injection -----------------------------------------------
 
     def fail_bay(self, bay: int) -> None:
         with self._lock:
@@ -895,8 +891,9 @@ class MockDriver(DroboDriver):
             self._bay_state_overrides[bay] = "pulled"
 
     def fail_battery(self, state: str = STATE_FAILED) -> None:
-        """Simulate cache-battery trouble. state is STATE_WARNING or
-        STATE_FAILED."""
+        """Simulate cache-battery trouble.
+        state is STATE_WARNING or STATE_FAILED.
+        """
         with self._lock:
             self._battery_override = state
             self._record_event(
@@ -931,8 +928,7 @@ class MockDriver(DroboDriver):
             self._write_fault = write_fault
             self._record_event(
                 SEVERITY_INFO,
-                f"config writes will now end as {write_fault!r} "
-                f"(mock driver)")
+                f"config writes will now end as {write_fault!r} (mock driver)")
 
     def reset(self) -> None:
         with self._lock:
@@ -941,8 +937,7 @@ class MockDriver(DroboDriver):
             self._power_override = None
             self._write_fault = WRITE_FAULT_NONE
 
-    # -- driver interface
-    # --------------------------------------------------
+    # -- driver interface ----------------------------------------------
 
     def read_snapshot(self) -> Snapshot:
         with self._lock:
@@ -1050,8 +1045,7 @@ class MockDriver(DroboDriver):
                 event_log=list(self._event_log),
             )
 
-    # -- Phase 1 scope additions
-    # --------------------------------------------
+    # -- Phase 1 scope additions ---------------------------------------
 
     def _read_battery(self, elapsed_seconds: float) -> BatteryInfo:
         """eCmdCacheBattery. Charge drifts near-full with a slow wobble;
@@ -1132,8 +1126,8 @@ class MockDriver(DroboDriver):
 
 class Drobo5NDriver(DroboDriver):
     """
-    The real thing -- confirmed working against a live Drobo 5N on
-    2026-07-24.
+    The real thing --
+    confirmed working against a live Drobo 5N on 2026-07-24.
 
     On connect, nasd (TCP 5000) pushes a complete <ESATMUpdate> status
     document with no login required, so a poll is just: reconnect, read
@@ -1367,8 +1361,8 @@ class Drobo5NDriver(DroboDriver):
             raise discovery.IdentityMismatchError(
                 f"refusing {self.host}:{self.port} -- it identifies as "
                 f"esa_id={snapshot.device.serial!r}, not the expected "
-                f"{self.expected_esa_id!r}. This is not your Drobo; "
-                f"not connecting."
+                f"{self.expected_esa_id!r}. "
+                f"This is not your Drobo; not connecting."
             )
         self._remember_working_address(snapshot.device.serial, self.host,
                                        self.port)
@@ -1429,16 +1423,15 @@ class Drobo5NDriver(DroboDriver):
         snapshot.event_log = list(self._event_log)
         return snapshot
 
-    # -- temperature
-    # -------------------------------------------------------
+    # -- temperature ---------------------------------------------------
 
     def _read_sysinfo(self, host: str) -> None:
         """
         Top up the cached chassis temperature, at most once every
         `sysinfo_seconds`. Never raises.
 
-        Two reasons this is deliberately infrequent rather than once per
-        poll.
+        Two reasons this is deliberately infrequent rather
+        than once per poll.
 
         The honest one: it opens a second TCP connection and sends a
         command, where the rest of this driver only listens. That is a
@@ -1497,8 +1490,7 @@ class Drobo5NDriver(DroboDriver):
             self._performance = performance
             self._performance_read_at = now
 
-    # -- event log
-    # ---------------------------------------------------------
+    # -- event log -----------------------------------------------------
 
     def _read_event_log(self, host: str) -> None:
         """

@@ -76,8 +76,8 @@ def encode_frame(payload: bytes, *, byteorder: str = "big") -> bytes:
 def decode_frame(data: bytes, *,
                  byteorder: str = "big") -> Tuple[bytes, bytes]:
     """
-    Decode one frame from the front of `data`. Returns (payload,
-    remainder).
+    Decode one frame from the front of `data`.
+    Returns (payload, remainder).
 
     Raises FramingError if `data` does not yet contain a complete frame
     -- the caller should read more bytes from the socket and retry (this
@@ -90,8 +90,8 @@ def decode_frame(data: bytes, *,
         )
     if len(data) < length_struct.size:
         raise FramingError(
-            f"need {length_struct.size} bytes for the length prefix, "
-            f"have {len(data)}"
+            f"need {length_struct.size} bytes "
+            f"for the length prefix, have {len(data)}"
         )
     (length,) = length_struct.unpack(data[:length_struct.size])
     frame_end = length_struct.size + length
@@ -134,8 +134,8 @@ class FrameAssembler:
 
 
 # ---------------------------------------------------------------------------
-# 2. NasdHeader -- THE UNKNOWN. Everything below is a CANDIDATE, not
-#    fact.
+# 2. NasdHeader -- THE UNKNOWN.
+#    Everything below is a CANDIDATE, not fact.
 # ---------------------------------------------------------------------------
 
 
@@ -221,8 +221,9 @@ class NasdHeader:
 
     @classmethod
     def parse_candidate_a(cls, header_bytes: bytes) -> Tuple[bytes, int]:
-        """Inverse of candidate_a_signature_then_length. Returns
-        (signature, payload_length)."""
+        """Inverse of candidate_a_signature_then_length.
+        Returns (signature, payload_length).
+        """
         if len(header_bytes) < 12:
             raise FramingError(
                 "candidate A header is 12 bytes (8 signature + 4 length)"
@@ -233,8 +234,9 @@ class NasdHeader:
 
     @classmethod
     def parse_candidate_b(cls, header_bytes: bytes) -> Tuple[bytes, int]:
-        """Inverse of candidate_b_length_then_signature. Returns
-        (signature, payload_length)."""
+        """Inverse of candidate_b_length_then_signature.
+        Returns (signature, payload_length).
+        """
         if len(header_bytes) < 12:
             raise FramingError(
                 "candidate B header is 12 bytes (4 length + 8 signature)"

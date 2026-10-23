@@ -145,10 +145,11 @@ def show_container_info(args) -> int:
     for section in metadata["sections"]:
         print("   ", section)
         covered += section.size
+    coverage = ("complete" if covered == metadata["payload_size"]
+                else "INCOMPLETE")
     print(
         f"\n  {covered:,} of {metadata['payload_size']:,} payload bytes "
-        f"accounted for"
-        f" ({'complete' if covered == metadata['payload_size'] else 'INCOMPLETE'})"  # noqa: E501
+        f"accounted for ({coverage})"
     )
 
     for section in metadata["sections"]:
@@ -244,8 +245,8 @@ def rebuild_rootfs(args) -> int:
     with open(args.file, "rb") as image_file:
         image = image_file.read()
     if image[:2] != b"\x85\x19":
-        print("warning: this does not start with the JFFS2 magic; "
-              "trying anyway", file=sys.stderr)
+        print("warning: this does not start "
+              "with the JFFS2 magic; trying anyway", file=sys.stderr)
 
     dirents = collections.defaultdict(list)
     fragments = collections.defaultdict(list)

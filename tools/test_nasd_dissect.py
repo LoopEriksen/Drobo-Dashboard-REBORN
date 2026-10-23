@@ -66,8 +66,8 @@ def check(condition: bool, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Build the KNOWN framing: signature + 4-byte BE length + XML, per
-# frame.
+# Build the KNOWN framing:
+# signature + 4-byte BE length + XML, per frame.
 # ---------------------------------------------------------------------------
 def build_known_stream() -> bytes:
     stream = bytearray()
@@ -227,8 +227,8 @@ def run_against(path: str, label: str) -> None:
     check(login["signature_offset"] == 0,
           f"{label}: signature located at offset 0")
     check(login["pad"] == 0,
-          f"{label}: length field placed immediately after the signature "
-          "(no padding)")
+          f"{label}: length field placed immediately after "
+          "the signature (no padding)")
     check(login["length_size"] == 4,
           f"{label}: length field recovered as 4 bytes")
     check(login["endian"] == ">",
@@ -241,8 +241,7 @@ def run_against(path: str, label: str) -> None:
     remainder = client_bytes[login["frame_end_absolute"]:]
     command_framing = nasd_dissect.infer_command_frames(remainder)
     check(command_framing is not None,
-          f"{label}: command-frame region after the login frame "
-          "was decoded")
+          f"{label}: command-frame region after the login frame was decoded")
     if command_framing is None:
         return
     check(command_framing["signature"] == nasd_dissect.SIGNATURE_DRINASD4,

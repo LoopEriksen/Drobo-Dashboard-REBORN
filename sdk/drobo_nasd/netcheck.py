@@ -71,8 +71,9 @@ _HEX_NETMASK_RE = re.compile(r"\b0x([0-9a-fA-F]{8})\b")
 
 @dataclass(frozen=True)
 class Interface:
-    """One IPv4 address this machine holds, and how wide its network
-    is."""
+    """One IPv4 address this machine holds,
+    and how wide its network is.
+    """
 
     address: str
     prefix_length: int
@@ -93,8 +94,9 @@ class Interface:
 
 @dataclass(frozen=True)
 class Diagnosis:
-    """What we can say about `target` from where this machine is
-    standing."""
+    """What we can say about `target`
+    from where this machine is standing.
+    """
 
     target: str
     interfaces: tuple[Interface, ...]
@@ -116,7 +118,8 @@ class Diagnosis:
     @property
     def message(self) -> str:
         """Everything, in one string, for a caller with only one field
-        to fill."""
+        to fill.
+        """
         return " ".join(
             p for p in (self.headline, self.detail, self.caveat) if p
         )

@@ -97,8 +97,9 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
 
 
 def send_identify(**identify_options):
-    """One identify against a throwaway fake device; returns (result,
-    bytes)."""
+    """One identify against a throwaway fake device;
+    returns (result, bytes).
+    """
     ports = []
     received_frames = fake_device(config_cmd.TYPE_RESULT, b"", ports)
     result = identify.identify(

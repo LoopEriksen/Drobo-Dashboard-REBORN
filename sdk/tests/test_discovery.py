@@ -1,6 +1,6 @@
 """
-Offline tests for finding the Drobo without a static IP
-(drobo_nasd/discovery.py).
+Offline tests for finding the Drobo
+without a static IP (drobo_nasd/discovery.py).
 
 Everything here runs without a LAN or a real device: mDNS packets are
 built by hand, and "the Drobo" for identity-verification tests is a
@@ -492,8 +492,8 @@ subprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(
 try:
     arp_text = discovery._read_arp_table_text(timeout=0.5)
     check(
-        "no 'arp' binary on PATH does not raise (Windows path degrades to "
-        "None)",
+        "no 'arp' binary on PATH does not raise "
+        "(Windows path degrades to None)",
         arp_text is None or isinstance(arp_text, str),
     )
 finally:
@@ -520,14 +520,14 @@ try:
                 expected_mac="11:22:33:44:55:66",
             )
             check(
-                "MAC mismatch raises IdentityMismatchError even though esa_id "
-                "matched",
+                "MAC mismatch raises IdentityMismatchError "
+                "even though esa_id matched",
                 False,
             )
         except discovery.IdentityMismatchError as exc:
             check(
-                "MAC mismatch raises IdentityMismatchError even though esa_id "
-                "matched",
+                "MAC mismatch raises IdentityMismatchError "
+                "even though esa_id matched",
                 True,
             )
             check(
@@ -556,8 +556,8 @@ try:
             check("expected_mac set but MAC unknown still confirms esa_id",
                   verified.first_run is False)
             check(
-                "expected_mac set but MAC unknown emits a warning, not "
-                "silence",
+                "expected_mac set but MAC unknown "
+                "emits a warning, not silence",
                 any("MAC" in str(w.message) for w in caught_warnings),
                 [str(w.message) for w in caught_warnings],
             )
@@ -566,8 +566,8 @@ finally:
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== address sanity: link-local ranks last even when higher-priority "
-    "source =="
+    "\n== address sanity: link-local ranks last "
+    "even when higher-priority source =="
 )
 # ---------------------------------------------------------------------------
 
@@ -587,8 +587,8 @@ try:
         hostname="", last_known_ip="10.0.0.50",
         try_sweep=False, mdns_timeout=0.1)
     check(
-        "routable address is ranked before link-local, despite lower source "
-        "priority",
+        "routable address is ranked before link-local, "
+        "despite lower source priority",
         [c.host for c in ranked_candidates] == ["10.0.0.50", "169.254.7.77"],
         [c.host for c in ranked_candidates],
     )
@@ -664,8 +664,8 @@ try:
                 "resolve() refuses an out-of-subnet candidate end-to-end", True
             )
             check(
-                "subnet-refusal message names the allowed range and the "
-                "offending host",
+                "subnet-refusal message names the allowed range "
+                "and the offending host",
                 "10.0.0.0/24" in str(exc) and host in str(exc),
                 str(exc),
             )

@@ -317,7 +317,7 @@ released. Every push to this repository carries this file.
     tap); among them `nasd_dissect.py`'s `SIG4` / `SIG` ->
     `SIGNATURE_DRINASD4` / `SIGNATURE_DRINASD` and `TCP_PORT` ->
     `DEFAULT_STATUS_PORT`, `fwtool.py`'s `J_*` / `C_*` / `DTYPE` ->
-    the `JFFS2_*` names `linux/jffs2.h` uses and `DIRENT_TYPE_NAMES`,
+    the `JFFS2_*` names, after `linux/jffs2.h`, and `DIRENT_TYPE_NAMES`,
     and `drobo_probe.py`'s mDNS helpers, which take the SDK's names
     (`_encode_dns_name`, `_decode_dns_name`, `_build_mdns_query`,
     `MDNS_MULTICAST_ADDRESS`); every option, `--help` text and printed
@@ -377,6 +377,24 @@ released. Every push to this repository carries this file.
   - The repository's own scripts and the icon generator
     (`scripts/check_versions.py`, `scripts/scan_for_pii.py`,
     `windows/DroboDashboardReborn/Assets/generate_icon.py`)
+  - A tidy-up of what the reflow left behind, across the SDK, the
+    agent, the tools, the scripts and their tests: `#:` comment blocks
+    are one block again, every line starting `#:`; a docstring the
+    reflow wrapped onto a second line closes on its own line; a
+    two-line comment or docstring paragraph no longer ends in a
+    one-word line; split strings break between phrases instead of
+    leaving a word or two on a line of its own; a comment explaining a
+    `# noqa` is an ordinary comment above it; section rules are one
+    line again, with shorter dash runs; and the last few lines that
+    only fitted behind a `# noqa: E501` or wrapped awkwardly work their
+    value out in a local first. `eCmd` names the earlier renames missed
+    in two tools and a test are called `command_name`, and
+    `tools/access_codes.py`'s `read_share_access_codes` docstring now
+    gives the dictionary's real key shape, a tab-joined `"share\tuser"`
+    string. Messages, labels and printed text are unchanged; four
+    programs' `--help` descriptions (`run_agent.py`, `nasd_dissect.py`,
+    `nasd_sweep.py`, `sweep_remainder.py`) re-wrap a line differently,
+    with the same words
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

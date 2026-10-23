@@ -61,8 +61,9 @@ PLAUSIBLE_TEMPERATURE_RANGE_C = (1, 95)
 
 
 class SysInfoError(ConfigError):
-    """The device would not, or could not, report its system
-    information."""
+    """The device would not, or could not,
+    report its system information.
+    """
 
 
 def _inner_document(
@@ -106,7 +107,8 @@ def _inner_document(
 def _child_int_or_none(element: ElementTree.Element | None,
                        tag: str) -> int | None:
     """A missing field and a field we can't read both mean 'no answer',
-    not 0."""
+    not 0.
+    """
     if element is None:
         return None
     child = element.find(tag)
@@ -120,8 +122,8 @@ def _child_int_or_none(element: ElementTree.Element | None,
 
 def parse_sysinfo(payload: bytes) -> dict:
     """
-    Turn an eCmdGetSysInfo result into {'temperature_c',
-    'uptime_seconds'}.
+    Turn an eCmdGetSysInfo result
+    into {'temperature_c', 'uptime_seconds'}.
 
     Separate from the socket work so it is testable with no device
     present. Either value may be None -- the device answering but
@@ -181,8 +183,8 @@ def parse_performance(payload: bytes) -> dict:
     document. These were briefly modelled as bytes/second, which a
     measurement then disproved.
 
-    Measured 2026-07-26, reading files off the array over SMB while
-    polling:
+    Measured 2026-07-26,
+    reading files off the array over SMB while polling:
 
         idle                    read 0    iops 2
         under sustained load    read 10   iops 21
@@ -228,8 +230,8 @@ def parse_performance(payload: bytes) -> dict:
 
     def non_negative(tag: str) -> int | None:
         value = _child_int_or_none(performance_element, tag)
-        # A negative rate is meaningless; report nothing rather than
-        # nonsense.
+        # A negative rate is meaningless;
+        # report nothing rather than nonsense.
         return None if value is None or value < 0 else value
 
     return {
@@ -241,8 +243,9 @@ def parse_performance(payload: bytes) -> dict:
 
 
 def _command_frame(command_name: str, esa_id: str) -> bytes:
-    """Build one command frame, resolving the id by NAME and refusing
-    writes."""
+    """Build one command frame,
+    resolving the id by NAME and refusing writes.
+    """
     if command_name in _commands.DO_NOT_SEND:
         raise SysInfoError(f"{command_name} is on the do-not-send list")
     command_id = _commands.COMMANDS.get(command_name)
@@ -255,8 +258,9 @@ def _command_frame(command_name: str, esa_id: str) -> bytes:
 
 
 def _send_and_read_result(sock, command_name: str, esa_id: str) -> bytes:
-    """Send one command on an already-logged-in socket and return its
-    body."""
+    """Send one command on an already-logged-in socket
+    and return its body.
+    """
     sock.sendall(_command_frame(command_name, esa_id))
     frame_type, body = _read_frame(sock)
     if frame_type != TYPE_RESULT:
@@ -294,8 +298,8 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
                                 port: int = DEFAULT_PORT,
                                 timeout: float = 8.0) -> dict:
     """
-    Both readings over ONE connection: temperature, uptime and
-    throughput.
+    Both readings over ONE connection:
+    temperature, uptime and throughput.
 
     Deliberately not two calls. This device gets tired: after roughly
     ninety command-port connections in an hour it stopped answering

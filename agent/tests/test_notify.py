@@ -130,12 +130,10 @@ check(
     len(email_backends) == 1,
     [member.name for member in notifier_group.members],
 )
+two_recipients = notify.build(email_config(to="a@x.invalid, b@x.invalid"))
 check(
     "a comma-separated recipient list is split",
-    notify.build(email_config(to="a@x.invalid, b@x.invalid"))
-    .members[0]
-    .recipients
-    == ["a@x.invalid", "b@x.invalid"],
+    two_recipients.members[0].recipients == ["a@x.invalid", "b@x.invalid"],
 )
 check(
     "a single recipient still works",
@@ -213,8 +211,8 @@ try:
     check("-- and the error TYPE, which is the useful half",
           raised is not None and "RuntimeError" in str(raised), str(raised))
 
-    # A failing backend must not stop the others -- NotifierGroup's
-    # contract.
+    # A failing backend must not stop the others --
+    # NotifierGroup's contract.
     captured_stdout = io.StringIO()
     with contextlib.redirect_stdout(captured_stdout):
         notify.build(

@@ -42,8 +42,8 @@ def check(label, condition, failure_detail=""):
 
 def framed_command(command_id: int, params_inner: str = "") -> bytes:
     """
-    One command document, in the shape a real Drobo Dashboard actually
-    sends.
+    One command document,
+    in the shape a real Drobo Dashboard actually sends.
 
     CORRECTED 2026-08-05 against a live capture, and the correction
     matters more than the code change it accompanies. This builder used

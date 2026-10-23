@@ -6,8 +6,8 @@ deliberate design, cannot reach the network. This module is the
 counterpart that does: it performs the change SURGICALLY on the device's
 own live XML and sends it through config_cmd.set_config_raw.
 
-Three writes live here, each mirroring a capture of the original
-Dashboard:
+Three writes live here,
+each mirroring a capture of the original Dashboard:
 
   * set_share_user_access / revoke_share_user -- one user's access code
     on one share (captured 2026-08-05, VERIFIED on hardware 2026-08-12).
@@ -101,8 +101,9 @@ class ShareWriteOutcomeUnknownError(ShareEditError):
 
 
 class _NoChangeNeeded(Exception):
-    """Internal signal: the row already holds the requested code; skip
-    the send."""
+    """Internal signal: the row already holds the requested code;
+    skip the send.
+    """
 
 
 def _resolve_share(share_config: ElementTree.Element,
@@ -141,8 +142,9 @@ def _resolve_share(share_config: ElementTree.Element,
 
 
 def _assert_well_formed(share: ElementTree.Element, share_name: str) -> None:
-    """Refuse a share whose structure this module cannot edit
-    unambiguously."""
+    """Refuse a share whose structure this module cannot
+    edit unambiguously.
+    """
     name_elements = share.findall("ShareName")
     if len(name_elements) != 1:
         raise ShareEditError(
@@ -159,8 +161,9 @@ def _assert_well_formed(share: ElementTree.Element, share_name: str) -> None:
 
 def _share_elements(
         share_config: ElementTree.Element) -> list[ElementTree.Element]:
-    """Every <Share> element under <Shares>, whatever nesting the device
-    used."""
+    """Every <Share> element under <Shares>,
+    whatever nesting the device used.
+    """
     shares_container = share_config.find("Shares")
     if shares_container is None:
         return []
@@ -168,8 +171,9 @@ def _share_elements(
 
 
 def _allowed_codes(share_config: ElementTree.Element) -> set[str]:
-    """0, every confirmed code, and every code already present on the
-    device."""
+    """0, every confirmed code,
+    and every code already present on the device.
+    """
     allowed_codes = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
     for access_element in share_config.iter("ShareUserAccess"):
         code = (access_element.text or "").strip()
@@ -183,8 +187,8 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
                           port: int = config_cmd.DEFAULT_PORT,
                           timeout: float = 10.0, verify: bool = True) -> dict:
     """
-    Set one user's access on one share, changing nothing else, and send
-    it.
+    Set one user's access on one share, changing nothing else,
+    and send it.
 
     `access_code` must be "0", a CONFIRMED code, or a code already on
     the device (see the module docstring). If `username` already has an
@@ -371,8 +375,8 @@ def revoke_share_user(host: str, esa_id: str, share_name: str,
                       username: str, port: int = config_cmd.DEFAULT_PORT,
                       timeout: float = 10.0, verify: bool = True) -> dict:
     """
-    Take a user's access away by setting code 0. Reversible: set it
-    back.
+    Take a user's access away by setting code 0.
+    Reversible: set it back.
 
     Code 0 most likely means no access, but that meaning is NOT
     confirmed (shares.CONFIRMED_ACCESS_CODES holds only 1); every share
@@ -732,8 +736,9 @@ def _child_text(element: ElementTree.Element, tag: str) -> str:
 
 def _read_back_share_names(host: str, esa_id: str, port: int,
                            timeout: float) -> list[str]:
-    """Re-read the share config and return the share names it now
-    lists."""
+    """Re-read the share config
+    and return the share names it now lists.
+    """
     from .shares import summarize
     shares_section = config_cmd.get_config(host, esa_id, _SHARES_SECTION,
                                            port=port, timeout=timeout)

@@ -179,9 +179,8 @@ class Candidate:
     port: int = esatm.DEFAULT_PORT
     # How it was found. _gather_candidates() gives "manual" (an address
     # a person typed), "mdns", "hostname", "last-known" or "sweep"; the
-    # agent's /api/discover adds "in-use", for the address it is
-    # already monitoring, and sends the value to front-ends as
-    # "found_by".
+    # agent's /api/discover adds "in-use", for the address it is already
+    # monitoring, and sends the value to front-ends as "found_by".
     source: str = ""
 
 
@@ -257,8 +256,9 @@ def _is_link_local(host: str) -> bool:
 def resolve_hostname(
     hostname: str, port: int = esatm.DEFAULT_PORT
 ) -> Candidate | None:
-    """b) Resolve a known name, e.g. 'MyDrobo.local', via the OS
-    resolver."""
+    """b) Resolve a known name, e.g. 'MyDrobo.local',
+    via the OS resolver.
+    """
     if not hostname:
         return None
     try:
@@ -402,8 +402,9 @@ def _read_arp_table_text(timeout: float = 2.0) -> str | None:
 
 
 def mac_for_ip(ip: str, timeout: float = 2.0) -> str | None:
-    """Best-effort MAC for `ip` from the local ARP table, or None if
-    unknown."""
+    """Best-effort MAC for `ip` from the local ARP table,
+    or None if unknown.
+    """
     text = _read_arp_table_text(timeout)
     if text is None:
         return None
@@ -507,8 +508,8 @@ def verify_candidate(
     timeout: float = 5.0,
 ) -> VerificationResult:
     """
-    Connect to `candidate`, read its unprompted greeting, and check
-    identity.
+    Connect to `candidate`, read its unprompted greeting,
+    and check identity.
 
       - expected_esa_id set and it MATCHES    -> VerificationResult
         (first_run=False)
@@ -530,8 +531,8 @@ def verify_candidate(
         VerificationResult (for the caller to pin next time) but never
         checked.
 
-    Only ever reads the greeting nasd pushes on connect -- no command is
-    sent.
+    Only ever reads the greeting nasd pushes on connect --
+    no command is sent.
     """
     payload = esatm.fetch_greeting(candidate.host, candidate.port, timeout)
     identity = esatm.parse_identity(payload)

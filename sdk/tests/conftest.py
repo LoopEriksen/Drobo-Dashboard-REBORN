@@ -1,5 +1,6 @@
-"""Let the suites import drobo_nasd when run straight from this
-directory."""
+"""Let the suites import drobo_nasd when run straight
+from this directory.
+"""
 import os
 import sys
 

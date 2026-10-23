@@ -189,8 +189,7 @@ SPINDOWN_UNIT_NOTE = (
     "both consistent with what has been captured -- so it is shown exactly "
     "as stored rather than converted into a unit we would be guessing at.")
 
-# --- how a configuration write can end
-# ---------------------------------------
+# --- how a configuration write can end --------------------------------
 # Four outcomes, named once here and reported in every write answer as
 # "outcome", so the agent, both UIs and the tests share one vocabulary
 # instead of each reading English prose to work out what happened.
@@ -298,8 +297,8 @@ def _write_outcome(result) -> tuple[str, bool]:
 
 def _identify_message(interval, simulated: bool = False) -> str:
     """
-    What to tell the user after an Identify, given what was actually
-    sent.
+    What to tell the user after an Identify,
+    given what was actually sent.
 
     Three outcomes, and one honesty problem. Identify is a MODE, not a
     pulse: Drobo Dashboard's own warning says the lights blink
@@ -339,8 +338,8 @@ def _identify_message(interval, simulated: bool = False) -> str:
 def _app_action_message(name: str, action: str, read_back: dict | None,
                         simulated: bool = False) -> str:
     """
-    What to tell the user after a DroboApp Start/Stop, given the
-    re-read.
+    What to tell the user after a DroboApp Start/Stop,
+    given the re-read.
 
     The device ACCEPTS the action before the service has finished
     changing state -- the SDK deliberately skips read-back verification
@@ -410,8 +409,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     photo_store = None
     token = ""
 
-    # -- plumbing
-    # ----------------------------------------------------------
+    # -- plumbing ------------------------------------------------------
 
     #: A token supplied in the URL, in any of the forms a request line
     #: can carry one. Scrubbed before anything is printed: see
@@ -543,8 +541,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 f"body of {length} bytes exceeds the {limit} byte limit")
         return self.rfile.read(length)
 
-    # -- routing
-    # -----------------------------------------------------------
+    # -- routing -------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - required name
         parsed = urllib.parse.urlparse(self.path)
@@ -663,9 +660,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # would hammer whatever host ends up serving the manifest.
             with _ApiRequestHandler._update_lock:
                 cached = _ApiRequestHandler._update_cache
+                updates_config = self.monitor.config.get("updates", {})
                 cache_seconds = float(
-                    self.monitor.config.get("updates", {})
-                    .get("check_seconds", 86400))
+                    updates_config.get("check_seconds", 86400))
                 if cached and time.time() - cached[0] < cache_seconds:
                     return self._send_json(cached[1])
                 status = updates.check(
@@ -911,8 +908,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_json(
                     {"error": "Refusing to start without \"confirm\": true. "
                               "Call /api/backup/plan first and show the "
-                              "user what it says -- especially the mirror "
-                              "warning."}, 400)
+                              "user what it says -- especially the "
+                              "mirror warning."}, 400)
             try:
                 job = _BACKUP_RUNNER.start(source, destination, mirror)
             except backup.BackupError as exc:
@@ -946,7 +943,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     "This is a test. If you are reading it, alerts about "
                     "your Drobo will reach you here.",
                     "info")
-            # noqa: BLE001 - already sanitised by EmailNotifier
+            # Already sanitised by EmailNotifier.
             except Exception as exc:  # noqa: BLE001
                 return self._send_json({"error": str(exc)}, 502)
             return self._send_json(
@@ -1008,8 +1005,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                     {"error": "X-Offset must be an integer"}, 400)
             if offset < 0:
                 return self._send_json(
-                    {"error": "X-Upload-Id and X-Offset headers are "
-                              "required"}, 400)
+                    {"error": "X-Upload-Id and X-Offset "
+                              "headers are required"}, 400)
             try:
                 chunk = self._read_body(MAX_UPLOAD_CHUNK_BYTES)
             except ValueError as exc:
@@ -1094,8 +1091,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, **result,
                                     "message": _identify_message(interval)})
 
-        # --- device configuration WRITES
-        # ---------------------------------
+        # --- device configuration WRITES ------------------------------
         # Together with /api/identify above and /api/droboapps/action
         # below, the only endpoints that change anything on the Drobo.
         # Brightness, spin-down and share permissions wrap SDK writes
@@ -1214,11 +1210,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
         return self._send_json({"error": "not found", "path": path}, 404)
 
-    # -- handlers
-    # ----------------------------------------------------------
+    # -- handlers ------------------------------------------------------
 
-    # -- configuration writes
-    # ---------------------------------------------
+    # -- configuration writes ------------------------------------------
 
     def _config_write(self, parse, perform, simulate, describe):
         """
@@ -1686,8 +1680,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         doesn't cross a subnet boundary any more than TCP does -- so
         both screens deserve the same answer.
 
-        `host` defaults to whatever the agent's own driver is trying to
-        reach.
+        `host` defaults to whatever the agent's own driver is trying
+        to reach.
 
         Purely local: it reads this machine's interface list and does
         arithmetic. Nothing is connected to, so an arbitrary `host`
@@ -1808,8 +1802,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                         candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
                 except (OSError, discovery.IdentityMismatchError,
                         esatm.FrameError):
-                    # answered badly or not at all; not a Drobo we can
-                    # use
+                    # answered badly or not at all;
+                    # not a Drobo we can use
                     continue
                 identity = verified_candidate.identity
                 found.append({
@@ -1986,8 +1980,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def _mock_sign_in(self) -> None:
         """
-        Check a share login against the simulated Drobo
-        (MockDriver.check_sign_in).
+        Check a share login
+        against the simulated Drobo (MockDriver.check_sign_in).
 
         The Windows app sends its Connect dialog here, instead of to
         Windows, only when the agent is running the mock driver. Refused
@@ -2065,8 +2059,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         try:
-            # Send the current state immediately so a new client isn't
-            # blank.
+            # Send the current state immediately
+            # so a new client isn't blank.
             self._send_server_sent_event(
                 {"type": "snapshot", "data": self.monitor.snapshot_dict()})
             while True:
@@ -2083,8 +2077,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     def _send_server_sent_event(self, payload: dict) -> None:
         body = json.dumps(payload)
         self.wfile.write(
-            f"event: {payload.get('type', 'message')}\ndata: {body}\n\n"
-            .encode())
+            (f"event: {payload.get('type', 'message')}\n"
+             f"data: {body}\n\n").encode())
         self.wfile.flush()
 
 

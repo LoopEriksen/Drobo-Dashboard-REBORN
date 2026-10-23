@@ -111,7 +111,8 @@ def _find_share_config(config: dict) -> dict:
 
 def unc_path(host: str, share_name: str) -> str:
     r"""`\\10.0.0.5\Documents` -- what Explorer,
-    `net use` and the phone all want."""
+    `net use` and the phone all want.
+    """
     return "\\\\" + host + "\\" + share_name
 
 
@@ -125,8 +126,8 @@ _USERNAME_TAGS = ("UserName", "ShareUsername", "Username", "Name")
 
 def user_accounts(config: dict) -> list[str] | None:
     """
-    The named accounts defined on the Drobo, from
-    `DRIShareConfig/UserList`.
+    The named accounts defined on the Drobo,
+    from `DRIShareConfig/UserList`.
 
     Returns [] when the device definitely has none, a list of names when
     they can be read, and **None when the list holds something this code

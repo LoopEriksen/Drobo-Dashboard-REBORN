@@ -73,8 +73,8 @@ check("a handler string is matched via the stripped command name",
 check("-- and it is the handler, not a bare name",
       markers and "::" in markers[0][1], markers)
 
-# "::" is required so an ordinary log line mentioning the verb doesn't
-# anchor.
+# "::" is required so an ordinary log line
+# mentioning the verb doesn't anchor.
 prose = build_rodata("Now going to GetPerformance for the user", "Iops")
 check("a plain log line is not mistaken for a handler",
       fw_params.find_markers(

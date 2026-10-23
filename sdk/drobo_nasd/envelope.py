@@ -135,8 +135,9 @@ def _build_container(parent: ElementTree.Element, data: dict) -> None:
 
 
 def _parse_container(element: ElementTree.Element) -> dict:
-    """Inverse of _build_container. Repeated tags collapse into a
-    list."""
+    """Inverse of _build_container.
+    Repeated tags collapse into a list.
+    """
     result: dict = {}
     for child in element:
         value: Any

@@ -64,8 +64,9 @@ _VERSION_RE = re.compile(r"^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 @dataclass(frozen=True)
 class Advisory:
-    """What we can say about a firmware version. Never an
-    instruction."""
+    """What we can say about a firmware version.
+    Never an instruction.
+    """
 
     version: str
     #: (major, minor, patch) with missing components as 0, or None if

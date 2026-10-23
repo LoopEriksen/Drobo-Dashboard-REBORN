@@ -222,8 +222,8 @@ else:
         concurrent_runner.start(source_dir, os.path.join(temp_dir, "backup3"))
         # It may legitimately have finished already on a tiny fixture.
         check(
-            "a second concurrent backup is refused (or the first had "
-            "finished)",
+            "a second concurrent backup is refused (or the "
+            "first had finished)",
             True,
         )
     except backup.BackupError as exc:

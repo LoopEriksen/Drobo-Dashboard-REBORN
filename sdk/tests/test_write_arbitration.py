@@ -138,8 +138,7 @@ def refused_port():
     return port
 
 
-# --- share fixtures, the same shapes test_sharelifecycle uses
-# ---------------
+# --- share fixtures, the same shapes test_sharelifecycle uses ---------
 
 def _pretty_printed_share(name, access_code="1"):
     return ("\n\t\t\t<Share>"
@@ -220,8 +219,8 @@ GENERAL_DOCUMENT = (
 
 
 def _recording_readback(readback_answer):
-    """A read-back that records every consultation and reports
-    `readback_answer`."""
+    """A read-back that records every consultation
+    and reports `readback_answer`."""
     readback_calls = []
 
     def readback():
@@ -306,8 +305,8 @@ check("...and does NOT read the device back", readback_calls == [],
 check("...and carries no 'verified' of its own",
       "verified" not in result, result)
 
-# A device that answers with a non-accept code still fails, on its own
-# word.
+# A device that answers with a non-accept code still fails,
+# on its own word.
 scripted_drobo = ScriptedDrobo(
     [("<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"]
 )
@@ -404,8 +403,8 @@ except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         message,
     )
 
-# With no arbiter at all the outcome is equally unknown -- never a
-# failure.
+# With no arbiter at all the outcome is equally unknown --
+# never a failure.
 scripted_drobo = ScriptedDrobo([HANGUP])
 try:
     config_cmd._send_section_document("127.0.0.1", SAMPLE_ESA_ID, "general",
@@ -448,8 +447,8 @@ check(
 
 print("\n== create_share: the write the hardware actually did this to ==")
 
-# Sent, hung up on, and the share IS there -- the measured 2026-08-25/26
-# case.
+# Sent, hung up on, and the share IS there --
+# the measured 2026-08-25/26 case.
 scripted_drobo = ScriptedDrobo(
     [_read_reply(ORIGINAL_SHARE_CONFIG), HANGUP,
      _read_reply(CONFIG_WITH_FRESH_SHARE)])
@@ -489,8 +488,8 @@ except config_cmd.ConfigWriteError as exc:
 check("...and the create was never re-sent",
       len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
 
-# Sent, hung up on, and the read-back is unreachable -- genuinely
-# unknown.
+# Sent, hung up on, and the read-back is unreachable --
+# genuinely unknown.
 scripted_drobo = ScriptedDrobo([_read_reply(ORIGINAL_SHARE_CONFIG), HANGUP])
 try:
     sharewrite.create_share("127.0.0.1", SAMPLE_ESA_ID, "Fresh",
@@ -673,14 +672,14 @@ try:
                                      "Everyone",
                                      "1", port=scripted_drobo.port, timeout=5)
     check(
-        "an accepted permission write the read-back does not show "
-        "still raises",
+        "an accepted permission write the "
+        "read-back does not show still raises",
         False,
     )
 except ShareEditError as exc:
     check(
-        "an accepted permission write the read-back does not show "
-        "still raises",
+        "an accepted permission write the "
+        "read-back does not show still raises",
         "Received, not applied" in str(exc),
         str(exc),
     )

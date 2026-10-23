@@ -175,7 +175,8 @@ def active_keys():
 
 def wait_for(predicate, timeout=6.0):
     """Poll until predicate() is truthy or the monitor has had several
-    poll cycles."""
+    poll cycles.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
@@ -306,8 +307,8 @@ http_server.shutdown()
 monitor.stop()
 
 # ---------------------------------------------------------------------------
-# Part 2: categories the API cannot inject, driven through the monitor
-# directly
+# Part 2: categories the API cannot inject,
+# driven through the monitor directly
 # ---------------------------------------------------------------------------
 print(
     "\n== the categories with no injection endpoint: temperature, capacity, "
@@ -417,8 +418,8 @@ check("...routes to 'drives'", category_for("drive-errors-1") == "drives")
 # un-notifiable.
 # ---------------------------------------------------------------------------
 print(
-    "\n== every alert key the monitor source can emit maps to a notifier "
-    "category =="
+    "\n== every alert key the monitor source can emit maps "
+    "to a notifier category =="
 )
 monitor_source = open(
     os.path.join(
@@ -428,8 +429,8 @@ monitor_source = open(
     ),
     encoding="utf-8",
 ).read()
-# Literal keys and f-string prefixes: seen["key"] and
-# seen[f"prefix-{...}"]
+# Literal keys and f-string prefixes:
+# seen["key"] and seen[f"prefix-{...}"]
 literal_keys = set(re.findall(r'seen\["([a-z0-9-]+)"\]', monitor_source))
 fstring_key_prefixes = set(re.findall(r'seen\[f"([a-z0-9-]+)\{',
                                       monitor_source))

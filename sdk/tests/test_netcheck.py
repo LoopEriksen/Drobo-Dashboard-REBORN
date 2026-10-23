@@ -1,6 +1,6 @@
 """
-Offline tests for netcheck.py -- "is this PC even on the Drobo's
-network?".
+Offline tests for netcheck.py --
+"is this PC even on the Drobo's network?".
 
 Every parser case uses REAL output shapes from the three tools involved
 (ipconfig, ip -o -4 addr, ifconfig), including a localised Windows
@@ -164,13 +164,11 @@ check("hex mask parsed", networks_in(BSD_IFCONFIG) == ["192.168.1.0/24"],
 # broadcast 192.168.1.255 sits on the same line as the address. It is
 # not a valid netmask, so it is never read as one -- and the address is
 # taken from the first token, not the last.
+addresses = [interface.address
+             for interface in netcheck.parse_interfaces(BSD_IFCONFIG)]
 check(
     "the broadcast address is not read as an interface",
-    "192.168.1.255"
-    not in [
-        interface.address
-        for interface in netcheck.parse_interfaces(BSD_IFCONFIG)
-    ],
+    "192.168.1.255" not in addresses,
 )
 
 DOTTED_IFCONFIG = (

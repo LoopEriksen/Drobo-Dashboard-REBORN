@@ -37,8 +37,9 @@ class ConsoleNotifier(Notifier):
 
 
 class NtfyNotifier(Notifier):
-    """POST to an ntfy topic. Works with ntfy.sh or a self-hosted
-    server."""
+    """POST to an ntfy topic.
+    Works with ntfy.sh or a self-hosted server.
+    """
 
     name = "ntfy"
 
@@ -169,7 +170,7 @@ class NotifierGroup(Notifier):
         for member in self.members:
             try:
                 member.send(title, message, severity)
-            # noqa: BLE001 - a broken backend must not stop the others
+            # A broken backend must not stop the others.
             except Exception as exc:  # noqa: BLE001
                 print(f"[notify] backend {member.name} failed: {exc}",
                       flush=True)
@@ -183,8 +184,8 @@ def build(notify_config: dict) -> Notifier:
         elif backend == "ntfy":
             ntfy_config = notify_config.get("ntfy", {})
             if not ntfy_config.get("topic"):
-                print("[notify] ntfy is enabled but no topic is set -- "
-                      "skipping", flush=True)
+                print("[notify] ntfy is enabled but "
+                      "no topic is set -- skipping", flush=True)
                 continue
             members.append(NtfyNotifier(ntfy_config.get("server", ""),
                                         ntfy_config["topic"]))
@@ -197,8 +198,8 @@ def build(notify_config: dict) -> Notifier:
             missing = [k for k in ("host", "to") if not email_config.get(k)]
             if missing:
                 print(f"[notify] email is enabled but {', '.join(missing)} "
-                      f"{'is' if len(missing) == 1 else 'are'} not set -- "
-                      f"skipping",
+                      f"{'is' if len(missing) == 1 else 'are'} "
+                      f"not set -- skipping",
                       flush=True)
                 continue
             recipients = email_config["to"]

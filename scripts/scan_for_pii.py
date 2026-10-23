@@ -131,8 +131,8 @@ SKIP_EXTENSIONS = {
 
 
 def load_local_patterns():
-    """User-private regexes from scripts/pii_patterns.local
-    (gitignored).
+    """User-private regexes
+    from scripts/pii_patterns.local (gitignored).
 
     This is where names live: the maintainer's real name, their Windows
     username, the real share names. They cannot be listed in a tracked
@@ -218,8 +218,8 @@ SKIP_FILES = {"scripts/scan_for_pii.py", "scripts/hooks/pre-commit",
 
 
 def tracked_files():
-    """The files git TRACKS, repo-relative; None if this is not a
-    checkout.
+    """The files git TRACKS, repo-relative;
+    None if this is not a checkout.
 
     Tracked is the default because the point of this scanner is to stop
     personal data being committed, and an untracked file cannot be
@@ -281,8 +281,8 @@ def redact(label, snippet):
         mask = "*" * max(len(local_part) - len(kept_prefix), 1)
         return f"{kept_prefix}{mask}@{domain}"
     if label == "Drobo device serial":
-        # Every unit's serial starts the same way; what follows is the
-        # unit.
+        # Every unit's serial starts the same way;
+        # what follows is the unit.
         return snippet[:3] + "*" * max(len(snippet) - 3, 1)
     if label == "Drobo MAC address":
         # The first three octets are the vendor OUI -- printing them
@@ -422,8 +422,8 @@ def main():
     hits = scan_files(BUILTIN_PATTERNS + private_patterns, allow_patterns,
                       relative_paths)
     if not hits:
-        # "Clean" is only honest when every category was actually
-        # checked.
+        # "Clean" is only honest when every category
+        # was actually checked.
         if private_pattern_notes:
             print("PII scan: no hits from the patterns that RAN -- but see "
                   "the warnings above; this is not a clean bill of health.")

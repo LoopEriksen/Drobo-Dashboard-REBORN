@@ -105,8 +105,7 @@ class NasdClient:
         self._sock: Optional[socket.socket] = None
         self.state = ConnectionState.NEW
 
-    # -- step 1: discover
-    # -----------------------------------------------------
+    # -- step 1: discover ----------------------------------------------
 
     @staticmethod
     def discover(timeout: float = 3.0) -> list:
@@ -127,8 +126,7 @@ class NasdClient:
             "accepts a host/port directly via its constructor."
         )
 
-    # -- step 2: connect
-    # --------------------------------------------------
+    # -- step 2: connect -----------------------------------------------
 
     def connect(self) -> None:
         if self.state != ConnectionState.NEW:
@@ -141,8 +139,7 @@ class NasdClient:
         )
         self.state = ConnectionState.CONNECTED
 
-    # -- step 3: session + login
-    # ------------------------------------------
+    # -- step 3: session + login ---------------------------------------
 
     def login(self, username: str = "", password: str = "") -> None:
         """
@@ -183,8 +180,7 @@ class NasdClient:
         """
         return f"{username}\x00{password}\x00".encode("utf-8")
 
-    # -- step 4: command / response
-    # ------------------------------------------
+    # -- step 4: command / response ------------------------------------
 
     def send_command(
         self, command: Union[int, str], params: Optional[dict] = None
@@ -234,8 +230,7 @@ class NasdClient:
             "has the confirmed implementation"
         )
 
-    # -- teardown
-    # -------------------------------------------------------------
+    # -- teardown ------------------------------------------------------
 
     def close(self) -> None:
         if self._sock is not None:

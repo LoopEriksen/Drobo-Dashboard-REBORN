@@ -202,8 +202,8 @@ def _read_release(manifest: dict) -> Release | None:
     unverifiable, rather than either suppressed (unhelpful) or presented
     as verified (a lie).
     """
-    # GitHub Releases: tag_name is the version, conventionally
-    # "v"-prefixed.
+    # GitHub Releases:
+    # tag_name is the version, conventionally "v"-prefixed.
     tag = str(manifest.get("tag_name") or "").strip()
     if tag:
         return Release(
@@ -358,11 +358,10 @@ def check(config: dict, current_version: str,
         assurance = ("A SHA-256 is published with it -- check the file you "
                      "download against it before running anything.")
     else:
-        assurance = ("No checksum is published with it, so there is nothing "
-                     "to check "
-                     "the download against beyond the site it came from. Get "
-                     "it from "
-                     "the official page and nowhere else.")
+        assurance = ("No checksum is published with it, so there is "
+                     "nothing to check the download against beyond the "
+                     "site it came from. Get it from the official page "
+                     "and nowhere else.")
 
     return UpdateStatus(
         STATE_AVAILABLE, current_version, latest=release,
@@ -383,8 +382,8 @@ def check(config: dict, current_version: str,
 
 def _installed_version(agent_dir: str) -> str:
     """
-    The version the installer recorded, falling back to the package's
-    own.
+    The version the installer recorded,
+    falling back to the package's own.
 
     version.txt is written at build time and is the truth for an
     installed copy. A dev checkout has no such file and falls back to

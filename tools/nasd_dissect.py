@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-nasd_dissect.py - reconstruct nasd's request framing from a packet
-capture.
+nasd_dissect.py - reconstruct nasd's request framing
+from a packet capture.
 
 Point this at a Wireshark capture of "tcp port 5000" taken while Drobo
 Dashboard talks to a real 5N, and it will:
@@ -150,8 +150,8 @@ def read_pcapng(data: bytes) -> list[tuple[float, bytes, int]]:
                 endian = "<"
             else:
                 raise ValueError(
-                    f"pcapng: bad byte-order magic {magic!r} in section "
-                    f"header block")
+                    f"pcapng: bad byte-order magic {magic!r} "
+                    f"in section header block")
             interfaces = []
         block_total_length = struct.unpack_from(endian + "I", data, pos + 4)[0]
         if block_total_length < 12 or pos + block_total_length > len(data):
@@ -233,8 +233,9 @@ def strip_link_layer(frame: bytes, linktype: int) -> Optional[bytes]:
 
 
 def parse_ip(packet: bytes):
-    """Returns (protocol, source_ip, destination_ip, payload) or
-    None."""
+    """Returns (protocol, source_ip, destination_ip, payload)
+    or None.
+    """
     if not packet:
         return None
     version = packet[0] >> 4
@@ -265,7 +266,8 @@ def parse_ip(packet: bytes):
 
 def parse_tcp(segment: bytes):
     """Returns (source_port, destination_port, sequence_number, flags,
-    data) or None."""
+    data) or None.
+    """
     if len(segment) < 20:
         return None
     source_port, destination_port = struct.unpack_from(">HH", segment, 0)
@@ -285,8 +287,8 @@ def parse_tcp(segment: bytes):
 # ---------------------------------------------------------------------------
 def collect_streams(packets: list[tuple[float, bytes, int]],
                     port: int = DEFAULT_STATUS_PORT) -> dict:
-    """Group TCP payload segments for `port` by connection and
-    direction.
+    """Group TCP payload segments for `port` by connection
+    and direction.
 
     Returns {stream_key: {"to_server": [(sequence_number, bytes), ...],
                            "to_client": [(sequence_number, bytes), ...],
@@ -484,8 +486,8 @@ def infer_command_frames(stream_bytes: bytes) -> Optional[dict]:
                             continue
                         frames, consumed = result
                         if consumed != len(stream_bytes) or not frames:
-                            # only accept configs that account for every
-                            # byte
+                            # only accept configs that account
+                            # for every byte
                             continue
                         score = len(frames) * 10
                         hypothesis = {
@@ -545,13 +547,15 @@ def _preview(payload: bytes, max_chars: int = 300) -> str:
 
 def _format_login_layout(login: dict) -> str:
     signature = login["signature"]
+    length_basis = ("includes header length" if login["includes_header"]
+                    else "payload length only")
     lines = [
         f"  offset 0{'':<10}: signature   {len(signature)} bytes  "
         f"{signature!r}",
         f"  offset {len(signature)+login['pad']}{'':<8}: length      "
         f"{login['length_size']} bytes  "
         f"{'big' if login['endian'] == '>' else 'little'}-endian uint  "
-        f"(GUESS: {'includes header length' if login['includes_header'] else 'payload length only'})",  # noqa: E501
+        f"(GUESS: {length_basis})",
         f"  offset {login['field_end']}{'':<8}: payload     "
         f"{login['frame_end']-login['field_end']} bytes  XML",
     ]
@@ -569,16 +573,18 @@ def _format_command_layout(command_framing: dict) -> str:
     else:
         lines.append("  (GUESS: no signature on command frames -- "
                      "only the login carries one)")
+    length_basis = ("includes header length"
+                    if command_framing["includes_header"]
+                    else "payload length only")
+    payload_offset = (signature_length + command_framing["pad"]
+                      + command_framing["length_size"])
     lines.append(
         f"  offset {signature_length+command_framing['pad']}{'':<8}: "
-        f"length      "
-        f"{command_framing['length_size']} bytes  "
+        f"length      {command_framing['length_size']} bytes  "
         f"{'big' if command_framing['endian'] == '>' else 'little'}"
         f"-endian uint  "
-        f"(GUESS: {'includes header length' if command_framing['includes_header'] else 'payload length only'})")  # noqa: E501
-    lines.append(f"  offset "
-                 f"{signature_length+command_framing['pad']+command_framing['length_size']}"  # noqa: E501
-                 f"{'':<8}: payload     XML")
+        f"(GUESS: {length_basis})")
+    lines.append(f"  offset {payload_offset}{'':<8}: payload     XML")
     return "\n".join(lines)
 
 
@@ -625,16 +631,16 @@ def analyse_direction(label: str, stream_bytes: bytes, report: dict,
         if command_framing is None:
             if remainder:
                 print(f"  {len(remainder)} bytes remain after the login "
-                      "frame; no consistent command-frame framing was found "
-                      "for them.")
+                      "frame; no consistent command-frame framing "
+                      "was found for them.")
             direction_report["command_frames"] = None
         else:
             print(f"\n  INFERRED command-frame header shape "
                   f"({len(command_framing['frames'])} frame(s) recovered):")
             print(_format_command_layout(command_framing))
             for i, frame in enumerate(command_framing["frames"][:3]):
-                print(f"  first decoded XML payload ({label}, command "
-                      f"frame {i}):")
+                print(f"  first decoded XML payload ({label}, "
+                      f"command frame {i}):")
                 print("    " + _preview(frame["payload"], max_preview).replace(
                     "\n", "\n    "))
             direction_report["command_frames"] = {
@@ -655,12 +661,12 @@ def analyse_direction(label: str, stream_bytes: bytes, report: dict,
 
 def print_proposed_header(report: dict, port: int) -> None:
     print("\n" + "=" * 72)
-    print("PROPOSED NasdHeader layout -- INFERRED from this capture, not "
-          "FIRMWARE")
-    print("or CONFIRMED per docs/protocol-map.md's confidence marks. Treat "
-          "as a")
-    print("lead: verify against additional captures before hard-coding "
-          "offsets.")
+    print("PROPOSED NasdHeader layout -- "
+          "INFERRED from this capture, not FIRMWARE")
+    print("or CONFIRMED per docs/protocol-map.md's confidence marks. "
+          "Treat as a")
+    print("lead: verify against additional captures "
+          "before hard-coding offsets.")
     print("=" * 72)
     found_login = False
     for label, direction_report in report.get("directions", {}).items():
@@ -674,10 +680,13 @@ def print_proposed_header(report: dict, port: int) -> None:
                                     login["endian"])
         print(f"  offset 0            : signature   {len(signature)} bytes  "
               f"b{login['signature']!r}")
+        login_length_basis = ("includes header"
+                              if login["includes_header"]
+                              else "payload length only")
         print(f"  offset {len(signature)+pad:<3}         : length      "
               f"{length_size} bytes  "
               f"{'big' if endian == '>' else 'little'}-endian uint  "
-              f"(GUESS: {'includes header' if login['includes_header'] else 'payload length only'})")  # noqa: E501
+              f"(GUESS: {login_length_basis})")
         print(f"  offset {len(signature)+pad+length_size:<3}         : "
               f"payload     XML, variable length")
         command_framing = direction_report.get("command_frames")
@@ -692,21 +701,25 @@ def print_proposed_header(report: dict, port: int) -> None:
                       f"(GUESS: signature repeats every frame)")
                 signature_length = len(command_signature)
             else:
-                print("  (GUESS: no signature -- only the login frame "
-                      "carries one)")
+                print("  (GUESS: no signature -- "
+                      "only the login frame carries one)")
                 signature_length = 0
+            command_length_basis = ("includes header"
+                                    if command_framing["includes_header"]
+                                    else "payload length only")
+            payload_offset = (signature_length + command_framing["pad"]
+                              + command_framing["length_size"])
             print(f"  offset {signature_length+command_framing['pad']:<3}"
                   f"         : length      "
                   f"{command_framing['length_size']} bytes  "
                   f"{'big' if command_framing['endian'] == '>' else 'little'}"
                   f"-endian uint  "
-                  f"(GUESS: {'includes header' if command_framing['includes_header'] else 'payload length only'})")  # noqa: E501
-            print(f"  offset "
-                  f"{signature_length+command_framing['pad']+command_framing['length_size']:<3}"  # noqa: E501
+                  f"(GUESS: {command_length_basis})")
+            print(f"  offset {payload_offset:<3}"
                   f"         : payload     XML, variable length")
     if not found_login:
-        print("\nNo signature/framing could be inferred from this capture "
-              "-- either")
+        print("\nNo signature/framing could be inferred "
+              "from this capture -- either")
         print(f"the filter matched no port-{port} traffic, or none of the "
               "header shapes")
         print("tried produced an XML-looking payload. See "
@@ -725,8 +738,8 @@ def main(argv=None) -> int:
                         help="TCP port to dissect: 5000 = status greeting, "
                         "5001 = commands (default: %(default)s)")
     parser.add_argument("--max-preview", type=int, default=400,
-                        help="max characters of each XML payload to print "
-                             "(default 400)")
+                        help="max characters of each XML payload "
+                             "to print (default 400)")
     args = parser.parse_args(argv)
 
     try:

@@ -426,8 +426,8 @@ check(
     result,
 )
 
-# Requesting 'PHOTOS' -- no exact match, two folds -> refuse, send
-# nothing.
+# Requesting 'PHOTOS' --
+# no exact match, two folds -> refuse, send nothing.
 fake_drobo = FakeDrobo(
     [_read_reply(CASE_COLLIDING_CONFIG), _accepted_reply(),
      _read_reply(CASE_COLLIDING_CONFIG)])
@@ -476,8 +476,8 @@ check(
 )
 
 print("\n== a no-op write is skipped, not sent ==")
-# Row already holds the target code -> nothing on the wire, reported as
-# unchanged.
+# Row already holds the target code -> nothing on the wire,
+# reported as unchanged.
 fake_drobo = FakeDrobo(
     [_read_reply(_compact_share_config(_compact_share("Locked", "1")))])
 result = sharewrite.set_share_user_access(

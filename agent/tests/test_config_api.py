@@ -1,6 +1,6 @@
 """
-The configuration-write routes, through HTTP, against the simulated
-driver.
+The configuration-write routes, through HTTP,
+against the simulated driver.
 
 /api/config/brightness, /api/config/spindown and /api/backup/plan had no
 API-level test at all (found by the 2026-09-01 audit): the SDK paths
@@ -164,8 +164,8 @@ try:
           (status, reply))
 
     print(
-        "\n== backup/plan: bad plans are structured errors, and a plan copies "
-        "nothing =="
+        "\n== backup/plan: bad plans are structured errors, "
+        "and a plan copies nothing =="
     )
     status, reply = call("/api/backup/plan", body=b"nope")
     check("unparseable JSON is 400", status == 400 and "error" in reply,

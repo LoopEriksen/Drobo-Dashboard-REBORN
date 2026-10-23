@@ -136,8 +136,8 @@ print(
 check("0.2.0 is newer than 0.1.0", updates.is_newer("0.2.0", "0.1.0"))
 check("0.1.0 is not newer than 0.1.0", not updates.is_newer("0.1.0", "0.1.0"))
 check("0.1.0 is not newer than 0.2.0", not updates.is_newer("0.1.0", "0.2.0"))
-# The classic: "0.10.0" < "0.9.0" as strings, and that ships a
-# downgrade.
+# The classic: "0.10.0" < "0.9.0" as strings,
+# and that ships a downgrade.
 check("0.10.0 IS newer than 0.9.0 (string compare says otherwise)",
       updates.is_newer("0.10.0", "0.9.0"))
 check(
@@ -376,8 +376,8 @@ check(
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== the Check for Updates shortcut's script runs on an isolated Python "
-    "=="
+    "\n== the Check for Updates shortcut's script runs "
+    "on an isolated Python =="
 )
 # The installer's shortcut runs agent/check_updates.py on the bundled
 # embeddable Python, whose python314._pth runs it isolated with
@@ -403,8 +403,8 @@ def _run_isolated(args, cwd):
 with tempfile.TemporaryDirectory() as _temp_dir:
     _config_path = os.path.join(_temp_dir, "config.json")
     with open(_config_path, "w", encoding="utf-8") as config_file:
-        # A token already present, so the run does not stop to generate
-        # one.
+        # A token already present,
+        # so the run does not stop to generate one.
         json.dump({"agent": {"token": secrets.token_urlsafe(24)}}, config_file)
 
     # The old way first, so this section is known to reproduce the
@@ -417,20 +417,20 @@ with tempfile.TemporaryDirectory() as _temp_dir:
             cwd=_agent_dir,
         )
         check(
-            "the old `-m drobo_agent.updates` from inside agent/ fails when "
-            "isolated",
+            "the old `-m drobo_agent.updates` "
+            "from inside agent/ fails when isolated",
             old_invocation.returncode != 0
             and "No module named" in old_invocation.stderr,
             (old_invocation.returncode, old_invocation.stderr),
         )
     else:
         print(
-            "  SKIP  the old invocation's failure needs -P (Python 3.11+) to "
-            "reproduce"
+            "  SKIP  the old invocation's failure needs -P (Python "
+            "3.11+) to reproduce"
         )
 
-    # From an unrelated folder: where it is started from must not
-    # matter.
+    # From an unrelated folder:
+    # where it is started from must not matter.
     run_by_path = _run_isolated(
         [_check_updates_script, "--config", _config_path], cwd=_temp_dir)
     check("check_updates.py, run by path from an unrelated folder, exits 0",

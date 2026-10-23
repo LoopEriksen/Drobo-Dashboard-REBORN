@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-nasd_sweep.py - measure exactly which nasd commands answer after a plain
-login.
+nasd_sweep.py - measure exactly which nasd commands answer
+after a plain login.
 
 This project used to believe (docs/protocol-map.md's now-corrected "Two
 privilege tiers" section) that a Drobo 5N's command channel (TCP 5001)
@@ -166,8 +166,9 @@ ALLOWLIST: list[str] = [
 
 
 class SweepSafetyError(Exception):
-    """The allowlist failed a safety check. Never caught -- meant to
-    abort."""
+    """The allowlist failed a safety check.
+    Never caught -- meant to abort.
+    """
 
 
 def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
@@ -178,20 +179,20 @@ def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
     having passed first.
     """
     if len(set(allowlist)) != len(allowlist):
-        duplicates = sorted({name for name in allowlist
-                             if allowlist.count(name) > 1})
+        duplicates = sorted({command_name for command_name in allowlist
+                             if allowlist.count(command_name) > 1})
         raise SweepSafetyError(
             f"ALLOWLIST has duplicate entries: {duplicates}")
 
     overlap = sorted(set(allowlist) & set(commands.DO_NOT_SEND))
     if overlap:
         raise SweepSafetyError(
-            "ALLOWLIST overlaps commands.DO_NOT_SEND -- refusing to run: "
-            f"{overlap}"
+            "ALLOWLIST overlaps commands.DO_NOT_SEND -- "
+            f"refusing to run: {overlap}"
         )
 
-    unknown = sorted(name for name in allowlist
-                     if name not in commands.COMMANDS)
+    unknown = sorted(command_name for command_name in allowlist
+                     if command_name not in commands.COMMANDS)
     if unknown:
         raise SweepSafetyError(
             f"ALLOWLIST contains names with no confirmed numeric id: {unknown}"
@@ -254,8 +255,9 @@ def _collect_tags(element: ElementTree.Element) -> set[str]:
 
 
 def _has_escaped_document(element: ElementTree.Element) -> bool:
-    """True if any element in this tree hides an escaped XML
-    document."""
+    """True if any element in this tree
+    hides an escaped XML document.
+    """
     return any(_unwrap_escaped(node) is not None for node in element.iter())
 
 

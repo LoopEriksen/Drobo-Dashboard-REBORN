@@ -161,8 +161,8 @@ check("eCmdForceSingleInitiator is refused (reads like a query, is a write)",
 check("eCmdGetNextUniqueLUNID is refused (starts with Get, but ALLOCATES)",
       commands.is_dangerous("eCmdGetNextUniqueLUNID"))
 
-# ...without the guard becoming so broad it blocks the reads we depend
-# on.
+# ...without the guard becoming so broad
+# it blocks the reads we depend on.
 print("\n== ordinary reads are still allowed ==")
 for name in ("eCmdGetConfig", "eCmdGetSysInfo", "eCmdGetSharesConfig",
              "eCmdGetFirmwareInfo", "eCmdGetVersion", "eCmdGetAdminConfig"):
@@ -355,8 +355,8 @@ check("nothing left after both frames", remainder_after_second == b"")
 print("\n== framing.py: FrameAssembler handles fragmented delivery ==")
 assembler = framing.FrameAssembler()
 whole_frame = framing.encode_frame(b"fragmented-payload")
-# split the frame into three arbitrary chunks, as a real socket.recv()
-# would
+# split the frame into three arbitrary chunks,
+# as a real socket.recv() would
 chunk_points = [3, 9]
 chunks = [
     whole_frame[: chunk_points[0]],
@@ -492,8 +492,8 @@ else:
     check("firmware read", snapshot.device.firmware.startswith("4.3.1"),
           snapshot.device.firmware)
 
-    # The device reports mSlotCountExp=6, but a 5N has five physical
-    # bays.
+    # The device reports mSlotCountExp=6,
+    # but a 5N has five physical bays.
     check("phantom 6th bay trimmed", len(snapshot.drives) == 5,
           len(snapshot.drives))
     check("bays numbered 1..5",

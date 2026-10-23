@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-test_nasd_sweep.py - offline self-test for nasd_sweep.py. No hardware
-needed.
+test_nasd_sweep.py - offline self-test for nasd_sweep.py.
+No hardware needed.
 
 Two things matter most here, because they are the two safety guarantees
 the task depends on:
@@ -53,8 +53,8 @@ def check(label: str, condition: bool, failure_detail="") -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. The allowlist safety guard -- the most important thing in this
-# file.
+# 1. The allowlist safety guard --
+# the most important thing in this file.
 # ---------------------------------------------------------------------------
 print("== allowlist safety ==")
 
@@ -63,8 +63,10 @@ check("the real ALLOWLIST is disjoint from DO_NOT_SEND",
       set(nasd_sweep.ALLOWLIST) & commands.DO_NOT_SEND)
 
 check("every ALLOWLIST name resolves to a confirmed id",
-      all(n in commands.COMMANDS for n in nasd_sweep.ALLOWLIST),
-      [n for n in nasd_sweep.ALLOWLIST if n not in commands.COMMANDS])
+      all(command_name in commands.COMMANDS
+          for command_name in nasd_sweep.ALLOWLIST),
+      [command_name for command_name in nasd_sweep.ALLOWLIST
+       if command_name not in commands.COMMANDS])
 
 check("ALLOWLIST has no duplicate names",
       len(set(nasd_sweep.ALLOWLIST)) == len(nasd_sweep.ALLOWLIST))
@@ -246,8 +248,8 @@ def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
             connection.recv(payload_length)
             connection.sendall(
                 config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
-            # Read the command, but never reply -- the client must time
-            # out.
+            # Read the command, but never reply --
+            # the client must time out.
             connection.recv(16)
             time.sleep(5)
             connection.close()
@@ -292,8 +294,8 @@ check("no command reply -> status 'timeout', phase 'command'",
       result["status"] == "timeout" and result.get("phase") == "command",
       result)
 
-# connect() to a closed port -> refused at the connect phase, not a
-# timeout.
+# connect() to a closed port -> refused at the connect phase,
+# not a timeout.
 result = nasd_sweep.send_one_command("127.0.0.1", 1, TEST_ESA_ID,
                                      commands.COMMANDS["eCmdGetVersion"],
                                      timeout=1)
@@ -321,8 +323,8 @@ def fake_drobo_login_hangs(port_holder: list) -> None:
         try:
             while True:
                 connection, _ = server.accept()
-                # Accept and go silent forever; never close, never
-                # answer.
+                # Accept and go silent forever;
+                # never close, never answer.
         except OSError:
             pass
 

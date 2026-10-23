@@ -91,8 +91,8 @@ check("no reading yet means uptime is None, not 0",
       default_driver._uptime_seconds is None)
 
 print(
-    "\n== rate limit: a second call inside the window never reaches the "
-    "device =="
+    "\n== rate limit: a second call inside the window never "
+    "reaches the device =="
 )
 calls = []
 nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
@@ -166,8 +166,8 @@ finally:
     )
 
 print(
-    "\n== last-known-good survives a device failure, with its original "
-    "timestamp =="
+    "\n== last-known-good survives a device failure, "
+    "with its original timestamp =="
 )
 calls = []
 nasd_sysinfo.get_sysinfo_and_performance = make_answering_sysinfo(
@@ -199,8 +199,8 @@ try:
         driver._temperature_c,
     )
     check(
-        "its original timestamp is kept too -- this reading really is that "
-        "old",
+        "its original timestamp is kept too -- "
+        "this reading really is that old",
         driver._temperature_read_at == good_temperature_read_at,
         (driver._temperature_read_at, good_temperature_read_at),
     )
@@ -286,8 +286,8 @@ finally:
     )
 
 print(
-    "\n== derived uptime keeps counting between reads, without re-asking the "
-    "device =="
+    "\n== derived uptime keeps counting between reads, "
+    "without re-asking the device =="
 )
 sysinfo_calls = []
 esatm_calls = []
@@ -346,14 +346,14 @@ try:
           (first_snapshot.device.uptime_seconds,
            second_snapshot.device.uptime_seconds))
     check(
-        "the underlying temperature reading is untouched (still the same "
-        "cached value)",
+        "the underlying temperature reading is untouched "
+        "(still the same cached value)",
         second_snapshot.device.temperature_c == 33,
         second_snapshot.device.temperature_c,
     )
     check(
-        "temperature_at is unchanged too -- it really is the same, aging, "
-        "reading",
+        "temperature_at is unchanged too -- "
+        "it really is the same, aging, reading",
         second_snapshot.device.temperature_at
         == first_snapshot.device.temperature_at,
         (

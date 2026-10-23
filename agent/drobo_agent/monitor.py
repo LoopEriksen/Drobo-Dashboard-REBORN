@@ -82,8 +82,7 @@ class Monitor:
         self.network_hint: dict | None = None
         self._hint_cache: tuple[str, float, dict | None] | None = None
 
-    # -- lifecycle
-    # ---------------------------------------------------------
+    # -- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
         poll_seconds = self.config["agent"]["poll_seconds"]
@@ -101,11 +100,10 @@ class Monitor:
             # serials, so exit with that instead.
             raise SystemExit(
                 f"\n[monitor] not starting: {exc}\n"
-                "If your Drobo really was replaced, change expected_esa_id in "
-                'the "drobo" block of config.json to the serial it reports '
-                '(or '
-                "remove it to pair with the next Drobo found), then start the "
-                "agent again.\n") from exc
+                "If your Drobo really was replaced, change expected_esa_id "
+                'in the "drobo" block of config.json to the serial it reports '
+                "(or remove it to pair with the next Drobo found), then "
+                "start the agent again.\n") from exc
         except drivers.DroboNotFoundError as exc:
             # Discovery ran and nothing answered. Until 2026-09-26 this
             # exited the agent, under a comment calling it "a
@@ -185,13 +183,12 @@ class Monitor:
             self.poll_once()
             self._stop_requested.wait(poll_seconds)
 
-    # -- polling
-    # -----------------------------------------------------------
+    # -- polling -------------------------------------------------------
 
     def poll_once(self) -> Snapshot:
         try:
             snapshot = self.driver.read_snapshot()
-        # noqa: BLE001 - any driver failure means "unreachable"
+        # Any driver failure means "unreachable".
         except Exception as exc:  # noqa: BLE001
             snapshot = Snapshot(
                 reachable=False, source=self.driver.name, error=str(exc))
@@ -222,8 +219,7 @@ class Monitor:
             self._dispatch(alert)
         return snapshot
 
-    # -- why we can't reach it
-    # ---------------------------------------------
+    # -- why we can't reach it -----------------------------------------
 
     def _network_hint(self) -> dict | None:
         """
@@ -272,14 +268,14 @@ class Monitor:
         self._hint_cache = (target, now, hint)
         return hint
 
-    # -- alert rules
-    # -------------------------------------------------------
+    # -- alert rules ---------------------------------------------------
 
     def _evaluate_alerts(
         self, snapshot: Snapshot, network_hint: dict | None = None
     ) -> list[Alert]:
-        """Work out which conditions hold right now. Returns newly-fired
-        alerts."""
+        """Work out which conditions hold right now.
+        Returns newly-fired alerts.
+        """
         alert_config = self.config["alerts"]
         seen: dict[str, tuple[str, str]] = {}  # key -> (severity, message)
 
@@ -332,8 +328,7 @@ class Monitor:
                     seen[f"drive-errors-{drive.bay}"] = (
                         SEVERITY_WARNING,
                         f"Drive in {where} has reported {drive.error_count} "
-                        f"error(s) "
-                        f"({drive.model or 'unknown model'}).",
+                        f"error(s) ({drive.model or 'unknown model'}).",
                     )
                 drive_temperature_c = drive.temperature_c
                 if drive_temperature_c is not None:
@@ -354,8 +349,8 @@ class Monitor:
                             f"{drive_temperature_c:.1f} C.",
                         )
 
-            # Chassis temperature, from eCmdGetSysInfo on the command
-            # port.
+            # Chassis temperature,
+            # from eCmdGetSysInfo on the command port.
             #
             # The per-drive loop above never fires on a Drobo 5N: the
             # status greeting reports mTemperature as 0 for every slot,
@@ -378,8 +373,8 @@ class Monitor:
                         f"above the "
                         f"{alert_config['temperature_critical_c']:.0f} C "
                         f"critical threshold. "
-                        "Check it has room to breathe and that the fan is "
-                        "running.",
+                        "Check it has room to breathe and "
+                        "that the fan is running.",
                     )
                 elif (chassis_temperature_c
                       >= alert_config["temperature_warning_c"]):
@@ -387,17 +382,17 @@ class Monitor:
                         SEVERITY_WARNING,
                         f"The Drobo is running warm at "
                         f"{chassis_temperature_c} C inside. "
-                        "Worth checking it has space around it and clear "
-                        "vents.",
+                        "Worth checking it has space around it "
+                        "and clear vents.",
                     )
 
             battery = snapshot.battery
             if battery.state == STATE_FAILED:
+                battery_advice = (battery.note
+                                  or "Replace it as soon as possible.")
                 seen["battery-failed"] = (
                     SEVERITY_CRITICAL,
-                    "Cache battery has failed. "
-                    f"{battery.note or 'Replace it as soon as possible.'}"
-                    .strip(),
+                    f"Cache battery has failed. {battery_advice}".strip(),
                 )
             elif battery.state == STATE_WARNING:
                 seen["battery-warning"] = (
@@ -416,11 +411,11 @@ class Monitor:
             # alerts.
             power = snapshot.power
             if power.state == STATE_FAILED:
+                power_advice = (power.note
+                                or "Check the PSU and its connection.")
                 seen["power-failed"] = (
                     SEVERITY_CRITICAL,
-                    f"Power supply has failed. "
-                    f"{power.note or 'Check the PSU and its connection.'}"
-                    .strip(),
+                    f"Power supply has failed. {power_advice}".strip(),
                 )
             elif power.state == STATE_WARNING:
                 seen["power-warning"] = (
@@ -483,8 +478,7 @@ class Monitor:
                 seen["relayout"] = (
                     SEVERITY_INFO,
                     f"Relayout count is {pack_health.relayout_count} -- "
-                    f"rebuilding, this "
-                    "is normal after a drive change.",
+                    "rebuilding, this is normal after a drive change.",
                 )
             for pack_status_field, baseline in _PACK_STATUS_BASELINE.items():
                 current = getattr(pack_health, pack_status_field)
@@ -515,8 +509,8 @@ class Monitor:
                 self.alerts[key] = alert
                 fired_alerts.append(alert)
 
-        # Anything that was active but isn't in `seen` any more has
-        # cleared.
+        # Anything that was active but isn't in `seen` any more
+        # has cleared.
         for key, alert in self.alerts.items():
             if alert.active and key not in seen:
                 alert.cleared_at = now
@@ -539,8 +533,7 @@ class Monitor:
         self.notifier.send(title, alert.message, alert.severity)
         self._broadcast({"type": "alert", "data": alert.to_dict()})
 
-    # -- live event stream (used by /api/events)
-    # ---------------------------
+    # -- live event stream (used by /api/events) -----------------------
 
     def subscribe(self) -> queue.Queue:
         subscriber_queue: queue.Queue = queue.Queue(maxsize=64)
@@ -560,12 +553,11 @@ class Monitor:
             try:
                 subscriber_queue.put_nowait(payload)
             except queue.Full:
-                # a slow client just misses updates; it can re-read
-                # /api/status
+                # a slow client just misses updates;
+                # it can re-read /api/status
                 pass
 
-    # -- read helpers used by the API
-    # --------------------------------------
+    # -- read helpers used by the API ----------------------------------
 
     def _snapshot_payload(self) -> dict:
         """
@@ -625,8 +617,9 @@ class Monitor:
             return [a.to_dict() for a in self.alerts.values()]
 
     def history_dicts(self, limit: int = 720) -> list[dict]:
-        """Trimmed history for graphing -- just the numbers, not whole
-        snapshots."""
+        """Trimmed history for graphing --
+        just the numbers, not whole snapshots.
+        """
         with self._lock:
             recent_snapshots = list(self.history)[-limit:]
         points = []

@@ -119,8 +119,8 @@ SIGNATURE_DRINASD4 = b"DRINASD4"
 SIGNATURE_DRINASD = b"DRINASD"
 
 FRAMINGS = [
-    # plain -- expected to be refused, but the manner of refusal is a
-    # clue
+    # plain -- expected to be refused,
+    # but the manner of refusal is a clue
     ("raw", lambda body: body),
     ("newline", lambda body: body + b"\n"),
     ("nul", lambda body: body + b"\0"),
@@ -158,8 +158,9 @@ def hexdump(data: bytes, limit: int = 512) -> list[str]:
 
 
 def classify_response(data: bytes) -> str | None:
-    """Score a response. Returns a description if it looks
-    meaningful."""
+    """Score a response.
+    Returns a description if it looks meaningful.
+    """
     if not data:
         return None
     if b"<Error>" in data:
@@ -286,8 +287,8 @@ def main(argv=None) -> int:
     parser.add_argument("host", help="the Drobo's IP address")
     parser.add_argument("-o", "--out", default="nasd-probe.json")
     parser.add_argument("--command", default="eCmdGetVersion",
-                        help="which safe command to probe with; one of "
-                             f"{SAFE_COMMANDS}")
+                        help="which safe command to probe with; "
+                             f"one of {SAFE_COMMANDS}")
     parser.add_argument("--listen-only", action="store_true",
                         help="connect and read, but never send anything")
     parser.add_argument("--persistent", action="store_true",

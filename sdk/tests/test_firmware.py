@@ -89,8 +89,8 @@ check("it ends on advice true regardless of firmware",
       "backups" in lowered_detail, assessment.detail)
 
 print("\n== everything else stays quiet ==")
-# A dashboard that comments on healthy firmware teaches people to ignore
-# it.
+# A dashboard that comments on healthy firmware teaches people
+# to ignore it.
 for version in ("4.2.2", "4.2.1", "4.1.0", "1.2.7", "5.0.0", "4.4.0"):
     assessment = firmware.assess(version)
     check(f"{version} says nothing",

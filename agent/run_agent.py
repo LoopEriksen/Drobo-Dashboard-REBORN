@@ -9,8 +9,8 @@ and serves all of it as JSON for the Windows and iOS apps.
     py run_agent.py --config other.json
     py run_agent.py --once   # take one reading, print it, exit
 
-Nothing here is Drobo-specific: all the hardware knowledge lives in
-drobo_agent/drivers.py.
+Nothing here is Drobo-specific:
+all the hardware knowledge lives in drobo_agent/drivers.py.
 """
 
 from __future__ import annotations
@@ -77,8 +77,8 @@ def main(argv: list[str] | None = None) -> int:
           f"once for the access token, which is in this agent's "
           f"config.json", flush=True)
     if bind_address == "0.0.0.0":
-        print("[agent] bound to all interfaces - LAN only, never "
-              "port-forward this",
+        print("[agent] bound to all interfaces - "
+              "LAN only, never port-forward this",
               flush=True)
 
     if args.open:

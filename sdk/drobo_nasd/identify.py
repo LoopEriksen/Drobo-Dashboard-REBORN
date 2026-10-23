@@ -384,8 +384,8 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
 
 def _main(argv: list[str] | None = None) -> int:
     """
-    Fire Identify at a real Drobo, so somebody can stand next to it and
-    watch.
+    Fire Identify at a real Drobo,
+    so somebody can stand next to it and watch.
 
         py -m drobo_nasd.identify <ip>
             # the default, 15
@@ -414,8 +414,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="py -m drobo_nasd.identify",
-        description=("Make a Drobo blink its front lights, and watch what "
-                     "happens."))
+        description=("Make a Drobo blink its front lights, "
+                     "and watch what happens."))
     parser.add_argument("host", help="the Drobo's address")
     parser.add_argument(
         "--interval", type=int, default=DEFAULT_INTERVAL,
@@ -465,13 +465,13 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"    sent, interval={send_result['interval']!r}"
               + (f", device replied {send_result['reply_bytes']} bytes"
                  if send_result["device_replied"]
-                 else ", device replied with nothing (normal for this "
-                      "command)"))
+                 else ", device replied with nothing "
+                      "(normal for this command)"))
         return True
 
     if args.compare:
-        print("WATCH THE DROBO. Two sends, and only the second carries an "
-              "interval.")
+        print("WATCH THE DROBO. Two sends, "
+              "and only the second carries an interval.")
         any_accepted = send_and_report(
             None, "1/2  empty <Params>  -- the old behaviour")
         # A real gap. The device has been seen to decline a second

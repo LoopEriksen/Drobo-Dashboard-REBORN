@@ -1,6 +1,6 @@
 """
-nasd command enum -- TMCmd::ECommands, transcribed from
-docs/protocol-map.md.
+nasd command enum --
+TMCmd::ECommands, transcribed from docs/protocol-map.md.
 
 Source of truth: the "Full ID table (103 commands)" in
 docs/protocol-map.md, itself recovered from a 103-entry table of `char*`
@@ -166,8 +166,8 @@ ESCAPE_HATCHES: frozenset[str] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
-# DESTRUCTIVE: anything that changes the device, its data, or its
-# firmware.
+# DESTRUCTIVE: anything that changes the device,
+# its data, or its firmware.
 #
 # Added 2026-07-26 after an audit noticed the omission. Until then
 # DO_NOT_SEND held only the six escape hatches above -- so
@@ -292,14 +292,16 @@ assert DO_NOT_SEND.isdisjoint(SAFE_WRITES), (
 
 
 def is_safe_write(name: str) -> bool:
-    """True if `name` is one of the narrow, explicitly-approved
-    writes."""
+    """True if `name` is one of the narrow,
+    explicitly-approved writes.
+    """
     return name in SAFE_WRITES
 
 
 def is_dangerous(name_or_id) -> bool:
-    """True if `name_or_id` (a command name or numeric id) is in
-    DO_NOT_SEND."""
+    """True if `name_or_id` (a command name or numeric id) is
+    in DO_NOT_SEND.
+    """
     if isinstance(name_or_id, str):
         return name_or_id in DO_NOT_SEND
     name = ID_TO_NAME.get(name_or_id)

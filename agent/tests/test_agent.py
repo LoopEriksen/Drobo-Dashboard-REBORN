@@ -318,8 +318,8 @@ with monitor._lock:
                       pack_health=PackHealth(yellow_threshold_fraction=0.3,
                                              red_threshold_fraction=0.9)))
 keys = [a.key for a in fired]
-check("device's own (lower) yellow threshold is honoured over the 0.85 "
-      "config default",
+check("device's own (lower) yellow threshold is honoured over the "
+      "0.85 config default",
       "capacity-warning" in keys, keys)
 
 print("\n== absent pack-status fields raise no false alarm ==")
@@ -888,8 +888,8 @@ try:
 finally:
     config_cmd.get_config = _original_get_config
 
-print("\n== shares/discovery: /api/discover (empty mDNS result + the 30s "
-      "cache) ==")
+print("\n== shares/discovery: /api/discover (empty mDNS result + "
+      "the 30s cache) ==")
 discover_calls = []
 
 
@@ -902,16 +902,16 @@ _original_discover_mdns = discovery.discover_mdns
 _original_verify_candidate = discovery.verify_candidate
 discovery.discover_mdns = _fake_discover_mdns_empty
 api._ApiRequestHandler._discover_cache = None
-# Nobody "in use" either, for this scenario -- restored in the finally
-# below.
+# Nobody "in use" either, for this scenario --
+# restored in the finally below.
 saved_host, saved_esa_id = (monitor.driver._resolved_host,
                             monitor.driver._known_esa_id)
 monitor.driver._resolved_host = ""
 monitor.driver._known_esa_id = ""
 try:
     status, reply = call("/api/discover")
-    check("discover 200 even with no device identified (discovery doesn't "
-          "need one)",
+    check("discover 200 even with no device identified "
+          "(discovery doesn't need one)",
           status == 200,
           (status, reply))
     # These tests drive the mock driver, and /api/discover appends the
@@ -990,8 +990,8 @@ try:
         check("it is not marked as the one already in use",
               found["is_current"] is False,
               found)
-    check("the already-in-use device is inserted even though mDNS didn't "
-          "report it",
+    check("the already-in-use device is inserted even though mDNS "
+          "didn't report it",
           any(d["host"] == SHARES_HOST and d["is_current"] for d in devices),
           devices)
 finally:
@@ -1047,8 +1047,8 @@ try:
           typed_address_entries and typed_address_entries[0]["found_by"]
           == "manual", typed_address_entries)
 
-    # A wrong digit and a network with no Drobos otherwise look
-    # identical.
+    # A wrong digit and a network with no Drobos
+    # otherwise look identical.
     discovery.verify_candidate = (
         lambda candidate, timeout=5.0, **kwargs: (_ for _ in ()).throw(
             OSError("simulated: nothing listening")))
@@ -1132,8 +1132,8 @@ try:
 finally:
     discovery.discover_mdns = _original_discover_mdns
 
-print("\n== network mismatch: 'cannot reach the Drobo' that means 'wrong "
-      "Wi-Fi' ==")
+print("\n== network mismatch: 'cannot reach the Drobo' "
+      "that means 'wrong Wi-Fi' ==")
 # The failure this exists for: the Drobo "times out" only because
 # Windows has auto-joined a different network, and the alert sends
 # someone to check on a perfectly healthy array. The protocol-level
@@ -1144,7 +1144,8 @@ print("\n== network mismatch: 'cannot reach the Drobo' that means 'wrong "
 
 class _StubDriver:
     """A driver stuck on the wrong network, and counting how often
-    it's asked."""
+    it's asked.
+    """
     name = "stub"
 
     def __init__(self, host="10.0.0.50"):
@@ -1255,8 +1256,8 @@ try:
     check("-- and its alert is left alone",
           alert_message == "Cannot reach the Drobo: timed out", alert_message)
 
-    # A Drobo we have never reached is a Drobo whose network we don't
-    # know.
+    # A Drobo we have never reached is a Drobo
+    # whose network we don't know.
     netcheck.local_interfaces = lambda timeout=3.0: list(
         _INTERFACES_ON_ANOTHER_SUBNET)
     monitor.driver = _StubDriver(host="")
@@ -1757,8 +1758,9 @@ def _must_not_reach(function_name):
 
 
 def _start_monitor(monitor_to_start):
-    """Monitor.start, returning (what it printed, what it raised or
-    None)."""
+    """Monitor.start, returning (what it printed,
+    what it raised or None).
+    """
     captured = io.StringIO()
     try:
         with contextlib.redirect_stdout(captured):
@@ -1924,12 +1926,11 @@ finally:
 # refusal -- but a readable one. It used to end in a raw traceback.
 def _resolve_stranger(*args, **kwargs):
     raise discovery.IdentityMismatchError(
-        "found device(s) on the network, but none matched the expected "
-        "Drobo:\n"
+        "found device(s) on the network, but none matched "
+        "the expected Drobo:\n"
         "  refusing 192.0.2.10:5000 -- it identifies as "
-        "esa_id='drb000000OTHER', "
-        f"not the expected {_SIMULATED_ESA_ID!r}. This is not your Drobo; "
-        "not connecting.")
+        f"esa_id='drb000000OTHER', not the expected {_SIMULATED_ESA_ID!r}. "
+        "This is not your Drobo; not connecting.")
 
 
 discovery.resolve = _resolve_stranger

@@ -57,7 +57,8 @@ def _raises(attempt, expected_error_type):
 
 def _write_result_reply(code: int) -> bytes:
     """A reply carrying a <Result> code and no details -- what a write
-    gets back."""
+    gets back.
+    """
     return (f"<TMCmd><CmdID>31</CmdID><Result>{code}</Result>"
             f"<ResultDetails/></TMCmd>").encode() + b"\x00"
 
@@ -83,16 +84,18 @@ def _general_reply(feature_states="7", spindown_delay="14", dim_level="59",
 
 
 def _dimming_reply(value) -> bytes:
-    """A read-back reply for eCmdGetDimming: a bare number in
-    <ResultDetails>."""
+    """A read-back reply for eCmdGetDimming:
+    a bare number in <ResultDetails>.
+    """
     return (
         f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>"
     ).encode() + b"\x00"
 
 
 def _apps_reply(*names) -> bytes:
-    """A eCmdGetDroboAppsStatus reply listing the given app names (all
-    stopped)."""
+    """A eCmdGetDroboAppsStatus reply listing the given app names
+    (all stopped).
+    """
     apps_xml = "".join(f"<App><Name>{n}</Name><Version>1.0</Version>"
                        f"<Stopped>1</Stopped></App>" for n in names)
     escaped_inner_xml = html.escape(
@@ -162,8 +165,8 @@ SAMPLE_ESA_ID = "drb000000SAMPLE"
 # ---------------------------------------------------------------------------
 print("== the happy path: change only Dim, keep the siblings ==")
 
-# Three connections now: read General, write, read-back to verify it
-# applied.
+# Three connections now:
+# read General, write, read-back to verify it applied.
 fake_drobo = FakeDrobo(
     [
         _general_reply(dim_level="59"),
@@ -341,8 +344,8 @@ except config_cmd.ConfigWriteError:
 
 print("\n== set_config itself: the transport guarantees ==")
 
-# build_section_document returning junk is refused before anything is
-# sent.
+# build_section_document returning junk is refused
+# before anything is sent.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
@@ -562,8 +565,8 @@ check(
 check("disable verifies BOTH fields on read-back",
       result.get("verified") is True, result)
 
-# A disable the device did not actually apply (bit still set) must
-# raise.
+# A disable the device did not actually apply
+# (bit still set) must raise.
 fake_drobo = FakeDrobo(
     [_general_reply(feature_states="7", spindown_delay="14", dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED),
@@ -577,8 +580,8 @@ except droboapps.SpindownWriteError as exc:
     check("a coerced/unapplied disable raises",
           "not applied" in str(exc), str(exc))
 
-# Its guards are the shared ones (block preservation) plus its own band
-# check.
+# Its guards are the shared ones (block preservation) plus its own
+# band check.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 check(

@@ -61,8 +61,8 @@ FAILED_BITS = 8 | 16
 #: What each bit means, for a human-readable summary.
 _BIT_MEANINGS = [
     (1, "files were copied"),
-    (2, "extra files or folders exist in the backup that are not on the "
-        "Drobo"),
+    (2, "extra files or folders exist in the backup that are not "
+        "on the Drobo"),
     (4, "some files or folders did not match"),
     (8, "SOME FILES COULD NOT BE COPIED"),
     (16, "a serious error occurred and nothing was copied"),
@@ -141,8 +141,8 @@ def _is_within(child: str, parent: str) -> bool:
 
 def check_destination(source: str, destination: str) -> list[str]:
     """
-    Reasons this destination must be refused. Empty list means it is
-    fine.
+    Reasons this destination must be refused.
+    Empty list means it is fine.
 
     Every one of these is a way to destroy data or spin forever, and
     each was worth writing down rather than discovering.
@@ -162,13 +162,13 @@ def check_destination(source: str, destination: str) -> list[str]:
     if normalised_source == normalised_destination:
         problems.append("The source and the destination are the same folder.")
 
-    # Copying a folder into itself makes robocopy walk its own output
-    # forever.
+    # Copying a folder into itself makes robocopy
+    # walk its own output forever.
     if _is_within(normalised_destination, normalised_source):
         problems.append(
-            "The destination is inside the source. Copying a folder into "
-            "itself "
-            "never finishes -- it keeps finding the copies it just made.")
+            "The destination is inside the source. Copying a folder "
+            "into itself never finishes -- it keeps finding the "
+            "copies it just made.")
 
     # The reverse is the dangerous one, and only with /MIR: mirroring
     # onto a parent of the source would delete everything in that parent
@@ -176,9 +176,9 @@ def check_destination(source: str, destination: str) -> list[str]:
     if (_is_within(normalised_source, normalised_destination)
             and normalised_source != normalised_destination):
         problems.append(
-            "The source is inside the destination. Backing up into a parent "
-            "of "
-            "the folder you are backing up is almost never what anyone means.")
+            "The source is inside the destination. Backing up into a "
+            "parent of the folder you are backing up is almost never "
+            "what anyone means.")
 
     # A drive root is where people accidentally point things, and
     # mirroring onto C:\ would try to delete Windows.
@@ -215,17 +215,16 @@ def plan(source: str, destination: str, mirror: bool = False) -> BackupPlan:
 
     if not os.path.exists(destination):
         backup_plan.warnings.append(
-            f"The destination folder does not exist yet and will be created: "
-            f"{destination}")
+            f"The destination folder does not exist yet "
+            f"and will be created: {destination}")
 
     if mirror:
         backup_plan.warnings.append(
-            "MIRROR IS ON. Anything in the backup that is no longer on the "
-            "Drobo "
-            "will be DELETED from the backup. If you delete a photo by "
-            "accident "
-            "and then run this, the backup copy goes too. Leave mirroring off "
-            "unless you specifically want the backup to forget things.")
+            "MIRROR IS ON. Anything in the backup that is no longer on "
+            "the Drobo will be DELETED from the backup. If you delete a "
+            "photo by accident and then run this, the backup copy goes "
+            "too. Leave mirroring off unless you specifically want the "
+            "backup to forget things.")
 
     backup_plan.command = _build_command(source, destination, mirror)
     return backup_plan
@@ -322,8 +321,8 @@ class BackupRunner:
         self, source: str, destination: str, mirror: bool = False
     ) -> BackupJob:
         """
-        Actually run a backup. Raises BackupError if it must not
-        proceed.
+        Actually run a backup.
+        Raises BackupError if it must not proceed.
 
         Deliberately separate from plan(): getting here requires a
         caller to have decided, explicitly, that writing is what they
@@ -368,10 +367,9 @@ class BackupRunner:
         except FileNotFoundError:
             with self._lock:
                 job.ok, job.error = False, (
-                    "robocopy was not found. It ships with Windows, so this "
-                    "usually means the backup was run on something that is "
-                    "not "
-                    "Windows.")
+                    "robocopy was not found. It ships with Windows, so "
+                    "this usually means the backup was run on something "
+                    "that is not Windows.")
                 job.summary = "Could not start."
         except OSError as exc:
             with self._lock:

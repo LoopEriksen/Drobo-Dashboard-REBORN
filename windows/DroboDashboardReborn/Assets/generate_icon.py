@@ -44,8 +44,7 @@ from functools import partial
 ICON_SIZES = [16, 32, 48, 64, 128, 256]
 SUBSAMPLES_PER_AXIS = 4  # per output pixel, for anti-aliased edges
 
-# ---- palette
-# -----------------------------------------------------------
+# ---- palette ---------------------------------------------------------
 WORDMARK_HALO = (46, 52, 61, 255)    # dark halo around the front word
 REBORN_RED = (211, 58, 46, 255)      # the REBORN stamp
 WORDMARK = (238, 242, 247, 255)      # the "drobo" lettering in front
@@ -56,8 +55,7 @@ ALERT_RED = (226, 43, 36, 255)
 ALERT_RING = (255, 255, 255, 230)
 TRANSPARENT = (0, 0, 0, 0)
 
-# ---- a tiny, original 5x7 block font, only the letters REBORN needs
-# ----
+# -- a tiny, original 5x7 block font, only the letters REBORN needs ----
 # ('1' = ink, '0' = empty; original plain geometric letterforms, not
 # traced from any existing typeface.)
 FONT_5X7 = {
@@ -110,8 +108,8 @@ def word_predicate(word: str, left: float, top: float, dot_size: float):
 
 
 def word_width(word: str, dot_size: float) -> float:
-    """Width of `word` at `dot_size` px per dot, including inter-letter
-    gaps."""
+    """Width of `word` at `dot_size` px per dot,
+    including inter-letter gaps."""
     return len(word) * 5 * dot_size + (len(word) - 1) * dot_size
 
 
@@ -164,8 +162,7 @@ def build_shapes(size: float, with_badge: bool):
     draw_lockup = size >= 48
 
     if not draw_lockup:
-        # --- small: one letter, high contrast
-        # --------------------------------
+        # --- small: one letter, high contrast -------------------------
         margin = 0.08 * size
         in_plate = partial(in_rounded_rectangle, left=margin, top=margin,
                            right=size - margin, bottom=size - margin,
@@ -183,8 +180,7 @@ def build_shapes(size: float, with_badge: bool):
         shapes.append((in_plate, REBORN_RED))
         return _add_alert_badge(shapes, size, with_badge)
 
-    # --- large: the full lockup
-    # ---------------------------------------------
+    # --- large: the full lockup ---------------------------------------
     # REBORN sits BEHIND, set wide across the icon. "drobo" sits in
     # front of it, overlapping -- not stacked underneath, which is what
     # a first pass at this produced and which just read as two separate
@@ -237,8 +233,8 @@ def build_shapes(size: float, with_badge: bool):
     ))
     shapes[-1] = (shapes[-1][0], WORDMARK_HALO)
 
-    # ...but the letter itself must win over its own halo, so insert it
-    # first.
+    # ...but the letter itself must win over its own halo,
+    # so insert it first.
     shapes.insert(0, (word_predicate(FRONT_WORD, front_left, front_top,
                                      front_dot_size), WORDMARK))
 
@@ -250,7 +246,8 @@ def build_shapes(size: float, with_badge: bool):
 
 def _add_alert_badge(shapes, size: float, with_badge: bool):
     """The critical-alert dot, sized so it signals at 16px without
-    dominating at 256."""
+    dominating at 256.
+    """
     if not with_badge:
         return shapes
     radius_fraction = 0.20 if size <= 32 else 0.15 if size <= 64 else 0.115
@@ -302,8 +299,7 @@ def render(size: int, with_badge: bool):
     return pixel_rows
 
 
-# ---- minimal PNG encoder (stdlib zlib only)
-# -----------------------------
+# ---- minimal PNG encoder (stdlib zlib only) --------------------------
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return (struct.pack(">I", len(data)) + chunk_type + data
@@ -326,8 +322,7 @@ def encode_png(pixels) -> bytes:
             + _png_chunk(b"IEND", b""))
 
 
-# ---- minimal ICO container (PNG-compressed frames, one per size)
-# --------
+# ---- minimal ICO container (PNG-compressed frames, one per size) -----
 
 def write_ico(path: str, frames) -> None:
     frame_count = len(frames)

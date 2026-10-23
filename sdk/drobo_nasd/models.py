@@ -54,8 +54,8 @@ class DriveSlot:
     # the spinning disks in hand) -- None only for bays with no disk in
     # them.
     ssd_life_remaining: int | None = None
-    # mDiskFwRev, e.g. "01.00A01". Identity, not a health signal by
-    # itself.
+    # mDiskFwRev, e.g. "01.00A01".
+    # Identity, not a health signal by itself.
     firmware_rev: str = ""
     # RotationalSpeed, raw as reported (observed 0 on one bay, 27 on
     # others of the same array). We don't know the unit or what 0 vs 27

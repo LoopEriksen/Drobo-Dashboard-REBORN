@@ -1,6 +1,6 @@
 """
-Building a modified share configuration -- WITHOUT the ability to send
-it.
+Building a modified share configuration --
+WITHOUT the ability to send it.
 
 WHY THIS MODULE CANNOT TALK TO A DROBO
 --------------------------------------
@@ -120,8 +120,8 @@ def _user_entries(share: dict) -> list:
 
 def _assert_only_shares_changed(before: dict, after: dict) -> None:
     """
-    Refuse to return a document that altered anything outside
-    DRIShareConfig.
+    Refuse to return a document
+    that altered anything outside DRIShareConfig.
 
     This is the check that makes the whole module safe to trust. The
     write command replaces everything, so a bug that silently dropped
@@ -235,8 +235,8 @@ def revoke_user(config: dict, share_name: str, username: str) -> dict:
 
 def describe_change(before: dict, after: dict) -> list[str]:
     """
-    A plain-English list of what actually differs, for a confirmation
-    prompt.
+    A plain-English list of what actually differs,
+    for a confirmation prompt.
 
     Written for someone to READ before agreeing to a write, so it names
     shares and users rather than XML paths, and reports the raw access

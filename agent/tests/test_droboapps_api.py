@@ -146,8 +146,8 @@ try:
     check("read-back after set: delay 30", reply.get("delay") == 30, reply)
 
     print(
-        "\n== POST /api/droboapps/action: Start, with the re-read as "
-        "read-back =="
+        "\n== POST /api/droboapps/action: "
+        "Start, with the re-read as read-back =="
     )
     status, reply = call("/api/droboapps", token=TOKEN)
     alpha_app_rows = [app for app in reply.get("apps", []) if app["name"]

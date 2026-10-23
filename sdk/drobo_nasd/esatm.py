@@ -124,8 +124,8 @@ def _receive_exactly(
 
 def read_frame(sock: socket.socket, deadline: float | None = None) -> bytes:
     """
-    Read one DRINASD frame and return its raw XML payload (NUL
-    included).
+    Read one DRINASD frame
+    and return its raw XML payload (NUL included).
 
     `deadline` (a time.monotonic() instant) bounds header and payload
     together; see _receive_exactly for why a socket timeout alone is not
@@ -282,8 +282,8 @@ _BAY_COUNT_BY_MODEL = {
 
 def _trim_phantom_slots(drives: list[DriveSlot], model: str) -> None:
     """
-    Drop placeholder slots the firmware reports beyond the real bay
-    count.
+    Drop placeholder slots the firmware reports beyond the real
+    bay count.
 
     Deliberately conservative: only *trailing* and only *empty* slots
     are removed. If the device ever reports a disk in a slot we didn't
@@ -298,8 +298,9 @@ def _trim_phantom_slots(drives: list[DriveSlot], model: str) -> None:
 
 
 def _parse_greeting_xml(payload: bytes) -> ElementTree.Element:
-    """Strip the frame's trailing NUL (length includes it) and parse the
-    XML."""
+    """Strip the frame's trailing NUL (length includes it)
+    and parse the XML.
+    """
     return ElementTree.fromstring(payload.rstrip(b"\x00").rstrip())
 
 
@@ -402,8 +403,8 @@ def parse_esatm(payload: bytes) -> Snapshot:
     # PackHealth's docstring for the healthy-baseline values and the
     # discipline of not inventing meanings for the opaque status codes.
     pack_health = PackHealth(
-        # Opaque codes: absent must be None, not 0 -- see
-        # _child_int_or_none.
+        # Opaque codes: absent must be None, not 0 --
+        # see _child_int_or_none.
         disk_pack_status=_child_int_or_none(root, "mDiskPackStatus"),
         dnas_status=_child_int_or_none(root, "DNASStatus"),
         device_status=_child_int_or_none(root, "mStatus"),
@@ -440,6 +441,7 @@ def parse_esatm(payload: bytes) -> Snapshot:
 def read_snapshot(
     host: str, port: int = DEFAULT_PORT, timeout: float = 8.0
 ) -> Snapshot:
-    """Connect to a real Drobo 5N and return a parsed Snapshot.
-    Read-only."""
+    """Connect to a real Drobo 5N
+    and return a parsed Snapshot. Read-only.
+    """
     return parse_esatm(fetch_greeting(host, port, timeout))

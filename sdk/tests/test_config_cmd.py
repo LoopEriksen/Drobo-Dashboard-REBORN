@@ -345,8 +345,8 @@ print("\n== a dribbling peer cannot hold the command channel open ==")
 # write left waiting on a result frame that never finishes arriving is
 # an outcome-unknown write.
 #
-# Everything below is a socketpair or 127.0.0.1: loopback only, no
-# hardware.
+# Everything below is a socketpair or 127.0.0.1:
+# loopback only, no hardware.
 
 # A well-formed header declaring the largest payload the module will
 # accept -- exactly what a peer wanting to stall would send.
@@ -361,8 +361,9 @@ ELAPSED_CEILING_SECONDS = 5.0
 
 
 def dribble(sending_socket, data, gap_seconds=0.02):
-    """Send `data` a byte at a time -- the peer a per-recv timeout can't
-    catch."""
+    """Send `data` a byte at a time --
+    the peer a per-recv timeout can't catch.
+    """
     def send_one_byte_at_a_time():
         try:
             for i in range(len(data)):
@@ -398,8 +399,8 @@ for _label, _sent_at_once, _trickled_bytes in (
     check(f"...and the dribbled {_label} read ends within its budget",
           _elapsed < ELAPSED_CEILING_SECONDS, _elapsed)
 
-# ...without the bound getting in the way of a device that simply
-# answers.
+# ...without the bound getting in the way of a device
+# that simply answers.
 reader_socket, writer_socket = socket.socketpair()
 writer_socket.sendall(
     config_cmd._build_frame(config_cmd.TYPE_RESULT, NETWORK_CONFIG_REPLY))

@@ -62,7 +62,7 @@ SNAPSHOT_DIR = os.path.join(tempfile.gettempdir(), "drobo-access-codes")
 
 
 def read_share_access_codes(host: str) -> dict:
-    """{"share\\tuser":  code} straight from the device. Read-only."""
+    """{"share\\tuser": code} straight from the device. Read-only."""
     identity = esatm.parse_identity(
         esatm.fetch_greeting(host, 5000, timeout=8))
     esa_id = identity.get("esa_id") or ""
@@ -81,9 +81,9 @@ def read_share_access_codes(host: str) -> dict:
         users = (share.get("ShareUsers") or {}).get("ShareUser") or []
         users = users if isinstance(users, list) else [users]
         for share_user in users:
-            codes[f"{name}\t"
-                  f"{(share_user.get('ShareUsername') or '').strip()}"] = \
-                str(share_user.get("ShareUserAccess", "")).strip()
+            user_name = (share_user.get("ShareUsername") or "").strip()
+            codes[f"{name}\t{user_name}"] = str(
+                share_user.get("ShareUserAccess", "")).strip()
     return codes
 
 
@@ -104,8 +104,8 @@ def main(argv=None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "step", choices=["before", "after", "show"],
-        help="'before', then change a permission in Drobo Dashboard, "
-             "then 'after'")
+        help="'before', then change a permission "
+             "in Drobo Dashboard, then 'after'")
     parser.add_argument(
         "--host", default="",
         help="Drobo address (default: from agent/config.json)")

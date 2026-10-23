@@ -1,6 +1,6 @@
 """
-A small QR encoder, so pairing is a camera scan instead of typing a
-token.
+A small QR encoder,
+so pairing is a camera scan instead of typing a token.
 
 Standard library only -- no pillow, no qrcode package. Byte mode, error
 correction level M (~15% recoverable, which is the right trade-off for
@@ -125,8 +125,8 @@ MAX_PAYLOAD_BYTES = (_data_codeword_capacity(10) * 8 - 4 - 16) // 8
 
 def _pick_version(payload_length: int) -> int:
     for version in range(1, 11):
-        # 4 bits mode + count field + payload, rounded up to whole
-        # codewords
+        # 4 bits mode + count field + payload,
+        # rounded up to whole codewords
         count_bits = 8 if version < 10 else 16
         needed_codewords = (4 + count_bits + payload_length * 8 + 7) // 8
         if needed_codewords <= _data_codeword_capacity(version):
@@ -231,10 +231,10 @@ def _new_matrix(version: int):
                 continue
             for row_offset in range(-2, 3):
                 for column_offset in range(-2, 3):
-                    module_grid[centre_row + row_offset][
-                        centre_column + column_offset
-                    ] = (1 if (max(abs(row_offset), abs(column_offset)) != 1)
-                         else 0)
+                    grid_row = module_grid[centre_row + row_offset]
+                    grid_row[centre_column + column_offset] = (
+                        1 if (max(abs(row_offset), abs(column_offset)) != 1)
+                        else 0)
 
     module_grid[size - 8][8] = 1                  # dark module
 
@@ -304,7 +304,8 @@ _MASK_PATTERNS = [
 
 def _format_bits(mask: int) -> int:
     """15-bit format info: 5 data bits, BCH(15,5) remainder, then the
-    spec XOR."""
+    spec XOR.
+    """
     value = (_LEVEL_M_INDICATOR_BITS << 3) | mask
     remainder = value << 10
     bch_generator = 0b10100110111
@@ -416,8 +417,9 @@ def matrix(text: str) -> list[list[int]]:
 
 def svg(text: str, pixels_per_module: int = 6,
         quiet_zone_modules: int = 4) -> str:
-    """Render as a self-contained SVG. currentColor so it follows the
-    theme."""
+    """Render as a self-contained SVG.
+    currentColor so it follows the theme.
+    """
     grid = matrix(text)
     size = len(grid)
     image_size = (size + quiet_zone_modules * 2) * pixels_per_module

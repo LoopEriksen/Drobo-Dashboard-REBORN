@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-check_versions.py -- one release, one number, in every file that states
-it.
+check_versions.py --
+one release, one number, in every file that states it.
 
 Run it any time from the repo root:
 
@@ -81,8 +81,9 @@ def read_repo_file(path):
 
 
 def collect_versions():
-    """{label: version-or-None}, plus a list of files that could not be
-    read."""
+    """{label: version-or-None},
+    plus a list of files that could not be read.
+    """
     found, unreadable = {}, []
     text_by_path = {}
     for label, path, pattern in VERSION_PLACES:
@@ -102,8 +103,9 @@ def collect_versions():
 
 
 def find_problems():
-    """Every disagreement, as plain sentences. Empty means the tree is
-    consistent."""
+    """Every disagreement, as plain sentences.
+    Empty means the tree is consistent.
+    """
     found, unreadable = collect_versions()
     problems = list(unreadable)
 
@@ -158,8 +160,8 @@ def main(argv=None):
         for problem in problems:
             print(f"  - {problem}")
         print("")
-        print("Fix every place listed under \"Versioning\" in "
-              "windows/README.md,")
+        print("Fix every place listed under \"Versioning\" "
+              "in windows/README.md,")
         print("then re-run. Do not guess which one is right.")
         return 1
 

@@ -1,6 +1,6 @@
 """
-End-to-end test of Identify through the agent, against the simulated
-Drobo.
+End-to-end test of Identify through the agent,
+against the simulated Drobo.
 
     py test_identify_api.py
 

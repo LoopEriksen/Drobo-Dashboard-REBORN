@@ -80,8 +80,9 @@ SWEEP_RANGE = (1, 10000)
 
 
 def local_ipv4() -> str:
-    """Best-guess local IP by asking the OS which interface reaches the
-    internet."""
+    """Best-guess local IP by asking the OS
+    which interface reaches the internet.
+    """
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         udp_socket.connect(("8.8.8.8", 53))
@@ -109,8 +110,9 @@ def is_tcp_port_open(host: str, port: int, timeout: float = 0.35) -> bool:
 
 
 def hexdump(data: bytes, limit: int = 256) -> list[str]:
-    """Classic offset / hex / ascii dump, capped so output stays
-    readable."""
+    """Classic offset / hex / ascii dump,
+    capped so output stays readable.
+    """
     lines = []
     data = data[:limit]
     for offset in range(0, len(data), 16):
@@ -215,10 +217,10 @@ def _parse_mdns_response(data: bytes) -> list[dict]:
             parts, text_position = [], 0
             while text_position < len(record_data):
                 text_length = record_data[text_position]
-                parts.append(
-                    record_data[text_position + 1:
-                                text_position + 1 + text_length]
-                    .decode("utf-8", "replace"))
+                text_start = text_position + 1
+                text_end = text_start + text_length
+                text_bytes = record_data[text_start:text_end]
+                parts.append(text_bytes.decode("utf-8", "replace"))
                 text_position += 1 + text_length
             record["value"] = " | ".join(parts)
         else:
@@ -229,8 +231,9 @@ def _parse_mdns_response(data: bytes) -> list[dict]:
 
 
 def mdns_discover(wait: float = 4.0) -> list[dict]:
-    """Enumerate service types, then ask about anything Drobo-ish we
-    see."""
+    """Enumerate service types,
+    then ask about anything Drobo-ish we see.
+    """
     queries = [
         "_services._dns-sd._udp.local",
         # Confirmed from firmware: /etc/avahi/services/nasd.service
@@ -376,8 +379,8 @@ def fingerprint_port(host: str, port: int, timeout: float = 2.5) -> dict:
 
 def print_mdns(records: list[dict]) -> None:
     if not records:
-        print("  (no mDNS replies -- see the troubleshooting notes in the "
-              "playbook)")
+        print("  (no mDNS replies -- "
+              "see the troubleshooting notes in the playbook)")
         return
     by_host: dict[str, list[dict]] = {}
     for record in records:

@@ -794,10 +794,12 @@ discovery, the agent's names other modules reach, and the conventions such
 as importing `ElementTree` under its own name), then the names local to each
 area in eight units: the SDK's write path and read side, its tests, the
 agent's core, its API, its tests, the tools and the repository's own
-scripts. The layout pass came last, area by area, two commits each: one that
-only re-wraps code, proved by an unchanged syntax tree, and one that only
-re-flows comments and docstrings, proved by an unchanged tree once docstring
-whitespace is ignored and an unchanged sequence of comment words. The style
+scripts. The layout pass came last, area by area, mostly two commits each:
+one that only re-wraps code, proved by an unchanged syntax tree, and one that
+only re-flows comments and docstrings, proved by an unchanged tree once
+docstring whitespace is ignored and an unchanged sequence of comment words.
+The last SDK unit and the seven-tool unit did both in one commit, proved the
+second way, and several areas needed a third, follow-up commit. The style
 checker's findings went from 6,273 to 0, and a `.flake8` file now holds the
 limits so a plain `flake8` run checks the same thing.
 
@@ -814,6 +816,10 @@ bringing in the held-back layout showed a reflow slip that had joined some
 docstrings' closing quotes to their last sentence. Through all of it
 nothing sent to a Drobo changed: the same suites with the same counts, and
 the same 239 frames from the 74 recorded calls on loopback, at every step.
+A last tidy-up fixed what the greedy reflow had left behind: `#:` blocks
+broken into alternating fragments, two-line comments and docstring
+paragraphs whose second line was one word, strings split with a lone word
+on a line, and section rules split in two.
 
 ## The principles that emerged
 

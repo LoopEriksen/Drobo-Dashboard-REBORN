@@ -1,6 +1,6 @@
 """
-DroboSync -- Drobo-to-Drobo replication. Read-only, and dormant by
-design.
+DroboSync -- Drobo-to-Drobo replication.
+Read-only, and dormant by design.
 
 DroboSync copied one Drobo's shares to another Drobo, on a schedule. It
 is the one feature in this project that cannot be developed normally,
@@ -85,8 +85,8 @@ class DroboSyncError(SysInfoError):
 
 def parse_sync_reply(payload: bytes) -> dict:
     """
-    Turn a DroboSync reply into a dict, without inventing what isn't
-    there.
+    Turn a DroboSync reply into a dict,
+    without inventing what isn't there.
 
     Returns a dict that ALWAYS carries:
         configured  False when the device answered empty, which is every

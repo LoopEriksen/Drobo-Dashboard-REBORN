@@ -124,23 +124,22 @@ def version_basis():
     """The simulated device's own config version -- bumped by every
     simulated write, so an unchanged value is proof nothing touched the
     (mock) device."""
-    return monitor.driver._shares["DRINASConfig"]["DRIShareConfig"][
-        "ConfigVersionBasis"
-    ]
+    share_config = monitor.driver._shares["DRINASConfig"]["DRIShareConfig"]
+    return share_config["ConfigVersionBasis"]
 
 
 driver = monitor.driver
 check("the simulated driver is the one under test",
       getattr(driver, "simulate_config", False) is True, type(driver).__name__)
 
-# /api/shares lists shares sorted by name, so expectations are sorted
-# too.
+# /api/shares lists shares sorted by name,
+# so expectations are sorted too.
 BASELINE_SHARE_NAMES = ["Documents", "Photo Library", "Private", "TimeMachine"]
 
 try:
     print(
-        "\n== baseline: /api/shares lists the simulated shares (and fills the "
-        "cache) =="
+        "\n== baseline: /api/shares lists the simulated shares (and "
+        "fills the cache) =="
     )
     status, names, reply = listed_names()
     check("shares 200", status == 200, (status, reply))
@@ -389,20 +388,14 @@ try:
     print("\n== the simulator mutates per-instance state only ==")
     call("/api/shares/create", body={"name": "Scratch"})
     fresh_driver = MockDriver({"simulate_config": True})
-    fresh_names = [
-        share["ShareName"]
-        for share in fresh_driver._shares["DRINASConfig"]["DRIShareConfig"][
-            "Shares"
-        ]["Share"]
-    ]
+    fresh_config = fresh_driver._shares["DRINASConfig"]["DRIShareConfig"]
+    fresh_names = [share["ShareName"]
+                   for share in fresh_config["Shares"]["Share"]]
     check("a fresh MockDriver has only the pristine shares",
           sorted(fresh_names) == BASELINE_SHARE_NAMES, fresh_names)
-    class_names = [
-        share["ShareName"]
-        for share in MockDriver._MOCK_SHARES["DRINASConfig"]["DRIShareConfig"][
-            "Shares"
-        ]["Share"]
-    ]
+    class_config = MockDriver._MOCK_SHARES["DRINASConfig"]["DRIShareConfig"]
+    class_names = [share["ShareName"]
+                   for share in class_config["Shares"]["Share"]]
     check("the class-level pristine table is untouched",
           sorted(class_names) == BASELINE_SHARE_NAMES, class_names)
 
@@ -588,8 +581,8 @@ try:
             "the connection without answering."))
         status, reply = call("/api/shares/create", body={"name": "SdkUnknown"})
         check(
-            "SDK: ConfigWriteOutcomeUnknownError is 502 UNKNOWN, not 502 "
-            "failed",
+            "SDK: ConfigWriteOutcomeUnknownError is 502 UNKNOWN, "
+            "not 502 failed",
             status == 502 and reply.get("outcome") == "unknown",
             (status, reply),
         )
@@ -602,10 +595,9 @@ try:
         # (d) via sharewrite's translation of the same condition.
         sdk_answers(
             sharewrite.ShareWriteOutcomeUnknownError(
-                "the write creating share 'X' WAS sent, but neither the "
-                "device's "
-                "acknowledgement nor a read-back could settle whether it "
-                "applied."
+                "the write creating share 'X' WAS sent, but neither "
+                "the device's acknowledgement nor a read-back could "
+                "settle whether it applied."
             )
         )
         status, reply = call("/api/shares/create",

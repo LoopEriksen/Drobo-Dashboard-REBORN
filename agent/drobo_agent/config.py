@@ -101,8 +101,9 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load(path: str) -> dict:
-    """Read config from disk, filling in anything missing from
-    DEFAULTS."""
+    """Read config from disk,
+    filling in anything missing from DEFAULTS.
+    """
     on_disk: dict = {}
     if os.path.exists(path):
         # utf-8-SIG, not utf-8: it reads plain UTF-8 unchanged and also
@@ -122,9 +123,8 @@ def load(path: str) -> dict:
                 raise SystemExit(
                     f"[config] {path} is not valid JSON: {exc.msg} "
                     f"(line {exc.lineno}, column {exc.colno}).\n"
-                    f"[config] Nothing was changed. Fix the file, or delete "
-                    f"it "
-                    f"to start again from defaults."
+                    f"[config] Nothing was changed. Fix the file, "
+                    f"or delete it to start again from defaults."
                 ) from None
             except UnicodeDecodeError:
                 # Not UTF-8 at all -- usually UTF-16, which Windows

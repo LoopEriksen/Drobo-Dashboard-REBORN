@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-dashboard_strings.py -- mine the ORIGINAL Dashboard client for protocol
-vocabulary.
+dashboard_strings.py --
+mine the ORIGINAL Dashboard client for protocol vocabulary.
 
 WHY THIS EXISTS, AND WHY IT SHOULD HAVE EXISTED SOONER
 -------------------------------------------------------
@@ -74,11 +74,10 @@ _UTF16_RE = re.compile(rb"(?:[\x20-\x7e]\x00){3,}")
 #: An XML tag as these binaries spell them.
 _TAG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,40}$")
 
-#: Anything that looks like a credential. Long high-entropy
-#  runs, and the field
-#: names that introduce them. Matched generously -- a false
-#  positive costs one
-#: redacted line, a false negative puts somebody's key in a commit.
+#: Anything that looks like a credential. Long high-entropy runs, and
+#: the field names that introduce them. Matched generously -- a false
+#: positive costs one redacted line, a false negative puts somebody's
+#: key in a commit.
 _CREDENTIAL_SHAPED_RE = re.compile(r"^[A-Za-z0-9+/_-]{24,}={0,2}$")
 _KEY_CONTEXT = re.compile(r"api.?key|secret|token|password|credential", re.I)
 #: A field name with its value in the same string: "x-api-key: ...",
@@ -90,7 +89,7 @@ _KEY_ASSIGNMENT = re.compile(
 _REDACTION_PLACEHOLDER = "[redacted: credential-shaped string]"
 
 #: Noise that passes the tag shape but is plainly not
-#  protocol vocabulary.
+#: protocol vocabulary.
 _NOISE_WORDS = {
     "true", "false", "null", "NULL", "None", "Error", "ERROR", "INFO", "WARN",
     "DEBUG", "Software", "Drobo", "Windows", "Microsoft", "System", "String",
@@ -146,8 +145,9 @@ def count_tags(binary_bytes: bytes) -> dict[str, int]:
 
 def strings_near(binary_bytes: bytes, anchor: str,
                  span: int = 20) -> list[str]:
-    """Strings surrounding the first occurrence of `anchor`, in its own
-    encoding."""
+    """Strings surrounding the first occurrence of `anchor`,
+    in its own encoding.
+    """
     all_strings = extract_printable_strings(binary_bytes)
     for index, (_offset, text, anchor_encoding) in enumerate(all_strings):
         if text == anchor:
@@ -239,10 +239,10 @@ def main(argv=None) -> int:
         print("\nNetwork destinations in the client:\n")
         for endpoint in find_endpoints(binary_bytes):
             print("   ", endpoint)
-        print("\nNote: Drobo's own cloud endpoints are dead -- the "
-              "company was")
-        print("liquidated in 2023. Anything depending on them cannot be "
-              "revived,")
+        print("\nNote: Drobo's own cloud endpoints are dead -- "
+              "the company was")
+        print("liquidated in 2023. Anything depending on them "
+              "cannot be revived,")
         print("only reimplemented.")
         return 0
 
@@ -267,8 +267,8 @@ def main(argv=None) -> int:
                                   key=lambda tag: (-tag_counts[tag], tag))
         print(f"\n{len(unmentioned_tags)} tag(s) the client uses that our "
               f"SDK never mentions.")
-        print("Candidates for protocol coverage -- vocabulary, NOT confirmed "
-              "nesting.\n")
+        print("Candidates for protocol coverage -- "
+              "vocabulary, NOT confirmed nesting.\n")
         for tag in unmentioned_tags[:80]:
             print(f"   {tag_counts[tag]:4}x  {tag}")
         return 0

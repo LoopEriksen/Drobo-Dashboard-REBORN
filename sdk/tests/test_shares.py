@@ -33,8 +33,8 @@ def check(label, condition, failure_detail=""):
 
 HOST = "10.0.0.5"
 
-# Two shares, each with a single ShareUser -> the conversion yields a
-# dict.
+# Two shares, each with a single ShareUser
+# -> the conversion yields a dict.
 TWO_SHARES = {"DRINASConfig": {"DRIShareConfig": {
     "ConfigVersionBasis": "14",
     "Shares": {"Share": [
@@ -367,12 +367,10 @@ check("a missing PortSpeed is not reported as a fault",
       shares.link_health({}) == {"speed_mbps": None, "duplex": "",
                                  "degraded": False, "note": ""},
       shares.link_health({}))
+health = shares.link_health({"DRINasNetworkConfig": {"PortSpeed": "auto"}})
 check(
     "a non-numeric PortSpeed doesn't crash",
-    shares.link_health({"DRINasNetworkConfig": {"PortSpeed": "auto"}})[
-        "degraded"
-    ]
-    is False,
+    health["degraded"] is False,
 )
 check(
     "PortSpeed 0 (link down) is not called degraded",

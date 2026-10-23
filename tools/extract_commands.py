@@ -71,29 +71,27 @@ except ImportError:  # pragma: no cover - only when run outside the repo
 
 _ID_TO_NAME = {v: k for k, v in COMMANDS.items()}
 
-#: The command channel. Status (5000) carries no commands
-#  worth extracting --
-#: the device just pushes its greeting there.
+#: The command channel. Status (5000) carries no commands worth
+#: extracting -- the device just pushes its greeting there.
 DEFAULT_PORT = 5001
 
-#: Same idea as config_cmd._CREDENTIAL_NAME_RE: match
-#  the FIELD NAME, not
-#: the value, so a password is redacted whatever it happens to contain.
+#: Same idea as config_cmd._CREDENTIAL_NAME_RE: match the FIELD
+#: NAME, not the value, so a password is redacted whatever it
+#: happens to contain.
 _CREDENTIAL_NAME_RE = re.compile(r"pass|pwd|secret|token|credential|key", re.I)
 _REDACTION_PLACEHOLDER = "[redacted]"
 
-#: A whole XML document, as this firmware likes to nest
-#  them: escaped text
-#: inside an element. Mistaking these for plain strings is what hid the
-#: temperature and the performance counters for weeks, so
-#  we unwrap them here
-#: too rather than printing an unreadable one-line blob.
+#: A whole XML document, as this firmware likes to nest them: escaped
+#: text inside an element. Mistaking these for plain strings is what hid
+#: the temperature and the performance counters for weeks, so we unwrap
+#: them here too rather than printing an unreadable one-line blob.
 _LOOKS_LIKE_XML = re.compile(r"^\s*<\?xml|^\s*<[A-Za-z]")
 
 
 def _redact_secret_elements(element: ElementTree.Element) -> None:
-    """Blank any element whose TAG looks like a credential, children and
-    all."""
+    """Blank any element whose TAG looks like a credential,
+    children and all.
+    """
     for child in list(element):
         if _CREDENTIAL_NAME_RE.search(child.tag):
             child.text = _REDACTION_PLACEHOLDER
@@ -106,7 +104,8 @@ def _redact_secret_elements(element: ElementTree.Element) -> None:
 
 def _indent(element: ElementTree.Element, level: int = 0) -> None:
     """ElementTree.indent equivalent, spelled out so the output is
-    stable across versions."""
+    stable across versions.
+    """
     newline_indent = "\n" + "  " * level
     if len(element):
         if not (element.text or "").strip():
@@ -141,17 +140,12 @@ def unwrap_escaped(text: str) -> str | None:
     return _pretty_xml(inner)
 
 
-#: The XML root of a command, and of a reply. NOT
-#  "DRINETTM" -- that is the
-#: eight-byte binary FRAME SIGNATURE that precedes each
-#  document on the wire,
-#: and the first version of this tool scanned for
-#  "<DRINETTM" as though it were
-#: a tag. It found nothing on a capture containing 137
-#  perfectly good frames,
-#: which is what caught it. Confirmed against a real
-#  Drobo Dashboard 3.5.0
-#: session, 2026-08-05.
+#: The XML root of a command, and of a reply. NOT "DRINETTM" -- that is
+#: the eight-byte binary FRAME SIGNATURE that precedes each document on
+#: the wire, and the first version of this tool scanned for "<DRINETTM"
+#: as though it were a tag. It found nothing on a capture containing 137
+#: perfectly good frames, which is what caught it. Confirmed against a
+#: real Drobo Dashboard 3.5.0 session, 2026-08-05.
 _DOCUMENT_ROOT_TAGS = (b"TMCmd", b"Result")
 
 
@@ -327,26 +321,26 @@ def main(argv=None) -> int:
 
     if not requests:
         print("\n  No commands matched." if args.command else
-              "\n  No commands found -- the stream carried no <DRINETTM> "
-              "documents.")
+              "\n  No commands found -- "
+              "the stream carried no <DRINETTM> documents.")
         return 1
 
     command_counts = Counter(request["command"]
                              for request in result["requests"])
     print("\n  Commands seen, most frequent first:")
-    for name, count in command_counts.most_common():
+    for command_name, count in command_counts.most_common():
         command_id = next((request["command_id"]
                            for request in result["requests"]
-                           if request["command"] == name), None)
-        print(f"    {count:4d}  {name}"
+                           if request["command"] == command_name), None)
+        print(f"    {count:4d}  {command_name}"
               + (f"  (id {command_id})" if command_id is not None else ""))
 
     # The point of the whole tool: which commands were sent WITH
     # parameters. Those are the ones whose <Params> we could never
     # recover from firmware.
     with_params = [request for request in requests if request["has_params"]]
-    print(f"\n  {len(with_params)} of {len(requests)} shown carried "
-          f"parameters.")
+    print(f"\n  {len(with_params)} of {len(requests)} "
+          f"shown carried parameters.")
 
     for entry in requests:
         print("\n" + "-" * 72)
@@ -367,12 +361,12 @@ def main(argv=None) -> int:
                 print("    " + line)
 
     print("\n" + "=" * 72)
-    print("Remember: this is what ONE Dashboard sent to ONE device on ONE "
-          "day.")
-    print("Record it in your protocol notes as CONFIRMED for the case "
-          "captured,")
-    print("and not as a general specification. Do not commit the capture "
-          "file.")
+    print("Remember: this is what ONE Dashboard sent to ONE device "
+          "on ONE day.")
+    print("Record it in your protocol notes as CONFIRMED "
+          "for the case captured,")
+    print("and not as a general specification. "
+          "Do not commit the capture file.")
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as json_file:

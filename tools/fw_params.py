@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-fw_params.py -- recover candidate command PARAMETERS from the nasd
-binary.
+fw_params.py --
+recover candidate command PARAMETERS from the nasd binary.
 
 THE PROBLEM
 -----------
@@ -53,8 +53,8 @@ the binary alone. If it cannot reproduce what we know, nothing else it
 says is worth reading -- the same discipline that caught the pcapng
 dissector returning "0 frames" while its own fixtures agreed with it.
 
-Read-only. Nothing is executed; the binary is ARM and this only reads
-bytes.
+Read-only.
+Nothing is executed; the binary is ARM and this only reads bytes.
 """
 
 from __future__ import annotations
@@ -72,26 +72,23 @@ try:
 except ImportError:  # pragma: no cover
     COMMANDS = {}
 
-#: How far either side of a handler marker to look.
-#  Chosen empirically: the
-#: Performance field cluster sits within ~200 bytes of its
-#  handler string, and
-#: widening much past this starts pulling in the next
-#  function's strings.
+#: How far either side of a handler marker to look. Chosen empirically:
+#: the Performance field cluster sits within ~200 bytes of its handler
+#: string, and widening much past this starts pulling in the next
+#: function's strings.
 DEFAULT_WINDOW_BYTES = 400
 
 _STRING_RE = re.compile(rb"[\x20-\x7e]{3,}")
 
-#: An XML tag name as this firmware writes them:
-#  CamelCase, no spaces, no
-#: punctuation. Deliberately strict -- the cost of a loose
-#  filter is a list of
-#: plausible-looking noise that someone then tries to send to their NAS.
+#: An XML tag name as this firmware writes them: CamelCase, no spaces,
+#: no punctuation. Deliberately strict -- the cost of a loose filter is
+#: a list of plausible-looking noise that someone then tries to send to
+#: their NAS.
 _TAG_RE = re.compile(r"^[A-Z][A-Za-z0-9_]{2,31}$")
 
-#: Strings that pass the shape test but are obviously not
-#  XML tags. C++ symbol
-#: fragments, log verbs, and type names that appear all over the binary.
+#: Strings that pass the shape test but are obviously not XML tags.
+#: C++ symbol fragments, log verbs, and type names that appear all
+#: over the binary.
 _NOISE_WORDS = {
     "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE", "FATAL",
     "TMCmd", "ESADevice", "DNASConfig", "Unable", "Failed", "Error",
@@ -188,12 +185,12 @@ def analyse(blob: bytes, command_name: str,
 
 #: (anchor string, tags we CONFIRMED independently by measurement)
 _KNOWN_GOOD = [
-    # From the live 5N's eCmdGetPerformance reply -- see
-    # docs/command-surface.md.
+    # From the live 5N's eCmdGetPerformance reply --
+    # see docs/command-surface.md.
     ("ESADevice::GetPerformance",
      {"Iops", "ReadThroughout", "WriteThroughout", "TierIOps"}),
-    # From the network section of eCmdGetConfig, parsed by
-    # config_cmd.py.
+    # From the network section of eCmdGetConfig,
+    # parsed by config_cmd.py.
     ("DNASGetNetworkConfig",
      {"NasName", "NasWorkgroup", "IPConfig"}),
 ]
@@ -215,8 +212,8 @@ def validate(blob: bytes, window: int = DEFAULT_WINDOW_BYTES
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Recover candidate command parameters from the nasd "
-                    "binary.")
+        description="Recover candidate command parameters "
+                    "from the nasd binary.")
     parser.add_argument(
         "binary", help="path to sbin/nasd from the extracted firmware")
     parser.add_argument("--command", default="",
@@ -225,11 +222,11 @@ def main(argv=None) -> int:
                         help=f"bytes either side of a marker to search "
                              f"(default {DEFAULT_WINDOW_BYTES})")
     parser.add_argument("--validate", action="store_true",
-                        help="check the method reproduces what we already "
-                             "measured")
+                        help="check the method reproduces what "
+                             "we already measured")
     parser.add_argument("--min", type=int, default=1,
-                        help="only show commands with at least this many "
-                             "candidates")
+                        help="only show commands with "
+                             "at least this many candidates")
     args = parser.parse_args(argv)
 
     if not os.path.exists(args.binary):
@@ -238,8 +235,8 @@ def main(argv=None) -> int:
     blob = open(args.binary, "rb").read()
 
     if args.validate:
-        print("\nDoes this method rediscover what we already measured on "
-              "the wire?\n")
+        print("\nDoes this method rediscover what we already measured "
+              "on the wire?\n")
         all_reproduced = True
         for anchor, expected, found in validate(blob, args.window):
             missing = expected - found
@@ -261,12 +258,12 @@ def main(argv=None) -> int:
         print(f"{args.command!r} is not in the firmware command table.")
         return 2
 
-    print(f"\n{os.path.basename(args.binary)} -- candidate parameters per "
-          f"command")
-    print("FIRMWARE-level evidence: these strings exist near each "
-          "command's handler.")
-    print("That is stronger than a guess and weaker than a capture -- it "
-          "does not")
+    print(f"\n{os.path.basename(args.binary)} -- "
+          f"candidate parameters per command")
+    print("FIRMWARE-level evidence: "
+          "these strings exist near each command's handler.")
+    print("That is stronger than a guess and weaker than a capture -- "
+          "it does not")
     print("prove the XML nesting, nor that a tag is a parameter rather than a")
     print("reply field. Confirm before sending anything.\n")
 
@@ -282,9 +279,9 @@ def main(argv=None) -> int:
             print(f"      {tag}")
         print()
 
-    print(f"{shown_count} command(s) with candidates. Run with --validate to "
-          f"check the method against results we already confirmed by "
-          f"measurement.")
+    print(f"{shown_count} command(s) with candidates. "
+          f"Run with --validate to check the method against results "
+          f"we already confirmed by measurement.")
     return 0
 
 

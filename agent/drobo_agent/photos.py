@@ -62,8 +62,8 @@ class PhotoStore:
         # session API -- see begin()/append()/finish() below.
         self.max_single_upload_bytes = (
             int(config.get("max_upload_mb", 512)) * 1024 * 1024)
-        # Ceiling for a chunked upload. iPhone 4K video runs to several
-        # GB.
+        # Ceiling for a chunked upload.
+        # iPhone 4K video runs to several GB.
         self.max_chunked_file_bytes = (
             int(config.get("max_file_gb", 32)) * 1024 * 1024 * 1024)
 
@@ -73,8 +73,7 @@ class PhotoStore:
         self._last_index_save_at = 0.0
         self._loaded = False
 
-    # -- index
-    # -------------------------------------------------------------
+    # -- index ---------------------------------------------------------
 
     @property
     def index_path(self) -> str:
@@ -91,8 +90,8 @@ class PhotoStore:
         try:
             os.makedirs(self.target_dir, exist_ok=True)
         except OSError as exc:
-            print(f"[photos] cannot use target_dir {self.target_dir!r}: "
-                  f"{exc}", flush=True)
+            print(f"[photos] cannot use "
+                  f"target_dir {self.target_dir!r}: {exc}", flush=True)
             self.enabled = False
             return
         had_index = os.path.exists(self.index_path)
@@ -107,8 +106,8 @@ class PhotoStore:
                 had_index = False
         self._loaded = True
 
-        # THE INDEX IS A CACHE, NOT THE TRUTH. The files on the Drobo
-        # are.
+        # THE INDEX IS A CACHE, NOT THE TRUTH.
+        # The files on the Drobo are.
         #
         # Without this, losing the index file means the agent believes
         # it has nothing, `missing()` says "send me everything", and the
@@ -123,8 +122,8 @@ class PhotoStore:
         # every ordinary startup.
         if not had_index and self._has_any_files():
             print("[photos] no usable index but the folder has files -- "
-                  "rebuilding it from disk rather than asking for everything "
-                  "again",
+                  "rebuilding it from disk rather than asking for "
+                  "everything again",
                   flush=True)
             summary = self.rescan()
             print(f"[photos] rebuilt index from {summary['found']} file(s)",
@@ -134,8 +133,9 @@ class PhotoStore:
               f"{self.target_dir}", flush=True)
 
     def _has_any_files(self) -> bool:
-        """Cheap check for "is there anything here at all", without
-        hashing."""
+        """Cheap check for "is there anything here at all",
+        without hashing.
+        """
         for _root, _dirs, names in self._walk():
             if names:
                 return True
@@ -221,7 +221,8 @@ class PhotoStore:
 
     def _save_index(self, force: bool = False) -> None:
         """Throttled so a burst of uploads doesn't rewrite the index
-        every time."""
+        every time.
+        """
         if not self._index_dirty:
             return
         if not force and time.time() - self._last_index_save_at < 5.0:
@@ -242,12 +243,12 @@ class PhotoStore:
         with self._lock:
             self._save_index(force=True)
 
-    # -- queries
-    # -----------------------------------------------------------
+    # -- queries -------------------------------------------------------
 
     def missing(self, hashes: list[str]) -> list[str]:
-        """Given hashes the phone holds, return the ones we don't
-        have."""
+        """Given hashes the phone holds,
+        return the ones we don't have.
+        """
         with self._lock:
             return [digest for digest in hashes
                     if digest and digest not in self._index]
@@ -262,8 +263,7 @@ class PhotoStore:
                 "max_upload_mb": self.max_single_upload_bytes // (1024 * 1024),
             }
 
-    # -- ingest
-    # ------------------------------------------------------------
+    # -- ingest --------------------------------------------------------
 
     def _relative_destination(self, filename: str, taken_at: float) -> str:
         if not self.organize_by_date:
@@ -274,8 +274,7 @@ class PhotoStore:
             time.strftime("%Y-%m", local_capture_time), filename
         )
 
-    # -- chunked, resumable upload
-    # ----------------------------------------
+    # -- chunked, resumable upload -------------------------------------
     #
     # Needed because a 4K video is gigabytes and iOS will suspend a
     # background transfer part-way through. The upload id IS the file's
@@ -402,7 +401,8 @@ class PhotoStore:
 
     def finish(self, digest: str) -> dict:
         """Verify the assembled file really is what was promised, then
-        file it."""
+        file it.
+        """
         self._require_ready(digest)
         with self._lock:
             if digest in self._index:
@@ -418,8 +418,8 @@ class PhotoStore:
                 return {"status": "incomplete", "received": size,
                         "total": session_metadata["total"]}
 
-            # Never trust the declared hash -- recompute before filing
-            # anything.
+            # Never trust the declared hash --
+            # recompute before filing anything.
             hasher = hashlib.sha256()
             with open(partial_path, "rb") as part_file:
                 for block in iter(lambda: part_file.read(1024 * 1024), b""):
@@ -428,8 +428,8 @@ class PhotoStore:
                 os.remove(partial_path)
                 os.remove(metadata_path)
                 raise PhotoStoreError(
-                    "content does not match the declared sha256; upload "
-                    "discarded")
+                    "content does not match the declared "
+                    "sha256; upload discarded")
 
             relative = self._move_into_library(
                 session_metadata["filename"], session_metadata["taken_at"],
@@ -443,8 +443,9 @@ class PhotoStore:
 
     def _move_into_library(self, name: str, taken_at: float,
                            source_path: str) -> str:
-        """Move a completed upload into the library. Caller holds the
-        lock."""
+        """Move a completed upload into the library.
+        Caller holds the lock.
+        """
         relative = self._relative_destination(name, taken_at)
         absolute = os.path.join(self.target_dir, relative)
         os.makedirs(os.path.dirname(absolute), exist_ok=True)
@@ -460,8 +461,7 @@ class PhotoStore:
             pass
         return os.path.relpath(absolute, self.target_dir).replace("\\", "/")
 
-    # -- single-shot upload
-    # -------------------------------------------------
+    # -- single-shot upload --------------------------------------------
 
     def ingest(
         self, filename: str, data: bytes, taken_at: float | None = None
