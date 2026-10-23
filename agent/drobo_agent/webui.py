@@ -1,16 +1,17 @@
 """
 The agent's built-in web dashboard.
 
-One self-contained page -- no frameworks, no CDN, no build step -- served at /.
-It works in any browser on the LAN, which means you get a usable Drobo UI on
-the iPhone today, through Safari, without Xcode or a developer account.
+One self-contained page -- no frameworks, no CDN, no build step --
+served at /. It works in any browser on the LAN, which means you get a
+usable Drobo UI on the iPhone today, through Safari, without Xcode or a
+developer account.
 
-It also doubles as the layout prototype for the WinUI 3 app: if a panel doesn't
-work here, it won't work there either.
+It also doubles as the layout prototype for the WinUI 3 app: if a panel
+doesn't work here, it won't work there either.
 
-The HTML shell itself needs no token (it contains no data). Every piece of
-information on the page arrives from the authenticated JSON API, so the page
-asks for the token once and keeps it in sessionStorage.
+The HTML shell itself needs no token (it contains no data). Every piece
+of information on the page arrives from the authenticated JSON API, so
+the page asks for the token once and keeps it in sessionStorage.
 """
 
 from __future__ import annotations

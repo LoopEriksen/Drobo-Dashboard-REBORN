@@ -2,12 +2,12 @@
 """
 Drobo Agent - the always-on piece.
 
-Watches the Drobo, keeps history, raises alerts, receives photo backups, and
-serves all of it as JSON for the Windows and iOS apps.
+Watches the Drobo, keeps history, raises alerts, receives photo backups,
+and serves all of it as JSON for the Windows and iOS apps.
 
-    py run_agent.py                     # uses config.json beside this file
+    py run_agent.py          # uses config.json beside this file
     py run_agent.py --config other.json
-    py run_agent.py --once              # take one reading, print it, exit
+    py run_agent.py --once   # take one reading, print it, exit
 
 Nothing here is Drobo-specific: all the hardware knowledge lives in
 drobo_agent/drivers.py.
@@ -67,11 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[agent] listening on http://{display_host}:{port}", flush=True)
     # The address only, never the token. This line used to end in
     # ?token=<the real token>, and it lands in the console window that
-    # Run-Agent.bat tells a tester to copy into a public issue when the agent
-    # stops. The 2026-09-08 privacy audit fixed the request log and missed this
-    # banner, which was then seen printing a live token on 2026-09-14. The page
-    # asks for the token once and keeps it for the session; --open, below,
-    # still hands it straight to the browser without printing it.
+    # Run-Agent.bat tells a tester to copy into a public issue when the
+    # agent stops. The 2026-09-08 privacy audit fixed the request log
+    # and missed this banner, which was then seen printing a live token
+    # on 2026-09-14. The page asks for the token once and keeps it for
+    # the session; --open, below, still hands it straight to the browser
+    # without printing it.
     print(f"[agent] open http://{display_host}:{port}/ - the page asks "
           f"once for the access token, which is in this agent's "
           f"config.json", flush=True)

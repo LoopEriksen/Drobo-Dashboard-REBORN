@@ -1,17 +1,17 @@
 """
 Shapes that belong to the AGENT rather than to a Drobo.
 
-The device shapes -- Snapshot, DriveSlot, Capacity and the rest -- moved into
-the SDK (`drobo_nasd.models`) when it was split out, because they describe a
-Drobo and a Drobo library should own its own return types.
+The device shapes -- Snapshot, DriveSlot, Capacity and the rest -- moved
+into the SDK (`drobo_nasd.models`) when it was split out, because they
+describe a Drobo and a Drobo library should own its own return types.
 
-They are re-exported here so that every existing import keeps working, and so
-there is exactly ONE definition of each. Re-export, never redefine: two copies
-of Snapshot that drift apart would be a genuinely nasty bug, since both sides
-would look correct in isolation.
+They are re-exported here so that every existing import keeps working,
+and so there is exactly ONE definition of each. Re-export, never
+redefine: two copies of Snapshot that drift apart would be a genuinely
+nasty bug, since both sides would look correct in isolation.
 
-What stays here is what a Drobo knows nothing about. An alert is a judgement
-an application makes; the device just reports numbers.
+What stays here is what a Drobo knows nothing about. An alert is a
+judgement an application makes; the device just reports numbers.
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ from drobo_nasd.models import (  # noqa: F401  (re-exported on purpose)
 @dataclass
 class Alert:
     """
-    Something the user should know about. Alerts are sticky: they stay active
-    until the condition clears, so the apps can show a list of current problems
-    rather than a stream of one-off messages.
+    Something the user should know about. Alerts are sticky: they stay
+    active until the condition clears, so the apps can show a list of
+    current problems rather than a stream of one-off messages.
     """
 
     key: str  # stable id, e.g. "drive-failed-3" -- used for dedupe

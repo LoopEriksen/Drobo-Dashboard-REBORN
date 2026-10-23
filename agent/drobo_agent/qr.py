@@ -1,5 +1,6 @@
 """
-A small QR encoder, so pairing is a camera scan instead of typing a token.
+A small QR encoder, so pairing is a camera scan instead of typing a
+token.
 
 Standard library only -- no pillow, no qrcode package. Byte mode, error
 correction level M (~15% recoverable, which is the right trade-off for
@@ -7,18 +8,18 @@ scanning off a screen), versions 1-10. That holds 213 bytes
 (MAX_PAYLOAD_BYTES) -- 213 ASCII characters, fewer of anything wider
 in UTF-8 -- far more than a pairing URL needs.
 
-Implemented from the specification, ISO/IEC 18004 -- nobody's source code was
-read to write this. The Reed-Solomon error correction below runs over
-GF(256) with primitive polynomial 0x11D; that polynomial and the GF
-arithmetic are the standard's own mathematics, not anyone's implementation.
-EC = error correction.
+Implemented from the specification, ISO/IEC 18004 -- nobody's source
+code was read to write this. The Reed-Solomon error correction below
+runs over GF(256) with primitive polynomial 0x11D; that polynomial and
+the GF arithmetic are the standard's own mathematics, not anyone's
+implementation. EC = error correction.
 
     from drobo_agent import qr
     svg = qr.svg("http://10.0.0.50:7420/?token=...")
 
-DroboPix paired exactly this way -- a QR code shown in Drobo Dashboard that you
-scanned with the phone. It was the right call then and it still is: nobody
-should be typing a 32-character token on a phone keyboard.
+DroboPix paired exactly this way -- a QR code shown in Drobo Dashboard
+that you scanned with the phone. It was the right call then and it still
+is: nobody should be typing a 32-character token on a phone keyboard.
 """
 
 from __future__ import annotations
@@ -124,7 +125,8 @@ MAX_PAYLOAD_BYTES = (_data_codeword_capacity(10) * 8 - 4 - 16) // 8
 
 def _pick_version(payload_length: int) -> int:
     for version in range(1, 11):
-        # 4 bits mode + count field + payload, rounded up to whole codewords
+        # 4 bits mode + count field + payload, rounded up to whole
+        # codewords
         count_bits = 8 if version < 10 else 16
         needed_codewords = (4 + count_bits + payload_length * 8 + 7) // 8
         if needed_codewords <= _data_codeword_capacity(version):
@@ -248,8 +250,8 @@ def _new_matrix(version: int):
             module_grid[size - 1 - i][8] = 0
 
     if version >= 7:
-        # Reserve the two 6x3 version-information blocks, or data placement
-        # would run straight through them.
+        # Reserve the two 6x3 version-information blocks, or data
+        # placement would run straight through them.
         for i in range(18):
             r, c = i // 3, i % 3
             module_grid[size - 11 + c][r] = 0
@@ -301,7 +303,8 @@ _MASK_PATTERNS = [
 
 
 def _format_bits(mask: int) -> int:
-    """15-bit format info: 5 data bits, BCH(15,5) remainder, then the spec XOR."""
+    """15-bit format info: 5 data bits, BCH(15,5) remainder, then the
+    spec XOR."""
     value = (_LEVEL_M_INDICATOR_BITS << 3) | mask
     remainder = value << 10
     bch_generator = 0b10100110111
@@ -413,7 +416,8 @@ def matrix(text: str) -> list[list[int]]:
 
 def svg(text: str, pixels_per_module: int = 6,
         quiet_zone_modules: int = 4) -> str:
-    """Render as a self-contained SVG. currentColor so it follows the theme."""
+    """Render as a self-contained SVG. currentColor so it follows the
+    theme."""
     grid = matrix(text)
     size = len(grid)
     image_size = (size + quiet_zone_modules * 2) * pixels_per_module

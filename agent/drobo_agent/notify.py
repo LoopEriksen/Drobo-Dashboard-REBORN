@@ -1,13 +1,15 @@
 """
 Where alerts go.
 
-Deliberately small. The agent doesn't care how a notification is delivered, so
-adding APNs later means adding one class here and nothing else changes.
+Deliberately small. The agent doesn't care how a notification is
+delivered, so adding APNs later means adding one class here and nothing
+else changes.
 
-ntfy is the recommended starting point: free, has an iOS and Android app, and
-needs no account -- you pick an unguessable topic name and subscribe to it.
-Because anyone who knows the topic name can read it, treat the topic like a
-password and don't put anything sensitive in the message text.
+ntfy is the recommended starting point: free, has an iOS and Android
+app, and needs no account -- you pick an unguessable topic name and
+subscribe to it. Because anyone who knows the topic name can read it,
+treat the topic like a password and don't put anything sensitive in the
+message text.
 """
 
 from __future__ import annotations
@@ -35,7 +37,8 @@ class ConsoleNotifier(Notifier):
 
 
 class NtfyNotifier(Notifier):
-    """POST to an ntfy topic. Works with ntfy.sh or a self-hosted server."""
+    """POST to an ntfy topic. Works with ntfy.sh or a self-hosted
+    server."""
 
     name = "ntfy"
 
@@ -65,8 +68,8 @@ class NtfyNotifier(Notifier):
             with urllib.request.urlopen(request, timeout=10) as response:
                 response.read()
         except (urllib.error.URLError, OSError) as exc:
-            # Never let a failed notification take the agent down -- the whole
-            # point is that it keeps watching the array.
+            # Never let a failed notification take the agent down -- the
+            # whole point is that it keeps watching the array.
             print(f"[notify] ntfy send failed: {exc}", flush=True)
 
 
@@ -74,31 +77,33 @@ class EmailNotifier(Notifier):
     """
     Send an alert by email, over SMTP.
 
-    The original Drobo Dashboard could email you when a drive failed, and this
-    is the replacement for it. Email earns its place next to the ntfy push for
-    a boring reason: it is the channel that still works in five years when the
-    app on your phone has stopped being installable, which on this project is
-    not a hypothetical -- it is exactly what happened to DroboPix.
+    The original Drobo Dashboard could email you when a drive failed,
+    and this is the replacement for it. Email earns its place next to
+    the ntfy push for a boring reason: it is the channel that still
+    works in five years when the app on your phone has stopped being
+    installable, which on this project is not a hypothetical -- it is
+    exactly what happened to DroboPix.
 
-    WHY THE AGENT SENDS IT, NOT THE DROBO. The device has its own mail settings
-    (the firmware carries a DRINasEmailAlertConfig section and an AlertMailer),
-    but making the Drobo send them would mean writing configuration to it, and
-    eCmdSetConfig is in DO_NOT_SEND and staying there. Sending from the agent
-    also means alerts still arrive when the Drobo is the thing that is broken --
-    a Drobo that cannot be reached obviously cannot email you about it, which is
-    the single alert you would most want to receive.
+    WHY THE AGENT SENDS IT, NOT THE DROBO. The device has its own mail
+    settings (the firmware carries a DRINasEmailAlertConfig section and
+    an AlertMailer), but making the Drobo send them would mean writing
+    configuration to it, and eCmdSetConfig is in DO_NOT_SEND and staying
+    there. Sending from the agent also means alerts still arrive when
+    the Drobo is the thing that is broken -- a Drobo that cannot be
+    reached obviously cannot email you about it, which is the single
+    alert you would most want to receive.
 
-    CREDENTIALS. The password comes from config.json, which is gitignored, and
-    it never appears in a log line, an error message, or the API. Delivery
-    failures are reported with the server and the error type but never the
-    exception's full text, because a rejected SMTP login habitually echoes the
-    username back and sometimes more.
+    CREDENTIALS. The password comes from config.json, which is
+    gitignored, and it never appears in a log line, an error message, or
+    the API. Delivery failures are reported with the server and the
+    error type but never the exception's full text, because a rejected
+    SMTP login habitually echoes the username back and sometimes more.
     """
 
     name = "email"
 
-    #: SMTP is slow and this runs on the alerting path. Bounded so a mail
-    #: server that has gone away cannot hold up a poll cycle.
+    #: SMTP is slow and this runs on the alerting path. Bounded so a
+    #: mail server that has gone away cannot hold up a poll cycle.
     TIMEOUT_SECONDS = 15.0
 
     def __init__(self, host: str, port: int, username: str, password: str,
@@ -112,9 +117,10 @@ class EmailNotifier(Notifier):
         self.use_tls = use_tls
 
     def send(self, title: str, message: str, severity: str) -> None:
-        # Imported here rather than at module scope so that a config with no
-        # email backend never even loads smtplib -- which is also what makes
-        # the "contacts nothing when off" test provable by boobytrapping it.
+        # Imported here rather than at module scope so that a config
+        # with no email backend never even loads smtplib -- which is
+        # also what makes the "contacts nothing when off" test provable
+        # by boobytrapping it.
         import smtplib
         from email.message import EmailMessage
 
@@ -145,9 +151,9 @@ class EmailNotifier(Notifier):
                         smtp.login(self.username, self._password)
                     smtp.send_message(mail)
         except Exception as exc:
-            # Deliberately NOT str(exc): a rejected SMTP login commonly echoes
-            # the credentials back in the server's response, and this string
-            # goes to stdout and into the agent's log.
+            # Deliberately NOT str(exc): a rejected SMTP login commonly
+            # echoes the credentials back in the server's response, and
+            # this string goes to stdout and into the agent's log.
             raise RuntimeError(
                 f"could not send mail via {self.host}:{self.port} "
                 f"({type(exc).__name__})") from None
@@ -184,10 +190,10 @@ def build(notify_config: dict) -> Notifier:
                                         ntfy_config["topic"]))
         elif backend == "email":
             email_config = notify_config.get("email", {})
-            # Every one of these is required, and a partial configuration is
-            # reported rather than half-used: an alert that silently fails to
-            # send is worse than one that was never configured, because you
-            # believe you are covered.
+            # Every one of these is required, and a partial
+            # configuration is reported rather than half-used: an alert
+            # that silently fails to send is worse than one that was
+            # never configured, because you believe you are covered.
             missing = [k for k in ("host", "to") if not email_config.get(k)]
             if missing:
                 print(f"[notify] email is enabled but {', '.join(missing)} "

@@ -1,36 +1,39 @@
 """
 Copy the Drobo to an external hard drive.
 
-WHY THE PC DOES THE COPYING. The Drobo 5N has no USB port -- it is a NAS, and
-the only way in or out is the network. So the external drive plugs into the PC,
-and the PC copies Drobo -> drive across the LAN. That is not a compromise: the
-machine already running this agent is the natural place for it, and a backup
-you can reach from the same box that writes the originals is the one you will
-actually check on.
+WHY THE PC DOES THE COPYING. The Drobo 5N has no USB port -- it is a
+NAS, and the only way in or out is the network. So the external drive
+plugs into the PC, and the PC copies Drobo -> drive across the LAN. That
+is not a compromise: the machine already running this agent is the
+natural place for it, and a backup you can reach from the same box that
+writes the originals is the one you will actually check on.
 
-WHY ROBOCOPY AND NOT PYTHON. Robocopy ships with Windows, and it is better at
-this than anything reasonable to write here: it retries transient network
-failures, resumes part-copied files (/Z), preserves timestamps, and handles
-paths past 260 characters -- all of which matter when the source is an SMB
-share on a 2013 NAS, possibly over Wi-Fi. A shutil.copytree loop would be fewer
-lines and would lose data the first time the network hiccupped mid-file.
+WHY ROBOCOPY AND NOT PYTHON. Robocopy ships with Windows, and it is
+better at this than anything reasonable to write here: it retries
+transient network failures, resumes part-copied files (/Z), preserves
+timestamps, and handles paths past 260 characters -- all of which matter
+when the source is an SMB share on a 2013 NAS, possibly over Wi-Fi. A
+shutil.copytree loop would be fewer lines and would lose data the first
+time the network hiccupped mid-file.
 
 THE TWO THINGS THIS GETS RIGHT ON PURPOSE
 -----------------------------------------
-**It does not write unless you say so twice.** plan() describes what would
-happen and copies nothing. Actually running it takes a separate, explicit call.
-An accidental backup is harmless; an accidental anything-else on somebody's
-only copy of their photos is not, so the safe direction is the default.
+**It does not write unless you say so twice.** plan() describes what
+would happen and copies nothing. Actually running it takes a separate,
+explicit call. An accidental backup is harmless; an accidental
+anything-else on somebody's only copy of their photos is not, so the
+safe direction is the default.
 
-**It does not delete.** Robocopy's /MIR makes the destination match the source
-exactly -- which means it DELETES files from your backup that are no longer on
-the Drobo. That turns "back up my photos" into "propagate my accidental
-deletion to the backup as well", destroying the copy that would have saved you.
-Mirroring is therefore opt-in, per-run, and the plan says in plain words what
-it will remove before you agree to it.
+**It does not delete.** Robocopy's /MIR makes the destination match the
+source exactly -- which means it DELETES files from your backup that are
+no longer on the Drobo. That turns "back up my photos" into "propagate
+my accidental deletion to the backup as well", destroying the copy that
+would have saved you. Mirroring is therefore opt-in, per-run, and the
+plan says in plain words what it will remove before you agree to it.
 
-ROBOCOPY'S EXIT CODES ARE NOT UNIX EXIT CODES. This is the classic bug in every
-script that wraps it. Robocopy returns a BITMASK, and success is not zero:
+ROBOCOPY'S EXIT CODES ARE NOT UNIX EXIT CODES. This is the classic bug
+in every script that wraps it. Robocopy returns a BITMASK, and success
+is not zero:
 
     0   nothing needed copying          success
     1   files were copied               success
@@ -39,9 +42,9 @@ script that wraps it. Robocopy returns a BITMASK, and success is not zero:
     8   some files could NOT be copied  FAILURE
     16  serious error, nothing copied   FAILURE
 
-So `code == 0` is "success, and there was nothing to do", `code < 8` is success,
-and anything with bit 8 or 16 set is a real failure. Treating nonzero as failure
-would report every successful backup as broken.
+So `code == 0` is "success, and there was nothing to do", `code < 8` is
+success, and anything with bit 8 or 16 set is a real failure. Treating
+nonzero as failure would report every successful backup as broken.
 """
 
 from __future__ import annotations
@@ -67,17 +70,18 @@ _BIT_MEANINGS = [
 
 
 class BackupError(Exception):
-    """The backup could not be planned or started. Never raised for a copy
-    that ran and reported problems -- that comes back as a result."""
+    """The backup could not be planned or started. Never raised for a
+    copy that ran and reported problems -- that comes back as a
+    result."""
 
 
 def interpret_exit_code(exit_code: int) -> tuple[bool, str]:
     """
     Turn a robocopy exit code into (ok, plain English).
 
-    See the module docstring: this is a bitmask and success is not zero. Kept
-    as its own function precisely so it can be tested against every value
-    without running a copy.
+    See the module docstring: this is a bitmask and success is not zero.
+    Kept as its own function precisely so it can be tested against every
+    value without running a copy.
     """
     if exit_code < 0:
         return False, f"robocopy did not run properly (exit {exit_code})"
@@ -114,8 +118,9 @@ class BackupPlan:
             "allowed": self.allowed,
             "refusals": self.refusals,
             "warnings": self.warnings,
-            # Shown so somebody can see exactly what would be run, and run it
-            # themselves if they would rather not trust this to do it.
+            # Shown so somebody can see exactly what would be run, and
+            # run it themselves if they would rather not trust this to
+            # do it.
             "command": " ".join(self.command),
         }
 
@@ -136,10 +141,11 @@ def _is_within(child: str, parent: str) -> bool:
 
 def check_destination(source: str, destination: str) -> list[str]:
     """
-    Reasons this destination must be refused. Empty list means it is fine.
+    Reasons this destination must be refused. Empty list means it is
+    fine.
 
-    Every one of these is a way to destroy data or spin forever, and each was
-    worth writing down rather than discovering.
+    Every one of these is a way to destroy data or spin forever, and
+    each was worth writing down rather than discovering.
     """
     problems: list[str] = []
 
@@ -156,16 +162,17 @@ def check_destination(source: str, destination: str) -> list[str]:
     if normalised_source == normalised_destination:
         problems.append("The source and the destination are the same folder.")
 
-    # Copying a folder into itself makes robocopy walk its own output forever.
+    # Copying a folder into itself makes robocopy walk its own output
+    # forever.
     if _is_within(normalised_destination, normalised_source):
         problems.append(
             "The destination is inside the source. Copying a folder into "
             "itself "
             "never finishes -- it keeps finding the copies it just made.")
 
-    # The reverse is the dangerous one, and only with /MIR: mirroring onto a
-    # parent of the source would delete everything in that parent that is not
-    # in the source.
+    # The reverse is the dangerous one, and only with /MIR: mirroring
+    # onto a parent of the source would delete everything in that parent
+    # that is not in the source.
     if (_is_within(normalised_source, normalised_destination)
             and normalised_source != normalised_destination):
         problems.append(
@@ -173,8 +180,8 @@ def check_destination(source: str, destination: str) -> list[str]:
             "of "
             "the folder you are backing up is almost never what anyone means.")
 
-    # A drive root is where people accidentally point things, and mirroring
-    # onto C:\ would try to delete Windows.
+    # A drive root is where people accidentally point things, and
+    # mirroring onto C:\ would try to delete Windows.
     drive, path_after_drive = os.path.splitdrive(normalised_destination)
     if drive and path_after_drive in ("", os.sep):
         problems.append(
@@ -189,16 +196,17 @@ def plan(source: str, destination: str, mirror: bool = False) -> BackupPlan:
     """
     Work out what a backup WOULD do. Copies nothing.
 
-    Always call this first. It is the half that catches a destination typo
-    before the typo matters.
+    Always call this first. It is the half that catches a destination
+    typo before the typo matters.
     """
     backup_plan = BackupPlan(source=source, destination=destination,
                              mirror=mirror)
     backup_plan.refusals = check_destination(source, destination)
 
     if not os.path.isdir(source) and not source.startswith("\\\\"):
-        # A UNC path may be perfectly valid and simply not mounted yet, so it
-        # is a warning; a local path that does not exist is a refusal.
+        # A UNC path may be perfectly valid and simply not mounted yet,
+        # so it is a warning; a local path that does not exist is a
+        # refusal.
         backup_plan.refusals.append(
             f"The source folder does not exist: {source}")
 
@@ -228,15 +236,18 @@ def _build_command(source: str, destination: str, mirror: bool) -> list[str]:
     The robocopy invocation.
 
     /E    include subfolders, including empty ones
-    /Z    restartable mode -- resume a part-copied file instead of restarting
-          it, which is what makes a large video survive a Wi-Fi blip
+    /Z    restartable mode -- resume a part-copied file instead of
+          restarting it, which is what makes a large video survive a
+          Wi-Fi blip
     /DCOPY:DAT  keep folder timestamps too, not just file ones
-    /R:2 /W:5   two retries, five seconds apart. Robocopy's default is a
-          MILLION retries thirty seconds apart, which on an unreachable share
-          means it hangs effectively forever instead of reporting a problem
-    /NP   no per-file percentage -- it spams a progress line per file, and we
-          are parsing this output
-    /TEE  write to the console as well as the log, so progress is pollable
+    /R:2 /W:5   two retries, five seconds apart. Robocopy's default is
+          a MILLION retries thirty seconds apart, which on an
+          unreachable share means it hangs effectively forever instead
+          of reporting a problem
+    /NP   no per-file percentage -- it spams a progress line per file,
+          and we are parsing this output
+    /TEE  write to the console as well as the log, so progress is
+          pollable
     """
     command = ["robocopy", source, destination, "/E", "/Z", "/DCOPY:DAT",
                "/R:2", "/W:5", "/NP", "/TEE"]
@@ -292,8 +303,9 @@ class BackupRunner:
     destination would interleave and neither would be trustworthy.
     """
 
-    #: How many output lines to keep. Enough to show progress, bounded so a
-    #: multi-hour copy of a full array cannot grow this without limit.
+    #: How many output lines to keep. Enough to show progress, bounded
+    #: so a multi-hour copy of a full array cannot grow this without
+    #: limit.
     MAX_TAIL_LINES = 200
 
     def __init__(self):
@@ -310,10 +322,12 @@ class BackupRunner:
         self, source: str, destination: str, mirror: bool = False
     ) -> BackupJob:
         """
-        Actually run a backup. Raises BackupError if it must not proceed.
+        Actually run a backup. Raises BackupError if it must not
+        proceed.
 
-        Deliberately separate from plan(): getting here requires a caller to
-        have decided, explicitly, that writing is what they want.
+        Deliberately separate from plan(): getting here requires a
+        caller to have decided, explicitly, that writing is what they
+        want.
         """
         with self._lock:
             if self._job is not None and self._job.running:

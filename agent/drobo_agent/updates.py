@@ -1,60 +1,66 @@
 """
 The update check. Built now, dormant until there is something to check.
 
-"Keeping the software updatable as Windows moves on" is the stated point of
-this whole project -- an app that cannot ship itself a fix is the exact failure
-mode that killed the original. So the machinery goes in while the project is
-being actively worked on, rather than being bolted together in a hurry on
-release day.
+"Keeping the software updatable as Windows moves on" is the stated point
+of this whole project -- an app that cannot ship itself a fix is the
+exact failure mode that killed the original. So the machinery goes in
+while the project is being actively worked on, rather than being bolted
+together in a hurry on release day.
 
 DORMANT MEANS DORMANT
 ---------------------
-With no manifest URL configured, this module opens no sockets, resolves no
-names, and contacts nothing. Not "checks a default endpoint that happens to
-404" -- it does not run at all. `check()` returns state="disabled" after a
-dictionary lookup. There is a test that asserts no network call is attempted,
-because "dormant" is a security property here, not a convenience: this software
-runs unattended on a machine holding somebody's only copy of their data, and it
-must not phone anywhere its owner did not ask it to.
+With no manifest URL configured, this module opens no sockets, resolves
+no names, and contacts nothing. Not "checks a default endpoint that
+happens to 404" -- it does not run at all. `check()` returns
+state="disabled" after a dictionary lookup. There is a test that asserts
+no network call is attempted, because "dormant" is a security property
+here, not a convenience: this software runs unattended on a machine
+holding somebody's only copy of their data, and it must not phone
+anywhere its owner did not ask it to.
 
 WHAT THIS DOES AND POINTEDLY DOES NOT DO
 -----------------------------------------
-It fetches a small JSON manifest and compares version numbers. That is all.
+It fetches a small JSON manifest and compares version numbers. That is
+all.
 
-It does NOT download the installer, and it does NOT install anything. Those are
-deliberately out of scope for a background service: downloading and executing a
-binary is the most dangerous thing this project could ever do, and it is not
-something that should happen while nobody is looking. It tells a HUMAN that an
-update exists and points them at it; they fetch it themselves.
+It does NOT download the installer, and it does NOT install anything.
+Those are deliberately out of scope for a background service:
+downloading and executing a binary is the most dangerous thing this
+project could ever do, and it is not something that should happen while
+nobody is looking. It tells a HUMAN that an update exists and points
+them at it; they fetch it themselves.
 
 TWO FEEDS, ONE ENGINE
 ---------------------
-Reads either the GitHub Releases API (`tag_name`) or a hand-written manifest
-(`version` + `download_url` + `sha256`), detected by content. Both the in-app
-check (/api/update) and the installer's "Check for Updates" shortcut
-(agent/check_updates.py, which calls main() below) run THIS module against
-ONE config block. They used to be two implementations with two config files,
-which is how an update mechanism quietly stops working -- somebody switches
-one on and assumes they are covered.
+Reads either the GitHub Releases API (`tag_name`) or a hand-written
+manifest (`version` + `download_url` + `sha256`), detected by content.
+Both the in-app check (/api/update) and the installer's "Check for
+Updates" shortcut (agent/check_updates.py, which calls main() below) run
+THIS module against ONE config block. They used to be two
+implementations with two config files, which is how an update mechanism
+quietly stops working -- somebody switches one on and assumes they are
+covered.
 
 Refusals and honesty rules, enforced in code rather than by convention:
 
-  - plain http:// is refused outright, for the manifest and for the download
-    link. An update announcement over plaintext can be rewritten in transit.
-  - a manifest bigger than MAX_MANIFEST_BYTES is refused, so a hostile or
-    broken endpoint cannot feed the agent an unbounded body.
-  - a release with no SHA-256 is still ANNOUNCED, but explicitly flagged as
-    unverifiable. An earlier version refused these outright; that was wrong,
-    because the GitHub Releases API publishes no checksum at all and the rule
-    would have silently suppressed every update from the likeliest feed. The
-    control that matters is that nothing is ever downloaded or installed
+  - plain http:// is refused outright, for the manifest and for the
+    download link. An update announcement over plaintext can be
+    rewritten in transit.
+  - a manifest bigger than MAX_MANIFEST_BYTES is refused, so a hostile
+    or broken endpoint cannot feed the agent an unbounded body.
+  - a release with no SHA-256 is still ANNOUNCED, but explicitly
+    flagged as unverifiable. An earlier version refused these
+    outright; that was wrong, because the GitHub Releases API
+    publishes no checksum at all and the rule would have silently
+    suppressed every update from the likeliest feed. The control that
+    matters is that nothing is ever downloaded or installed
     automatically -- not withholding the news.
 
 VERSION COMPARISON
 ------------------
-Dotted numeric components, compared numerically, shortest-padded --  so 0.10.0
-is correctly newer than 0.9.0, which a string compare gets wrong. Anything
-unparseable is treated as "cannot tell", never as "newer".
+Dotted numeric components, compared numerically, shortest-padded -- so
+0.10.0 is correctly newer than 0.9.0, which a string compare gets wrong.
+Anything unparseable is treated as "cannot tell", never as "newer".
 """
 
 from __future__ import annotations
@@ -67,12 +73,12 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-#: Cap on the manifest body. It is a handful of fields; anything larger is
-#: either broken or hostile, and either way we stop reading.
+#: Cap on the manifest body. It is a handful of fields; anything larger
+#: is either broken or hostile, and either way we stop reading.
 MAX_MANIFEST_BYTES = 64 * 1024
 
-#: How long to wait on the network. Short: this runs on a timer and a hung
-#: update check must never be why a status poll is late.
+#: How long to wait on the network. Short: this runs on a timer and a
+#: hung update check must never be why a status poll is late.
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
 # no channel configured -- the shipping default
@@ -131,11 +137,12 @@ def parse_version(version: str) -> tuple[int, ...] | None:
     """
     A dotted version as numbers, or None if it isn't one.
 
-    Only the leading numeric run matters: "0.2.0-beta3" is release 0.2.0 as far
-    as ordering goes, exactly as firmware.parse_version treats the Drobo's own
-    build suffix. Pre-release ordering is a rabbit hole this project has no
-    need to enter -- if that ever matters, it should be an explicit field in the
-    manifest rather than something inferred from punctuation.
+    Only the leading numeric run matters: "0.2.0-beta3" is release 0.2.0
+    as far as ordering goes, exactly as firmware.parse_version treats
+    the Drobo's own build suffix. Pre-release ordering is a rabbit hole
+    this project has no need to enter -- if that ever matters, it should
+    be an explicit field in the manifest rather than something inferred
+    from punctuation.
     """
     if not version:
         return None
@@ -150,11 +157,11 @@ def is_newer(candidate: str, current: str) -> bool:
     """
     True when `candidate` is a later version than `current`.
 
-    Padded to equal length so 1.2 and 1.2.0 compare equal rather than the
-    shorter one losing. Returns False -- never True -- when either side is
-    unparseable: "I cannot tell" must never present itself as "an update is
-    available", because that is the direction that gets someone to install
-    something.
+    Padded to equal length so 1.2 and 1.2.0 compare equal rather than
+    the shorter one losing. Returns False -- never True -- when either
+    side is unparseable: "I cannot tell" must never present itself as
+    "an update is available", because that is the direction that gets
+    someone to install something.
     """
     candidate_parts, current_parts = (parse_version(candidate),
                                       parse_version(current))
@@ -171,36 +178,39 @@ def _read_release(manifest: dict) -> Release | None:
     """
     Read a release out of either shape of feed we support.
 
-    TWO SHAPES, ONE ENGINE. Until 2026-07-28 this project had two separate
-    update checkers that had grown up independently and did not know about each
-    other: this one, reading a hand-authored manifest, and a PowerShell script
-    shipped in the installer reading the GitHub Releases API. Two
-    implementations, two config files, two things to switch on. That is how an
-    update mechanism quietly stops working -- somebody enables one and assumes
-    they are covered.
+    TWO SHAPES, ONE ENGINE. Until 2026-07-28 this project had two
+    separate update checkers that had grown up independently and did not
+    know about each other: this one, reading a hand-authored manifest,
+    and a PowerShell script shipped in the installer reading the GitHub
+    Releases API. Two implementations, two config files, two things to
+    switch on. That is how an update mechanism quietly stops working --
+    somebody enables one and assumes they are covered.
 
     So this reads both:
 
       GitHub Releases     {"tag_name": "v0.2.0", "html_url": ...}
-      our own manifest    {"version": "0.2.0", "download_url": ..., "sha256": ...}
+      our own manifest    {"version": "0.2.0", "download_url": ...,
+                          "sha256": ...}
 
-    Detected by content rather than configuration, because a URL cannot tell
-    you what it will return and asking somebody to declare it is one more thing
-    to get wrong.
+    Detected by content rather than configuration, because a URL cannot
+    tell you what it will return and asking somebody to declare it is
+    one more thing to get wrong.
 
-    GitHub's API carries no checksum for a release, which is why `sha256` comes
-    back empty for that shape. That is handled honestly at the call site: the
-    update is still announced, flagged as unverifiable, rather than either
-    suppressed (unhelpful) or presented as verified (a lie).
+    GitHub's API carries no checksum for a release, which is why
+    `sha256` comes back empty for that shape. That is handled honestly
+    at the call site: the update is still announced, flagged as
+    unverifiable, rather than either suppressed (unhelpful) or presented
+    as verified (a lie).
     """
-    # GitHub Releases: tag_name is the version, conventionally "v"-prefixed.
+    # GitHub Releases: tag_name is the version, conventionally
+    # "v"-prefixed.
     tag = str(manifest.get("tag_name") or "").strip()
     if tag:
         return Release(
             version=tag.lstrip("vV"),
-            # The browser page, not a binary. Deliberate: this software never
-            # downloads an update, and pointing a human at the release page is
-            # exactly the right amount of help.
+            # The browser page, not a binary. Deliberate: this software
+            # never downloads an update, and pointing a human at the
+            # release page is exactly the right amount of help.
             download_url=str(manifest.get("html_url") or "").strip(),
             sha256="",  # GitHub publishes none
             notes_url=str(manifest.get("html_url") or "").strip(),
@@ -243,8 +253,9 @@ def _fetch_manifest(url: str, timeout: float) -> dict:
         url, headers={"Accept": "application/json",
                       "User-Agent": "DroboDashboardReborn-agent"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        # Read one byte more than the cap so an over-long body is detected
-        # rather than silently truncated into something that might still parse.
+        # Read one byte more than the cap so an over-long body is
+        # detected rather than silently truncated into something that
+        # might still parse.
         body = response.read(MAX_MANIFEST_BYTES + 1)
     if len(body) > MAX_MANIFEST_BYTES:
         raise ValueError(
@@ -263,8 +274,9 @@ def check(config: dict, current_version: str,
         {"enabled": false, "manifest_url": "", "channel": "stable"}
 
     With enabled false or no URL -- the shipping default -- this returns
-    immediately and touches nothing. `fetch` is injectable so the tests can
-    prove exactly that, and can exercise the parsing without a server.
+    immediately and touches nothing. `fetch` is injectable so the tests
+    can prove exactly that, and can exercise the parsing without a
+    server.
     """
     config = config or {}
     if not config.get("enabled", False):
@@ -275,8 +287,9 @@ def check(config: dict, current_version: str,
     url = (config.get("manifest_url") or "").strip()
     problem = _url_problem(url)
     if problem:
-        # Enabled but unusable is a configuration mistake worth surfacing, not
-        # a silent no-op -- somebody turned this on and expects it to work.
+        # Enabled but unusable is a configuration mistake worth
+        # surfacing, not a silent no-op -- somebody turned this on and
+        # expects it to work.
         return UpdateStatus(STATE_DISABLED, current_version, reason=problem)
 
     try:
@@ -289,8 +302,9 @@ def check(config: dict, current_version: str,
         return UpdateStatus(STATE_ERROR, current_version,
                             reason="Update manifest was not a JSON object.")
 
-    # A channel lets one manifest serve stable and beta without the agent
-    # needing a second URL. Absent means "this manifest is the only channel".
+    # A channel lets one manifest serve stable and beta without the
+    # agent needing a second URL. Absent means "this manifest is the
+    # only channel".
     channel = (config.get("channel") or "stable").strip()
     if "channels" in manifest and isinstance(manifest["channels"], dict):
         manifest = manifest["channels"].get(channel) or {}
@@ -311,12 +325,13 @@ def check(config: dict, current_version: str,
         return UpdateStatus(STATE_CURRENT, current_version, latest=release,
                             reason="You are on the latest version.")
 
-    # From here we would be pointing somebody at something to install, so the
-    # announcement has to be honest about how much it can vouch for.
+    # From here we would be pointing somebody at something to install,
+    # so the announcement has to be honest about how much it can vouch
+    # for.
     #
-    # An https:// link is required either way -- an update announcement over
-    # plaintext can be rewritten in transit, and that is the one failure this
-    # refuses outright rather than annotates.
+    # An https:// link is required either way -- an update announcement
+    # over plaintext can be rewritten in transit, and that is the one
+    # failure this refuses outright rather than annotates.
     download_problem = _url_problem(download_url, "download link")
     if download_problem:
         return UpdateStatus(
@@ -324,18 +339,19 @@ def check(config: dict, current_version: str,
             reason=(f"Version {version} was announced, but its link is not "
                     f"usable ({download_problem}). Not offering it."))
 
-    # The checksum is a different matter. An earlier version of this module
-    # REFUSED to mention an update with no SHA-256, on the reasoning that
-    # telling someone to run an unverifiable binary is the whole attack. That
-    # is right for a file we point at directly -- and wrong as a blanket rule,
-    # because the GitHub Releases API publishes no checksum at all, so it would
-    # have silently suppressed every update from the most likely feed anyone
-    # will actually use.
+    # The checksum is a different matter. An earlier version of this
+    # module REFUSED to mention an update with no SHA-256, on the
+    # reasoning that telling someone to run an unverifiable binary is
+    # the whole attack. That is right for a file we point at directly --
+    # and wrong as a blanket rule, because the GitHub Releases API
+    # publishes no checksum at all, so it would have silently suppressed
+    # every update from the most likely feed anyone will actually use.
     #
-    # So: announce either way, and say plainly which one this is. Suppressing
-    # the news is unhelpful; implying it is verified when it is not would be a
-    # lie. Neither shape is ever downloaded or installed automatically, which
-    # is the control that actually matters.
+    # So: announce either way, and say plainly which one this is.
+    # Suppressing the news is unhelpful; implying it is verified when it
+    # is not would be a lie. Neither shape is ever downloaded or
+    # installed automatically, which is the control that actually
+    # matters.
     verified = (len(sha256) == 64
                 and all(c in "0123456789abcdef" for c in sha256))
     if verified:
@@ -355,31 +371,33 @@ def check(config: dict, current_version: str,
 
 
 # ---------------------------------------------------------------------------
-# Command line, so the installer's "Check for Updates" shortcut runs THIS code
-# rather than a second implementation of it.
+# Command line, so the installer's "Check for Updates" shortcut runs
+# THIS code rather than a second implementation of it.
 #
-# The shortcut has one real advantage over the in-app check and it is worth
-# keeping: it works whether or not the agent is running. What it must not be is
-# a parallel checker with its own config file and its own idea of what a feed
-# looks like -- which is exactly what it was until these were merged.
+# The shortcut has one real advantage over the in-app check and it is
+# worth keeping: it works whether or not the agent is running. What it
+# must not be is a parallel checker with its own config file and its own
+# idea of what a feed looks like -- which is exactly what it was until
+# these were merged.
 # ---------------------------------------------------------------------------
 
 def _installed_version(agent_dir: str) -> str:
     """
-    The version the installer recorded, falling back to the package's own.
+    The version the installer recorded, falling back to the package's
+    own.
 
-    version.txt is written at build time and is the truth for an installed
-    copy. A dev checkout has no such file and falls back to the constant, which
-    is right for a dev checkout.
+    version.txt is written at build time and is the truth for an
+    installed copy. A dev checkout has no such file and falls back to
+    the constant, which is right for a dev checkout.
 
     TWO PLACES ARE CHECKED, and the second one is the one that matters:
-    build-installer.ps1 writes version.txt to the INSTALL ROOT, while the agent
-    is installed one level down in <install>\\agent\\. The first version of this
-    looked only beside the agent, never found the file, and silently fell back
-    to the hardcoded constant -- which drifts from the real build the moment
-    anyone bumps the .csproj. A version check quietly comparing against the
-    wrong number is worse than no version check: it can report "up to date"
-    when you are not.
+    build-installer.ps1 writes version.txt to the INSTALL ROOT, while
+    the agent is installed one level down in <install>\\agent\\. The
+    first version of this looked only beside the agent, never found the
+    file, and silently fell back to the hardcoded constant -- which
+    drifts from the real build the moment anyone bumps the .csproj. A
+    version check quietly comparing against the wrong number is worse
+    than no version check: it can report "up to date" when you are not.
     """
     candidates = (
         os.path.join(agent_dir, "version.txt"),                 # dev checkout
@@ -402,15 +420,17 @@ def main(argv: list[str] | None = None) -> int:
     """
     Check for updates from a terminal.
 
-        py -m drobo_agent.updates                 # uses config.json beside the agent
+        py -m drobo_agent.updates   # uses config.json beside the agent
         py -m drobo_agent.updates --config X.json
 
-    `-m` needs the agent folder on sys.path, which an ordinary `py` run from
-    inside it gives you and the installer's bundled Python never does. The
-    shortcut therefore runs ../check_updates.py by path, which calls this.
+    `-m` needs the agent folder on sys.path, which an ordinary `py` run
+    from inside it gives you and the installer's bundled Python never
+    does. The shortcut therefore runs ../check_updates.py by path, which
+    calls this.
 
-    Exit status is the answer, so a script can branch without parsing prose:
-    0 up to date or disabled, 1 an update is available, 2 could not tell.
+    Exit status is the answer, so a script can branch without parsing
+    prose: 0 up to date or disabled, 1 an update is available, 2 could
+    not tell.
     """
     import argparse
     from . import config
@@ -452,9 +472,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if status.state == STATE_ERROR:
-        # Offline, DNS hiccup, feed returned nonsense. Never alarming: an
-        # update check that shouts on a train with no signal is worse than one
-        # that says nothing.
+        # Offline, DNS hiccup, feed returned nonsense. Never alarming:
+        # an update check that shouts on a train with no signal is worse
+        # than one that says nothing.
         if not args.quiet:
             print(status.reason)
             print(f"You are on version {version}.")
