@@ -108,9 +108,11 @@ for payload, label in ((STRUCTURED_REPLY, "XML child elements"),
     except eventlog.EventLogError:
         check(f"{label} raises EventLogError", True)
 
-check("...but log text merely OPENING with '<' inside the envelope still parses",
-      eventlog.parse_event_log(result_envelope("<system boot>\nnext line\n"))
-      == ["<system boot>", "next line"])
+check(
+    "...but log text merely OPENING with '<' inside the envelope still parses",
+    eventlog.parse_event_log(result_envelope("<system boot>\nnext line\n"))
+    == ["<system boot>", "next line"],
+)
 
 print("\n== normalization matches the agent's entry shape exactly ==")
 entries = eventlog.entries_from_lines(["a line", "another"])
@@ -121,8 +123,11 @@ check("the raw line rides in message, untouched",
 check("ts is the NOT_DECODED marker, not a fabricated time",
       all(entry.ts == eventlog.TIMESTAMP_NOT_DECODED for entry in entries),
       entries)
-check("severity is the NOT_DECODED marker, not an assumed 'info'",
-      all(entry.severity == eventlog.SEVERITY_NOT_DECODED for entry in entries), entries)
+check(
+    "severity is the NOT_DECODED marker, not an assumed 'info'",
+    all(entry.severity == eventlog.SEVERITY_NOT_DECODED for entry in entries),
+    entries,
+)
 entry_dict = entries[0].to_dict()
 check("to_dict serves the same keys /api/eventlog already serves",
       set(entry_dict) == {"ts", "severity", "message", "ts_iso"}, entry_dict)
@@ -138,8 +143,10 @@ check("command 91 with the /uel.log path, CmdID/Params/ESAID order",
       eventlog._command_xml("DRA123456789"))
 
 print("\n== safety ==")
-check("we send eCmdGetUserEventLog, not the eCmdGetEventLogs that answers empty",
-      eventlog.COMMAND_NAME == "eCmdGetUserEventLog")
+check(
+    "we send eCmdGetUserEventLog, not the eCmdGetEventLogs that answers empty",
+    eventlog.COMMAND_NAME == "eCmdGetUserEventLog",
+)
 check("its confirmed id is 91",
       commands.COMMANDS.get(eventlog.COMMAND_NAME) == 91,
       commands.COMMANDS.get(eventlog.COMMAND_NAME))

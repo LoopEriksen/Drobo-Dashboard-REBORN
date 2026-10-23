@@ -76,13 +76,23 @@ network_result = config_cmd.parse_config_result(NETWORK_CONFIG_REPLY)
 network_config = network_result["DRINASConfig"]["DRINasNetworkConfig"]
 check("network parses", network_config["NasName"] == "TestDrobo",
       network_config.get("NasName"))
-check("nested IPConfig parses", network_config["IPConfig"]["IP"] == "10.0.0.5", network_config.get("IPConfig"))
+check(
+    "nested IPConfig parses",
+    network_config["IPConfig"]["IP"] == "10.0.0.5",
+    network_config.get("IPConfig"),
+)
 
 admin_config = (config_cmd.parse_config_result(ADMIN_CONFIG_REPLY)
                 ["DRINASConfig"]["DRINasAdminConfig"])
-check("admin username kept (not a secret)", admin_config["UserName"] == "admin", admin_config.get("UserName"))
-check("Password redacted", admin_config["Password"] == "[redacted]", admin_config.get("Password"))
-check("ValidPassword redacted", admin_config["ValidPassword"] == "[redacted]", admin_config.get("ValidPassword"))
+check("admin username kept (not a secret)",
+      admin_config["UserName"] == "admin", admin_config.get("UserName"))
+check("Password redacted", admin_config["Password"]
+      == "[redacted]", admin_config.get("Password"))
+check(
+    "ValidPassword redacted",
+    admin_config["ValidPassword"] == "[redacted]",
+    admin_config.get("ValidPassword"),
+)
 check("EncryptedPassword redacted",
       admin_config["EncryptedPassword"] == "[redacted]",
       admin_config.get("EncryptedPassword"))
@@ -92,10 +102,16 @@ check("no admin secret survives anywhere in the result",
 share_config = (config_cmd.parse_config_result(SHARE_CONFIG_REPLY)
                 ["DRINASConfig"]["DRIShareConfig"])
 shares = share_config["Shares"]["Share"]
-check("repeated <Share> becomes a list", isinstance(shares, list) and len(shares) == 2,
-      type(shares).__name__)
-check("share names parsed", [s["ShareName"] for s in shares] == ["Alpha", "Beta"],
-      [s.get("ShareName") for s in shares])
+check(
+    "repeated <Share> becomes a list",
+    isinstance(shares, list) and len(shares) == 2,
+    type(shares).__name__,
+)
+check(
+    "share names parsed",
+    [s["ShareName"] for s in shares] == ["Alpha", "Beta"],
+    [s.get("ShareName") for s in shares],
+)
 check("a password NESTED inside a share is redacted too",
       "leakme" not in repr(share_config), share_config)
 
@@ -118,12 +134,22 @@ def escaped_result(inner_xml: str) -> bytes:
 escaped_admin_result = config_cmd.parse_config_result(escaped_result(
     f"<DRINasAdminConfig><UserName>admin</UserName>"
     f"<Password>{PLANTED_SECRET}</Password></DRINasAdminConfig>"))
-check("secret inside an ESCAPED inner document is redacted", PLANTED_SECRET not in repr(escaped_admin_result), escaped_admin_result)
+check("secret inside an ESCAPED inner document is redacted",
+      PLANTED_SECRET not in repr(escaped_admin_result), escaped_admin_result)
 
-check("...also when the inner document carries its own <?xml?> declaration",
-      PLANTED_SECRET not in repr(config_cmd.parse_config_result(escaped_result(
-          '<?xml version="1.0" encoding="UTF-8"?>'
-          f"<DRINasAdminConfig><Password>{PLANTED_SECRET}</Password></DRINasAdminConfig>"))))
+check(
+    "...also when the inner document carries its own <?xml?> declaration",
+    PLANTED_SECRET
+    not in repr(
+        config_cmd.parse_config_result(
+            escaped_result(
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                f"<DRINasAdminConfig><Password>{PLANTED_SECRET}</Password>"
+                "</DRINasAdminConfig>"
+            )
+        )
+    ),
+)
 
 check("...also when the secret is nested several levels down",
       PLANTED_SECRET not in repr(config_cmd.parse_config_result(escaped_result(
@@ -131,8 +157,15 @@ check("...also when the secret is nested several levels down",
           f"<SharePassword>{PLANTED_SECRET}</SharePassword>"
           "</Share></Shares>"))))
 
-check("XML-shaped text we CAN'T parse is redacted rather than trusted",
-      PLANTED_SECRET not in repr(config_cmd.parse_config_result(escaped_result(f"<Password>{PLANTED_SECRET}"))))
+check(
+    "XML-shaped text we CAN'T parse is redacted rather than trusted",
+    PLANTED_SECRET
+    not in repr(
+        config_cmd.parse_config_result(
+            escaped_result(f"<Password>{PLANTED_SECRET}")
+        )
+    ),
+)
 
 # Hole 2: a credential element whose value lived in CHILD elements rather than
 # its own text survived, because the old code replaced .text (empty here) and
@@ -148,10 +181,17 @@ check("a credential element's CHILD elements are redacted too",
       config_cmd.parse_config_result(child_element_reply))
 
 # ...without the fix becoming so blunt it eats real data.
-sysinfo_like = config_cmd.parse_config_result(escaped_result(
-    "<SysInfo><UpTime>1209645</UpTime><Temperature>36</Temperature></SysInfo>"))
-check("a non-credential escaped document is NOT redacted away",
-      "36" in repr(sysinfo_like) and "1209645" in repr(sysinfo_like), sysinfo_like)
+sysinfo_like = config_cmd.parse_config_result(
+    escaped_result(
+        "<SysInfo><UpTime>1209645</UpTime><Temperature>36</Temperature>"
+        "</SysInfo>"
+    )
+)
+check(
+    "a non-credential escaped document is NOT redacted away",
+    "36" in repr(sysinfo_like) and "1209645" in repr(sysinfo_like),
+    sysinfo_like,
+)
 
 plain_network_result = config_cmd.parse_config_result(
     b"<TMCmd><ResultDetails><DRINasNetworkConfig><NasName>MyDrobo</NasName>"
@@ -173,21 +213,24 @@ try:
     check("malformed XML raises", False)
 except config_cmd.ConfigError:
     check("malformed XML raises ConfigError", True)
-check("empty payload gives an empty dict", config_cmd.parse_config_result(b"\x00") == {})
+check("empty payload gives an empty dict",
+      config_cmd.parse_config_result(b"\x00") == {})
 
 print("\n== frame construction matches the observed wire format ==")
 frame = config_cmd._build_frame(config_cmd.TYPE_COMMAND, b"abc")
 check("frame starts with DRINETTM", frame[:8] == b"DRINETTM", frame[:8])
 check("type byte placed correctly",
       frame[8] == config_cmd.TYPE_COMMAND, frame[8])
-check("length is big-endian", struct.unpack(">I", frame[12:16])[0] == 3, frame[12:16].hex())
+check("length is big-endian", struct.unpack(">I",
+      frame[12:16])[0] == 3, frame[12:16].hex())
 
 login_payload = config_cmd._login_payload("drb000000SAMPLE")
 check("login payload is 220 bytes", len(login_payload) == 220,
       len(login_payload))
 check("serial at offset 0", login_payload[:15] == b"drb000000SAMPLE",
       login_payload[:15])
-check("serial repeated at offset 20", login_payload[20:35] == b"drb000000SAMPLE", login_payload[20:35])
+check("serial repeated at offset 20",
+      login_payload[20:35] == b"drb000000SAMPLE", login_payload[20:35])
 check("rest is NUL padding", set(login_payload[35:]) == {0})
 try:
     config_cmd._login_payload("x" * 40)
@@ -196,15 +239,19 @@ except config_cmd.ConfigError:
     check("over-long serial rejected", True)
 
 print("\n== safety guards ==")
-check("eCmdGetConfig has a confirmed id", commands.COMMANDS.get("eCmdGetConfig") == 30,
-      commands.COMMANDS.get("eCmdGetConfig"))
+check(
+    "eCmdGetConfig has a confirmed id",
+    commands.COMMANDS.get("eCmdGetConfig") == 30,
+    commands.COMMANDS.get("eCmdGetConfig"),
+)
 check("the dangerous commands are still refused everywhere",
       {"eCmdRunCommand", "eCmdWriteHostBuffer"} <= commands.DO_NOT_SEND)
 try:
     config_cmd.get_config("127.0.0.1", "drb000000SAMPLE", section="nonsense")
     check("unknown section rejected before connecting", False)
 except config_cmd.ConfigError as exc:
-    check("unknown section rejected before connecting", "unknown section" in str(exc))
+    check("unknown section rejected before connecting",
+          "unknown section" in str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -228,9 +275,12 @@ def fake_drobo(reply: bytes, port_holder: list, login_ok=True):
             header = connection.recv(16)
             payload_length = struct.unpack(">I", header[12:16])[0]
             connection.recv(payload_length)
-            connection.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            connection.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
-                connection.close(); server_socket.close(); return
+                connection.close()
+                server_socket.close()
+                return
             header = connection.recv(16)
             payload_length = struct.unpack(">I", header[12:16])[0]
             connection.recv(payload_length)
@@ -273,7 +323,8 @@ try:
                           timeout=5)
     check("refused login raises", False)
 except config_cmd.ConfigError as exc:
-    check("refused login raises ConfigError", "login refused" in str(exc), str(exc))
+    check("refused login raises ConfigError",
+          "login refused" in str(exc), str(exc))
 
 # --------------------------------------------------------------------------
 # A dribbling peer cannot hold the command channel open for ever
@@ -476,7 +527,8 @@ try:
     config_cmd._read_frame(reader_socket, deadline=time.monotonic() + 0.2)
 except (config_cmd.ConfigError, OSError):
     pass
-check("so does one that runs out of budget", reader_socket.gettimeout() == 5.0, reader_socket.gettimeout())
+check("so does one that runs out of budget",
+      reader_socket.gettimeout() == 5.0, reader_socket.gettimeout())
 reader_socket.close()
 writer_socket.close()
 
@@ -485,7 +537,8 @@ reader_socket, writer_socket = socket.socketpair()
 reader_socket.settimeout(3.5)
 writer_socket.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
 config_cmd._read_frame(reader_socket)
-check("an unbounded read never touches it", reader_socket.gettimeout() == 3.5, reader_socket.gettimeout())
+check("an unbounded read never touches it",
+      reader_socket.gettimeout() == 3.5, reader_socket.gettimeout())
 reader_socket.close()
 writer_socket.close()
 

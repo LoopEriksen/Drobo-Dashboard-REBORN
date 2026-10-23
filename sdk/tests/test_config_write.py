@@ -72,20 +72,26 @@ def _general_reply(feature_states="7", spindown_delay="14", dim_level="59",
     general_fields_xml = (f"<FeatureStates>{feature_states}</FeatureStates>"
                           f"<SpindownDelay>{spindown_delay}</SpindownDelay>"
                           f"<Dim>{dim_level}</Dim>{extra_general_xml}")
-    return (f"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig><General>{general_fields_xml}"
-            f"</General></DRINASConfig></ResultDetails></TMCmd>").encode() + b"\x00"
+    return (
+        "<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig>"
+        f"<General>{general_fields_xml}"
+        f"</General></DRINASConfig></ResultDetails></TMCmd>"
+    ).encode() + b"\x00"
 
 
 def _dimming_reply(value) -> bytes:
     """A read-back reply for eCmdGetDimming: a bare number in <ResultDetails>."""
-    return (f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>").encode() + b"\x00"
+    return (
+        f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>"
+    ).encode() + b"\x00"
 
 
 def _apps_reply(*names) -> bytes:
     """A eCmdGetDroboAppsStatus reply listing the given app names (all stopped)."""
     apps_xml = "".join(f"<App><Name>{n}</Name><Version>1.0</Version>"
                        f"<Stopped>1</Stopped></App>" for n in names)
-    escaped_inner_xml = html.escape(f"<DroboApps><SDKVersion>2.1</SDKVersion>{apps_xml}</DroboApps>")
+    escaped_inner_xml = html.escape(
+        f"<DroboApps><SDKVersion>2.1</SDKVersion>{apps_xml}</DroboApps>")
     return (f"<TMCmd><CmdID>77</CmdID><ResultDetails>{escaped_inner_xml}"
             "</ResultDetails>"
             f"</TMCmd>").encode() + b"\x00"
@@ -129,11 +135,14 @@ class FakeDrobo:
                 connection, _ = self.server_socket.accept()
                 connection.settimeout(5)
                 self._receive_frame(connection)  # login
-                connection.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK if self.login_ok else 0x99, b""))
+                connection.sendall(config_cmd._build_frame(
+                    config_cmd.TYPE_LOGIN_OK if self.login_ok else 0x99, b""))
                 if not self.login_ok:
-                    connection.close(); continue
+                    connection.close()
+                    continue
                 payload = self._receive_frame(connection)  # command
-                self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
+                self.sent.append((payload or b"").rstrip(
+                    b"\x00").decode("utf-8", "replace"))
                 connection.sendall(
                     config_cmd._build_frame(config_cmd.TYPE_RESULT, reply))
                 connection.close()
@@ -148,19 +157,22 @@ SAMPLE_ESA_ID = "drb000000SAMPLE"
 print("== the happy path: change only Dim, keep the siblings ==")
 
 # Three connections now: read General, write, read-back to verify it applied.
-fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(config_cmd.RESULT_ACCEPTED), _dimming_reply(10)])
+fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(
+    config_cmd.RESULT_ACCEPTED), _dimming_reply(10)])
 result = droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
                                port=fake_drobo.port, timeout=5)
 check("set_dimming reports the accepted result",
       result["result_code"] == config_cmd.RESULT_ACCEPTED, result)
-check("the write is reported verified after read-back", result.get("verified") is True, result)
+check("the write is reported verified after read-back",
+      result.get("verified") is True, result)
 
 # The second connection carried the write. Unescape it and look.
 written_document = (html.unescape(fake_drobo.sent[1])
                     if len(fake_drobo.sent) > 1 else "")
 check("a write was sent, then a read-back", len(fake_drobo.sent) == 3,
       fake_drobo.sent)
-check("the write wraps the block in <DRINASConfig>", "<DRINASConfig>" in written_document, written_document)
+check("the write wraps the block in <DRINASConfig>",
+      "<DRINASConfig>" in written_document, written_document)
 check("the new brightness is on the wire", "<Dim>10</Dim>" in written_document,
       written_document)
 check("FeatureStates was preserved from the read, not invented",
@@ -168,9 +180,13 @@ check("FeatureStates was preserved from the read, not invented",
 check("SpindownDelay was preserved from the read",
       "<SpindownDelay>14</SpindownDelay>" in written_document,
       written_document)
-check("field order matches the device's own",
-      "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay><Dim>10</Dim>"
-      in written_document, written_document)
+check(
+    "field order matches the device's own",
+    "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>"
+    "<Dim>10</Dim>"
+    in written_document,
+    written_document,
+)
 check("the old brightness is gone", "<Dim>59</Dim>" not in written_document,
       written_document)
 check("the write is escaped on the wire, not raw",
@@ -178,7 +194,13 @@ check("the write is escaped on the wire, not raw",
 
 print("\n== reversibility: the value round-trips through the band edges ==")
 for brightness in (0, 255, 1):
-    fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(config_cmd.RESULT_ACCEPTED), _dimming_reply(brightness)])
+    fake_drobo = FakeDrobo(
+        [
+            _general_reply(dim_level="59"),
+            _write_result_reply(config_cmd.RESULT_ACCEPTED),
+            _dimming_reply(brightness),
+        ]
+    )
     droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, brightness,
                           port=fake_drobo.port, timeout=5)
     written_document = html.unescape(fake_drobo.sent[1])
@@ -187,20 +209,30 @@ for brightness in (0, 255, 1):
 
 print("\n== accepted is not applied: read-back must agree ==")
 # Device says ACCEPTED but the brightness did not change -> must raise.
-fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(config_cmd.RESULT_ACCEPTED), _dimming_reply(59)])
+fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(
+    config_cmd.RESULT_ACCEPTED), _dimming_reply(59)])
 try:
     droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
                           port=fake_drobo.port, timeout=5)
     check("accepted-but-unchanged raises", False)
 except droboapps.DimmingWriteError as exc:
-    check("accepted-but-unchanged raises DimmingWriteError", "not applied" in str(exc), str(exc))
+    check("accepted-but-unchanged raises DimmingWriteError",
+          "not applied" in str(exc), str(exc))
 
 # verify=False skips the read-back (only read + write connections).
 fake_drobo = FakeDrobo(
     [_general_reply(dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED)])
-result = droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10, port=fake_drobo.port, timeout=5, verify=False)
-check("verify=False skips the read-back", len(fake_drobo.sent) == 2 and "verified" not in result, result)
+result = droboapps.set_dimming(
+    "127.0.0.1",
+    SAMPLE_ESA_ID,
+    10,
+    port=fake_drobo.port,
+    timeout=5,
+    verify=False,
+)
+check("verify=False skips the read-back", len(fake_drobo.sent)
+      == 2 and "verified" not in result, result)
 
 print("\n== the guards: a bad value never reaches the device ==")
 
@@ -216,17 +248,24 @@ def refusal_for(value):
         return (str(exc), len(fake_drobo.sent))
 
 
-for bad_value, reason in [(-1, "negative"), (256, "above the band"), (5900, "fat-fingered")]:
+for bad_value, reason in [
+    (-1, "negative"),
+    (256, "above the band"),
+    (5900, "fat-fingered"),
+]:
     refusal = refusal_for(bad_value)
     check(f"{reason} value ({bad_value}) is refused",
           refusal is not None, refusal)
     check(f"...and nothing was sent for {bad_value}",
           refusal and refusal[1] == 0, refusal)
 
-check("True is refused (a bool is not a brightness)", refusal_for(True) is not None)
+check("True is refused (a bool is not a brightness)",
+      refusal_for(True) is not None)
 check("a float is refused", refusal_for(3.5) is not None)
 
-print("\n== the siblings are sacred: unknown/missing fields refuse the write ==")
+print(
+    "\n== the siblings are sacred: unknown/missing fields refuse the write =="
+)
 
 # An unknown field in the block -> refuse, do not drop it. Block-preservation
 # failures raise GeneralWriteError (the shared base), since they are shared by
@@ -239,7 +278,8 @@ try:
                           port=fake_drobo.port, timeout=5)
     check("an unknown General field refuses the write", False)
 except droboapps.GeneralWriteError as exc:
-    check("an unknown General field refuses the write", "does not know how to" in str(exc), str(exc))
+    check("an unknown General field refuses the write",
+          "does not know how to" in str(exc), str(exc))
 check("...and the write was never sent (only the read happened)",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
 
@@ -253,7 +293,8 @@ try:
                           port=fake_drobo.port, timeout=5)
     check("a missing General field refuses the write", False)
 except droboapps.GeneralWriteError as exc:
-    check("a missing General field refuses the write", "missing expected" in str(exc), str(exc))
+    check("a missing General field refuses the write",
+          "missing expected" in str(exc), str(exc))
 
 print("\n== the device's verdict is believed, not assumed ==")
 
@@ -265,7 +306,8 @@ try:
                           port=fake_drobo.port, timeout=5)
     check("a non-accept Result raises", False)
 except config_cmd.ConfigWriteError as exc:
-    check("a non-accept Result raises ConfigWriteError", "did not accept" in str(exc), str(exc))
+    check("a non-accept Result raises ConfigWriteError",
+          "did not accept" in str(exc), str(exc))
 
 # A reply with no <Result> at all is also not an accept.
 fake_drobo = FakeDrobo(
@@ -285,7 +327,8 @@ print("\n== set_config itself: the transport guarantees ==")
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
-    config_cmd.set_config("127.0.0.1", SAMPLE_ESA_ID, "general", lambda before: "", port=fake_drobo.port, timeout=5)
+    config_cmd.set_config("127.0.0.1", SAMPLE_ESA_ID, "general",
+                          lambda before: "", port=fake_drobo.port, timeout=5)
     check("an empty build_section_document is refused", False)
 except config_cmd.ConfigWriteError:
     check("an empty build_section_document is refused", True)
@@ -293,7 +336,14 @@ except config_cmd.ConfigWriteError:
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
-    config_cmd.set_config("127.0.0.1", SAMPLE_ESA_ID, "general", lambda before: "not xml", port=fake_drobo.port, timeout=5)
+    config_cmd.set_config(
+        "127.0.0.1",
+        SAMPLE_ESA_ID,
+        "general",
+        lambda before: "not xml",
+        port=fake_drobo.port,
+        timeout=5,
+    )
     check("a non-XML build_section_document is refused", False)
 except config_cmd.ConfigWriteError:
     check("a non-XML build_section_document is refused", True)
@@ -314,7 +364,10 @@ fake_drobo = FakeDrobo(
 
 def _capture_baseline(before):
     captured_baseline.update({"before": before})
-    return "<General><FeatureStates>5</FeatureStates><SpindownDelay>0</SpindownDelay><Dim>2</Dim></General>"
+    return (
+        "<General><FeatureStates>5</FeatureStates>"
+        "<SpindownDelay>0</SpindownDelay><Dim>2</Dim></General>"
+    )
 
 
 config_cmd.set_config("127.0.0.1", SAMPLE_ESA_ID, "general", _capture_baseline,
@@ -336,8 +389,10 @@ try:
                           port=fake_drobo.port, timeout=5)
     check("a document for the wrong section is refused", False)
 except config_cmd.ConfigWriteError as exc:
-    check("a document for the wrong section is refused", "does not match" in str(exc), str(exc))
-check("...and nothing was written (only the read happened)", len(fake_drobo.sent) == 1, fake_drobo.sent)
+    check("a document for the wrong section is refused",
+          "does not match" in str(exc), str(exc))
+check("...and nothing was written (only the read happened)",
+      len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 print("\n== a masked credential is never written back ==")
 # The write baseline read is un-redacted (redact=False), so a real value is
@@ -356,17 +411,25 @@ try:
 except config_cmd.ConfigWriteError as exc:
     check("a document carrying the redaction sentinel is refused",
           "redaction sentinel" in str(exc), str(exc))
-check("...and the masked write never reached the device", len(fake_drobo.sent) == 1, fake_drobo.sent)
+check("...and the masked write never reached the device",
+      len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 # And the baseline read really is un-redacted: a secret-named field in the
 # General reply comes through to build_section_document intact, not
 # masked.
 grabbed_baseline = {}
-fake_drobo = FakeDrobo([("<TMCmd><CmdID>30</CmdID><ResultDetails>"
-                         "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>"
-                         "<Dim>59</Dim><AccessKey>hunter2</AccessKey>"
-                         "</ResultDetails></TMCmd>").encode() + b"\x00",
-                        _write_result_reply(config_cmd.RESULT_ACCEPTED)])
+fake_drobo = FakeDrobo(
+    [
+        (
+            "<TMCmd><CmdID>30</CmdID><ResultDetails>"
+            "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>"
+            "<Dim>59</Dim><AccessKey>hunter2</AccessKey>"
+            "</ResultDetails></TMCmd>"
+        ).encode()
+        + b"\x00",
+        _write_result_reply(config_cmd.RESULT_ACCEPTED),
+    ]
+)
 
 
 def _grab_baseline_then_stop(before):
@@ -385,7 +448,8 @@ check("the write-path read is NOT redacted "
       grabbed_baseline.get("AccessKey") == "hunter2", grabbed_baseline)
 
 print("\n== the gate is real: eCmdSetConfig is a vetted write ==")
-check("eCmdSetConfig is on the vetted-writes list", "eCmdSetConfig" in commands.VETTED_WRITES)
+check("eCmdSetConfig is on the vetted-writes list",
+      "eCmdSetConfig" in commands.VETTED_WRITES)
 check("...and is STILL refused to ordinary senders (in DO_NOT_SEND)",
       "eCmdSetConfig" in commands.DO_NOT_SEND)
 
@@ -402,7 +466,8 @@ try:
                           port=fake_drobo.port, timeout=5)
     check("a nested sibling value refuses the write", False)
 except droboapps.GeneralWriteError as exc:
-    check("a nested sibling value refuses the write", "not a scalar" in str(exc), str(exc))
+    check("a nested sibling value refuses the write",
+          "not a scalar" in str(exc), str(exc))
 check("...and nothing was written", len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 print("\n== spin-down rides the same vetted General path ==")
@@ -415,9 +480,15 @@ fake_drobo = FakeDrobo(
 result = droboapps.set_spindown("127.0.0.1", SAMPLE_ESA_ID, 30,
                                 port=fake_drobo.port, timeout=5)
 written_document = html.unescape(fake_drobo.sent[1])
-check("a nonzero delay changes only its own field",
-      "<FeatureStates>7</FeatureStates><SpindownDelay>30</SpindownDelay><Dim>59</Dim>" in written_document, written_document)
-check("the LED brightness is untouched by a spin-down write", "<Dim>59</Dim>" in written_document, written_document)
+check(
+    "a nonzero delay changes only its own field",
+    "<FeatureStates>7</FeatureStates><SpindownDelay>30</SpindownDelay>"
+    "<Dim>59</Dim>"
+    in written_document,
+    written_document,
+)
+check("the LED brightness is untouched by a spin-down write",
+      "<Dim>59</Dim>" in written_document, written_document)
 check("spin-down verifies via read-back",
       result.get("verified") is True, result)
 
@@ -443,8 +514,12 @@ fake_drobo = FakeDrobo(
 droboapps.set_spindown("127.0.0.1", SAMPLE_ESA_ID, 14,
                        port=fake_drobo.port, timeout=5)
 written_document = html.unescape(fake_drobo.sent[1])
-check("enabling from off sets the FeatureStates bit AND the delay together",
-      "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>" in written_document, written_document)
+check(
+    "enabling from off sets the FeatureStates bit AND the delay together",
+    "<FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay>"
+    in written_document,
+    written_document,
+)
 
 # disable = clear the bit AND zero the delay in ONE write -- the exact pair the
 # original Dashboard sends (capture 2026-08-06: 7/14 -> 5/0).
@@ -455,28 +530,42 @@ fake_drobo = FakeDrobo(
 result = droboapps.disable_spindown("127.0.0.1", SAMPLE_ESA_ID,
                                     port=fake_drobo.port, timeout=5)
 written_document = html.unescape(fake_drobo.sent[1])
-check("disable clears the bit and zeroes the delay in one write",
-      "<FeatureStates>5</FeatureStates><SpindownDelay>0</SpindownDelay><Dim>59</Dim>" in written_document, written_document)
-check("disable verifies BOTH fields on read-back", result.get("verified") is True, result)
+check(
+    "disable clears the bit and zeroes the delay in one write",
+    "<FeatureStates>5</FeatureStates><SpindownDelay>0</SpindownDelay>"
+    "<Dim>59</Dim>"
+    in written_document,
+    written_document,
+)
+check("disable verifies BOTH fields on read-back",
+      result.get("verified") is True, result)
 
 # A disable the device did not actually apply (bit still set) must raise.
 fake_drobo = FakeDrobo(
     [_general_reply(feature_states="7", spindown_delay="14", dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED),
-     _general_reply(feature_states="7", spindown_delay="15", dim_level="59")])  # coerced, as measured
+     # coerced, as measured
+     _general_reply(feature_states="7", spindown_delay="15", dim_level="59")])
 try:
     droboapps.disable_spindown("127.0.0.1", SAMPLE_ESA_ID,
                                port=fake_drobo.port, timeout=5)
     check("a coerced/unapplied disable raises", False)
 except droboapps.SpindownWriteError as exc:
-    check("a coerced/unapplied disable raises", "not applied" in str(exc), str(exc))
+    check("a coerced/unapplied disable raises",
+          "not applied" in str(exc), str(exc))
 
 # Its guards are the shared ones (block preservation) plus its own band check.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
-check("a spin-down value beyond the band is refused",
-      _raises(lambda: droboapps.set_spindown("127.0.0.1", SAMPLE_ESA_ID, 99999, port=fake_drobo.port, timeout=5),
-              droboapps.SpindownWriteError))
+check(
+    "a spin-down value beyond the band is refused",
+    _raises(
+        lambda: droboapps.set_spindown(
+            "127.0.0.1", SAMPLE_ESA_ID, 99999, port=fake_drobo.port, timeout=5
+        ),
+        droboapps.SpindownWriteError,
+    ),
+)
 check("...and it is a GeneralWriteError too (shared base)",
       issubclass(droboapps.SpindownWriteError, droboapps.GeneralWriteError)
       and issubclass(droboapps.DimmingWriteError, droboapps.GeneralWriteError))
@@ -484,9 +573,18 @@ check("...and it is a GeneralWriteError too (shared base)",
 print("\n== DroboApps start/stop: a gated, validated direct write ==")
 
 # Happy path: read the app list (AlphaApp installed), then Stop it.
-fake_drobo = FakeDrobo([_apps_reply("AlphaApp", "betaapp"), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
-result = droboapps.droboapps_action("127.0.0.1", SAMPLE_ESA_ID, "AlphaApp", "Stop", port=fake_drobo.port, timeout=5)
-check("the action reports accepted", result["result_code"] == config_cmd.RESULT_ACCEPTED, result)
+fake_drobo = FakeDrobo([_apps_reply("AlphaApp", "betaapp"),
+                       _write_result_reply(config_cmd.RESULT_ACCEPTED)])
+result = droboapps.droboapps_action(
+    "127.0.0.1",
+    SAMPLE_ESA_ID,
+    "AlphaApp",
+    "Stop",
+    port=fake_drobo.port,
+    timeout=5,
+)
+check("the action reports accepted",
+      result["result_code"] == config_cmd.RESULT_ACCEPTED, result)
 check("the confirmed params are on the wire",
       "<Name>AlphaApp</Name><Action>Stop</Action>" in fake_drobo.sent[1],
       fake_drobo.sent[1])
@@ -496,11 +594,20 @@ check("it read the app list first, then acted", len(fake_drobo.sent) == 2,
 # A bad verb is refused before anything is read or sent.
 fake_drobo = FakeDrobo(
     [_apps_reply("AlphaApp"), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
-check("a lowercase 'start' is refused",
-      _raises(lambda: droboapps.droboapps_action("127.0.0.1", SAMPLE_ESA_ID, "AlphaApp", "start",
-                                                 port=fake_drobo.port,
-                                                 timeout=5),
-              droboapps.DroboAppsActionError))
+check(
+    "a lowercase 'start' is refused",
+    _raises(
+        lambda: droboapps.droboapps_action(
+            "127.0.0.1",
+            SAMPLE_ESA_ID,
+            "AlphaApp",
+            "start",
+            port=fake_drobo.port,
+            timeout=5,
+        ),
+        droboapps.DroboAppsActionError,
+    ),
+)
 check("...and nothing was sent for a bad verb", len(fake_drobo.sent) == 0,
       fake_drobo.sent)
 
@@ -508,28 +615,56 @@ check("...and nothing was sent for a bad verb", len(fake_drobo.sent) == 0,
 fake_drobo = FakeDrobo(
     [_apps_reply("AlphaApp"), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
-    droboapps.droboapps_action("127.0.0.1", SAMPLE_ESA_ID, "Nonexistent", "Start", port=fake_drobo.port, timeout=5)
+    droboapps.droboapps_action(
+        "127.0.0.1",
+        SAMPLE_ESA_ID,
+        "Nonexistent",
+        "Start",
+        port=fake_drobo.port,
+        timeout=5,
+    )
     check("an uninstalled app is refused", False)
 except droboapps.DroboAppsActionError as exc:
-    check("an uninstalled app is refused", "not an installed" in str(exc), str(exc))
-check("...and the action was never sent (only the status read)", len(fake_drobo.sent) == 1, fake_drobo.sent)
+    check("an uninstalled app is refused",
+          "not an installed" in str(exc), str(exc))
+check("...and the action was never sent (only the status read)",
+      len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 # check_installed=False skips the read and sends directly.
 fake_drobo = FakeDrobo([_write_result_reply(config_cmd.RESULT_ACCEPTED)])
-droboapps.droboapps_action("127.0.0.1", SAMPLE_ESA_ID, "AlphaApp", "Start", port=fake_drobo.port, timeout=5,
-                           check_installed=False)
-check("check_installed=False skips the status read", len(fake_drobo.sent) == 1, fake_drobo.sent)
+droboapps.droboapps_action(
+    "127.0.0.1",
+    SAMPLE_ESA_ID,
+    "AlphaApp",
+    "Start",
+    port=fake_drobo.port,
+    timeout=5,
+    check_installed=False,
+)
+check("check_installed=False skips the status read",
+      len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 # A non-accept result raises.
 fake_drobo = FakeDrobo([_apps_reply("AlphaApp"), _write_result_reply(0)])
 try:
-    droboapps.droboapps_action("127.0.0.1", SAMPLE_ESA_ID, "AlphaApp", "Stop", port=fake_drobo.port, timeout=5)
+    droboapps.droboapps_action(
+        "127.0.0.1",
+        SAMPLE_ESA_ID,
+        "AlphaApp",
+        "Stop",
+        port=fake_drobo.port,
+        timeout=5,
+    )
     check("a non-accept result raises", False)
 except droboapps.DroboAppsActionError as exc:
-    check("a non-accept result raises DroboAppsActionError", "did not accept" in str(exc), str(exc))
+    check("a non-accept result raises DroboAppsActionError",
+          "did not accept" in str(exc), str(exc))
 
-check("eCmdDroboAppsAction is a vetted write, still in DO_NOT_SEND",
-      "eCmdDroboAppsAction" in commands.VETTED_WRITES and "eCmdDroboAppsAction" in commands.DO_NOT_SEND)
+check(
+    "eCmdDroboAppsAction is a vetted write, still in DO_NOT_SEND",
+    "eCmdDroboAppsAction" in commands.VETTED_WRITES
+    and "eCmdDroboAppsAction" in commands.DO_NOT_SEND,
+)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

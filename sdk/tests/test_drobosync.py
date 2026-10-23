@@ -9,6 +9,7 @@ seen.
 
     py test_drobosync.py
 """
+
 import os
 import sys
 
@@ -21,13 +22,16 @@ failures = []
 
 
 def check(label, condition, failure_detail=""):
-    print(("  PASS  " if condition else "  FAIL  ") + label + (f"  {failure_detail}" if failure_detail and not condition else ""))
+    print(("  PASS  " if condition else "  FAIL  ") + label +
+          (f"  {failure_detail}" if failure_detail and not condition else ""))
     if not condition:
         failures.append(label)
 
 
 def _result_reply(details_xml: str) -> bytes:
-    return (f"<Result><ResultDetails>{details_xml}</ResultDetails></Result>").encode() + b"\x00"
+    return (
+        f"<Result><ResultDetails>{details_xml}</ResultDetails></Result>"
+    ).encode() + b"\x00"
 
 
 print("\n== the reply we have actually seen: empty ==")
@@ -37,11 +41,13 @@ print("\n== the reply we have actually seen: empty ==")
 # than saying nothing.
 for payload in (b"", b"\x00", _result_reply(""), b"   \x00"):
     parsed = drobosync.parse_sync_reply(payload)
-    check(f"{payload!r} parses as not-configured", parsed["configured"] is False, parsed)
+    check(f"{payload!r} parses as not-configured",
+          parsed["configured"] is False, parsed)
     check(f"{payload!r} raises nothing", isinstance(parsed, dict))
 
 parsed_empty_reply = drobosync.parse_sync_reply(b"")
-check("an empty reply carries no invented fields", parsed_empty_reply["fields"] == {}, parsed_empty_reply)
+check("an empty reply carries no invented fields",
+      parsed_empty_reply["fields"] == {}, parsed_empty_reply)
 check("-- and no raw document", parsed_empty_reply["raw_xml"] == "",
       parsed_empty_reply)
 
@@ -54,17 +60,29 @@ populated_details_xml = (
     "<TargetName>Upstairs Drobo</TargetName>"
     "<LastRun>2026-07-20 03:00</LastRun>&lt;/DroboSync&gt;")
 populated = drobosync.parse_sync_reply(_result_reply(populated_details_xml))
-check("a reply with content is configured", populated["configured"] is True, populated)
-check("leaf values are carried under their own tags",
-      populated["fields"].get("TargetName") == "Upstairs Drobo", populated["fields"])
-check("-- all of them, not a chosen few",
-      set(populated["fields"]) >= {"Enabled", "TargetName", "LastRun"}, populated["fields"])
+check("a reply with content is configured",
+      populated["configured"] is True, populated)
+check(
+    "leaf values are carried under their own tags",
+    populated["fields"].get("TargetName") == "Upstairs Drobo",
+    populated["fields"],
+)
+check(
+    "-- all of them, not a chosen few",
+    set(populated["fields"]) >= {"Enabled", "TargetName", "LastRun"},
+    populated["fields"],
+)
 
-print("\n== escaped nesting is unwrapped, as everywhere else in this firmware ==")
+print(
+    "\n== escaped nesting is unwrapped, as everywhere else in this firmware =="
+)
 # Reading these as opaque strings is the mistake that made temperature and the
 # performance counters look unobtainable for weeks.
 nested = drobosync.parse_sync_reply(
-    _result_reply("&lt;DroboSync&gt;&lt;Enabled&gt;1&lt;/Enabled&gt;&lt;/DroboSync&gt;"))
+    _result_reply(
+        "&lt;DroboSync&gt;&lt;Enabled&gt;1&lt;/Enabled&gt;&lt;/DroboSync&gt;"
+    )
+)
 check("a fully-escaped document is parsed, not treated as text",
       nested["fields"].get("Enabled") == "1", nested)
 check("-- and the raw document is kept for whoever sees the first real one",
@@ -88,17 +106,20 @@ except ValueError as exc:
           "settings" in str(exc), str(exc))
 
 print("\n== the four reads we support are the four the firmware has ==")
-check("exactly four read commands", len(drobosync.READ_COMMANDS) == 4, drobosync.READ_COMMANDS)
+check("exactly four read commands", len(
+    drobosync.READ_COMMANDS) == 4, drobosync.READ_COMMANDS)
 for name in drobosync.READ_COMMANDS.values():
     check(f"{name} has a firmware id", name in commands.COMMANDS, name)
-    check(f"{name} is NOT refused (it is a query)", not commands.is_dangerous(name), name)
+    check(f"{name} is NOT refused (it is a query)",
+          not commands.is_dangerous(name), name)
 
 print("\n== the writes stay refused, permanently ==")
 # Triggering a replication run moves real data between two arrays. It is not a
 # safe write, it cannot be tested with one Drobo, and it is not going in.
 for name in drobosync.WRITE_COMMANDS:
     check(f"{name} is in DO_NOT_SEND", commands.is_dangerous(name), name)
-    check(f"{name} is not a safe write", not commands.is_safe_write(name), name)
+    check(f"{name} is not a safe write",
+          not commands.is_safe_write(name), name)
 check("no DroboSync write ever became a SAFE_WRITE",
       not (set(drobosync.WRITE_COMMANDS) & commands.SAFE_WRITES))
 
@@ -126,7 +147,8 @@ try:
     # switched-off feature every time a page refreshes would be actively
     # harmful to a box that tires easily -- and with no partner configured
     # there are no logs to fetch by definition.
-    check("only settings is actually asked when sync is off", _reads_asked == ["settings"], _reads_asked)
+    check("only settings is actually asked when sync is off",
+          _reads_asked == ["settings"], _reads_asked)
     check("the three skipped reads say they were not asked",
           all(sync_summary["reads"][read_name]["asked"] is False
               for read_name in ("summary_log", "detailed_log", "log")),
@@ -140,7 +162,8 @@ try:
           "needs two" in sync_summary["note"], sync_summary["note"])
     check("it says the work is already done and waiting",
           "built and waiting" in sync_summary["note"], sync_summary["note"])
-    check("it does not read as an error", "error" not in sync_summary["note"].lower(), sync_summary["note"])
+    check("it does not read as an error",
+          "error" not in sync_summary["note"].lower(), sync_summary["note"])
 finally:
     drobosync.read = _original_read
 
@@ -180,11 +203,13 @@ def _read_with_failing_settings(host, esa_id, what, port=None, timeout=None):
 drobosync.read = _read_with_failing_settings
 try:
     sync_summary = drobosync.summary("10.0.0.50", "drbTEST")
-    check("a failing read still returns all four entries", len(sync_summary["reads"]) == 4, sync_summary["reads"])
+    check("a failing read still returns all four entries", len(
+        sync_summary["reads"]) == 4, sync_summary["reads"])
     check("the failure is recorded against the read it belongs to",
           "error" in sync_summary["reads"]["settings"],
           sync_summary["reads"]["settings"])
-    check("a failure is not mistaken for 'configured'", sync_summary["configured"] is False, sync_summary)
+    check("a failure is not mistaken for 'configured'",
+          sync_summary["configured"] is False, sync_summary)
 finally:
     drobosync.read = _original_read
 

@@ -282,6 +282,9 @@ released. Every push to this repository carries this file.
   - The agent's other nine test suites (`agent/tests/`: backup, config
     API, drivers, DroboApps API, Identify API, notification simulation,
     notify, shares API and updates)
+  - Eight of the SDK's test suites (`sdk/tests/`: config command,
+    config write, discovery, DroboSync, status greeting, event log,
+    firmware and Identify)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

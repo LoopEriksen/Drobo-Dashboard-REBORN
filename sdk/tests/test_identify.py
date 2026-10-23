@@ -75,9 +75,12 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
             header = connection.recv(16)
             payload_length = struct.unpack(">I", header[12:16])[0]
             connection.recv(payload_length)
-            connection.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
+            connection.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_LOGIN_OK if login_ok else 0x99, b""))
             if not login_ok:
-                connection.close(); server_socket.close(); return
+                connection.close()
+                server_socket.close()
+                return
             header = connection.recv(16)
             payload_length = struct.unpack(">I", header[12:16])[0]
             received_frames["command"] = connection.recv(payload_length)
@@ -96,7 +99,13 @@ def send_identify(**identify_options):
     """One identify against a throwaway fake device; returns (result, bytes)."""
     ports = []
     received_frames = fake_device(config_cmd.TYPE_RESULT, b"", ports)
-    result = identify.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5, **identify_options)
+    result = identify.identify(
+        "127.0.0.1",
+        "drb000000SAMPLE",
+        port=ports[0],
+        timeout=5,
+        **identify_options,
+    )
     return result, received_frames.get("command",
                                        b"").decode("utf-8", "replace")
 
@@ -117,7 +126,10 @@ check("an empty reply is still success",
 
 
 # ---------------------------------------------------------------------------
-print("\n== the interval: on the wire 2026-07-25, re-found in Dashboard's binary 2026-08-06 ==")
+print(
+    "\n== the interval: on the wire 2026-07-25, re-found in Dashboard's "
+    "binary 2026-08-06 =="
+)
 #
 # This replaces an assertion that used to read "params are sent EMPTY -- never
 # guessed", and the replacement is deliberate rather than a relaxation.
@@ -141,9 +153,13 @@ check("the interval element is the one from Dashboard's binary",
       identify.INTERVAL_TAG == "IdentifyInterval", identify.INTERVAL_TAG)
 check("the default is still this project's guess, 15 (Dashboard sent 900)",
       identify.DEFAULT_INTERVAL == 15, identify.DEFAULT_INTERVAL)
-check("by default the interval is on the wire",
-      "<Params><IdentifyInterval>15</IdentifyInterval></Params>" in sent_command, sent_command[:200])
-check("the interval is reported back to the caller", result["interval"] == 15, result)
+check(
+    "by default the interval is on the wire",
+    "<Params><IdentifyInterval>15</IdentifyInterval></Params>" in sent_command,
+    sent_command[:200],
+)
+check("the interval is reported back to the caller",
+      result["interval"] == 15, result)
 
 custom_interval_result, custom_interval_command = send_identify(interval=45)
 check("a caller-chosen interval is transmitted verbatim",
@@ -181,7 +197,8 @@ for bad_interval, reason in ((-1, "negative"), (-900, "very negative"),
                              ("15", "a string"), (15.0, "a float"),
                              (True, "a bool")):
     try:
-        identify.identify("127.0.0.1", "drb000000SAMPLE", port=1, timeout=1, interval=bad_interval)
+        identify.identify("127.0.0.1", "drb000000SAMPLE",
+                          port=1, timeout=1, interval=bad_interval)
         check(f"{reason} interval is refused", False, repr(bad_interval))
     except identify.IdentifyError:
         check(f"{reason} interval is refused", True)
@@ -203,7 +220,8 @@ try:
     identify.identify("127.0.0.1", "drb000000SAMPLE", port=ports[0], timeout=5)
     check("a refused login raises", False)
 except identify.IdentifyError as exc:
-    check("a refused login raises IdentifyError", "login refused" in str(exc), str(exc))
+    check("a refused login raises IdentifyError",
+          "login refused" in str(exc), str(exc))
 
 ports = []
 fake_device(0x99, b"", ports)
@@ -246,10 +264,12 @@ check("apps come back sorted by name",
 # the parser, so nothing above it has to remember the polarity is inverted.
 check("Stopped=0 becomes running=True",
       apps_by_name["betaapp"]["running"] is True)
-check("Stopped=1 becomes running=False", apps_by_name["AlphaApp"]["running"] is False)
+check("Stopped=1 becomes running=False",
+      apps_by_name["AlphaApp"]["running"] is False)
 check("a web interface is noticed",
       apps_by_name["AlphaApp"]["has_web_ui"] is True)
-check("...and its absence is not invented", apps_by_name["betaapp"]["has_web_ui"] is False)
+check("...and its absence is not invented",
+      apps_by_name["betaapp"]["has_web_ui"] is False)
 
 check("no apps is an empty list, not an error",
       droboapps.parse_droboapps(b"\x00") == {"sdk_version": "", "apps": []})
@@ -257,15 +277,20 @@ try:
     droboapps.parse_droboapps(b"<not xml\x00")
     check("malformed XML raises", False)
 except Exception as exc:
-    check("malformed XML raises", type(exc).__name__ == "SysInfoError", type(exc).__name__)
+    check("malformed XML raises", type(exc).__name__ ==
+          "SysInfoError", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------
 print("\n== LED brightness ==")
 
+
 def parse_brightness(value):
     return droboapps.parse_dimming(
-        f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>".encode() + b"\x00")
+        f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>".encode()
+        + b"\x00"
+    )
+
 
 check("the live device's reading parses", parse_brightness(59) == 59)
 # The distinction that matters: lights-off is a real setting, and must not be
