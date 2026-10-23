@@ -35,7 +35,7 @@ import sys
 import tempfile
 import os
 
-import nasd_dissect as dissect
+import nasd_dissect
 
 # Documentation-range addresses (RFC 5737 TEST-NET-1), deliberately not
 # a private 192.168.x range: fixtures written in that form are
@@ -70,12 +70,12 @@ def check(condition: bool, message: str) -> None:
 # frame.
 # ---------------------------------------------------------------------------
 def build_known_stream() -> bytes:
-    out = bytearray()
-    for xml in (XML_FRAME_1, XML_FRAME_2):
-        out += dissect.SIG4
-        out += struct.pack(">I", len(xml))
-        out += xml
-    return bytes(out)
+    stream = bytearray()
+    for xml_payload in (XML_FRAME_1, XML_FRAME_2):
+        stream += nasd_dissect.SIGNATURE_DRINASD4
+        stream += struct.pack(">I", len(xml_payload))
+        stream += xml_payload
+    return bytes(stream)
 
 
 # ---------------------------------------------------------------------------
@@ -83,24 +83,25 @@ def build_known_stream() -> bytes:
 # nasd_dissect.py never validates them, it only reads the fields it
 # needs).
 # ---------------------------------------------------------------------------
-def eth_frame(ip_packet: bytes) -> bytes:
-    dst_mac = bytes.fromhex("001122334455")
-    src_mac = bytes.fromhex("665544332211")
-    return dst_mac + src_mac + struct.pack(">H", 0x0800) + ip_packet
+def ethernet_frame(ip_packet: bytes) -> bytes:
+    destination_mac = bytes.fromhex("001122334455")
+    source_mac = bytes.fromhex("665544332211")
+    return destination_mac + source_mac + struct.pack(">H", 0x0800) + ip_packet
 
 
-def ipv4_packet(src_ip: str, dst_ip: str, tcp_segment: bytes) -> bytes:
-    total_len = 20 + len(tcp_segment)
+def ipv4_packet(source_ip: str, destination_ip: str, segment: bytes) -> bytes:
+    total_length = 20 + len(segment)
     header = struct.pack(
-        ">BBHHHBBH", (4 << 4) | 5, 0, total_len, 0, 0, 64, 6, 0)
-    header += socket.inet_aton(src_ip) + socket.inet_aton(dst_ip)
-    return header + tcp_segment
+        ">BBHHHBBH", (4 << 4) | 5, 0, total_length, 0, 0, 64, 6, 0)
+    header += socket.inet_aton(source_ip) + socket.inet_aton(destination_ip)
+    return header + segment
 
 
-def tcp_segment(sport: int, dport: int, seq: int, flags: int,
+def tcp_segment(source_port: int, destination_port: int, seq: int, flags: int,
                 payload: bytes) -> bytes:
     header = struct.pack(
-        ">HHIIBBHHH", sport, dport, seq, 0, (5 << 4), flags, 65535, 0, 0)
+        ">HHIIBBHHH", source_port, destination_port, seq, 0, (5 << 4),
+        flags, 65535, 0, 0)
     return header + payload
 
 
@@ -113,9 +114,9 @@ def build_frames_for_chunks(chunks: list[tuple[int, bytes]]) -> list[bytes]:
     by packet order in the file."""
     frames = []
     for seq, payload in chunks:
-        seg = tcp_segment(CLIENT_PORT, SERVER_PORT, seq, PSH_ACK, payload)
-        pkt = ipv4_packet(CLIENT_IP, SERVER_IP, seg)
-        frames.append(eth_frame(pkt))
+        segment = tcp_segment(CLIENT_PORT, SERVER_PORT, seq, PSH_ACK, payload)
+        packet = ipv4_packet(CLIENT_IP, SERVER_IP, segment)
+        frames.append(ethernet_frame(packet))
     return frames
 
 
@@ -123,12 +124,13 @@ def build_frames_for_chunks(chunks: list[tuple[int, bytes]]) -> list[bytes]:
 # Classic pcap writer
 # ---------------------------------------------------------------------------
 def write_pcap_classic(path: str, link_frames: list[bytes]) -> None:
-    with open(path, "wb") as fh:
-        fh.write(struct.pack(">IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+    with open(path, "wb") as capture_file:
+        capture_file.write(struct.pack(">IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0,
+                                       65535, 1))
         for i, frame in enumerate(link_frames):
-            fh.write(struct.pack(
+            capture_file.write(struct.pack(
                 ">IIII", 1_700_000_000 + i, 0, len(frame), len(frame)))
-            fh.write(frame)
+            capture_file.write(frame)
 
 
 # ---------------------------------------------------------------------------
@@ -152,39 +154,42 @@ def write_pcap_classic(path: str, link_frames: list[bytes]) -> None:
 # matters.
 #
 def _pcapng_block(block_type: int, body: bytes, endian: str = ">") -> bytes:
-    total_len = 4 + 4 + len(body) + 4
-    return (struct.pack(endian + "II", block_type, total_len) + body
-            + struct.pack(endian + "I", total_len))
+    total_length = 4 + 4 + len(body) + 4
+    return (struct.pack(endian + "II", block_type, total_length) + body
+            + struct.pack(endian + "I", total_length))
 
 
-def _shb(endian: str = ">") -> bytes:
+def _section_header_block(endian: str = ">") -> bytes:
     # The byte-order magic is the same NUMBER either way -- it is the
     # bytes on disk that differ, which is the whole point of it.
     body = struct.pack(endian + "IHHq", 0x1A2B3C4D, 1, 0, -1)
     return _pcapng_block(0x0A0D0D0A, body, endian)
 
 
-def _idb(linktype: int = 1, snaplen: int = 65535, endian: str = ">") -> bytes:
-    body = struct.pack(endian + "HHI", linktype, 0, snaplen)
+def _interface_description_block(linktype: int = 1,
+                                 snapshot_length: int = 65535,
+                                 endian: str = ">") -> bytes:
+    body = struct.pack(endian + "HHI", linktype, 0, snapshot_length)
     return _pcapng_block(0x00000001, body, endian)
 
 
-def _epb(iface_id: int, frame: bytes, endian: str = ">") -> bytes:
+def _enhanced_packet_block(interface_id: int, frame: bytes,
+                           endian: str = ">") -> bytes:
     pad = (-len(frame)) % 4
     padded = frame + b"\x00" * pad
     body = (struct.pack(
-        endian + "IIIII", iface_id, 0, 0, len(frame), len(frame))
+        endian + "IIIII", interface_id, 0, 0, len(frame), len(frame))
             + padded)
     return _pcapng_block(0x00000006, body, endian)
 
 
 def write_pcapng(path: str, link_frames: list[bytes],
                  endian: str = ">") -> None:
-    with open(path, "wb") as fh:
-        fh.write(_shb(endian))
-        fh.write(_idb(endian=endian))
+    with open(path, "wb") as capture_file:
+        capture_file.write(_section_header_block(endian))
+        capture_file.write(_interface_description_block(endian=endian))
         for frame in link_frames:
-            fh.write(_epb(0, frame, endian))
+            capture_file.write(_enhanced_packet_block(0, frame, endian))
 
 
 # ---------------------------------------------------------------------------
@@ -192,32 +197,32 @@ def write_pcapng(path: str, link_frames: list[bytes],
 # ---------------------------------------------------------------------------
 def run_against(path: str, label: str) -> None:
     print(f"\n=== dissecting {label} ({path}) ===")
-    packets = dissect.read_capture(path)
+    packets = nasd_dissect.read_capture(path)
     check(len(packets) > 0,
           f"{label}: capture file parsed into >0 link-layer frames")
 
-    streams = dissect.collect_streams(packets)
+    streams = nasd_dissect.collect_streams(packets)
     check(len(streams) == 1,
           f"{label}: exactly one TCP stream recovered (got {len(streams)})")
     if not streams:
         return
-    st = next(iter(streams.values()))
-    check(st["client"] == (CLIENT_IP, CLIENT_PORT),
+    stream = next(iter(streams.values()))
+    check(stream["client"] == (CLIENT_IP, CLIENT_PORT),
           f"{label}: client endpoint identified correctly")
-    check(st["server"] == (SERVER_IP, SERVER_PORT),
+    check(stream["server"] == (SERVER_IP, SERVER_PORT),
           f"{label}: server endpoint identified correctly")
 
-    buf = dissect.reassemble(st["to_server"])
+    client_bytes = nasd_dissect.reassemble(stream["to_server"])
     expected = build_known_stream()
-    check(buf == expected,
+    check(client_bytes == expected,
           f"{label}: reassembled client->server stream matches "
           "the known bytes exactly")
 
-    login = dissect.infer_login_frame(buf)
+    login = nasd_dissect.infer_login_frame(client_bytes)
     check(login is not None, f"{label}: a login frame was inferred at all")
     if login is None:
         return
-    check(login["signature"] == dissect.SIG4,
+    check(login["signature"] == nasd_dissect.SIGNATURE_DRINASD4,
           f"{label}: recovered signature is DRINASD4")
     check(login["signature_offset"] == 0,
           f"{label}: signature located at offset 0")
@@ -233,21 +238,21 @@ def run_against(path: str, label: str) -> None:
     check(login["payload"] == XML_FRAME_1,
           f"{label}: first frame's XML payload recovered exactly")
 
-    remainder = buf[login["frame_end_absolute"]:]
-    cmd = dissect.infer_command_frames(remainder)
-    check(cmd is not None,
+    remainder = client_bytes[login["frame_end_absolute"]:]
+    command_framing = nasd_dissect.infer_command_frames(remainder)
+    check(command_framing is not None,
           f"{label}: command-frame region after the login frame "
           "was decoded")
-    if cmd is None:
+    if command_framing is None:
         return
-    check(cmd["signature"] == dissect.SIG4,
+    check(command_framing["signature"] == nasd_dissect.SIGNATURE_DRINASD4,
           f"{label}: command frame(s) recovered as also carrying DRINASD4 "
           "(repeat-signature framing)")
-    check(len(cmd["frames"]) == 1,
+    check(len(command_framing["frames"]) == 1,
           f"{label}: exactly one command frame recovered "
-          f"(got {len(cmd['frames'])})")
-    if cmd["frames"]:
-        check(cmd["frames"][0]["payload"] == XML_FRAME_2,
+          f"(got {len(command_framing['frames'])})")
+    if command_framing["frames"]:
+        check(command_framing["frames"][0]["payload"] == XML_FRAME_2,
               f"{label}: second frame's XML payload recovered exactly")
 
 
@@ -267,7 +272,7 @@ def run_dissector(argv: list[str]) -> tuple[object, str]:
     printed = io.StringIO()
     try:
         with contextlib.redirect_stdout(printed):
-            result = dissect.main(argv)
+            result = nasd_dissect.main(argv)
     except Exception as exc:  # noqa: BLE001 -- the crash IS what is tested
         result = exc
     return result, printed.getvalue()
@@ -275,13 +280,14 @@ def run_dissector(argv: list[str]) -> tuple[object, str]:
 
 def run_without_login_frame(tmp_dir: str) -> None:
     print("\n=== no login frame: --port 5001, and an empty capture ===")
-    xml = b"<TMCmd><CmdID>30</CmdID><Params></Params></TMCmd>\x00"
-    frame = b"DRINETTM" + struct.pack(">II", 0, len(xml)) + xml
+    request_payload = b"<TMCmd><CmdID>30</CmdID><Params></Params></TMCmd>\x00"
+    frame = (b"DRINETTM" + struct.pack(">II", 0, len(request_payload))
+             + request_payload)
     segment = tcp_segment(CLIENT_PORT, 5001, 1000, PSH_ACK, frame)
     command_capture = os.path.join(tmp_dir, "command-port.pcap")
     write_pcap_classic(command_capture,
-                       [eth_frame(ipv4_packet(CLIENT_IP, SERVER_IP,
-                                              segment))])
+                       [ethernet_frame(ipv4_packet(CLIENT_IP, SERVER_IP,
+                                                   segment))])
     empty_capture = os.path.join(tmp_dir, "empty.pcap")
     write_pcap_classic(empty_capture, [])
 
@@ -318,8 +324,10 @@ def run_checks(tmp_dir: str) -> int:
     # Split into three chunks and deliberately list them out of arrival
     # order, so the dissector has to sort by TCP sequence number to get
     # the bytes back in the right order.
-    split_a = len(dissect.SIG4) + 4 + 5          # partway into frame 1's XML
-    split_b = len(known_stream) - 12             # partway into frame 2's XML
+    # partway into frame 1's XML
+    split_a = len(nasd_dissect.SIGNATURE_DRINASD4) + 4 + 5
+    # partway into frame 2's XML
+    split_b = len(known_stream) - 12
     chunk1 = known_stream[0:split_a]
     chunk2 = known_stream[split_a:split_b]
     chunk3 = known_stream[split_b:]
@@ -354,8 +362,8 @@ def run_checks(tmp_dir: str) -> int:
     print()
     if failures:
         print(f"{len(failures)} check(s) FAILED:")
-        for f in failures:
-            print(f"  - {f}")
+        for failure in failures:
+            print(f"  - {failure}")
         return 1
     print("All checks passed.")
     return 0

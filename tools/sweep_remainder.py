@@ -83,17 +83,17 @@ import sys
 import tempfile
 import time
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "sdk")))
-sys.path.insert(0, _HERE)
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(_TOOLS_DIR, "..", "sdk")))
+sys.path.insert(0, _TOOLS_DIR)
 
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
-# noqa: E402  (reuse its send/redact/report machinery)
-import nasd_sweep as sweep  # noqa: E402
+# (reuse its send/redact/report machinery)
+import nasd_sweep  # noqa: E402
 
-#: The seven. See the module docstring for why each one is safe, and why the
-#: other six of the thirteen are absent.
+#: The seven. See the module docstring for why each one is safe, and why
+#: the other six of the thirteen are absent.
 REMAINDER: list[str] = [
     "eCmdDeviceLogin",
     "eCmdDeviceLogout",
@@ -104,9 +104,9 @@ REMAINDER: list[str] = [
     "eCmdGetNASUsernamePassword",
 ]
 
-#: Excluded from this sweep on purpose, with the reason, so the list of what
-#: remains untested is explicit rather than something you work out by
-#: subtracting two other lists.
+#: Excluded from this sweep on purpose, with the reason, so the list of
+#: what remains untested is explicit rather than something you work out
+#: by subtracting two other lists.
 NOT_TESTED: dict[str, str] = {
     "eCmdIdentify": "a write; pointless unless someone is watching the unit",
     "eCmdGetUpdate": "would dial a dead vendor server and likely hang",
@@ -119,20 +119,20 @@ NOT_TESTED: dict[str, str] = {
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("host", nargs="?", default="")
-    ap.add_argument("--out", default="")
-    args = ap.parse_args(argv)
+    parser.add_argument("host", nargs="?", default="")
+    parser.add_argument("--out", default="")
+    args = parser.parse_args(argv)
 
     host = args.host
     if not host:
         try:
-            cfg = json.load(open(
-                os.path.join(_HERE, "..", "agent", "config.json"),
+            agent_config = json.load(open(
+                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
                 encoding="utf-8"))
-            host = cfg["drobo"].get("host", "")
+            host = agent_config["drobo"].get("host", "")
         except (OSError, KeyError, ValueError):
             pass
     if not host or host == "auto":
@@ -142,42 +142,43 @@ def main(argv=None) -> int:
 
     # Same guard the first sweep uses: nothing refused may ever be in
     # the list.
-    sweep.assert_allowlist_safe(REMAINDER)
+    nasd_sweep.assert_allowlist_safe(REMAINDER)
     print(f"Safety check passed: {len(REMAINDER)} commands, "
           "none of them refused.\n")
 
     try:
-        ident = esatm.parse_identity(
+        identity = esatm.parse_identity(
             esatm.fetch_greeting(host, 5000, timeout=8))
     except OSError as exc:
         print(f"Could not reach the Drobo at {host}: {exc}")
         return 1
-    esa = ident.get("esa_id") or ""
-    if not esa:
+    esa_id = identity.get("esa_id") or ""
+    if not esa_id:
         print("The Drobo did not report a serial; cannot log in.")
         return 1
-    print(f"Talking to {ident.get('name')} ({ident.get('model')}), "
-          f"firmware {ident.get('firmware')}\n")
+    print(f"Talking to {identity.get('name')} ({identity.get('model')}), "
+          f"firmware {identity.get('firmware')}\n")
 
     results = []
     consecutive_timeouts = 0
-    for i, name in enumerate(REMAINDER, 1):
-        cmd_id = commands.COMMANDS[name]
-        print(f"[{i}/{len(REMAINDER)}] {name} (id {cmd_id}) ...", flush=True)
-        rec = sweep.send_one_command(
-            host, sweep.DEFAULT_COMMAND_PORT, esa, cmd_id, 6.0)
-        rec["name"], rec["cmd_id"] = name, cmd_id
-        results.append(rec)
+    for i, command_name in enumerate(REMAINDER, 1):
+        command_id = commands.COMMANDS[command_name]
+        print(f"[{i}/{len(REMAINDER)}] {command_name} (id {command_id}) ...",
+              flush=True)
+        record = nasd_sweep.send_one_command(
+            host, nasd_sweep.DEFAULT_COMMAND_PORT, esa_id, command_id, 6.0)
+        record["name"], record["cmd_id"] = command_name, command_id
+        results.append(record)
 
-        status = rec["status"]
-        extra = ""
+        status = record["status"]
+        detail_suffix = ""
         if status == "answered":
-            extra = f", {len(rec.get('tags', []))} fields"
-            if rec.get("escaped_document"):
-                extra += "  [escaped inner document]"
-        if rec.get("detail"):
-            extra += f"  ({str(rec['detail'])[:60]})"
-        print(f"    -> {status}{extra}", flush=True)
+            detail_suffix = f", {len(record.get('tags', []))} fields"
+            if record.get("escaped_document"):
+                detail_suffix += "  [escaped inner document]"
+        if record.get("detail"):
+            detail_suffix += f"  ({str(record['detail'])[:60]})"
+        print(f"    -> {status}{detail_suffix}", flush=True)
 
         if status == "timeout":
             consecutive_timeouts += 1
@@ -197,20 +198,20 @@ def main(argv=None) -> int:
         print(f"  !! status port did not answer: {exc}")
 
     print("\n== summary ==")
-    for st in ("answered", "empty", "refused", "timeout"):
-        n = sum(1 for r in results if r["status"] == st)
-        if n:
-            print(f"  {st:9} {n}")
+    for status_name in ("answered", "empty", "refused", "timeout"):
+        count = sum(1 for record in results if record["status"] == status_name)
+        if count:
+            print(f"  {status_name:9} {count}")
 
     print("\n== still untested, deliberately ==")
-    for name, why in NOT_TESTED.items():
-        print(f"  {name:24} {why}")
+    for command_name, reason in NOT_TESTED.items():
+        print(f"  {command_name:24} {reason}")
 
-    out = args.out or os.path.join(
+    report_path = args.out or os.path.join(
         tempfile.gettempdir(), "drobo-sweep-remainder.json")
-    with open(out, "w", encoding="utf-8") as fh:
-        json.dump({"host": host, "results": results}, fh, indent=1)
-    print(f"\nRedacted report: {out}")
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump({"host": host, "results": results}, report_file, indent=1)
+    print(f"\nRedacted report: {report_path}")
     print("(outside the repo -- not meant to be committed)")
     return 0
 

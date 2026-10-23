@@ -78,7 +78,7 @@ except ImportError:  # pragma: no cover
 #  handler string, and
 #: widening much past this starts pulling in the next
 #  function's strings.
-WINDOW = 400
+DEFAULT_WINDOW_BYTES = 400
 
 _STRING_RE = re.compile(rb"[\x20-\x7e]{3,}")
 
@@ -92,7 +92,7 @@ _TAG_RE = re.compile(r"^[A-Z][A-Za-z0-9_]{2,31}$")
 #: Strings that pass the shape test but are obviously not
 #  XML tags. C++ symbol
 #: fragments, log verbs, and type names that appear all over the binary.
-_NOISE = {
+_NOISE_WORDS = {
     "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE", "FATAL",
     "TMCmd", "ESADevice", "DNASConfig", "Unable", "Failed", "Error",
     "Got", "Request", "Output", "Input", "Invalid", "Cannot", "Could",
@@ -105,14 +105,14 @@ _NOISE = {
 
 def extract_strings(blob: bytes) -> list[tuple[int, str]]:
     """Every printable run in the binary, with its file offset."""
-    return [(m.start(), m.group().decode("ascii", "replace"))
-            for m in _STRING_RE.finditer(blob)]
+    return [(match.start(), match.group().decode("ascii", "replace"))
+            for match in _STRING_RE.finditer(blob)]
 
 
 def find_markers(strings: list[tuple[int, str]],
-                 command: str) -> list[tuple[int, str]]:
+                 command_name: str) -> list[tuple[int, str]]:
     """
-    Offsets of strings that anchor `command`'s handler.
+    Offsets of strings that anchor `command_name`'s handler.
 
     TWO kinds of anchor, and the difference matters -- getting it wrong
     is the first mistake this tool made:
@@ -133,46 +133,51 @@ def find_markers(strings: list[tuple[int, str]],
     a substring too, which is what finds the second kind. Both are
     returned; candidates_near does the filtering.
     """
-    markers = [(off, s) for off, s in strings if command in s]
+    markers = [(string_offset, text) for string_offset, text in strings
+               if command_name in text]
 
-    bare = command[4:] if command.startswith("eCmd") else command
-    if len(bare) >= 4:
-        for off, s in strings:
+    bare_name = (command_name[4:] if command_name.startswith("eCmd")
+                 else command_name)
+    if len(bare_name) >= 4:
+        for string_offset, text in strings:
             # "::" restricts this to C++ symbol/debug strings, so a
             # command like eCmdGetConfig doesn't match every log line
             # mentioning "GetConfig" in passing.
-            if bare in s and "::" in s and (off, s) not in markers:
-                markers.append((off, s))
+            if (bare_name in text and "::" in text
+                    and (string_offset, text) not in markers):
+                markers.append((string_offset, text))
     return markers
 
 
 def candidates_near(strings: list[tuple[int, str]], offset: int,
-                    window: int = WINDOW) -> list[str]:
+                    window: int = DEFAULT_WINDOW_BYTES) -> list[str]:
     """Tag-shaped strings within `window` bytes of `offset`."""
-    out: list[str] = []
-    for off, s in strings:
-        if abs(off - offset) > window:
+    candidates: list[str] = []
+    for string_offset, text in strings:
+        if abs(string_offset - offset) > window:
             continue
-        if _TAG_RE.match(s) and s not in _NOISE and not s.startswith("eCmd"):
-            out.append(s)
-    return out
+        if (_TAG_RE.match(text) and text not in _NOISE_WORDS
+                and not text.startswith("eCmd")):
+            candidates.append(text)
+    return candidates
 
 
-def analyse(blob: bytes, command: str, window: int = WINDOW) -> dict:
+def analyse(blob: bytes, command_name: str,
+            window: int = DEFAULT_WINDOW_BYTES) -> dict:
     """Candidate tag names associated with one command."""
     strings = extract_strings(blob)
-    markers = find_markers(strings, command)
-    seen: dict[str, int] = {}
-    for off, _ in markers:
-        for tag in candidates_near(strings, off, window):
-            seen[tag] = seen.get(tag, 0) + 1
+    markers = find_markers(strings, command_name)
+    tag_hits: dict[str, int] = {}
+    for string_offset, _ in markers:
+        for tag in candidates_near(strings, string_offset, window):
+            tag_hits[tag] = tag_hits.get(tag, 0) + 1
     return {
-        "command": command,
-        "id": COMMANDS.get(command),
+        "command": command_name,
+        "id": COMMANDS.get(command_name),
         "markers": len(markers),
         # Most-repeated first: a tag near several of a command's markers
         # is a better bet than one seen beside a single log line.
-        "candidates": sorted(seen, key=lambda t: (-seen[t], t)),
+        "candidates": sorted(tag_hits, key=lambda tag: (-tag_hits[tag], tag)),
     }
 
 
@@ -194,36 +199,38 @@ _KNOWN_GOOD = [
 ]
 
 
-def validate(blob: bytes, window: int = WINDOW) -> list[tuple[str, set, set]]:
+def validate(blob: bytes, window: int = DEFAULT_WINDOW_BYTES
+             ) -> list[tuple[str, set, set]]:
     """Returns [(anchor, expected, found)] for each known-good case."""
     strings = extract_strings(blob)
     results = []
     for anchor, expected in _KNOWN_GOOD:
         found: set[str] = set()
-        for off, s in strings:
-            if anchor in s:
-                found.update(candidates_near(strings, off, window))
+        for string_offset, text in strings:
+            if anchor in text:
+                found.update(candidates_near(strings, string_offset, window))
         results.append((anchor, expected, found))
     return results
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Recover candidate command parameters from the nasd "
                     "binary.")
-    ap.add_argument(
+    parser.add_argument(
         "binary", help="path to sbin/nasd from the extracted firmware")
-    ap.add_argument("--command", default="", help="analyse one command only")
-    ap.add_argument("--window", type=int, default=WINDOW,
-                    help=f"bytes either side of a marker to search "
-                         f"(default {WINDOW})")
-    ap.add_argument("--validate", action="store_true",
-                    help="check the method reproduces what we already "
-                         "measured")
-    ap.add_argument("--min", type=int, default=1,
-                    help="only show commands with at least this many "
-                         "candidates")
-    args = ap.parse_args(argv)
+    parser.add_argument("--command", default="",
+                        help="analyse one command only")
+    parser.add_argument("--window", type=int, default=DEFAULT_WINDOW_BYTES,
+                        help=f"bytes either side of a marker to search "
+                             f"(default {DEFAULT_WINDOW_BYTES})")
+    parser.add_argument("--validate", action="store_true",
+                        help="check the method reproduces what we already "
+                             "measured")
+    parser.add_argument("--min", type=int, default=1,
+                        help="only show commands with at least this many "
+                             "candidates")
+    args = parser.parse_args(argv)
 
     if not os.path.exists(args.binary):
         print(f"No such file: {args.binary}")
@@ -233,23 +240,23 @@ def main(argv=None) -> int:
     if args.validate:
         print("\nDoes this method rediscover what we already measured on "
               "the wire?\n")
-        ok = True
+        all_reproduced = True
         for anchor, expected, found in validate(blob, args.window):
             missing = expected - found
-            mark = "PASS" if not missing else "FAIL"
+            verdict = "PASS" if not missing else "FAIL"
             if missing:
-                ok = False
-            print(f"  {mark}  {anchor}")
+                all_reproduced = False
+            print(f"  {verdict}  {anchor}")
             print(f"        expected: {', '.join(sorted(expected))}")
             if missing:
                 print(f"        MISSING:  {', '.join(sorted(missing))}")
         print("\n" + ("The method reproduces known-good results.\n"
-                      if ok else
+                      if all_reproduced else
                       "The method FAILED to reproduce known results -- do "
                       "not trust its other output.\n"))
-        return 0 if ok else 1
+        return 0 if all_reproduced else 1
 
-    wanted = [args.command] if args.command else sorted(COMMANDS)
+    commands_to_show = [args.command] if args.command else sorted(COMMANDS)
     if args.command and args.command not in COMMANDS:
         print(f"{args.command!r} is not in the firmware command table.")
         return 2
@@ -263,19 +270,19 @@ def main(argv=None) -> int:
     print("prove the XML nesting, nor that a tag is a parameter rather than a")
     print("reply field. Confirm before sending anything.\n")
 
-    shown = 0
-    for command in wanted:
-        result = analyse(blob, command, args.window)
+    shown_count = 0
+    for command_name in commands_to_show:
+        result = analyse(blob, command_name, args.window)
         if len(result["candidates"]) < args.min:
             continue
-        shown += 1
-        print(f"  {command}  (id {result['id']}, "
+        shown_count += 1
+        print(f"  {command_name}  (id {result['id']}, "
               f"{result['markers']} marker(s))")
         for tag in result["candidates"][:12]:
             print(f"      {tag}")
         print()
 
-    print(f"{shown} command(s) with candidates. Run with --validate to "
+    print(f"{shown_count} command(s) with candidates. Run with --validate to "
           f"check the method against results we already confirmed by "
           f"measurement.")
     return 0

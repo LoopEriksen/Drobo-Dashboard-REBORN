@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "sdk")))
 
-import nasd_sweep as sweep  # noqa: E402
+import nasd_sweep  # noqa: E402
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import config_cmd  # noqa: E402
 
@@ -59,19 +59,19 @@ def check(label: str, condition: bool, failure_detail="") -> None:
 print("== allowlist safety ==")
 
 check("the real ALLOWLIST is disjoint from DO_NOT_SEND",
-      set(sweep.ALLOWLIST).isdisjoint(commands.DO_NOT_SEND),
-      set(sweep.ALLOWLIST) & commands.DO_NOT_SEND)
+      set(nasd_sweep.ALLOWLIST).isdisjoint(commands.DO_NOT_SEND),
+      set(nasd_sweep.ALLOWLIST) & commands.DO_NOT_SEND)
 
 check("every ALLOWLIST name resolves to a confirmed id",
-      all(n in commands.COMMANDS for n in sweep.ALLOWLIST),
-      [n for n in sweep.ALLOWLIST if n not in commands.COMMANDS])
+      all(n in commands.COMMANDS for n in nasd_sweep.ALLOWLIST),
+      [n for n in nasd_sweep.ALLOWLIST if n not in commands.COMMANDS])
 
 check("ALLOWLIST has no duplicate names",
-      len(set(sweep.ALLOWLIST)) == len(sweep.ALLOWLIST))
+      len(set(nasd_sweep.ALLOWLIST)) == len(nasd_sweep.ALLOWLIST))
 
 check("ALLOWLIST is exactly 39 names "
       "(the reviewed set -- change deliberately)",
-      len(sweep.ALLOWLIST) == 39, len(sweep.ALLOWLIST))
+      len(nasd_sweep.ALLOWLIST) == 39, len(nasd_sweep.ALLOWLIST))
 
 # assert_allowlist_safe() must have already run at import time without
 # raising -- if it had raised, importing nasd_sweep above would have
@@ -82,15 +82,15 @@ check("module import succeeded, i.e. assert_allowlist_safe() "
 # Now prove the guard actually catches bad input, not just that the
 # current list happens to be fine.
 try:
-    sweep.assert_allowlist_safe(["eCmdRunCommand"])
+    nasd_sweep.assert_allowlist_safe(["eCmdRunCommand"])
     check("guard rejects a DO_NOT_SEND name", False)
-except sweep.SweepSafetyError:
+except nasd_sweep.SweepSafetyError:
     check("guard rejects a DO_NOT_SEND name", True)
 
 try:
-    sweep.assert_allowlist_safe(["eCmdWriteHostBuffer"])
+    nasd_sweep.assert_allowlist_safe(["eCmdWriteHostBuffer"])
     check("guard rejects a second DO_NOT_SEND name (write-host-buffer)", False)
-except sweep.SweepSafetyError:
+except nasd_sweep.SweepSafetyError:
     check("guard rejects a second DO_NOT_SEND name (write-host-buffer)", True)
 
 # eCmdForceSingleInitiator is a documented near-miss (see the module
@@ -102,26 +102,26 @@ except sweep.SweepSafetyError:
 # left it out. Prove that property directly instead of expecting the
 # guard to catch it.
 check("the near-miss eCmdForceSingleInitiator is simply not in ALLOWLIST",
-      "eCmdForceSingleInitiator" not in sweep.ALLOWLIST)
+      "eCmdForceSingleInitiator" not in nasd_sweep.ALLOWLIST)
 check("the near-miss eCmdGetNextUniqueLUNID is simply not in ALLOWLIST",
-      "eCmdGetNextUniqueLUNID" not in sweep.ALLOWLIST)
+      "eCmdGetNextUniqueLUNID" not in nasd_sweep.ALLOWLIST)
 
 try:
-    sweep.assert_allowlist_safe(["eCmdTotallyMadeUp"])
+    nasd_sweep.assert_allowlist_safe(["eCmdTotallyMadeUp"])
     check("guard rejects a name with no confirmed id", False)
-except sweep.SweepSafetyError:
+except nasd_sweep.SweepSafetyError:
     check("guard rejects a name with no confirmed id", True)
 
 try:
-    sweep.assert_allowlist_safe(["eCmdGetVersion", "eCmdGetVersion"])
+    nasd_sweep.assert_allowlist_safe(["eCmdGetVersion", "eCmdGetVersion"])
     check("guard rejects a duplicate name", False)
-except sweep.SweepSafetyError:
+except nasd_sweep.SweepSafetyError:
     check("guard rejects a duplicate name", True)
 
 try:
-    sweep.assert_allowlist_safe(["eCmdGetVersion", "eCmdGetConfig"])
+    nasd_sweep.assert_allowlist_safe(["eCmdGetVersion", "eCmdGetConfig"])
     check("guard accepts a genuinely safe list", True)
-except sweep.SweepSafetyError as exc:
+except nasd_sweep.SweepSafetyError as exc:
     check("guard accepts a genuinely safe list", False, exc)
 
 
@@ -139,7 +139,7 @@ ADMIN_BODY = b"""<?xml version="1.0" encoding="UTF-8"?>
 
 SECRETS = ("hunter2", "QUJDREVGRw==")
 
-record = sweep._redact_and_summarize(ADMIN_BODY)
+record = nasd_sweep._redact_and_summarize(ADMIN_BODY)
 check("redacted record parses successfully",
       "parse_error" not in record, record)
 check("no secret value survives anywhere in the redacted record",
@@ -152,12 +152,12 @@ check("username (not a secret) survives",
       record.get("redacted_value"))
 
 EMPTY_BODY = b"\x00"
-empty_record = sweep._redact_and_summarize(EMPTY_BODY)
+empty_record = nasd_sweep._redact_and_summarize(EMPTY_BODY)
 check("an empty body is reported as empty, not as a parse error",
       empty_record.get("empty") is True, empty_record)
 
 MALFORMED_BODY = b"<not xml\x00"
-bad_record = sweep._redact_and_summarize(MALFORMED_BODY)
+bad_record = nasd_sweep._redact_and_summarize(MALFORMED_BODY)
 check("malformed XML is reported, not raised",
       "parse_error" in bad_record, bad_record)
 
@@ -168,132 +168,135 @@ check("malformed XML is reported, not raised",
 # ---------------------------------------------------------------------------
 print("\n== end to end against a fake device ==")
 
-TEST_ESAID = "drb000000SAMPLE"
+TEST_ESA_ID = "drb000000SAMPLE"
 
 
 def fake_drobo_answers(reply_body: bytes, port_holder: list) -> None:
     """Accept one connection, do a normal login, answer the one command
     with reply_body, then close."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
-    port_holder.append(srv.getsockname()[1])
-    srv.listen(1)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port_holder.append(server.getsockname()[1])
+    server.listen(1)
 
-    def run():
+    def serve_once():
         try:
-            conn, _ = srv.accept()
-            conn.settimeout(5)
-            head = conn.recv(16)
-            ln = struct.unpack(">I", head[12:16])[0]
-            conn.recv(ln)
-            conn.sendall(
+            connection, _ = server.accept()
+            connection.settimeout(5)
+            header = connection.recv(16)
+            payload_length = struct.unpack(">I", header[12:16])[0]
+            connection.recv(payload_length)
+            connection.sendall(
                 config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
-            head = conn.recv(16)
-            ln = struct.unpack(">I", head[12:16])[0]
-            conn.recv(ln)
-            conn.sendall(
+            header = connection.recv(16)
+            payload_length = struct.unpack(">I", header[12:16])[0]
+            connection.recv(payload_length)
+            connection.sendall(
                 config_cmd._build_frame(config_cmd.TYPE_RESULT, reply_body))
-            conn.close()
+            connection.close()
         except OSError:
             pass
         finally:
-            srv.close()
+            server.close()
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=serve_once, daemon=True).start()
 
 
 def fake_drobo_refuses_login(port_holder: list) -> None:
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
-    port_holder.append(srv.getsockname()[1])
-    srv.listen(1)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port_holder.append(server.getsockname()[1])
+    server.listen(1)
 
-    def run():
+    def serve_once():
         try:
-            conn, _ = srv.accept()
-            conn.settimeout(5)
-            head = conn.recv(16)
-            ln = struct.unpack(">I", head[12:16])[0]
-            conn.recv(ln)
+            connection, _ = server.accept()
+            connection.settimeout(5)
+            header = connection.recv(16)
+            payload_length = struct.unpack(">I", header[12:16])[0]
+            connection.recv(payload_length)
             # not TYPE_LOGIN_OK
-            conn.sendall(config_cmd._build_frame(0x99, b""))
-            conn.close()
+            connection.sendall(config_cmd._build_frame(0x99, b""))
+            connection.close()
         except OSError:
             pass
         finally:
-            srv.close()
+            server.close()
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=serve_once, daemon=True).start()
 
 
 def fake_drobo_login_ok_then_silent(port_holder: list) -> None:
     """Login succeeds, but the command is never answered -- proves the
     per-command timeout path."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
-    port_holder.append(srv.getsockname()[1])
-    srv.listen(1)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port_holder.append(server.getsockname()[1])
+    server.listen(1)
 
-    def run():
+    def serve_once():
         try:
-            conn, _ = srv.accept()
-            conn.settimeout(5)
-            head = conn.recv(16)
-            ln = struct.unpack(">I", head[12:16])[0]
-            conn.recv(ln)
-            conn.sendall(
+            connection, _ = server.accept()
+            connection.settimeout(5)
+            header = connection.recv(16)
+            payload_length = struct.unpack(">I", header[12:16])[0]
+            connection.recv(payload_length)
+            connection.sendall(
                 config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
             # Read the command, but never reply -- the client must time
             # out.
-            conn.recv(16)
+            connection.recv(16)
             time.sleep(5)
-            conn.close()
+            connection.close()
         except OSError:
             pass
         finally:
-            srv.close()
+            server.close()
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=serve_once, daemon=True).start()
 
 
 ports: list[int] = []
 fake_drobo_answers(ADMIN_BODY, ports)
-result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                commands.COMMANDS["eCmdGetAdminConfig"],
-                                timeout=5)
+result = nasd_sweep.send_one_command("127.0.0.1", ports[0], TEST_ESA_ID,
+                                     commands.COMMANDS["eCmdGetAdminConfig"],
+                                     timeout=5)
 check("answered status recorded", result["status"] == "answered", result)
 check("no secret leaks through send_one_command either",
       not any(s in repr(result) for s in SECRETS), result)
 
 ports = []
 fake_drobo_answers(b"\x00", ports)
-result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                commands.COMMANDS["eCmdGetFanInfo"], timeout=5)
+result = nasd_sweep.send_one_command("127.0.0.1", ports[0], TEST_ESA_ID,
+                                     commands.COMMANDS["eCmdGetFanInfo"],
+                                     timeout=5)
 check("empty body -> status 'empty'", result["status"] == "empty", result)
 
 ports = []
 fake_drobo_refuses_login(ports)
-result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                commands.COMMANDS["eCmdGetVersion"], timeout=5)
+result = nasd_sweep.send_one_command("127.0.0.1", ports[0], TEST_ESA_ID,
+                                     commands.COMMANDS["eCmdGetVersion"],
+                                     timeout=5)
 check("refused login -> status 'refused', phase 'login'",
       result["status"] == "refused" and result.get("phase") == "login", result)
 
 ports = []
 fake_drobo_login_ok_then_silent(ports)
-result = sweep.send_one_command("127.0.0.1", ports[0], TEST_ESAID,
-                                commands.COMMANDS["eCmdGetSysInfo"],
-                                timeout=0.5)
+result = nasd_sweep.send_one_command("127.0.0.1", ports[0], TEST_ESA_ID,
+                                     commands.COMMANDS["eCmdGetSysInfo"],
+                                     timeout=0.5)
 check("no command reply -> status 'timeout', phase 'command'",
       result["status"] == "timeout" and result.get("phase") == "command",
       result)
 
 # connect() to a closed port -> refused at the connect phase, not a
 # timeout.
-result = sweep.send_one_command("127.0.0.1", 1, TEST_ESAID,
-                                commands.COMMANDS["eCmdGetVersion"], timeout=1)
+result = nasd_sweep.send_one_command("127.0.0.1", 1, TEST_ESA_ID,
+                                     commands.COMMANDS["eCmdGetVersion"],
+                                     timeout=1)
 check("connection refused outright -> status 'refused', phase 'connect'",
       result["status"] == "refused" and result.get("phase") == "connect",
       result)
@@ -308,28 +311,28 @@ print("\n== three-consecutive-timeouts abort ==")
 def fake_drobo_login_hangs(port_holder: list) -> None:
     """Never answers the login at all -- every command sent to this
     server times out at the login phase."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
-    port_holder.append(srv.getsockname()[1])
-    srv.listen(5)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port_holder.append(server.getsockname()[1])
+    server.listen(5)
 
-    def run():
+    def serve_forever():
         try:
             while True:
-                conn, _ = srv.accept()
+                connection, _ = server.accept()
                 # Accept and go silent forever; never close, never
                 # answer.
         except OSError:
             pass
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=serve_forever, daemon=True).start()
 
 
 ports = []
 fake_drobo_login_hangs(ports)
-outcome = sweep.run_sweep(
-    "127.0.0.1", TEST_ESAID, port=ports[0], timeout=0.3, pause=0.05,
+outcome = nasd_sweep.run_sweep(
+    "127.0.0.1", TEST_ESA_ID, port=ports[0], timeout=0.3, pause=0.05,
     names=["eCmdGetVersion", "eCmdGetConfig", "eCmdGetSysInfo",
            "eCmdGetDevices", "eCmdGetFanInfo"])
 check("sweep aborts after exactly 3 attempts",

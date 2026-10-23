@@ -79,7 +79,7 @@ _TAG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,40}$")
 #: names that introduce them. Matched generously -- a false
 #  positive costs one
 #: redacted line, a false negative puts somebody's key in a commit.
-_KEYISH = re.compile(r"^[A-Za-z0-9+/_-]{24,}={0,2}$")
+_CREDENTIAL_SHAPED_RE = re.compile(r"^[A-Za-z0-9+/_-]{24,}={0,2}$")
 _KEY_CONTEXT = re.compile(r"api.?key|secret|token|password|credential", re.I)
 #: A field name with its value in the same string: "x-api-key: ...",
 #: "?api_key=...". The name has to be followed directly by ":" or "=",
@@ -87,18 +87,19 @@ _KEY_CONTEXT = re.compile(r"api.?key|secret|token|password|credential", re.I)
 #: matching any ":" would count the "://" of every URL.
 _KEY_ASSIGNMENT = re.compile(
     "(?:" + _KEY_CONTEXT.pattern + r")\w*\s*[:=]\s*\S", re.I)
-_REDACTED = "[redacted: credential-shaped string]"
+_REDACTION_PLACEHOLDER = "[redacted: credential-shaped string]"
 
 #: Noise that passes the tag shape but is plainly not
 #  protocol vocabulary.
-_NOISE = {
+_NOISE_WORDS = {
     "true", "false", "null", "NULL", "None", "Error", "ERROR", "INFO", "WARN",
     "DEBUG", "Software", "Drobo", "Windows", "Microsoft", "System", "String",
     "Params", "Result", "CmdID", "ESAID", "TMCmd",
 }
 
 
-def strings_of(blob: bytes) -> list[tuple[int, str, str]]:
+def extract_printable_strings(
+        binary_bytes: bytes) -> list[tuple[int, str, str]]:
     """
     Every printable run, in BOTH encodings, as (offset, text, encoding).
 
@@ -106,48 +107,52 @@ def strings_of(blob: bytes) -> list[tuple[int, str, str]]:
     itself with -- exists only as UTF-16, so an ASCII-only pass reports
     it missing.
     """
-    out = [(m.start(), m.group().decode("ascii", "replace"), "ascii")
-           for m in _ASCII_RE.finditer(blob)]
-    out += [(m.start(), m.group().decode("utf-16-le", "replace"), "utf-16")
-            for m in _UTF16_RE.finditer(blob)]
-    out.sort(key=lambda t: t[0])
-    return out
+    found_strings = [(match.start(),
+                      match.group().decode("ascii", "replace"), "ascii")
+                     for match in _ASCII_RE.finditer(binary_bytes)]
+    found_strings += [(match.start(),
+                       match.group().decode("utf-16-le", "replace"),
+                       "utf-16")
+                      for match in _UTF16_RE.finditer(binary_bytes)]
+    found_strings.sort(key=lambda entry: entry[0])
+    return found_strings
 
 
 def redact(text: str) -> str:
     """Never let a credential-shaped string reach the output."""
     if _KEY_ASSIGNMENT.search(text):
-        return _REDACTED
+        return _REDACTION_PLACEHOLDER
     # A long run with any digit or symbol in it. Only pure letters pass,
     # as a long CamelCase tag does; a key that merely starts like a tag
     # (a letter-led 40-character API-Gateway key) is still a key.
-    if _KEYISH.match(text) and not text.isalpha():
-        return _REDACTED
+    if _CREDENTIAL_SHAPED_RE.match(text) and not text.isalpha():
+        return _REDACTION_PLACEHOLDER
     return text
 
 
-def is_tag(text: str) -> bool:
-    return (bool(_TAG_RE.match(text)) and text not in _NOISE
+def is_protocol_tag(text: str) -> bool:
+    return (bool(_TAG_RE.match(text)) and text not in _NOISE_WORDS
             and not text.startswith("eCmd"))
 
 
-def tags(blob: bytes) -> dict[str, int]:
+def count_tags(binary_bytes: bytes) -> dict[str, int]:
     """Every tag-shaped string, with how many times it appears."""
-    counts: dict[str, int] = {}
-    for _off, text, _enc in strings_of(blob):
-        if is_tag(text) and not _KEYISH.match(text):
-            counts[text] = counts.get(text, 0) + 1
-    return counts
+    tag_counts: dict[str, int] = {}
+    for _offset, text, _encoding in extract_printable_strings(binary_bytes):
+        if is_protocol_tag(text) and not _CREDENTIAL_SHAPED_RE.match(text):
+            tag_counts[text] = tag_counts.get(text, 0) + 1
+    return tag_counts
 
 
-def near(blob: bytes, anchor: str, span: int = 20) -> list[str]:
+def strings_near(binary_bytes: bytes, anchor: str,
+                 span: int = 20) -> list[str]:
     """Strings surrounding the first occurrence of `anchor`, in its own
     encoding."""
-    found = strings_of(blob)
-    for idx, (_off, text, enc) in enumerate(found):
+    all_strings = extract_printable_strings(binary_bytes)
+    for index, (_offset, text, anchor_encoding) in enumerate(all_strings):
         if text == anchor:
-            start = max(0, idx - span)
-            window = found[start: idx + span]
+            start = max(0, index - span)
+            window = all_strings[start: index + span]
             # A binary keeps a header name and its value as separate
             # literals, so the one after "x-api-key" goes as well. That
             # name can sit just before the window's left edge, so the
@@ -158,17 +163,17 @@ def near(blob: bytes, anchor: str, span: int = 20) -> list[str]:
             # not hide a value in the other, which redact() alone
             # decides; the window shows only one encoding anyway.
             before_window = (earlier_text
-                             for _offset, earlier_text, earlier_enc
-                             in reversed(found[:start])
-                             if earlier_enc == enc)
+                             for _offset, earlier_text, earlier_encoding
+                             in reversed(all_strings[:start])
+                             if earlier_encoding == anchor_encoding)
             after_field_name = bool(
                 _KEY_CONTEXT.search(next(before_window, "")))
             shown = []
-            for _offset, window_text, window_enc in window:
-                if window_enc != enc:
+            for _offset, window_text, window_encoding in window:
+                if window_encoding != anchor_encoding:
                     continue
                 if after_field_name:
-                    shown.append(_REDACTED)
+                    shown.append(_REDACTION_PLACEHOLDER)
                 else:
                     shown.append(redact(window_text))
                 after_field_name = bool(_KEY_CONTEXT.search(window_text))
@@ -176,7 +181,7 @@ def near(blob: bytes, anchor: str, span: int = 20) -> list[str]:
     return []
 
 
-def endpoints(blob: bytes) -> list[str]:
+def find_endpoints(binary_bytes: bytes) -> list[str]:
     """
     Network destinations the client talks to.
 
@@ -186,53 +191,54 @@ def endpoints(blob: bytes) -> list[str]:
     reimplemented by copying what the Dashboard did. It has to be built
     fresh.
     """
-    seen = []
-    for _off, text, _enc in strings_of(blob):
-        low = text.lower()
-        if any(k in low for k in (
+    endpoints = []
+    for _offset, text, _encoding in extract_printable_strings(binary_bytes):
+        lowered_text = text.lower()
+        if any(marker in lowered_text for marker in (
                 "http://", "https://", "amazonaws.com", ".com/", "/prod/")):
-            clean = redact(text.strip())
-            if clean not in seen and len(clean) < 120:
-                seen.append(clean)
-    return seen
+            redacted_text = redact(text.strip())
+            if redacted_text not in endpoints and len(redacted_text) < 120:
+                endpoints.append(redacted_text)
+    return endpoints
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Mine the original Drobo Dashboard client for "
                     "protocol vocabulary.")
-    ap.add_argument(
+    parser.add_argument(
         "binary",
         help="Drobo Dashboard.exe, DDService.exe or DDAssist.exe")
-    ap.add_argument("--near", default="",
-                    help="show strings surrounding this one")
-    ap.add_argument("--gaps", action="store_true",
-                    help="tags the client knows that our SDK never mentions")
-    ap.add_argument("--endpoints", action="store_true",
-                    help="network destinations")
-    ap.add_argument("--min-count", type=int, default=1)
-    args = ap.parse_args(argv)
+    parser.add_argument("--near", default="",
+                        help="show strings surrounding this one")
+    parser.add_argument(
+        "--gaps", action="store_true",
+        help="tags the client knows that our SDK never mentions")
+    parser.add_argument("--endpoints", action="store_true",
+                        help="network destinations")
+    parser.add_argument("--min-count", type=int, default=1)
+    args = parser.parse_args(argv)
 
     if not os.path.exists(args.binary):
         print(f"No such file: {args.binary}")
         return 2
-    blob = open(args.binary, "rb").read()
+    binary_bytes = open(args.binary, "rb").read()
 
     if args.near:
-        rows = near(blob, args.near)
-        if not rows:
+        nearby_strings = strings_near(binary_bytes, args.near)
+        if not nearby_strings:
             print(f"{args.near!r} not found as an exact string (try the "
                   f"other encoding -- some tags exist only as UTF-16).")
             return 1
         print(f"\nStrings around {args.near!r}:\n")
-        for r in rows:
-            print("   ", r[:100])
+        for nearby_string in nearby_strings:
+            print("   ", nearby_string[:100])
         return 0
 
     if args.endpoints:
         print("\nNetwork destinations in the client:\n")
-        for e in endpoints(blob):
-            print("   ", e)
+        for endpoint in find_endpoints(binary_bytes):
+            print("   ", endpoint)
         print("\nNote: Drobo's own cloud endpoints are dead -- the "
               "company was")
         print("liquidated in 2023. Anything depending on them cannot be "
@@ -240,35 +246,39 @@ def main(argv=None) -> int:
         print("only reimplemented.")
         return 0
 
-    found = tags(blob)
+    tag_counts = count_tags(binary_bytes)
 
     if args.gaps:
         # What does the client name that we have never even mentioned?
         # That difference is the honest to-do list for protocol
         # coverage.
         our_source = ""
-        sdk = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "..", "sdk", "drobo_nasd")
-        for name in os.listdir(sdk):
-            if name.endswith(".py"):
-                our_source += open(os.path.join(sdk, name), encoding="utf-8",
+        sdk_package_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "sdk", "drobo_nasd")
+        for file_name in os.listdir(sdk_package_dir):
+            if file_name.endswith(".py"):
+                our_source += open(os.path.join(sdk_package_dir, file_name),
+                                   encoding="utf-8",
                                    errors="replace").read()
-        unknown = sorted((t for t, n in found.items()
-                          if n >= args.min_count and t not in our_source),
-                         key=lambda t: (-found[t], t))
-        print(f"\n{len(unknown)} tag(s) the client uses that our SDK never "
-              f"mentions.")
+        unmentioned_tags = sorted((tag for tag, count in tag_counts.items()
+                                   if count >= args.min_count
+                                   and tag not in our_source),
+                                  key=lambda tag: (-tag_counts[tag], tag))
+        print(f"\n{len(unmentioned_tags)} tag(s) the client uses that our "
+              f"SDK never mentions.")
         print("Candidates for protocol coverage -- vocabulary, NOT confirmed "
               "nesting.\n")
-        for t in unknown[:80]:
-            print(f"   {found[t]:4}x  {t}")
+        for tag in unmentioned_tags[:80]:
+            print(f"   {tag_counts[tag]:4}x  {tag}")
         return 0
 
-    print(f"\n{os.path.basename(args.binary)}: {len(found)} distinct "
+    print(f"\n{os.path.basename(args.binary)}: {len(tag_counts)} distinct "
           f"tag-shaped strings")
     print("Vocabulary only. The nesting still needs a capture to confirm.\n")
-    for t in sorted(found, key=lambda t: (-found[t], t))[:60]:
-        print(f"   {found[t]:4}x  {t}")
+    for tag in sorted(tag_counts,
+                      key=lambda tag: (-tag_counts[tag], tag))[:60]:
+        print(f"   {tag_counts[tag]:4}x  {tag}")
     return 0
 
 

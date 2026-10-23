@@ -259,6 +259,17 @@ released. Every push to this repository carries this file.
   - Internal names in the agent's ten test suites (their shared harness,
     stand-ins for the SDK and discovery, and local variables); no
     behaviour changes
+  - Internal names in the tools and their five test suites (`tools/`:
+    the network probe, the capture dissector and command extractor, the
+    firmware and string tools, the command sweeps, the probe and the
+    tap); among them `nasd_dissect.py`'s `SIG4` / `SIG` ->
+    `SIGNATURE_DRINASD4` / `SIGNATURE_DRINASD` and `TCP_PORT` ->
+    `DEFAULT_STATUS_PORT`, `fwtool.py`'s `J_*` / `C_*` / `DTYPE` ->
+    the `JFFS2_*` names `linux/jffs2.h` uses and `DIRENT_TYPE_NAMES`,
+    and `drobo_probe.py`'s mDNS helpers, which take the SDK's names
+    (`_encode_dns_name`, `_decode_dns_name`, `_build_mdns_query`,
+    `MDNS_MULTICAST_ADDRESS`); every option, `--help` text and printed
+    line stays
   - Internal names in the repository's scripts (the privacy scanner, its
     pre-commit hook's notes and the version checker) and the Windows
     app's icon generator; no behaviour changes

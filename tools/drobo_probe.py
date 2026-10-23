@@ -82,43 +82,43 @@ SWEEP_RANGE = (1, 10000)
 def local_ipv4() -> str:
     """Best-guess local IP by asking the OS which interface reaches the
     internet."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("8.8.8.8", 53))
-        return s.getsockname()[0]
+        udp_socket.connect(("8.8.8.8", 53))
+        return udp_socket.getsockname()[0]
     except OSError:
         return "127.0.0.1"
     finally:
-        s.close()
+        udp_socket.close()
 
 
 def default_cidr() -> str:
-    ip = local_ipv4()
-    return str(ipaddress.ip_network(ip + "/24", strict=False))
+    local_ip = local_ipv4()
+    return str(ipaddress.ip_network(local_ip + "/24", strict=False))
 
 
-def tcp_open(host: str, port: int, timeout: float = 0.35) -> bool:
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(timeout)
+def is_tcp_port_open(host: str, port: int, timeout: float = 0.35) -> bool:
+    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_socket.settimeout(timeout)
     try:
-        return s.connect_ex((host, port)) == 0
+        return tcp_socket.connect_ex((host, port)) == 0
     except OSError:
         return False
     finally:
-        s.close()
+        tcp_socket.close()
 
 
 def hexdump(data: bytes, limit: int = 256) -> list[str]:
     """Classic offset / hex / ascii dump, capped so output stays
     readable."""
-    out = []
+    lines = []
     data = data[:limit]
-    for off in range(0, len(data), 16):
-        chunk = data[off:off + 16]
-        hexpart = " ".join(f"{b:02x}" for b in chunk).ljust(47)
-        asciipart = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-        out.append(f"{off:04x}  {hexpart}  {asciipart}")
-    return out
+    for offset in range(0, len(data), 16):
+        chunk = data[offset:offset + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk).ljust(47)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{offset:04x}  {hex_part}  {ascii_part}")
+    return lines
 
 
 # --------------------------------------------------------------------------
@@ -131,20 +131,20 @@ def hexdump(data: bytes, limit: int = 256) -> list[str]:
 # Apple's Bonjour service for UDP port 5353 on Windows.
 # --------------------------------------------------------------------------
 
-MDNS_ADDR = "224.0.0.251"
+MDNS_MULTICAST_ADDRESS = "224.0.0.251"
 MDNS_PORT = 5353
-QTYPE = {1: "A", 12: "PTR", 16: "TXT", 28: "AAAA", 33: "SRV"}
+DNS_RECORD_TYPE_NAMES = {1: "A", 12: "PTR", 16: "TXT", 28: "AAAA", 33: "SRV"}
 
 
-def _encode_name(name: str) -> bytes:
-    out = b""
+def _encode_dns_name(name: str) -> bytes:
+    encoded = b""
     for label in name.split("."):
         if label:
-            out += bytes([len(label)]) + label.encode("utf-8")
-    return out + b"\x00"
+            encoded += bytes([len(label)]) + label.encode("utf-8")
+    return encoded + b"\x00"
 
 
-def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
+def _decode_dns_name(data: bytes, offset: int) -> tuple[str, int]:
     labels: list[str] = []
     jumped = False
     resume = offset
@@ -172,53 +172,59 @@ def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
     return ".".join(labels), (resume if jumped else offset)
 
 
-def _build_query(qname: str, qtype: int = 12) -> bytes:
+def _build_mdns_query(question_name: str, question_type: int = 12) -> bytes:
     header = struct.pack("!HHHHHH", 0, 0, 1, 0, 0, 0)
     # qclass 0x8001 = IN with the "unicast response please" bit set
-    return header + _encode_name(qname) + struct.pack("!HH", qtype, 0x8001)
+    return (header + _encode_dns_name(question_name)
+            + struct.pack("!HH", question_type, 0x8001))
 
 
-def _parse_response(data: bytes) -> list[dict]:
+def _parse_mdns_response(data: bytes) -> list[dict]:
     records: list[dict] = []
     if len(data) < 12:
         return records
-    _, _, qd, an, ns, ar = struct.unpack("!HHHHHH", data[:12])
+    (_, _, question_count, answer_count, authority_count,
+     additional_count) = struct.unpack("!HHHHHH", data[:12])
     offset = 12
-    for _ in range(qd):
-        _, offset = _decode_name(data, offset)
+    for _ in range(question_count):
+        _, offset = _decode_dns_name(data, offset)
         offset += 4
-    for _ in range(an + ns + ar):
+    for _ in range(answer_count + authority_count + additional_count):
         if offset >= len(data):
             break
-        name, offset = _decode_name(data, offset)
+        name, offset = _decode_dns_name(data, offset)
         if offset + 10 > len(data):
             break
-        rtype, _rclass, _ttl, rdlen = struct.unpack(
+        record_type, _rclass, _ttl, record_data_length = struct.unpack(
             "!HHIH", data[offset:offset + 10])
         offset += 10
-        rdata = data[offset:offset + rdlen]
-        rec = {"name": name, "type": QTYPE.get(rtype, str(rtype))}
-        if rtype == 12:  # PTR
-            rec["value"], _ = _decode_name(data, offset)
-        elif rtype == 1 and rdlen == 4:  # A
-            rec["value"] = socket.inet_ntoa(rdata)
-        elif rtype == 33 and rdlen >= 6:  # SRV
-            _pri, _wt, port = struct.unpack("!HHH", rdata[:6])
-            target, _ = _decode_name(data, offset + 6)
-            rec["value"] = f"{target}:{port}"
-            rec["port"] = port
-        elif rtype == 16:  # TXT
-            parts, i = [], 0
-            while i < len(rdata):
-                ln = rdata[i]
+        record_data = data[offset:offset + record_data_length]
+        record = {"name": name,
+                  "type": DNS_RECORD_TYPE_NAMES.get(record_type,
+                                                    str(record_type))}
+        if record_type == 12:  # PTR
+            record["value"], _ = _decode_dns_name(data, offset)
+        elif record_type == 1 and record_data_length == 4:  # A
+            record["value"] = socket.inet_ntoa(record_data)
+        elif record_type == 33 and record_data_length >= 6:  # SRV
+            _priority, _weight, port = struct.unpack("!HHH", record_data[:6])
+            target, _ = _decode_dns_name(data, offset + 6)
+            record["value"] = f"{target}:{port}"
+            record["port"] = port
+        elif record_type == 16:  # TXT
+            parts, text_position = [], 0
+            while text_position < len(record_data):
+                text_length = record_data[text_position]
                 parts.append(
-                    rdata[i + 1:i + 1 + ln].decode("utf-8", "replace"))
-                i += 1 + ln
-            rec["value"] = " | ".join(parts)
+                    record_data[text_position + 1:
+                                text_position + 1 + text_length]
+                    .decode("utf-8", "replace"))
+                text_position += 1 + text_length
+            record["value"] = " | ".join(parts)
         else:
-            rec["value"] = rdata.hex()
-        records.append(rec)
-        offset += rdlen
+            record["value"] = record_data.hex()
+        records.append(record)
+        offset += record_data_length
     return records
 
 
@@ -238,29 +244,31 @@ def mdns_discover(wait: float = 4.0) -> list[dict]:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
     sock.settimeout(0.5)
-    seen: dict[tuple, dict] = {}
+    unique_records: dict[tuple, dict] = {}
     try:
-        for q in queries:
+        for question_name in queries:
             try:
-                sock.sendto(_build_query(q), (MDNS_ADDR, MDNS_PORT))
+                sock.sendto(_build_mdns_query(question_name),
+                            (MDNS_MULTICAST_ADDRESS, MDNS_PORT))
             except OSError as exc:
-                print(f"  ! could not send mDNS query {q}: {exc}",
+                print(f"  ! could not send mDNS query {question_name}: {exc}",
                       file=sys.stderr)
         deadline = time.time() + wait
         while time.time() < deadline:
             try:
-                data, addr = sock.recvfrom(9000)
+                data, sender_address = sock.recvfrom(9000)
             except socket.timeout:
                 continue
             except OSError:
                 break
-            for rec in _parse_response(data):
-                rec["from"] = addr[0]
-                key = (rec["from"], rec["name"], rec["type"], rec.get("value"))
-                seen.setdefault(key, rec)
+            for record in _parse_mdns_response(data):
+                record["from"] = sender_address[0]
+                key = (record["from"], record["name"], record["type"],
+                       record.get("value"))
+                unique_records.setdefault(key, record)
     finally:
         sock.close()
-    return list(seen.values())
+    return list(unique_records.values())
 
 
 # --------------------------------------------------------------------------
@@ -270,40 +278,46 @@ def mdns_discover(wait: float = 4.0) -> list[dict]:
 
 def scan_subnet(cidr: str, ports: dict[int, str],
                 workers: int = 256) -> list[dict]:
-    net = ipaddress.ip_network(cidr, strict=False)
-    targets = [(str(h), p) for h in net.hosts() for p in ports if p != 5353]
-    print(f"  scanning {net} -- {len(targets)} host/port pairs ...")
-    hits: dict[str, list[int]] = {}
+    network = ipaddress.ip_network(cidr, strict=False)
+    targets = [(str(h), p) for h in network.hosts() for p in ports
+               if p != 5353]
+    print(f"  scanning {network} -- {len(targets)} host/port pairs ...")
+    open_ports_by_host: dict[str, list[int]] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = pool.map(lambda t: (t, tcp_open(*t)), targets)
+        results = pool.map(
+            lambda target: (target, is_tcp_port_open(*target)), targets)
         for (host, port), is_open in results:
             if is_open:
-                hits.setdefault(host, []).append(port)
-    out = []
-    for host, plist in sorted(
-            hits.items(), key=lambda kv: ipaddress.ip_address(kv[0])):
-        plist.sort()
+                open_ports_by_host.setdefault(host, []).append(port)
+    hosts = []
+    for host, open_ports in sorted(
+            open_ports_by_host.items(),
+            key=lambda host_and_ports: ipaddress.ip_address(
+                host_and_ports[0])):
+        open_ports.sort()
         try:
-            name = socket.gethostbyaddr(host)[0]
+            hostname = socket.gethostbyaddr(host)[0]
         except OSError:
-            name = ""
-        out.append(
+            hostname = ""
+        hosts.append(
             {
                 "ip": host,
-                "hostname": name,
-                "open_ports": plist,
-                "notes": [f"{p}: {ports[p]}" for p in plist],
+                "hostname": hostname,
+                "open_ports": open_ports,
+                "notes": [f"{p}: {ports[p]}" for p in open_ports],
             }
         )
-    return out
+    return hosts
 
 
-def port_sweep(host: str, lo: int, hi: int, workers: int = 512) -> list[int]:
-    print(f"  sweeping {host} ports {lo}-{hi} ...")
-    ports = range(lo, hi + 1)
+def port_sweep(host: str, first_port: int, last_port: int,
+               workers: int = 512) -> list[int]:
+    print(f"  sweeping {host} ports {first_port}-{last_port} ...")
+    ports = range(first_port, last_port + 1)
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = pool.map(lambda p: (p, tcp_open(host, p, 0.5)), ports)
-        return [p for p, is_open in results if is_open]
+        results = pool.map(
+            lambda port: (port, is_tcp_port_open(host, port, 0.5)), ports)
+        return [port for port, is_open in results if is_open]
 
 
 # --------------------------------------------------------------------------
@@ -331,22 +345,22 @@ def fingerprint_port(host: str, port: int, timeout: float = 2.5) -> dict:
                 continue
             if payload:
                 sock.sendall(payload)
-            chunks = b""
+            received = b""
             try:
-                while len(chunks) < 2048:
+                while len(received) < 2048:
                     piece = sock.recv(1024)
                     if not piece:
                         break
-                    chunks += piece
+                    received += piece
                     sock.settimeout(0.4)
             except socket.timeout:
                 pass
-            attempt = {"probe": label, "bytes": len(chunks)}
-            if chunks:
-                attempt["hexdump"] = hexdump(chunks)
-                attempt["text"] = chunks[:512].decode("utf-8", "replace")
+            attempt = {"probe": label, "bytes": len(received)}
+            if received:
+                attempt["hexdump"] = hexdump(received)
+                attempt["text"] = received[:512].decode("utf-8", "replace")
             result["attempts"].append(attempt)
-            if chunks:
+            if received:
                 break  # got something; no need to keep poking
         except OSError as exc:
             result["attempts"].append({"probe": label, "error": str(exc)})
@@ -366,54 +380,58 @@ def print_mdns(records: list[dict]) -> None:
               "playbook)")
         return
     by_host: dict[str, list[dict]] = {}
-    for r in records:
-        by_host.setdefault(r["from"], []).append(r)
-    for host, recs in sorted(by_host.items()):
+    for record in records:
+        by_host.setdefault(record["from"], []).append(record)
+    for host, host_records in sorted(by_host.items()):
         print(f"\n  from {host}")
-        for r in sorted(recs, key=lambda x: (x["type"], x["name"])):
-            print(f"    {r['type']:<5} {r['name']}")
-            print(f"          -> {r.get('value', '')}")
+        for record in sorted(host_records,
+                             key=lambda entry: (entry["type"], entry["name"])):
+            print(f"    {record['type']:<5} {record['name']}")
+            print(f"          -> {record.get('value', '')}")
 
 
-def print_fingerprint(fp: dict) -> None:
-    print(f"\n  --- port {fp['port']} ---")
-    for att in fp["attempts"]:
-        if "error" in att:
-            print(f"    probe {att['probe']:<9} error: {att['error']}")
+def print_fingerprint(fingerprint: dict) -> None:
+    print(f"\n  --- port {fingerprint['port']} ---")
+    for attempt in fingerprint["attempts"]:
+        if "error" in attempt:
+            print(f"    probe {attempt['probe']:<9} error: {attempt['error']}")
             continue
-        print(f"    probe {att['probe']:<9} {att['bytes']} bytes back")
-        for line in att.get("hexdump", []):
+        print(f"    probe {attempt['probe']:<9} {attempt['bytes']} bytes back")
+        for line in attempt.get("hexdump", []):
             print(f"      {line}")
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    p_mdns = sub.add_parser("mdns", help="list advertised network services")
-    p_mdns.add_argument("--wait", type=float, default=4.0)
+    mdns_parser = subparsers.add_parser(
+        "mdns", help="list advertised network services")
+    mdns_parser.add_argument("--wait", type=float, default=4.0)
 
-    p_scan = sub.add_parser(
+    scan_parser = subparsers.add_parser(
         "scan", help="sweep the subnet for likely NAS hosts")
-    p_scan.add_argument("--cidr", default=None)
+    scan_parser.add_argument("--cidr", default=None)
 
-    p_ps = sub.add_parser("portsweep", help="all ports on one host")
-    p_ps.add_argument("host")
-    p_ps.add_argument("--lo", type=int, default=SWEEP_RANGE[0])
-    p_ps.add_argument("--hi", type=int, default=SWEEP_RANGE[1])
+    portsweep_parser = subparsers.add_parser(
+        "portsweep", help="all ports on one host")
+    portsweep_parser.add_argument("host")
+    portsweep_parser.add_argument("--lo", type=int, default=SWEEP_RANGE[0])
+    portsweep_parser.add_argument("--hi", type=int, default=SWEEP_RANGE[1])
 
-    p_fp = sub.add_parser("fingerprint", help="see what each open port says")
-    p_fp.add_argument("host")
-    p_fp.add_argument("--ports", default=None,
-                      help="comma-separated; default = quick list")
+    fingerprint_parser = subparsers.add_parser(
+        "fingerprint", help="see what each open port says")
+    fingerprint_parser.add_argument("host")
+    fingerprint_parser.add_argument(
+        "--ports", default=None, help="comma-separated; default = quick list")
 
-    p_rep = sub.add_parser("report", help="everything, as JSON")
-    p_rep.add_argument("host")
-    p_rep.add_argument("-o", "--out", default="drobo-findings.json")
+    report_parser = subparsers.add_parser("report", help="everything, as JSON")
+    report_parser.add_argument("host")
+    report_parser.add_argument("-o", "--out", default="drobo-findings.json")
 
-    args = ap.parse_args(argv)
+    args = parser.parse_args(argv)
 
     if args.cmd == "mdns":
         print("Asking the network what services it advertises ...")
@@ -423,14 +441,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "scan":
         cidr = args.cidr or default_cidr()
         print(f"Local IP looks like {local_ipv4()}")
-        found = scan_subnet(cidr, QUICK_PORTS)
-        if not found:
+        hosts = scan_subnet(cidr, QUICK_PORTS)
+        if not hosts:
             print("  no hosts answered on any candidate port.")
-        for h in found:
-            label = f" ({h['hostname']})" if h["hostname"] else ""
-            print(f"\n  {h['ip']}{label}")
-            for n in h["notes"]:
-                print(f"      {n}")
+        for host_entry in hosts:
+            label = (f" ({host_entry['hostname']})"
+                     if host_entry["hostname"] else "")
+            print(f"\n  {host_entry['ip']}{label}")
+            for note in host_entry["notes"]:
+                print(f"      {note}")
         return 0
 
     if args.cmd == "portsweep":
@@ -445,28 +464,28 @@ def main(argv: list[str] | None = None) -> int:
             else [p for p in QUICK_PORTS if p != 5353]
         )
         for port in ports:
-            if tcp_open(args.host, port):
+            if is_tcp_port_open(args.host, port):
                 print_fingerprint(fingerprint_port(args.host, port))
         return 0
 
     if args.cmd == "report":
         print("1/3 mDNS ...")
-        mdns = mdns_discover()
+        mdns_records = mdns_discover()
         print("2/3 port sweep ...")
         open_ports = port_sweep(args.host, *SWEEP_RANGE)
         print(f"    open: {open_ports}")
         print("3/3 fingerprint ...")
-        fps = [fingerprint_port(args.host, p) for p in open_ports]
-        blob = {
+        fingerprints = [fingerprint_port(args.host, p) for p in open_ports]
+        report = {
             "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
             "target": args.host,
             "scanner_ip": local_ipv4(),
-            "mdns": mdns,
+            "mdns": mdns_records,
             "open_ports": open_ports,
-            "fingerprints": fps,
+            "fingerprints": fingerprints,
         }
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(blob, fh, indent=2)
+        with open(args.out, "w", encoding="utf-8") as report_file:
+            json.dump(report, report_file, indent=2)
         print(f"\nWrote {args.out}")
         return 0
 

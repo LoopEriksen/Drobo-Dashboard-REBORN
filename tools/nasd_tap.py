@@ -89,18 +89,18 @@ _print_lock = threading.Lock()
 
 
 def hexdump(data: bytes, limit: int = 160) -> list[str]:
-    out = []
-    for off in range(0, min(len(data), limit), 16):
-        chunk = data[off:off + 16]
-        h = " ".join(f"{b:02x}" for b in chunk).ljust(47)
-        a = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-        out.append(f"    {off:04x}  {h}  {a}")
+    lines = []
+    for offset in range(0, min(len(data), limit), 16):
+        chunk = data[offset:offset + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk).ljust(47)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"    {offset:04x}  {hex_part}  {ascii_part}")
     if len(data) > limit:
-        out.append(f"    ... {len(data) - limit} more bytes")
-    return out
+        lines.append(f"    ... {len(data) - limit} more bytes")
+    return lines
 
 
-def describe(data: bytes) -> str:
+def describe_chunk(data: bytes) -> str:
     """
     Best-effort one-line summary. The server's frames are understood;
     the client's are exactly what we're trying to learn, so this stays
@@ -123,82 +123,84 @@ def describe(data: bytes) -> str:
 
 
 class Tap:
-    def __init__(self, drobo: str, drobo_port: int, jsonl_path: str,
+    def __init__(self, drobo_host: str, drobo_port: int, jsonl_path: str,
                  bin_path: str):
-        self.drobo = drobo
+        self.drobo_host = drobo_host
         self.drobo_port = drobo_port
-        self.jsonl = open(jsonl_path, "w", encoding="utf-8")
-        self.binf = open(bin_path, "wb")
-        self.started = time.time()
-        self.counts = {"c2s": 0, "s2c": 0}
-        self.bytes = {"c2s": 0, "s2c": 0}
+        self.jsonl_file = open(jsonl_path, "w", encoding="utf-8")
+        self.client_bytes_file = open(bin_path, "wb")
+        self.started_at = time.time()
+        self.chunk_counts = {"c2s": 0, "s2c": 0}
+        self.byte_counts = {"c2s": 0, "s2c": 0}
         self._lock = threading.Lock()
 
-    def record(self, direction: str, data: bytes, conn_id: int) -> None:
+    def record(self, direction: str, data: bytes, connection_id: int) -> None:
         with self._lock:
-            self.counts[direction] += 1
-            self.bytes[direction] += len(data)
-            self.jsonl.write(json.dumps({
-                "t": round(time.time() - self.started, 4),
-                "conn": conn_id,
+            self.chunk_counts[direction] += 1
+            self.byte_counts[direction] += len(data)
+            self.jsonl_file.write(json.dumps({
+                "t": round(time.time() - self.started_at, 4),
+                "conn": connection_id,
                 "dir": direction,
                 "len": len(data),
-                "summary": describe(data),
+                "summary": describe_chunk(data),
                 "hex": data.hex(),
             }) + "\n")
-            self.jsonl.flush()
+            self.jsonl_file.flush()
             # The client->server direction is the unknown one; keep a
             # raw copy so the dissector has clean bytes to work from.
             if direction == "c2s":
-                self.binf.write(data)
-                self.binf.flush()
+                self.client_bytes_file.write(data)
+                self.client_bytes_file.flush()
 
         arrow = "-->" if direction == "c2s" else "<--"
-        who = ("Dashboard --> Drobo" if direction == "c2s"
-               else "Drobo --> Dashboard")
+        direction_label = ("Dashboard --> Drobo" if direction == "c2s"
+                           else "Drobo --> Dashboard")
         with _print_lock:
-            print(f"\n[{time.time() - self.started:8.3f}s] "
-                  f"conn{conn_id} {arrow} {who}"
+            print(f"\n[{time.time() - self.started_at:8.3f}s] "
+                  f"conn{connection_id} {arrow} {direction_label}"
                   f"  {len(data)} bytes")
-            print(f"    {describe(data)}")
+            print(f"    {describe_chunk(data)}")
             for line in hexdump(data):
                 print(line)
             sys.stdout.flush()
 
     def close(self) -> None:
-        self.jsonl.close()
-        self.binf.close()
+        self.jsonl_file.close()
+        self.client_bytes_file.close()
 
 
-def pump(src: socket.socket, dst: socket.socket, direction: str,
-         tap: Tap, conn_id: int) -> None:
+def relay_one_direction(source: socket.socket, destination: socket.socket,
+                        direction: str, tap: Tap,
+                        connection_id: int) -> None:
     """Copy bytes one way, logging as we go. Never alters the stream."""
     try:
         while True:
-            data = src.recv(65536)
+            data = source.recv(65536)
             if not data:
                 break
-            tap.record(direction, data, conn_id)
-            dst.sendall(data)
+            tap.record(direction, data, connection_id)
+            destination.sendall(data)
     except OSError:
         pass
     finally:
-        for s in (src, dst):
+        for sock in (source, destination):
             try:
-                s.shutdown(socket.SHUT_RDWR)
+                sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
 
 
-def handle(client: socket.socket, addr, tap: Tap, conn_id: int) -> None:
+def handle_connection(client: socket.socket, client_address, tap: Tap,
+                      connection_id: int) -> None:
     with _print_lock:
-        print(f"\n=== conn{conn_id}: Dashboard connected from "
-              f"{addr[0]}:{addr[1]} ===")
-        print(f"    opening upstream to {tap.drobo}:{tap.drobo_port}")
+        print(f"\n=== conn{connection_id}: Dashboard connected from "
+              f"{client_address[0]}:{client_address[1]} ===")
+        print(f"    opening upstream to {tap.drobo_host}:{tap.drobo_port}")
         sys.stdout.flush()
     try:
         upstream = socket.create_connection(
-            (tap.drobo, tap.drobo_port), timeout=10)
+            (tap.drobo_host, tap.drobo_port), timeout=10)
     except OSError as exc:
         with _print_lock:
             print(f"    !! could not reach the Drobo: {exc}")
@@ -210,53 +212,55 @@ def handle(client: socket.socket, addr, tap: Tap, conn_id: int) -> None:
 
     threads = [
         threading.Thread(
-            target=pump, args=(client, upstream, "c2s", tap, conn_id),
+            target=relay_one_direction,
+            args=(client, upstream, "c2s", tap, connection_id),
             daemon=True),
         threading.Thread(
-            target=pump, args=(upstream, client, "s2c", tap, conn_id),
+            target=relay_one_direction,
+            args=(upstream, client, "s2c", tap, connection_id),
             daemon=True),
     ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
     with _print_lock:
-        print(f"=== conn{conn_id} closed ===")
+        print(f"=== conn{connection_id} closed ===")
         sys.stdout.flush()
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--drobo", required=True,
-                    help="the real Drobo's IP address")
-    ap.add_argument("--drobo-port", type=int, default=5000)
-    ap.add_argument("--listen", default="127.0.0.1",
-                    help="address to listen on (default 127.0.0.1)")
-    ap.add_argument("--listen-port", type=int, default=5000)
-    ap.add_argument("--outdir", default=None)
-    args = ap.parse_args(argv)
+    parser.add_argument("--drobo", required=True,
+                        help="the real Drobo's IP address")
+    parser.add_argument("--drobo-port", type=int, default=5000)
+    parser.add_argument("--listen", default="127.0.0.1",
+                        help="address to listen on (default 127.0.0.1)")
+    parser.add_argument("--listen-port", type=int, default=5000)
+    parser.add_argument("--outdir", default=None)
+    args = parser.parse_args(argv)
 
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    outdir = args.outdir or os.path.join(repo, "docs", "captures")
-    os.makedirs(outdir, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    jsonl_path = os.path.join(outdir, f"nasd-tap-{stamp}.jsonl")
-    bin_path = os.path.join(outdir, f"nasd-tap-{stamp}.bin")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = args.outdir or os.path.join(repo_root, "docs", "captures")
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    jsonl_path = os.path.join(output_dir, f"nasd-tap-{timestamp}.jsonl")
+    bin_path = os.path.join(output_dir, f"nasd-tap-{timestamp}.bin")
 
     tap = Tap(args.drobo, args.drobo_port, jsonl_path, bin_path)
 
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        srv.bind((args.listen, args.listen_port))
+        listener.bind((args.listen, args.listen_port))
     except OSError as exc:
         print(f"Could not listen on {args.listen}:{args.listen_port} -- {exc}")
         print("If the agent is running on this port, stop it first.")
         return 1
-    srv.listen(8)
+    listener.listen(8)
 
     print(f"nasd tap listening on {args.listen}:{args.listen_port}")
     print(f"  forwarding to the real Drobo at {args.drobo}:{args.drobo_port}")
@@ -270,26 +274,28 @@ def main(argv=None) -> int:
     print("  Ctrl+C when done.")
     print()
 
-    conn_id = 0
+    connection_id = 0
     try:
         while True:
-            client, addr = srv.accept()
-            conn_id += 1
-            threading.Thread(target=handle, args=(client, addr, tap, conn_id),
+            client, client_address = listener.accept()
+            connection_id += 1
+            threading.Thread(target=handle_connection,
+                             args=(client, client_address, tap,
+                                   connection_id),
                              daemon=True).start()
     except KeyboardInterrupt:
         print("\n\nstopping.")
     finally:
-        srv.close()
+        listener.close()
         tap.close()
 
-    print(f"  Dashboard -> Drobo : {tap.counts['c2s']} chunks, "
-          f"{tap.bytes['c2s']} bytes")
-    print(f"  Drobo -> Dashboard : {tap.counts['s2c']} chunks, "
-          f"{tap.bytes['s2c']} bytes")
+    print(f"  Dashboard -> Drobo : {tap.chunk_counts['c2s']} chunks, "
+          f"{tap.byte_counts['c2s']} bytes")
+    print(f"  Drobo -> Dashboard : {tap.chunk_counts['s2c']} chunks, "
+          f"{tap.byte_counts['s2c']} bytes")
     print(f"\n  wrote {jsonl_path}")
     print(f"        {bin_path}")
-    if tap.counts["c2s"] == 0:
+    if tap.chunk_counts["c2s"] == 0:
         print("\n  Nothing came from Dashboard -- it never connected here.")
         print("  Check that you added 127.0.0.1 as a manual Drobo address.")
     return 0

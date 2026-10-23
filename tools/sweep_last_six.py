@@ -67,13 +67,13 @@ import sys
 import tempfile
 import time
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "sdk")))
-sys.path.insert(0, _HERE)
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(_TOOLS_DIR, "..", "sdk")))
+sys.path.insert(0, _TOOLS_DIR)
 
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import esatm  # noqa: E402
-import nasd_sweep as sweep  # noqa: E402
+import nasd_sweep  # noqa: E402
 
 #: Order matters. Identify last -- see the module docstring.
 ORDER: list[tuple[str, str]] = [
@@ -88,27 +88,27 @@ ORDER: list[tuple[str, str]] = [
 ]
 
 
-def healthy(host: str) -> tuple[bool, str]:
+def check_status_port(host: str) -> tuple[bool, str]:
     """Is the device still greeting on the status port?"""
     try:
-        ident = esatm.parse_identity(
+        identity = esatm.parse_identity(
             esatm.fetch_greeting(host, 5000, timeout=8))
-        return True, ident.get("name", "?")
+        return True, identity.get("name", "?")
     except OSError as exc:
         return False, str(exc)
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("host", nargs="?", default="")
-    ap.add_argument("--timeout", type=float, default=6.0)
-    args = ap.parse_args(argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("host", nargs="?", default="")
+    parser.add_argument("--timeout", type=float, default=6.0)
+    args = parser.parse_args(argv)
 
     host = args.host
     if not host:
         try:
             host = json.load(open(
-                os.path.join(_HERE, "..", "agent", "config.json"),
+                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
                 encoding="utf-8"))["drobo"]["host"]
         except (OSError, KeyError, ValueError):
             pass
@@ -116,80 +116,88 @@ def main(argv=None) -> int:
         print("No Drobo address.")
         return 1
 
-    ok, who = healthy(host)
-    if not ok:
-        print(f"Drobo not reachable before we start: {who}")
+    is_healthy, device_or_error = check_status_port(host)
+    if not is_healthy:
+        print(f"Drobo not reachable before we start: {device_or_error}")
         return 1
-    print(f"Starting against {who}. Status port healthy.\n")
+    print(f"Starting against {device_or_error}. Status port healthy.\n")
 
     results = []
-    for i, (name, why) in enumerate(ORDER, 1):
-        cmd_id = commands.COMMANDS[name]
-        refused = commands.is_dangerous(name)
-        print(f"[{i}/{len(ORDER)}] {name} (id {cmd_id})")
-        print(f"        {why}")
-        if refused:
+    for i, (command_name, reason) in enumerate(ORDER, 1):
+        command_id = commands.COMMANDS[command_name]
+        is_refused = commands.is_dangerous(command_name)
+        print(f"[{i}/{len(ORDER)}] {command_name} (id {command_id})")
+        print(f"        {reason}")
+        if is_refused:
             # Should be impossible -- none of the six is in DO_NOT_SEND
             # -- but this is the one script that deliberately sends
             # things previously held back, so it re-checks rather than
             # trusting the list.
             print("        REFUSED by the guard -- skipping.\n")
-            results.append({"name": name, "status": "refused-by-guard"})
+            results.append({"name": command_name,
+                            "status": "refused-by-guard"})
             continue
 
-        t0 = time.monotonic()
-        rec = sweep.send_one_command(host, sweep.DEFAULT_COMMAND_PORT, esa_id,
-                                     cmd_id, args.timeout)
-        elapsed = time.monotonic() - t0
-        rec["name"], rec["cmd_id"] = name, cmd_id
-        results.append(rec)
+        started_at = time.monotonic()
+        record = nasd_sweep.send_one_command(host,
+                                             nasd_sweep.DEFAULT_COMMAND_PORT,
+                                             _startup_esa_id,
+                                             command_id, args.timeout)
+        elapsed = time.monotonic() - started_at
+        record["name"], record["cmd_id"] = command_name, command_id
+        results.append(record)
 
-        extra = ""
-        if rec["status"] == "answered":
-            extra = f", {len(rec.get('tags', []))} fields"
-            if rec.get("escaped_document"):
-                extra += " [escaped document]"
-        if rec.get("detail"):
-            extra += f" ({str(rec['detail'])[:50]})"
-        print(f"        -> {rec['status']}{extra}   [{elapsed:.1f}s]")
+        detail_suffix = ""
+        if record["status"] == "answered":
+            detail_suffix = f", {len(record.get('tags', []))} fields"
+            if record.get("escaped_document"):
+                detail_suffix += " [escaped document]"
+        if record.get("detail"):
+            detail_suffix += f" ({str(record['detail'])[:50]})"
+        print(f"        -> {record['status']}{detail_suffix}   "
+              f"[{elapsed:.1f}s]")
 
-        ok, who = healthy(host)
-        print("        device after: "
-              f"{'OK' if ok else 'NOT ANSWERING -- ' + who}\n")
-        if not ok:
+        is_healthy, device_or_error = check_status_port(host)
+        print(
+            "        device after: "
+            f"{'OK' if is_healthy else 'NOT ANSWERING -- ' + device_or_error}"
+            "\n")
+        if not is_healthy:
             print("!! The device stopped greeting. Stopping here rather than "
                   "sending anything else.")
             break
         time.sleep(1.0)
 
     print("== summary ==")
-    for r in results:
-        print(f"  {r['name']:24} {r['status']}")
+    for record in results:
+        print(f"  {record['name']:24} {record['status']}")
 
-    out = os.path.join(tempfile.gettempdir(), "drobo-last-six.json")
+    report_path = os.path.join(tempfile.gettempdir(), "drobo-last-six.json")
     json.dump({"host": host, "results": results},
-              open(out, "w", encoding="utf-8"), indent=1)
-    print(f"\nRedacted report: {out}")
+              open(report_path, "w", encoding="utf-8"), indent=1)
+    print(f"\nRedacted report: {report_path}")
     return 0
 
 
 if __name__ == "__main__":
-    # esa_id is read once, up front, and shared by every command below.
-    _h = (sys.argv[1]
-          if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
-          else "")
-    if not _h:
+    # _startup_esa_id is read once, up front, and shared by every
+    # command below.
+    _startup_host = (sys.argv[1]
+                     if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+                     else "")
+    if not _startup_host:
         try:
-            _h = json.load(open(
-                os.path.join(_HERE, "..", "agent", "config.json"),
+            _startup_host = json.load(open(
+                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
                 encoding="utf-8"))["drobo"]["host"]
         except (OSError, KeyError, ValueError):
-            _h = ""
-    esa_id = ""
-    if _h:
+            _startup_host = ""
+    _startup_esa_id = ""
+    if _startup_host:
         try:
-            esa_id = esatm.parse_identity(
-                esatm.fetch_greeting(_h, 5000, timeout=8)).get("esa_id", "")
+            _startup_esa_id = esatm.parse_identity(
+                esatm.fetch_greeting(_startup_host, 5000, timeout=8)
+            ).get("esa_id", "")
         except OSError:
             pass
     raise SystemExit(main())

@@ -47,7 +47,7 @@ def ascii_blob(*literals):
 
 
 redact = dashboard_strings.redact
-REDACTED = dashboard_strings._REDACTED
+REDACTED = dashboard_strings._REDACTION_PLACEHOLDER
 
 # Synthetic values in the shapes the real client holds, never its key.
 LETTER_LED_KEY = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"
@@ -85,7 +85,7 @@ for tag in ("DimmingLevel", "MailServer", "Password",
 
 print("\n== near() ==")
 wide = utf16_blob("MailServer", "x-api-key", HEADER_VALUE, "DimmingLevel")
-around = dashboard_strings.near(wide, "MailServer")
+around = dashboard_strings.strings_near(wide, "MailServer")
 check("near() finds the anchor in a UTF-16 blob",
       "MailServer" in around, around)
 check("near() keeps the field name itself",
@@ -99,25 +99,25 @@ check("-- and only that one: the next literal is kept",
 edge = utf16_blob("x-api-key", HEADER_VALUE,
                   *[f"Tag{number:02d}Name" for number in range(19)],
                   "MailServer")
-edge_around = dashboard_strings.near(edge, "MailServer")
+edge_around = dashboard_strings.strings_near(edge, "MailServer")
 check("near() redacts a value whose field name is just outside the window",
       HEADER_VALUE not in edge_around and REDACTED in edge_around,
       edge_around)
 check("-- and keeps the tag after it",
       "Tag00Name" in edge_around, edge_around)
 inline = utf16_blob("MailServer", f"x-api-key: {HEADER_VALUE}", "UseSSL")
-inline_around = dashboard_strings.near(inline, "MailServer")
+inline_around = dashboard_strings.strings_near(inline, "MailServer")
 check("near() redacts a header and value held as one literal",
       not any(HEADER_VALUE in text for text in inline_around),
       inline_around)
 check("near() redacts a letter-led key in its window",
-      LETTER_LED_KEY not in dashboard_strings.near(
+      LETTER_LED_KEY not in dashboard_strings.strings_near(
           utf16_blob("DimmingLevel", LETTER_LED_KEY), "DimmingLevel"))
 check("near() of a string that is not there is empty",
-      dashboard_strings.near(wide, "NotInTheBlob") == [])
+      dashboard_strings.strings_near(wide, "NotInTheBlob") == [])
 
 print("\n== endpoints() ==")
-found = dashboard_strings.endpoints(
+found = dashboard_strings.find_endpoints(
     ascii_blob(QUERY_URL, "https://example.invalid/oauth/token"))
 check("endpoints() never prints the key from ?api_key=",
       not any("AbCdEf123456" in text for text in found), found)

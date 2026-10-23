@@ -57,11 +57,11 @@ import zlib
 
 MAGIC_OFFSET = 8
 MAGIC = b"TDIH"
-COUNT_OFFSET = 0x168
-TABLE_OFFSET = 0x16C
-ENTRY_SIZE = 24
+SECTION_COUNT_OFFSET = 0x168
+SECTION_TABLE_OFFSET = 0x16C
+SECTION_ENTRY_SIZE = 24
 
-FORMATS = [
+PAYLOAD_SIGNATURES = [
     (b"hsqs", "squashfs (LE)"), (b"sqsh", "squashfs (BE)"),
     (b"\x45\x3d\xcd\x28", "cramfs"), (b"UBI#", "UBI"),
     (b"\x85\x19", "jffs2"), (b"\x1f\x8b\x08", "gzip"),
@@ -86,88 +86,98 @@ class Section:
 
 
 def read_container(path: str):
-    with open(path, "rb") as fh:
-        blob = fh.read()
-    if blob[MAGIC_OFFSET:MAGIC_OFFSET + 4] != MAGIC:
-        raise SystemExit(f"{path}: not a TDIH firmware container "
-                         f"(magic was {blob[MAGIC_OFFSET:MAGIC_OFFSET+4]!r})")
+    with open(path, "rb") as container_file:
+        container_bytes = container_file.read()
+    if container_bytes[MAGIC_OFFSET:MAGIC_OFFSET + 4] != MAGIC:
+        raise SystemExit(
+            f"{path}: not a TDIH firmware container "
+            f"(magic was {container_bytes[MAGIC_OFFSET:MAGIC_OFFSET+4]!r})")
 
-    data_off, version = struct.unpack_from(">II", blob, 0)
-    build = struct.unpack_from(">I", blob, 0x0C)[0]
-    model = blob[0x10:0x2C].split(b"\0")[0].decode("latin1", "replace")
-    total = struct.unpack_from(">I", blob, 0x2C)[0]
-    checksum = struct.unpack_from(">I", blob, 0x30)[0]
-    description = blob[0x34:0x60].split(b"\0")[0].decode("latin1", "replace")
-    count = struct.unpack_from(">I", blob, COUNT_OFFSET)[0]
+    payload_area_offset, version = struct.unpack_from(">II",
+                                                      container_bytes, 0)
+    build = struct.unpack_from(">I", container_bytes, 0x0C)[0]
+    model = container_bytes[0x10:0x2C].split(b"\0")[0].decode("latin1",
+                                                              "replace")
+    payload_size = struct.unpack_from(">I", container_bytes, 0x2C)[0]
+    checksum = struct.unpack_from(">I", container_bytes, 0x30)[0]
+    description = (container_bytes[0x34:0x60].split(b"\0")[0]
+                   .decode("latin1", "replace"))
+    count = struct.unpack_from(">I", container_bytes, SECTION_COUNT_OFFSET)[0]
 
     sections = []
     for i in range(count):
-        base = TABLE_OFFSET + i * ENTRY_SIZE
-        tag = blob[base:base + 4].decode("latin1")
-        off, size, _resv, sbuild, csum = struct.unpack_from(
-            ">IIIII", blob, base + 4)
-        sec = Section(tag, data_off + off, size, sbuild, csum)
-        head = blob[sec.offset:sec.offset + 16]
-        for sig, name in FORMATS:
-            if head.startswith(sig):
-                sec.kind = name
+        entry_offset = SECTION_TABLE_OFFSET + i * SECTION_ENTRY_SIZE
+        tag = container_bytes[entry_offset:entry_offset + 4].decode("latin1")
+        (relative_offset, size, _reserved, section_build,
+         section_checksum) = struct.unpack_from(">IIIII", container_bytes,
+                                                entry_offset + 4)
+        section = Section(tag, payload_area_offset + relative_offset, size,
+                          section_build, section_checksum)
+        section_head = container_bytes[section.offset:section.offset + 16]
+        for signature, format_name in PAYLOAD_SIGNATURES:
+            if section_head.startswith(signature):
+                section.kind = format_name
                 break
-        sections.append(sec)
+        sections.append(section)
 
-    meta = {
-        "path": path, "size": len(blob), "data_offset": data_off,
+    metadata = {
+        "path": path, "size": len(container_bytes),
+        "data_offset": payload_area_offset,
         "format_version": version, "build": build, "model": model,
-        "payload_size": total, "checksum": checksum,
+        "payload_size": payload_size, "checksum": checksum,
         "description": description, "sections": sections,
     }
-    return blob, meta
+    return container_bytes, metadata
 
 
-def cmd_info(args) -> int:
-    blob, meta = read_container(args.file)
-    print(f"{os.path.basename(meta['path'])}   {meta['size']:,} bytes")
-    print(f"  description     {meta['description']}")
-    print(f"  model           {meta['model']}")
-    print(f"  format version  {meta['format_version']}")
-    print(f"  build           0x{meta['build']:x}")
-    print(f"  payload         {meta['payload_size']:,} bytes at "
-          f"0x{meta['data_offset']:x}")
-    print(f"  checksum        0x{meta['checksum']:08x}")
-    print(f"  sections        {len(meta['sections'])}")
+def show_container_info(args) -> int:
+    container_bytes, metadata = read_container(args.file)
+    print(f"{os.path.basename(metadata['path'])}   {metadata['size']:,} bytes")
+    print(f"  description     {metadata['description']}")
+    print(f"  model           {metadata['model']}")
+    print(f"  format version  {metadata['format_version']}")
+    print(f"  build           0x{metadata['build']:x}")
+    print(f"  payload         {metadata['payload_size']:,} bytes at "
+          f"0x{metadata['data_offset']:x}")
+    print(f"  checksum        0x{metadata['checksum']:08x}")
+    print(f"  sections        {len(metadata['sections'])}")
     covered = 0
-    for sec in meta["sections"]:
-        print("   ", sec)
-        covered += sec.size
+    for section in metadata["sections"]:
+        print("   ", section)
+        covered += section.size
     print(
-        f"\n  {covered:,} of {meta['payload_size']:,} payload bytes "
+        f"\n  {covered:,} of {metadata['payload_size']:,} payload bytes "
         f"accounted for"
-        f" ({'complete' if covered == meta['payload_size'] else 'INCOMPLETE'})"
+        f" ({'complete' if covered == metadata['payload_size'] else 'INCOMPLETE'})"  # noqa: E501
     )
 
-    for sec in meta["sections"]:
-        if sec.kind == "u-boot uImage":
-            u = sec.offset
-            size = struct.unpack_from(">I", blob, u + 12)[0]
-            load, entry = struct.unpack_from(">II", blob, u + 16)
-            name = blob[u + 32:u + 64].rstrip(b"\0").decode(
-                "latin1", "replace")
+    for section in metadata["sections"]:
+        if section.kind == "u-boot uImage":
+            uimage_offset = section.offset
+            size = struct.unpack_from(">I", container_bytes,
+                                      uimage_offset + 12)[0]
+            load_address, entry_point = struct.unpack_from(
+                ">II", container_bytes, uimage_offset + 16)
+            name = (container_bytes[uimage_offset + 32:uimage_offset + 64]
+                    .rstrip(b"\0").decode("latin1", "replace"))
             print(f"\n  kernel: {name}")
-            print(f"    {size:,} bytes, load=0x{load:08x}, "
-                  f"entry=0x{entry:08x}")
+            print(f"    {size:,} bytes, load=0x{load_address:08x}, "
+                  f"entry=0x{entry_point:08x}")
     return 0
 
 
-def cmd_extract(args) -> int:
-    blob, meta = read_container(args.file)
+def extract_sections(args) -> int:
+    container_bytes, metadata = read_container(args.file)
     os.makedirs(args.out, exist_ok=True)
-    for sec in meta["sections"]:
-        data = blob[sec.offset:sec.offset + sec.size]
-        if sec.kind == "u-boot uImage" and not args.raw:
+    for section in metadata["sections"]:
+        data = container_bytes[section.offset:section.offset + section.size]
+        if section.kind == "u-boot uImage" and not args.raw:
             data = data[64:]  # strip the 64-byte uImage header
-        dest = os.path.join(args.out, f"fw-{sec.tag}.bin")
-        with open(dest, "wb") as fh:
-            fh.write(data)
-        print(f"  {sec.tag:6s} -> {dest}  ({len(data):,} bytes, {sec.kind})")
+        output_path = os.path.join(args.out, f"fw-{section.tag}.bin")
+        with open(output_path, "wb") as section_file:
+            section_file.write(data)
+        print(f"  {section.tag:6s} -> {output_path}  "
+              f"({len(data):,} bytes, {section.kind})")
     return 0
 
 
@@ -175,201 +185,217 @@ def cmd_extract(args) -> int:
 # JFFS2
 # ---------------------------------------------------------------------------
 
-J_MAGIC, J_DIRENT, J_INODE = 0x1985, 0xE001, 0xE002
-C_NONE, C_ZERO, C_RTIME, C_COPY, C_ZLIB = 0, 1, 2, 4, 6
-DTYPE = {1: "fifo", 2: "chr", 4: "dir", 6: "blk", 8: "file", 10: "link",
-         12: "sock"}
+JFFS2_MAGIC, JFFS2_NODETYPE_DIRENT, JFFS2_NODETYPE_INODE = (
+    0x1985, 0xE001, 0xE002)
+(JFFS2_COMPR_NONE, JFFS2_COMPR_ZERO, JFFS2_COMPR_RTIME, JFFS2_COMPR_COPY,
+ JFFS2_COMPR_ZLIB) = 0, 1, 2, 4, 6
+DIRENT_TYPE_NAMES = {1: "fifo", 2: "chr", 4: "dir", 6: "blk", 8: "file",
+                     10: "link", 12: "sock"}
 
 
-def _rtime(src: bytes, destlen: int) -> bytes:
+def _rtime_decompress(compressed: bytes, output_length: int) -> bytes:
     positions = [0] * 256
-    out = bytearray(destlen)
-    outpos = ip = 0
-    while outpos < destlen and ip + 1 < len(src):
-        value = src[ip]
-        ip += 1
-        out[outpos] = value
-        outpos += 1
-        repeat = src[ip]
-        ip += 1
-        back = positions[value]
-        positions[value] = outpos
+    output = bytearray(output_length)
+    output_pos = input_pos = 0
+    while output_pos < output_length and input_pos + 1 < len(compressed):
+        value = compressed[input_pos]
+        input_pos += 1
+        output[output_pos] = value
+        output_pos += 1
+        repeat = compressed[input_pos]
+        input_pos += 1
+        copy_from = positions[value]
+        positions[value] = output_pos
         if repeat:
-            if back + repeat >= outpos:
-                while repeat and outpos < destlen:
-                    out[outpos] = out[back]
-                    outpos += 1
-                    back += 1
+            if copy_from + repeat >= output_pos:
+                while repeat and output_pos < output_length:
+                    output[output_pos] = output[copy_from]
+                    output_pos += 1
+                    copy_from += 1
                     repeat -= 1
             else:
-                n = min(repeat, destlen - outpos)
-                out[outpos:outpos + n] = out[back:back + n]
-                outpos += n
-    return bytes(out)
+                copy_length = min(repeat, output_length - output_pos)
+                output[output_pos:output_pos + copy_length] = \
+                    output[copy_from:copy_from + copy_length]
+                output_pos += copy_length
+    return bytes(output)
 
 
-def _decompress(comp: int, data: bytes, csize: int, dsize: int):
-    if comp in (C_NONE, C_COPY):
-        return data[:dsize]
-    if comp == C_ZERO:
-        return b"\0" * dsize
-    if comp == C_ZLIB:
+def _decompress(compression: int, data: bytes, compressed_size: int,
+                decompressed_size: int):
+    if compression in (JFFS2_COMPR_NONE, JFFS2_COMPR_COPY):
+        return data[:decompressed_size]
+    if compression == JFFS2_COMPR_ZERO:
+        return b"\0" * decompressed_size
+    if compression == JFFS2_COMPR_ZLIB:
         try:
-            return zlib.decompress(data[:csize])
+            return zlib.decompress(data[:compressed_size])
         except zlib.error:
             try:
-                return zlib.decompressobj().decompress(data[:csize])
+                return zlib.decompressobj().decompress(data[:compressed_size])
             except Exception:
                 return None
-    if comp == C_RTIME:
-        return _rtime(data[:csize], dsize)
+    if compression == JFFS2_COMPR_RTIME:
+        return _rtime_decompress(data[:compressed_size], decompressed_size)
     return None
 
 
-def cmd_rootfs(args) -> int:
-    with open(args.file, "rb") as fh:
-        fs = fh.read()
-    if fs[:2] != b"\x85\x19":
+def rebuild_rootfs(args) -> int:
+    with open(args.file, "rb") as image_file:
+        image = image_file.read()
+    if image[:2] != b"\x85\x19":
         print("warning: this does not start with the JFFS2 magic; "
               "trying anyway", file=sys.stderr)
 
     dirents = collections.defaultdict(list)
-    frags = collections.defaultdict(list)
-    unsupported = collections.Counter()
+    fragments = collections.defaultdict(list)
+    unsupported_counts = collections.Counter()
 
-    pos, size = 0, len(fs)
+    pos, size = 0, len(image)
     while pos < size - 12:
-        magic, nodetype, totlen = struct.unpack_from("<HHI", fs, pos)
-        if magic != J_MAGIC or totlen < 12 or pos + totlen > size:
+        magic, node_type, total_length = struct.unpack_from("<HHI", image, pos)
+        if (magic != JFFS2_MAGIC or total_length < 12
+                or pos + total_length > size):
             pos += 4
             continue
-        if nodetype == J_DIRENT and pos + 40 <= size:
-            pino, version, ino, _ = struct.unpack_from("<IIII", fs, pos + 12)
-            nsize, dtype = struct.unpack_from("<BB", fs, pos + 28)
-            name = fs[pos + 40:pos + 40 + nsize]
-            if nsize and name:
-                dirents[ino].append(
-                    (version, name.decode("utf-8", "replace"), pino, dtype))
-        elif nodetype == J_INODE and pos + 68 <= size:
-            ino, version = struct.unpack_from("<II", fs, pos + 12)
-            isize = struct.unpack_from("<I", fs, pos + 28)[0]
-            offset, csize, dsize = struct.unpack_from("<III", fs, pos + 44)
-            comp = fs[pos + 56]
-            out = _decompress(comp, fs[pos + 68:pos + 68 + csize], csize,
-                              dsize)
-            if out is None:
-                unsupported[comp] += 1
+        if node_type == JFFS2_NODETYPE_DIRENT and pos + 40 <= size:
+            parent_inode, version, inode, _ = struct.unpack_from(
+                "<IIII", image, pos + 12)
+            name_size, dirent_type = struct.unpack_from("<BB", image, pos + 28)
+            name = image[pos + 40:pos + 40 + name_size]
+            if name_size and name:
+                dirents[inode].append(
+                    (version, name.decode("utf-8", "replace"), parent_inode,
+                     dirent_type))
+        elif node_type == JFFS2_NODETYPE_INODE and pos + 68 <= size:
+            inode, version = struct.unpack_from("<II", image, pos + 12)
+            file_size = struct.unpack_from("<I", image, pos + 28)[0]
+            fragment_offset, compressed_size, decompressed_size = \
+                struct.unpack_from("<III", image, pos + 44)
+            compression = image[pos + 56]
+            decompressed = _decompress(
+                compression, image[pos + 68:pos + 68 + compressed_size],
+                compressed_size, decompressed_size)
+            if decompressed is None:
+                unsupported_counts[compression] += 1
             else:
-                frags[ino].append((version, offset, out, isize))
-        pos += (totlen + 3) & ~3
+                fragments[inode].append(
+                    (version, fragment_offset, decompressed, file_size))
+        pos += (total_length + 3) & ~3
 
     # JFFS2 is log-structured: the highest version of each node wins.
-    best = {}
-    for ino, lst in dirents.items():
-        lst.sort()
-        _v, name, pino, dtype = lst[-1]
-        if ino:
-            best[ino] = (name, pino, dtype)
+    latest_dirents = {}
+    for inode, dirent_versions in dirents.items():
+        dirent_versions.sort()
+        _version, name, parent_inode, dirent_type = dirent_versions[-1]
+        if inode:
+            latest_dirents[inode] = (name, parent_inode, dirent_type)
     children = collections.defaultdict(list)
-    for ino, (name, pino, dtype) in best.items():
-        children[pino].append((name, ino, dtype))
+    for inode, (name, parent_inode, dirent_type) in latest_dirents.items():
+        children[parent_inode].append((name, inode, dirent_type))
 
     paths = {}
 
-    def walk(ino, prefix, depth=0):
+    def walk_directory(inode, prefix, depth=0):
         if depth > 24:
             return
-        for name, child, dtype in sorted(children.get(ino, [])):
-            p = prefix + "/" + name
-            paths[child] = (p, dtype)
-            if dtype == 4:
-                walk(child, p, depth + 1)
+        for name, child, dirent_type in sorted(children.get(inode, [])):
+            child_path = prefix + "/" + name
+            paths[child] = (child_path, dirent_type)
+            if dirent_type == 4:
+                walk_directory(child, child_path, depth + 1)
 
-    walk(1, "")
+    walk_directory(1, "")
 
     written = 0
-    for ino, (path, dtype) in paths.items():
-        if dtype not in (8, 10) or ino not in frags:
+    for inode, (path, dirent_type) in paths.items():
+        if dirent_type not in (8, 10) or inode not in fragments:
             continue
-        parts = sorted(frags[ino], key=lambda t: t[0])
-        isize = max(p[3] for p in parts)
-        buf = bytearray(isize)
-        for _v, off, data, _ in parts:
-            end = min(off + len(data), isize)
-            if end > off:
-                buf[off:end] = data[:end - off]
-        dest = os.path.join(args.out, path.lstrip("/").replace("/", os.sep))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        parts = sorted(fragments[inode], key=lambda t: t[0])
+        file_size = max(part[3] for part in parts)
+        file_bytes = bytearray(file_size)
+        for _version, fragment_offset, data, _ in parts:
+            end = min(fragment_offset + len(data), file_size)
+            if end > fragment_offset:
+                file_bytes[fragment_offset:end] = data[:end - fragment_offset]
+        output_path = os.path.join(args.out,
+                                   path.lstrip("/").replace("/", os.sep))
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         try:
-            with open(dest, "wb") as fh:
-                fh.write(bytes(buf))
+            with open(output_path, "wb") as output_file:
+                output_file.write(bytes(file_bytes))
             written += 1
         except OSError as exc:
             print(f"  ! {path}: {exc}", file=sys.stderr)
 
     listing = os.path.join(args.out, "..", "rootfs-listing.txt")
-    with open(listing, "w", encoding="utf-8") as fh:
-        for path, dtype in sorted(paths.values()):
-            fh.write(f"{DTYPE.get(dtype, '?'):5s} {path}\n")
+    with open(listing, "w", encoding="utf-8") as listing_file:
+        for path, dirent_type in sorted(paths.values()):
+            listing_file.write(
+                f"{DIRENT_TYPE_NAMES.get(dirent_type, '?'):5s} {path}\n")
 
     print(f"  {len(paths):,} paths, {written:,} files written to {args.out}")
     print(f"  listing: {os.path.normpath(listing)}")
-    if unsupported:
+    if unsupported_counts:
         # JFFS2's own compressor numbers (JFFS2_COMPR_* in
-        # linux/jffs2.h, like C_* above): LZO is 7, and 8 has no
+        # linux/jffs2.h, as named above): LZO is 7, and 8 has no
         # mainline meaning, so it prints as a bare number like any
         # other unnamed type.
-        names = {3: "RUBINMIPS", 5: "DYNRUBIN", 7: "LZO"}
+        compression_names = {3: "RUBINMIPS", 5: "DYNRUBIN", 7: "LZO"}
         print("  unsupported compression: "
-              + ", ".join(f"{names.get(k, k)} x{v}"
-                          for k, v in unsupported.items()))
+              + ", ".join(f"{compression_names.get(k, k)} x{v}"
+                          for k, v in unsupported_counts.items()))
     return 0
 
 
-def cmd_strings(args) -> int:
-    with open(args.file, "rb") as fh:
-        data = fh.read()
+def print_strings(args) -> int:
+    with open(args.file, "rb") as input_file:
+        data = input_file.read()
     found = [s.decode("latin1")
              for s in re.findall(rb"[\x20-\x7e]{%d,}" % args.min, data)]
-    uniq = list(dict.fromkeys(found))
+    unique_strings = list(dict.fromkeys(found))
     if args.grep:
-        pat = re.compile(args.grep, re.I)
-        uniq = [s for s in uniq if pat.search(s)]
-    for s in uniq:
+        pattern = re.compile(args.grep, re.I)
+        unique_strings = [s for s in unique_strings if pattern.search(s)]
+    for s in unique_strings:
         print(s)
-    print(f"\n# {len(uniq):,} strings", file=sys.stderr)
+    print(f"\n# {len(unique_strings):,} strings", file=sys.stderr)
     return 0
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("info", help="describe a .tdf firmware container")
-    p.add_argument("file")
-    p.set_defaults(func=cmd_info)
+    subparser = subparsers.add_parser(
+        "info", help="describe a .tdf firmware container")
+    subparser.add_argument("file")
+    subparser.set_defaults(func=show_container_info)
 
-    p = sub.add_parser("extract", help="write each section to its own file")
-    p.add_argument("file")
-    p.add_argument("-o", "--out", default="fw-out")
-    p.add_argument("--raw", action="store_true", help="keep uImage headers")
-    p.set_defaults(func=cmd_extract)
+    subparser = subparsers.add_parser(
+        "extract", help="write each section to its own file")
+    subparser.add_argument("file")
+    subparser.add_argument("-o", "--out", default="fw-out")
+    subparser.add_argument("--raw", action="store_true",
+                           help="keep uImage headers")
+    subparser.set_defaults(func=extract_sections)
 
-    p = sub.add_parser("rootfs", help="rebuild files from a JFFS2 image")
-    p.add_argument("file")
-    p.add_argument("-o", "--out", default="rootfs")
-    p.set_defaults(func=cmd_rootfs)
+    subparser = subparsers.add_parser(
+        "rootfs", help="rebuild files from a JFFS2 image")
+    subparser.add_argument("file")
+    subparser.add_argument("-o", "--out", default="rootfs")
+    subparser.set_defaults(func=rebuild_rootfs)
 
-    p = sub.add_parser(
+    subparser = subparsers.add_parser(
         "strings", help="printable strings, optionally filtered")
-    p.add_argument("file")
-    p.add_argument("--min", type=int, default=4)
-    p.add_argument("--grep", default=None, help="regex filter")
-    p.set_defaults(func=cmd_strings)
+    subparser.add_argument("file")
+    subparser.add_argument("--min", type=int, default=4)
+    subparser.add_argument("--grep", default=None, help="regex filter")
+    subparser.set_defaults(func=print_strings)
 
-    args = ap.parse_args(argv)
+    args = parser.parse_args(argv)
     return args.func(args)
 
 

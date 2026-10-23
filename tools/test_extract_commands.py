@@ -40,7 +40,7 @@ def check(label, condition, failure_detail=""):
         failures.append(label)
 
 
-def envelope(command_id: int, params_inner: str = "") -> bytes:
+def framed_command(command_id: int, params_inner: str = "") -> bytes:
     """
     One command document, in the shape a real Drobo Dashboard actually
     sends.
@@ -82,39 +82,41 @@ def envelope(command_id: int, params_inner: str = "") -> bytes:
 #      string is a mistake this project has already made once, at the
 #      cost of weeks.
 # ---------------------------------------------------------------------------
-SET_DIMMING = envelope(8, "<Dimming>42</Dimming>")
-GET_DIMMING = envelope(9, "")
-RENAME = envelope(25, "<NasName>Test Drobo 01</NasName>")
-NESTED = envelope(
+SET_DIMMING = framed_command(8, "<Dimming>42</Dimming>")
+GET_DIMMING = framed_command(9, "")
+RENAME = framed_command(25, "<NasName>Test Drobo 01</NasName>")
+NESTED_DOCUMENT_COMMAND = framed_command(
     57,
     "<Config>&lt;DRINASConfig&gt;&lt;Level&gt;7&lt;/Level&gt;"
     "&lt;/DRINASConfig&gt;</Config>")
-SECRET = envelope(26, "<UserName>admin</UserName><Password>hunter2</Password>")
+CREDENTIALS_COMMAND = framed_command(
+    26, "<UserName>admin</UserName><Password>hunter2</Password>")
 
-REQUEST_STREAM = SET_DIMMING + GET_DIMMING + RENAME + NESTED + SECRET
+REQUEST_STREAM = (SET_DIMMING + GET_DIMMING + RENAME + NESTED_DOCUMENT_COMMAND
+                  + CREDENTIALS_COMMAND)
 
-tmpdir = tempfile.mkdtemp(prefix="extract-cmds-")
+temp_dir = tempfile.mkdtemp(prefix="extract-cmds-")
 # Removed when the script exits, however it exits: the checks below run
 # at the top level and end in sys.exit(), so atexit covers a failed
 # check or an exception as well as a clean pass. Until 2026-09-16 every
 # run left this folder behind in TEMP.
-atexit.register(shutil.rmtree, tmpdir, ignore_errors=True)
-capture_path = os.path.join(tmpdir, "session.pcapng")
+atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
+capture_path = os.path.join(temp_dir, "session.pcapng")
 
 # Split across three TCP segments and hand them to the writer out of
 # order, so the test proves reassembly happens rather than that one
 # packet happened to hold one document. A real capture of a chatty
 # Dashboard looks like this.
-third = len(REQUEST_STREAM) // 3
+chunk_length = len(REQUEST_STREAM) // 3
 chunks = [
-    (0, REQUEST_STREAM[:third]),
-    (third, REQUEST_STREAM[third:third * 2]),
-    (third * 2, REQUEST_STREAM[third * 2:]),
+    (0, REQUEST_STREAM[:chunk_length]),
+    (chunk_length, REQUEST_STREAM[chunk_length:chunk_length * 2]),
+    (chunk_length * 2, REQUEST_STREAM[chunk_length * 2:]),
 ]
 out_of_order = [chunks[2], chunks[0], chunks[1]]
 
 frames = [
-    builders.eth_frame(builders.ipv4_packet(
+    builders.ethernet_frame(builders.ipv4_packet(
         builders.CLIENT_IP, builders.SERVER_IP,
         builders.tcp_segment(51000, 5001, seq, 0x18, payload)))
     for seq, payload in out_of_order
@@ -127,45 +129,52 @@ check("the command stream is found", result["streams"] >= 1, result["streams"])
 check("all five commands are recovered despite reordered segments",
       len(result["requests"]) == 5, len(result["requests"]))
 
-by_id = {r["command_id"]: r for r in result["requests"]}
-check("command ids are read", sorted(by_id) == [8, 9, 25, 26, 57],
-      sorted(by_id))
+requests_by_id = {r["command_id"]: r for r in result["requests"]}
+check("command ids are read", sorted(requests_by_id) == [8, 9, 25, 26, 57],
+      sorted(requests_by_id))
 check("ids are resolved to firmware names",
-      by_id[8]["command"] == "eCmdSetDimming", by_id[8]["command"])
+      requests_by_id[8]["command"] == "eCmdSetDimming",
+      requests_by_id[8]["command"])
 check("-- and for the other known one too",
-      by_id[25]["command"] == "eCmdRename", by_id[25]["command"])
+      requests_by_id[25]["command"] == "eCmdRename",
+      requests_by_id[25]["command"])
 
 print("\n== the parameters, which is the entire reason this exists ==")
 # This is the value nobody could get from the firmware: what actually
 # goes inside <Params> for a command that changes something.
 check("a numeric parameter is recovered verbatim",
-      "<Dimming>42</Dimming>" in by_id[8]["params_xml"].replace(
+      "<Dimming>42</Dimming>" in requests_by_id[8]["params_xml"].replace(
           "\n", "").replace("  ", ""),
-      by_id[8]["params_xml"])
-check("SetDimming is reported as carrying parameters", by_id[8]["has_params"])
+      requests_by_id[8]["params_xml"])
+check("SetDimming is reported as carrying parameters",
+      requests_by_id[8]["has_params"])
 check("a string parameter is recovered with its value intact",
-      "Test Drobo 01" in by_id[25]["params_xml"], by_id[25]["params_xml"])
+      "Test Drobo 01" in requests_by_id[25]["params_xml"],
+      requests_by_id[25]["params_xml"])
 
 print("\n== empty Params is reported as empty, not as missing ==")
 # The distinction matters: "sent with nothing inside" is what WE send,
 # so a command the Dashboard also sends empty tells us we are already
 # correct.
-check("GetDimming carried no parameters", by_id[9]["has_params"] is False,
-      by_id[9])
+check("GetDimming carried no parameters",
+      requests_by_id[9]["has_params"] is False, requests_by_id[9])
 
 print("\n== escaped documents are unwrapped, "
       "not printed as one long string ==")
 # This firmware nests whole XML documents as escaped text. Reading them
 # as opaque strings is what made temperature and the performance
 # counters look unobtainable for weeks.
-nested = by_id[57]["escaped_documents"]
-check("the nested document is noticed", len(nested) == 1, nested)
+nested_documents = requests_by_id[57]["escaped_documents"]
+check("the nested document is noticed", len(nested_documents) == 1,
+      nested_documents)
 check("it is attributed to the element it was inside",
-      nested and nested[0]["under"] == "Config", nested)
+      nested_documents and nested_documents[0]["under"] == "Config",
+      nested_documents)
 check("and it is parsed, not left escaped",
-      nested and "<Level>7</Level>" in nested[0]["xml"].replace(
+      nested_documents
+      and "<Level>7</Level>" in nested_documents[0]["xml"].replace(
           "\n", "").replace("  ", ""),
-      nested)
+      nested_documents)
 
 print("\n== credentials never reach the output ==")
 # nasd has no encryption, so a capture taken while somebody types a
@@ -173,27 +182,31 @@ print("\n== credentials never reach the output ==")
 # -- that is docs/captures/README.md's problem -- but nothing this tool
 # PRINTS may carry one, because its output is what gets pasted into
 # notes and commits.
-creds = by_id[26]["params_xml"]
-check("the password value is gone", "hunter2" not in creds, creds)
+credential_params_xml = requests_by_id[26]["params_xml"]
+check("the password value is gone", "hunter2" not in credential_params_xml,
+      credential_params_xml)
 check("it is replaced visibly rather than silently dropped",
-      extract_commands._REDACTED in creds, creds)
-check("the non-secret field beside it survives", "admin" in creds, creds)
+      extract_commands._REDACTION_PLACEHOLDER in credential_params_xml,
+      credential_params_xml)
+check("the non-secret field beside it survives",
+      "admin" in credential_params_xml, credential_params_xml)
 
 print("\n== a capture with nothing to say, said plainly ==")
-empty_path = os.path.join(tmpdir, "wrong-port.pcapng")
+empty_path = os.path.join(temp_dir, "wrong-port.pcapng")
 builders.write_pcapng(empty_path, frames)
-nothing = extract_commands.extract(empty_path, port=5000)  # the status port
-check("looking at the wrong port finds no streams", nothing["streams"] == 0,
-      nothing)
+# the status port
+wrong_port_result = extract_commands.extract(empty_path, port=5000)
+check("looking at the wrong port finds no streams",
+      wrong_port_result["streams"] == 0, wrong_port_result)
 check("-- and returns no commands rather than raising",
-      nothing["requests"] == [])
+      wrong_port_result["requests"] == [])
 
 print("\n== classic pcap works too, not just pcapng ==")
-classic_path = os.path.join(tmpdir, "session.pcap")
+classic_path = os.path.join(temp_dir, "session.pcap")
 builders.write_pcap_classic(classic_path, frames)
-classic = extract_commands.extract(classic_path, port=5001)
+classic_result = extract_commands.extract(classic_path, port=5001)
 check("the same five commands come out of a classic pcap",
-      len(classic["requests"]) == 5, len(classic["requests"]))
+      len(classic_result["requests"]) == 5, len(classic_result["requests"]))
 
 print("\n== the unwrapper does not mangle ordinary text ==")
 check("a plain string is not treated as a document",

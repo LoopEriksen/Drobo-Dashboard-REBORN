@@ -74,22 +74,23 @@ FORBIDDEN = {
     "eCmdSetConfig", "eCmdSetAdmin", "eCmdClearConfig", "eCmdSetFlashConfig",
 }
 
-PORT = 5000
+STATUS_PORT = 5000
 
 
 # ---------------------------------------------------------------------------
 # Candidate request bodies. The firmware shows an XML DOM and
 # <Error>N</Error> responses, so these are shaped around that.
 # ---------------------------------------------------------------------------
-def bodies_for(command: str) -> list[tuple[str, bytes]]:
+def candidate_bodies(command_name: str) -> list[tuple[str, bytes]]:
     return [
-        ("bare-element", f"<{command}/>".encode()),
-        ("command-element", f"<Command>{command}</Command>".encode()),
-        ("command-attr", f'<Command name="{command}"/>'.encode()),
-        ("esa-style", f"<ESA><Command>{command}</Command></ESA>".encode()),
+        ("bare-element", f"<{command_name}/>".encode()),
+        ("command-element", f"<Command>{command_name}</Command>".encode()),
+        ("command-attr", f'<Command name="{command_name}"/>'.encode()),
+        ("esa-style",
+         f"<ESA><Command>{command_name}</Command></ESA>".encode()),
         ("decl+command",
-         f'<?xml version="1.0"?><Command>{command}</Command>'.encode()),
-        ("tmcmd", f"<TMCmd><Cmd>{command}</Cmd></TMCmd>".encode()),
+         f'<?xml version="1.0"?><Command>{command_name}</Command>'.encode()),
+        ("tmcmd", f"<TMCmd><Cmd>{command_name}</Cmd></TMCmd>".encode()),
     ]
 
 
@@ -114,41 +115,49 @@ def bodies_for(command: str) -> list[tuple[str, bytes]]:
 # SledDiscoveryAgent code in the firmware. Its position and the exact
 # header layout are still unknown, so several placements are tried.
 # ---------------------------------------------------------------------------
-SIG4 = b"DRINASD4"
-SIG = b"DRINASD"
+SIGNATURE_DRINASD4 = b"DRINASD4"
+SIGNATURE_DRINASD = b"DRINASD"
 
 FRAMINGS = [
     # plain -- expected to be refused, but the manner of refusal is a
     # clue
-    ("raw", lambda b: b),
-    ("newline", lambda b: b + b"\n"),
-    ("nul", lambda b: b + b"\0"),
-    ("len32-be", lambda b: struct.pack(">I", len(b)) + b),
-    ("len32-le", lambda b: struct.pack("<I", len(b)) + b),
-    ("len16-be", lambda b: struct.pack(">H", len(b)) + b),
+    ("raw", lambda body: body),
+    ("newline", lambda body: body + b"\n"),
+    ("nul", lambda body: body + b"\0"),
+    ("len32-be", lambda body: struct.pack(">I", len(body)) + body),
+    ("len32-le", lambda body: struct.pack("<I", len(body)) + body),
+    ("len16-be", lambda body: struct.pack(">H", len(body)) + body),
     # signature-prefixed -- the shapes worth trying
-    ("sig4+len32be", lambda b: SIG4 + struct.pack(">I", len(b)) + b),
-    ("sig4+len32le", lambda b: SIG4 + struct.pack("<I", len(b)) + b),
+    ("sig4+len32be",
+     lambda body: SIGNATURE_DRINASD4 + struct.pack(">I", len(body)) + body),
+    ("sig4+len32le",
+     lambda body: SIGNATURE_DRINASD4 + struct.pack("<I", len(body)) + body),
     ("sig4+nul+len32be",
-     lambda b: SIG4 + b"\0" + struct.pack(">I", len(b)) + b),
-    ("sig+len32be", lambda b: SIG + b"\0" + struct.pack(">I", len(b)) + b),
-    ("len32be+sig4", lambda b: struct.pack(">I", len(b) + 8) + SIG4 + b),
+     lambda body: (SIGNATURE_DRINASD4 + b"\0" + struct.pack(">I", len(body))
+                   + body)),
+    ("sig+len32be",
+     lambda body: (SIGNATURE_DRINASD + b"\0" + struct.pack(">I", len(body))
+                   + body)),
+    ("len32be+sig4",
+     lambda body: (struct.pack(">I", len(body) + 8) + SIGNATURE_DRINASD4
+                   + body)),
     ("sig4+pad8+len32be",
-     lambda b: SIG4 + b"\0" * 8 + struct.pack(">I", len(b)) + b),
+     lambda body: (SIGNATURE_DRINASD4 + b"\0" * 8
+                   + struct.pack(">I", len(body)) + body)),
 ]
 
 
 def hexdump(data: bytes, limit: int = 512) -> list[str]:
-    out = []
-    for off in range(0, min(len(data), limit), 16):
-        chunk = data[off:off + 16]
-        h = " ".join(f"{b:02x}" for b in chunk).ljust(47)
-        a = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-        out.append(f"{off:04x}  {h}  {a}")
-    return out
+    lines = []
+    for offset in range(0, min(len(data), limit), 16):
+        chunk = data[offset:offset + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk).ljust(47)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{offset:04x}  {hex_part}  {ascii_part}")
+    return lines
 
 
-def looks_like_answer(data: bytes) -> str | None:
+def classify_response(data: bytes) -> str | None:
     """Score a response. Returns a description if it looks
     meaningful."""
     if not data:
@@ -166,31 +175,32 @@ def looks_like_answer(data: bytes) -> str | None:
 
 
 def read_available(sock: socket.socket, first_timeout: float = 3.0,
-                   idle: float = 0.6, cap: int = 65536) -> bytes:
+                   idle_timeout: float = 0.6, max_bytes: int = 65536) -> bytes:
     """Read until the peer goes quiet."""
     sock.settimeout(first_timeout)
-    chunks = b""
+    received = b""
     try:
-        while len(chunks) < cap:
+        while len(received) < max_bytes:
             piece = sock.recv(8192)
             if not piece:
                 break
-            chunks += piece
-            sock.settimeout(idle)
+            received += piece
+            sock.settimeout(idle_timeout)
     except (socket.timeout, TimeoutError):
         pass
     except OSError:
         pass
-    return chunks
+    return received
 
 
-def connect(host: str, timeout: float = 5.0) -> socket.socket | None:
+def connect_to_status_port(host: str,
+                           timeout: float = 5.0) -> socket.socket | None:
     try:
-        sock = socket.create_connection((host, PORT), timeout=timeout)
+        sock = socket.create_connection((host, STATUS_PORT), timeout=timeout)
         sock.settimeout(timeout)
         return sock
     except OSError as exc:
-        print(f"  ! could not connect to {host}:{PORT} -- {exc}")
+        print(f"  ! could not connect to {host}:{STATUS_PORT} -- {exc}")
         return None
 
 
@@ -198,7 +208,7 @@ def probe_banner(host: str) -> dict:
     """Connect and say nothing. Does the Drobo speak first?"""
     print("\n== 1. does the server speak first? ==")
     result = {"test": "banner", "bytes": 0}
-    sock = connect(host)
+    sock = connect_to_status_port(host)
     if not sock:
         result["error"] = "connect failed"
         return result
@@ -207,7 +217,7 @@ def probe_banner(host: str) -> dict:
         result["bytes"] = len(data)
         if data:
             result["hexdump"] = hexdump(data)
-            result["verdict"] = looks_like_answer(data)
+            result["verdict"] = classify_response(data)
             print(f"  server sent {len(data)} bytes unprompted -- "
                   f"{result['verdict']}")
             for line in hexdump(data, 128):
@@ -220,46 +230,47 @@ def probe_banner(host: str) -> dict:
     return result
 
 
-def probe_framings(host: str, command: str, persistent: bool) -> list[dict]:
-    print(f"\n== 2. framing sweep using {command} ==")
-    if command in FORBIDDEN:
+def probe_framings(host: str, command_name: str,
+                   persistent: bool) -> list[dict]:
+    print(f"\n== 2. framing sweep using {command_name} ==")
+    if command_name in FORBIDDEN:
         raise SystemExit(
-            f"refusing to send {command}: it is on the forbidden list")
+            f"refusing to send {command_name}: it is on the forbidden list")
 
     results = []
     sock = None
-    for body_name, body in bodies_for(command):
-        for frame_name, frame in FRAMINGS:
-            payload = frame(body)
-            label = f"{body_name}/{frame_name}"
+    for body_name, body in candidate_bodies(command_name):
+        for framing_name, apply_framing in FRAMINGS:
+            payload = apply_framing(body)
+            label = f"{body_name}/{framing_name}"
             if not persistent or sock is None:
                 if sock:
                     sock.close()
-                sock = connect(host)
+                sock = connect_to_status_port(host)
                 if not sock:
                     return results
-            entry = {"body": body_name, "framing": frame_name,
-                     "sent": payload[:120].decode("latin1", "replace"),
-                     "sent_bytes": len(payload)}
+            attempt = {"body": body_name, "framing": framing_name,
+                       "sent": payload[:120].decode("latin1", "replace"),
+                       "sent_bytes": len(payload)}
             try:
                 sock.sendall(payload)
             except OSError as exc:
-                entry["error"] = f"send failed: {exc}"
-                results.append(entry)
+                attempt["error"] = f"send failed: {exc}"
+                results.append(attempt)
                 sock.close()
                 sock = None
                 continue
             data = read_available(sock, first_timeout=2.5)
-            entry["received_bytes"] = len(data)
+            attempt["received_bytes"] = len(data)
             if data:
-                entry["hexdump"] = hexdump(data)
-                entry["text"] = data[:1024].decode("utf-8", "replace")
-                entry["verdict"] = looks_like_answer(data)
+                attempt["hexdump"] = hexdump(data)
+                attempt["text"] = data[:1024].decode("utf-8", "replace")
+                attempt["verdict"] = classify_response(data)
                 print(f"  {label:34s} -> {len(data):5d} bytes  "
-                      f"{entry['verdict']}")
+                      f"{attempt['verdict']}")
             else:
                 print(f"  {label:34s} -> (nothing)")
-            results.append(entry)
+            results.append(attempt)
             if not persistent:
                 sock.close()
                 sock = None
@@ -269,31 +280,31 @@ def probe_framings(host: str, command: str, persistent: bool) -> list[dict]:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("host", help="the Drobo's IP address")
-    ap.add_argument("-o", "--out", default="nasd-probe.json")
-    ap.add_argument("--command", default="eCmdGetVersion",
-                    help="which safe command to probe with; one of "
-                         f"{SAFE_COMMANDS}")
-    ap.add_argument("--listen-only", action="store_true",
-                    help="connect and read, but never send anything")
-    ap.add_argument("--persistent", action="store_true",
-                    help="reuse one connection for every attempt")
-    args = ap.parse_args(argv)
+    parser.add_argument("host", help="the Drobo's IP address")
+    parser.add_argument("-o", "--out", default="nasd-probe.json")
+    parser.add_argument("--command", default="eCmdGetVersion",
+                        help="which safe command to probe with; one of "
+                             f"{SAFE_COMMANDS}")
+    parser.add_argument("--listen-only", action="store_true",
+                        help="connect and read, but never send anything")
+    parser.add_argument("--persistent", action="store_true",
+                        help="reuse one connection for every attempt")
+    args = parser.parse_args(argv)
 
     if args.command not in SAFE_COMMANDS:
         raise SystemExit(
             f"{args.command!r} is not in the read-only allow-list.\n"
             f"Allowed: {', '.join(SAFE_COMMANDS)}")
 
-    print(f"Probing nasd at {args.host}:{PORT}")
+    print(f"Probing nasd at {args.host}:{STATUS_PORT}")
     print("Only read-only commands will be sent.")
 
     report = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "host": args.host, "port": PORT, "command": args.command,
+        "host": args.host, "port": STATUS_PORT, "command": args.command,
         "banner": probe_banner(args.host),
     }
 
@@ -303,17 +314,20 @@ def main(argv=None) -> int:
         report["framings"] = probe_framings(
             args.host, args.command, args.persistent)
 
-        good = [r for r in report["framings"] if r.get("received_bytes")]
+        answered = [attempt for attempt in report["framings"]
+                    if attempt.get("received_bytes")]
         print("\n== summary ==")
-        print(f"  {len(good)} of {len(report['framings'])} "
+        print(f"  {len(answered)} of {len(report['framings'])} "
               "attempts got a reply")
-        best = [r for r in good if "Error" in (r.get("text") or "")
-                or "XML" in (r.get("verdict") or "")]
-        if best:
+        promising = [attempt for attempt in answered
+                     if "Error" in (attempt.get("text") or "")
+                     or "XML" in (attempt.get("verdict") or "")]
+        if promising:
             print("  most promising:")
-            for r in best[:5]:
-                print(f"    {r['body']}/{r['framing']}: {r['verdict']}")
-        elif good:
+            for attempt in promising[:5]:
+                print(f"    {attempt['body']}/{attempt['framing']}: "
+                      f"{attempt['verdict']}")
+        elif answered:
             print("  something answered, but nothing looked like XML. "
                   "Check the hexdumps in the report.")
         else:
@@ -321,10 +335,10 @@ def main(argv=None) -> int:
                   "Either the framing guesses are all wrong,")
             print("  or nasd expects authentication first. "
                   "Fall back to Wireshark:")
-            print(f"    tcp port {PORT} and host {args.host}")
+            print(f"    tcp port {STATUS_PORT} and host {args.host}")
 
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump(report, fh, indent=2)
+    with open(args.out, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2)
     print(f"\nWrote {args.out}")
     print("Keep that file -- a driver can be written from what it recorded.")
     return 0

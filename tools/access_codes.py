@@ -50,41 +50,44 @@ import tempfile
 # Two different siblings, for two different reasons: the protocol comes
 # from the SDK, and the Drobo's address comes from the agent's own
 # config file.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_SDK_DIR = os.path.abspath(os.path.join(_HERE, "..", "sdk"))
-_AGENT_DIR = os.path.abspath(os.path.join(_HERE, "..", "agent"))
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+_SDK_DIR = os.path.abspath(os.path.join(_TOOLS_DIR, "..", "sdk"))
+_AGENT_DIR = os.path.abspath(os.path.join(_TOOLS_DIR, "..", "agent"))
 sys.path.insert(0, _SDK_DIR)
 
 from drobo_nasd import config_cmd, esatm  # noqa: E402
 
 # Snapshots live outside the repo -- they carry share and user names.
-SNAP_DIR = os.path.join(tempfile.gettempdir(), "drobo-access-codes")
+SNAPSHOT_DIR = os.path.join(tempfile.gettempdir(), "drobo-access-codes")
 
 
-def read_codes(host: str) -> dict:
-    """{(share, user): code} straight from the device. Read-only."""
-    ident = esatm.parse_identity(esatm.fetch_greeting(host, 5000, timeout=8))
-    esa = ident.get("esa_id") or ""
-    if not esa:
+def read_share_access_codes(host: str) -> dict:
+    """{"share\\tuser":  code} straight from the device. Read-only."""
+    identity = esatm.parse_identity(
+        esatm.fetch_greeting(host, 5000, timeout=8))
+    esa_id = identity.get("esa_id") or ""
+    if not esa_id:
         raise SystemExit("the Drobo did not report a serial; cannot log in")
 
-    cfg = config_cmd.get_config(host, esa, "shares", timeout=8)
-    block = (cfg.get("DRINASConfig") or {}).get("DRIShareConfig") or {}
-    raw = (block.get("Shares") or {}).get("Share") or []
-    shares = raw if isinstance(raw, list) else [raw]
+    device_config = config_cmd.get_config(host, esa_id, "shares", timeout=8)
+    share_config = ((device_config.get("DRINASConfig") or {})
+                    .get("DRIShareConfig") or {})
+    raw_shares = (share_config.get("Shares") or {}).get("Share") or []
+    shares = raw_shares if isinstance(raw_shares, list) else [raw_shares]
 
-    out = {}
-    for s in shares:
-        name = (s.get("ShareName") or "").strip()
-        users = (s.get("ShareUsers") or {}).get("ShareUser") or []
+    codes = {}
+    for share in shares:
+        name = (share.get("ShareName") or "").strip()
+        users = (share.get("ShareUsers") or {}).get("ShareUser") or []
         users = users if isinstance(users, list) else [users]
-        for u in users:
-            out[f"{name}\t{(u.get('ShareUsername') or '').strip()}"] = \
-                str(u.get("ShareUserAccess", "")).strip()
-    return out
+        for share_user in users:
+            codes[f"{name}\t"
+                  f"{(share_user.get('ShareUsername') or '').strip()}"] = \
+                str(share_user.get("ShareUserAccess", "")).strip()
+    return codes
 
 
-def show(codes: dict) -> None:
+def print_access_codes(codes: dict) -> None:
     if not codes:
         print("  (no shares reported)")
         return
@@ -96,49 +99,49 @@ def show(codes: dict) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument(
+    parser.add_argument(
         "step", choices=["before", "after", "show"],
         help="'before', then change a permission in Drobo Dashboard, "
              "then 'after'")
-    ap.add_argument(
+    parser.add_argument(
         "--host", default="",
         help="Drobo address (default: from agent/config.json)")
-    args = ap.parse_args(argv)
+    args = parser.parse_args(argv)
 
     host = args.host
     if not host:
-        cfg_path = os.path.join(_AGENT_DIR, "config.json")
+        config_path = os.path.join(_AGENT_DIR, "config.json")
         try:
-            with open(cfg_path, encoding="utf-8") as fh:
-                host = json.load(fh)["drobo"].get("host", "")
+            with open(config_path, encoding="utf-8") as config_file:
+                host = json.load(config_file)["drobo"].get("host", "")
         except (OSError, KeyError, ValueError):
             pass
     if not host or host == "auto":
         return int(bool(print("No Drobo address. Pass --host <address>.")))
 
     try:
-        codes = read_codes(host)
+        codes = read_share_access_codes(host)
     except OSError as exc:
         print(f"Could not reach the Drobo at {host}: {exc}")
         print("Check you're on the same network as it, then try again.")
         return 1
 
-    os.makedirs(SNAP_DIR, exist_ok=True)
-    snap = os.path.join(SNAP_DIR, "before.json")
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    snapshot_path = os.path.join(SNAPSHOT_DIR, "before.json")
 
     if args.step == "show":
         print("\nAccess codes right now:\n")
-        show(codes)
+        print_access_codes(codes)
         return 0
 
     if args.step == "before":
-        with open(snap, "w", encoding="utf-8") as fh:
-            json.dump(codes, fh, indent=1)
+        with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+            json.dump(codes, snapshot_file, indent=1)
         print("\nSaved. Access codes right now:\n")
-        show(codes)
+        print_access_codes(codes)
         print("\nNow, in Drobo Dashboard 3.5.0:")
         print("  1. Open the share you want to test.")
         print("  2. Set a user's permission to something you can name")
@@ -148,20 +151,20 @@ def main(argv=None) -> int:
         return 0
 
     # after
-    if not os.path.exists(snap):
+    if not os.path.exists(snapshot_path):
         print("No 'before' snapshot. Run:  py tools/access_codes.py before")
         return 1
-    with open(snap, encoding="utf-8") as fh:
-        old = json.load(fh)
+    with open(snapshot_path, encoding="utf-8") as snapshot_file:
+        before_codes = json.load(snapshot_file)
 
-    changed = [(k, old.get(k), codes.get(k))
-               for k in sorted(set(old) | set(codes))
-               if old.get(k) != codes.get(k)]
+    changed = [(k, before_codes.get(k), codes.get(k))
+               for k in sorted(set(before_codes) | set(codes))
+               if before_codes.get(k) != codes.get(k)]
 
     if not changed:
         print("\nNothing changed. Did the change get applied in Dashboard?")
         print("Current codes:\n")
-        show(codes)
+        print_access_codes(codes)
         return 0
 
     print("\nWhat changed:\n")

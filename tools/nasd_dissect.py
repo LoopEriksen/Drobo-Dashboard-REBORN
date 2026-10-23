@@ -62,14 +62,15 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 # Constants from docs/protocol-map.md
 # ---------------------------------------------------------------------------
-SIG4 = b"DRINASD4"
-SIG = b"DRINASD"
-SIGNATURES = (SIG4, SIG)  # longest first -- SIG is a byte-prefix of SIG4
+SIGNATURE_DRINASD4 = b"DRINASD4"
+SIGNATURE_DRINASD = b"DRINASD"
+# longest first -- DRINASD is a byte-prefix of DRINASD4
+SIGNATURES = (SIGNATURE_DRINASD4, SIGNATURE_DRINASD)
 
 # The status port. The COMMAND port is 5001 -- pass --port to look at
 # that instead, which is where Identify and every other command actually
 # goes.
-TCP_PORT = 5000
+DEFAULT_STATUS_PORT = 5000
 
 ETH_TYPE_IPV4 = 0x0800
 ETH_TYPE_IPV6 = 0x86DD
@@ -81,7 +82,7 @@ ETH_TYPE_VLAN_QINQ = 0x88A8
 # Capture file readers -- classic pcap and pcapng, parsed directly.
 # Each returns a list of (timestamp, link_layer_frame_bytes, linktype).
 # ---------------------------------------------------------------------------
-_CLASSIC_MAGICS = {
+_CLASSIC_PCAP_MAGICS = {
     b"\xa1\xb2\xc3\xd4": (">", 1e-6),
     b"\xd4\xc3\xb2\xa1": ("<", 1e-6),
     b"\xa1\xb2\x3c\x4d": (">", 1e-9),
@@ -90,27 +91,29 @@ _CLASSIC_MAGICS = {
 
 
 def read_pcap_classic(data: bytes) -> list[tuple[float, bytes, int]]:
-    endian, ts_scale = _CLASSIC_MAGICS[data[0:4]]
-    _major, _minor, _tz, _sigfigs, _snaplen, network = struct.unpack_from(
-        endian + "HHiIII", data, 4)
+    endian, timestamp_scale = _CLASSIC_PCAP_MAGICS[data[0:4]]
+    (_major, _minor, _timezone, _significant_figures, _snapshot_length,
+     linktype) = struct.unpack_from(endian + "HHiIII", data, 4)
     pos = 24
     packets: list[tuple[float, bytes, int]] = []
     while pos + 16 <= len(data):
-        ts_sec, ts_usec, incl_len, _orig_len = struct.unpack_from(
-            endian + "IIII", data, pos)
+        (timestamp_seconds, timestamp_fraction, captured_length,
+         _original_length) = struct.unpack_from(endian + "IIII", data, pos)
         pos += 16
-        if incl_len < 0 or pos + incl_len > len(data):
+        if captured_length < 0 or pos + captured_length > len(data):
             break
-        pkt = data[pos:pos + incl_len]
-        pos += incl_len
-        packets.append((ts_sec + ts_usec * ts_scale, pkt, network))
+        frame = data[pos:pos + captured_length]
+        pos += captured_length
+        packets.append(
+            (timestamp_seconds + timestamp_fraction * timestamp_scale,
+             frame, linktype))
     return packets
 
 
-PCAPNG_SHB = 0x0A0D0D0A
-PCAPNG_IDB = 0x00000001
-PCAPNG_SPB = 0x00000003
-PCAPNG_EPB = 0x00000006
+PCAPNG_SECTION_HEADER_BLOCK = 0x0A0D0D0A
+PCAPNG_INTERFACE_DESCRIPTION_BLOCK = 0x00000001
+PCAPNG_SIMPLE_PACKET_BLOCK = 0x00000003
+PCAPNG_ENHANCED_PACKET_BLOCK = 0x00000006
 
 
 def read_pcapng(data: bytes) -> list[tuple[float, bytes, int]]:
@@ -139,7 +142,7 @@ def read_pcapng(data: bytes) -> list[tuple[float, bytes, int]]:
         # worked on a real file; the tests passed because their fixtures
         # were big-endian.
         block_type = struct.unpack_from(endian + "I", data, pos)[0]
-        if block_type == PCAPNG_SHB:
+        if block_type == PCAPNG_SECTION_HEADER_BLOCK:
             magic = data[pos + 8:pos + 12]
             if magic == b"\x1a\x2b\x3c\x4d":
                 endian = ">"
@@ -155,20 +158,20 @@ def read_pcapng(data: bytes) -> list[tuple[float, bytes, int]]:
             break  # truncated/corrupt block -- stop rather than misread
         body = data[pos + 8:pos + block_total_length - 4]
 
-        if block_type == PCAPNG_IDB and len(body) >= 8:
+        if block_type == PCAPNG_INTERFACE_DESCRIPTION_BLOCK and len(body) >= 8:
             linktype = struct.unpack_from(endian + "H", body, 0)[0]
             interfaces.append(linktype)
-        elif block_type == PCAPNG_EPB and len(body) >= 20:
-            iface_id = struct.unpack_from(endian + "I", body, 0)[0]
-            cap_len = struct.unpack_from(endian + "I", body, 12)[0]
-            pkt_data = body[20:20 + cap_len]
-            linktype = (interfaces[iface_id]
-                        if iface_id < len(interfaces) else 1)
-            packets.append((0.0, pkt_data, linktype))
-        elif block_type == PCAPNG_SPB and len(body) >= 4:
-            pkt_data = body[4:]
+        elif block_type == PCAPNG_ENHANCED_PACKET_BLOCK and len(body) >= 20:
+            interface_id = struct.unpack_from(endian + "I", body, 0)[0]
+            captured_length = struct.unpack_from(endian + "I", body, 12)[0]
+            frame = body[20:20 + captured_length]
+            linktype = (interfaces[interface_id]
+                        if interface_id < len(interfaces) else 1)
+            packets.append((0.0, frame, linktype))
+        elif block_type == PCAPNG_SIMPLE_PACKET_BLOCK and len(body) >= 4:
+            frame = body[4:]
             linktype = interfaces[0] if interfaces else 1
-            packets.append((0.0, pkt_data, linktype))
+            packets.append((0.0, frame, linktype))
         # Other block types (name resolution, interface stats, comments,
         # obsolete "packet block") are skipped -- not needed for
         # framing.
@@ -178,13 +181,13 @@ def read_pcapng(data: bytes) -> list[tuple[float, bytes, int]]:
 
 
 def read_capture(path: str) -> list[tuple[float, bytes, int]]:
-    with open(path, "rb") as fh:
-        data = fh.read()
+    with open(path, "rb") as capture_file:
+        data = capture_file.read()
     if len(data) < 4:
         raise ValueError(f"{path}: too small to be a capture file")
-    if data[0:4] in _CLASSIC_MAGICS:
+    if data[0:4] in _CLASSIC_PCAP_MAGICS:
         return read_pcap_classic(data)
-    if struct.unpack_from(">I", data, 0)[0] == PCAPNG_SHB:
+    if struct.unpack_from(">I", data, 0)[0] == PCAPNG_SECTION_HEADER_BLOCK:
         return read_pcapng(data)
     raise ValueError(
         f"{path}: not recognised as classic pcap or pcapng "
@@ -215,8 +218,8 @@ def strip_link_layer(frame: bytes, linktype: int) -> Optional[bytes]:
     if linktype == 113:  # LINKTYPE_LINUX_SLL
         if len(frame) < 16:
             return None
-        proto = struct.unpack_from(">H", frame, 14)[0]
-        if proto in (ETH_TYPE_IPV4, ETH_TYPE_IPV6):
+        protocol = struct.unpack_from(">H", frame, 14)[0]
+        if protocol in (ETH_TYPE_IPV4, ETH_TYPE_IPV6):
             return frame[16:]
         return None
     # Unknown linktype: best-effort guess between raw-IP and Ethernet.
@@ -229,91 +232,98 @@ def strip_link_layer(frame: bytes, linktype: int) -> Optional[bytes]:
     return None
 
 
-def parse_ip(pkt: bytes):
-    """Returns (proto, src_ip, dst_ip, payload) or None."""
-    if not pkt:
+def parse_ip(packet: bytes):
+    """Returns (protocol, source_ip, destination_ip, payload) or
+    None."""
+    if not packet:
         return None
-    version = pkt[0] >> 4
+    version = packet[0] >> 4
     if version == 4:
-        if len(pkt) < 20:
+        if len(packet) < 20:
             return None
-        ihl = (pkt[0] & 0x0F) * 4
-        if ihl < 20 or len(pkt) < ihl:
+        header_length = (packet[0] & 0x0F) * 4
+        if header_length < 20 or len(packet) < header_length:
             return None
-        total_len = struct.unpack_from(">H", pkt, 2)[0]
-        proto = pkt[9]
-        src = socket.inet_ntop(socket.AF_INET, pkt[12:16])
-        dst = socket.inet_ntop(socket.AF_INET, pkt[16:20])
-        end = total_len if 0 < total_len <= len(pkt) else len(pkt)
-        return proto, src, dst, pkt[ihl:end]
+        total_length = struct.unpack_from(">H", packet, 2)[0]
+        protocol = packet[9]
+        source_ip = socket.inet_ntop(socket.AF_INET, packet[12:16])
+        destination_ip = socket.inet_ntop(socket.AF_INET, packet[16:20])
+        end = total_length if 0 < total_length <= len(packet) else len(packet)
+        return protocol, source_ip, destination_ip, packet[header_length:end]
     if version == 6:
-        if len(pkt) < 40:
+        if len(packet) < 40:
             return None
-        payload_len = struct.unpack_from(">H", pkt, 4)[0]
-        next_header = pkt[6]
-        src = socket.inet_ntop(socket.AF_INET6, pkt[8:24])
-        dst = socket.inet_ntop(socket.AF_INET6, pkt[24:40])
-        end = min(40 + payload_len, len(pkt)) if payload_len else len(pkt)
-        return next_header, src, dst, pkt[40:end]
+        payload_length = struct.unpack_from(">H", packet, 4)[0]
+        next_header = packet[6]
+        source_ip = socket.inet_ntop(socket.AF_INET6, packet[8:24])
+        destination_ip = socket.inet_ntop(socket.AF_INET6, packet[24:40])
+        end = (min(40 + payload_length, len(packet)) if payload_length
+               else len(packet))
+        return next_header, source_ip, destination_ip, packet[40:end]
     return None
 
 
-def parse_tcp(seg: bytes):
-    """Returns (sport, dport, seq, flags, data) or None."""
-    if len(seg) < 20:
+def parse_tcp(segment: bytes):
+    """Returns (source_port, destination_port, sequence_number, flags,
+    data) or None."""
+    if len(segment) < 20:
         return None
-    sport, dport = struct.unpack_from(">HH", seg, 0)
-    seq = struct.unpack_from(">I", seg, 4)[0]
-    data_offset = (seg[12] >> 4) * 4
-    flags = seg[13]
+    source_port, destination_port = struct.unpack_from(">HH", segment, 0)
+    sequence_number = struct.unpack_from(">I", segment, 4)[0]
+    data_offset = (segment[12] >> 4) * 4
+    flags = segment[13]
     if data_offset < 20:
         data_offset = 20
-    if data_offset > len(seg):
-        data_offset = len(seg)
-    return sport, dport, seq, flags, seg[data_offset:]
+    if data_offset > len(segment):
+        data_offset = len(segment)
+    return (source_port, destination_port, sequence_number, flags,
+            segment[data_offset:])
 
 
 # ---------------------------------------------------------------------------
 # TCP stream reassembly, filtered to port 5000.
 # ---------------------------------------------------------------------------
 def collect_streams(packets: list[tuple[float, bytes, int]],
-                    port: int = TCP_PORT) -> dict:
+                    port: int = DEFAULT_STATUS_PORT) -> dict:
     """Group TCP payload segments for `port` by connection and
     direction.
 
-    Returns {stream_key: {"to_server": [(seq, bytes), ...],
-                           "to_client": [(seq, bytes), ...],
+    Returns {stream_key: {"to_server": [(sequence_number, bytes), ...],
+                           "to_client": [(sequence_number, bytes), ...],
                            "client": (ip, port), "server": (ip, port)}}
     """
     streams: dict = {}
     for _ts, frame, linktype in packets:
-        ip_pkt = strip_link_layer(frame, linktype)
-        if ip_pkt is None:
+        ip_packet = strip_link_layer(frame, linktype)
+        if ip_packet is None:
             continue
-        parsed = parse_ip(ip_pkt)
+        parsed = parse_ip(ip_packet)
         if parsed is None:
             continue
-        proto, src, dst, payload = parsed
-        if proto != 6:  # TCP only
+        protocol, source_ip, destination_ip, payload = parsed
+        if protocol != 6:  # TCP only
             continue
         tcp = parse_tcp(payload)
         if tcp is None:
             continue
-        sport, dport, seq, _flags, data = tcp
-        if sport != port and dport != port:
+        source_port, destination_port, sequence_number, _flags, data = tcp
+        if source_port != port and destination_port != port:
             continue
         if not data:
             continue  # pure ACK/SYN, nothing to reassemble
-        key = frozenset({(src, sport), (dst, dport)})
-        st = streams.setdefault(
+        key = frozenset({(source_ip, source_port),
+                         (destination_ip, destination_port)})
+        stream = streams.setdefault(
             key, {"to_server": [], "to_client": [], "client": None,
                   "server": None})
-        if dport == port:
-            st["to_server"].append((seq, data))
-            st["client"], st["server"] = (src, sport), (dst, dport)
+        if destination_port == port:
+            stream["to_server"].append((sequence_number, data))
+            stream["client"], stream["server"] = (
+                (source_ip, source_port), (destination_ip, destination_port))
         else:
-            st["to_client"].append((seq, data))
-            st["server"], st["client"] = (src, sport), (dst, dport)
+            stream["to_client"].append((sequence_number, data))
+            stream["server"], stream["client"] = (
+                (source_ip, source_port), (destination_ip, destination_port))
     return streams
 
 
@@ -321,44 +331,46 @@ def reassemble(segments: list[tuple[int, bytes]]) -> bytes:
     """Sort TCP segments by sequence number and stitch them together,
     dropping retransmitted/overlapping bytes. Not a full TCP stack -- no
     wraparound handling, good enough for one short capture."""
-    ordered = sorted((s for s in segments if s[1]), key=lambda s: s[0])
-    out = bytearray()
-    next_seq = None
-    for seq, data in ordered:
-        if next_seq is None:
-            out += data
-            next_seq = seq + len(data)
+    ordered = sorted((segment for segment in segments if segment[1]),
+                     key=lambda segment: segment[0])
+    stitched = bytearray()
+    next_sequence = None
+    for sequence_number, data in ordered:
+        if next_sequence is None:
+            stitched += data
+            next_sequence = sequence_number + len(data)
             continue
-        if seq >= next_seq:
-            out += data
-            next_seq = seq + len(data)
+        if sequence_number >= next_sequence:
+            stitched += data
+            next_sequence = sequence_number + len(data)
         else:
-            overlap = next_seq - seq
+            overlap = next_sequence - sequence_number
             if len(data) > overlap:
-                out += data[overlap:]
-                next_seq = seq + len(data)
+                stitched += data[overlap:]
+                next_sequence = sequence_number + len(data)
             # else: fully-contained retransmission, skip
-    return bytes(out)
+    return bytes(stitched)
 
 
 # ---------------------------------------------------------------------------
 # Signature search
 # ---------------------------------------------------------------------------
-def find_signature_occurrences(buf: bytes) -> list[tuple[int, bytes]]:
+def find_signature_occurrences(stream_bytes: bytes) -> list[tuple[int, bytes]]:
     """Every offset where DRINASD or DRINASD4 appears, longest match
     wins when both match the same offset (DRINASD is a prefix of
     DRINASD4)."""
-    hits: dict[int, bytes] = {}
-    for sig in SIGNATURES:
+    signature_hits: dict[int, bytes] = {}
+    for signature in SIGNATURES:
         start = 0
         while True:
-            idx = buf.find(sig, start)
-            if idx == -1:
+            index = stream_bytes.find(signature, start)
+            if index == -1:
                 break
-            if idx not in hits or len(sig) > len(hits[idx]):
-                hits[idx] = sig
-            start = idx + 1
-    return sorted(hits.items())
+            if (index not in signature_hits
+                    or len(signature) > len(signature_hits[index])):
+                signature_hits[index] = signature
+            start = index + 1
+    return sorted(signature_hits.items())
 
 
 def _looks_like_xml_start(payload: bytes) -> bool:
@@ -375,27 +387,28 @@ def _looks_like_xml_start(payload: bytes) -> bool:
 # case; the others are kept in case there's a reserved/version byte in
 # between.
 _PAD_CANDIDATES = (0, 1, 2, 4)
-_SIZE_CANDIDATES = (4, 2)
+_LENGTH_SIZE_CANDIDATES = (4, 2)
 _ENDIAN_CANDIDATES = (">", "<")
 
 
-def _score_login_candidate(buf: bytes, sig_len: int, pad: int, size: int,
-                           endian: str,
+def _score_login_candidate(stream_bytes: bytes, signature_length: int,
+                           pad: int, length_size: int, endian: str,
                            includes_header: bool) -> Optional[dict]:
-    field_start = sig_len + pad
-    field_end = field_start + size
-    if field_end > len(buf):
+    field_start = signature_length + pad
+    field_end = field_start + length_size
+    if field_end > len(stream_bytes):
         return None
-    val = int.from_bytes(buf[field_start:field_end],
-                         "big" if endian == ">" else "little")
+    length_value = int.from_bytes(stream_bytes[field_start:field_end],
+                                  "big" if endian == ">" else "little")
     header_total = field_end  # bytes from frame start through the length field
-    payload_len = (val - header_total) if includes_header else val
-    if payload_len < 0:
+    payload_length = ((length_value - header_total) if includes_header
+                      else length_value)
+    if payload_length < 0:
         return None
-    frame_end = field_end + payload_len
-    if frame_end > len(buf):
+    frame_end = field_end + payload_length
+    if frame_end > len(stream_bytes):
         return None
-    payload = buf[field_end:frame_end]
+    payload = stream_bytes[field_end:frame_end]
     if not _looks_like_xml_start(payload):
         return None  # only entertain candidates whose payload looks like XML
 
@@ -403,117 +416,122 @@ def _score_login_candidate(buf: bytes, sig_len: int, pad: int, size: int,
     reasons = ["payload begins with " +
                ("an XML declaration" if payload[:5] == b"<?xml"
                 else "an XML element")]
-    remainder = buf[frame_end:]
+    remainder = stream_bytes[frame_end:]
     if not remainder:
         score += 2
         reasons.append("consumes exactly to the end of the buffer")
-    elif any(remainder.startswith(s) for s in SIGNATURES):
+    elif any(remainder.startswith(signature) for signature in SIGNATURES):
         score += 5
         reasons.append("next bytes are another signature occurrence")
     else:
         score += 1
 
     return {
-        "pad": pad, "length_size": size, "endian": endian,
-        "includes_header": includes_header, "length_value": val,
+        "pad": pad, "length_size": length_size, "endian": endian,
+        "includes_header": includes_header, "length_value": length_value,
         "field_start": field_start, "field_end": field_end,
         "frame_end": frame_end, "payload": payload,
         "score": score, "reasons": reasons,
     }
 
 
-def infer_login_frame(buf: bytes) -> Optional[dict]:
+def infer_login_frame(stream_bytes: bytes) -> Optional[dict]:
     """Find the first signature occurrence and work out the header shape
     (padding/size/endianness/length-meaning) that makes the bytes right
     after it delimit a single XML payload."""
-    hits = find_signature_occurrences(buf)
-    if not hits:
+    signature_hits = find_signature_occurrences(stream_bytes)
+    if not signature_hits:
         return None
-    offset, sig = hits[0]
-    sub = buf[offset:]
+    offset, signature = signature_hits[0]
+    bytes_from_signature = stream_bytes[offset:]
     best = None
     for pad in _PAD_CANDIDATES:
-        for size in _SIZE_CANDIDATES:
+        for length_size in _LENGTH_SIZE_CANDIDATES:
             for endian in _ENDIAN_CANDIDATES:
                 for includes_header in (False, True):
-                    cand = _score_login_candidate(
-                        sub, len(sig), pad, size, endian, includes_header)
-                    if cand and (best is None
-                                 or cand["score"] > best["score"]):
-                        best = cand
+                    candidate = _score_login_candidate(
+                        bytes_from_signature, len(signature), pad,
+                        length_size, endian, includes_header)
+                    if candidate and (best is None
+                                      or candidate["score"] > best["score"]):
+                        best = candidate
     if best is None:
         return None
-    best["signature"] = sig
+    best["signature"] = signature
     best["signature_offset"] = offset
     best["frame_end_absolute"] = offset + best["frame_end"]
     return best
 
 
-def infer_command_frames(buf: bytes) -> Optional[dict]:
+def infer_command_frames(stream_bytes: bytes) -> Optional[dict]:
     """Walk the rest of a stream (after the login frame) as a repeating
     sequence of frames, trying both "signature repeats every frame" and
     "no signature, just length + XML" hypotheses. Returns the hypothesis
     that consumes the buffer exactly and cleanly, covering the most
     frames."""
-    if not buf:
+    if not stream_bytes:
         return None
     best = None
-    for sig_opt in (None,) + SIGNATURES:
+    for frame_signature in (None,) + SIGNATURES:
         for pad in _PAD_CANDIDATES:
-            for size in _SIZE_CANDIDATES:
+            for length_size in _LENGTH_SIZE_CANDIDATES:
                 for endian in _ENDIAN_CANDIDATES:
                     for includes_header in (False, True):
-                        result = _walk_frames(buf, sig_opt, pad, size,
-                                              endian, includes_header)
+                        result = _walk_frames(
+                            stream_bytes, frame_signature, pad, length_size,
+                            endian, includes_header)
                         if result is None:
                             continue
                         frames, consumed = result
-                        if consumed != len(buf) or not frames:
+                        if consumed != len(stream_bytes) or not frames:
                             # only accept configs that account for every
                             # byte
                             continue
                         score = len(frames) * 10
-                        cfg = {
-                            "signature": sig_opt, "pad": pad,
-                            "length_size": size,
+                        hypothesis = {
+                            "signature": frame_signature, "pad": pad,
+                            "length_size": length_size,
                             "endian": endian,
                             "includes_header": includes_header,
                             "frames": frames, "score": score,
                         }
                         if best is None or score > best["score"]:
-                            best = cfg
+                            best = hypothesis
     return best
 
 
-def _walk_frames(buf: bytes, sig_opt: Optional[bytes], pad: int, size: int,
+def _walk_frames(stream_bytes: bytes, frame_signature: Optional[bytes],
+                 pad: int, length_size: int,
                  endian: str, includes_header: bool):
     frames = []
     pos = 0
-    while pos < len(buf):
+    while pos < len(stream_bytes):
         frame_start = pos
-        cur = pos
-        if sig_opt is not None:
-            if buf[cur:cur + len(sig_opt)] != sig_opt:
+        cursor = pos
+        if frame_signature is not None:
+            if (stream_bytes[cursor:cursor + len(frame_signature)]
+                    != frame_signature):
                 return None
-            cur += len(sig_opt)
-        field_start = cur + pad
-        field_end = field_start + size
-        if field_end > len(buf):
+            cursor += len(frame_signature)
+        field_start = cursor + pad
+        field_end = field_start + length_size
+        if field_end > len(stream_bytes):
             return None
-        val = int.from_bytes(buf[field_start:field_end],
-                             "big" if endian == ">" else "little")
+        length_value = int.from_bytes(stream_bytes[field_start:field_end],
+                                      "big" if endian == ">" else "little")
         header_total = field_end - frame_start
-        payload_len = (val - header_total) if includes_header else val
-        if payload_len < 0:
+        payload_length = ((length_value - header_total) if includes_header
+                          else length_value)
+        if payload_length < 0:
             return None
-        frame_end = field_end + payload_len
-        if frame_end > len(buf):
+        frame_end = field_end + payload_length
+        if frame_end > len(stream_bytes):
             return None
-        payload = buf[field_end:frame_end]
+        payload = stream_bytes[field_end:frame_end]
         if not _looks_like_xml_start(payload):
             return None
         frames.append({"start": frame_start, "field_start": field_start,
-                       "length_value": val, "payload": payload})
+                       "length_value": length_value, "payload": payload})
         pos = frame_end
     return frames, pos
 
@@ -521,15 +539,16 @@ def _walk_frames(buf: bytes, sig_opt: Optional[bytes], pad: int, size: int,
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
-def _preview(payload: bytes, n: int = 300) -> str:
-    return payload[:n].decode("utf-8", "replace")
+def _preview(payload: bytes, max_chars: int = 300) -> str:
+    return payload[:max_chars].decode("utf-8", "replace")
 
 
-def _fmt_login_cfg(login: dict) -> str:
-    sig = login["signature"]
+def _format_login_layout(login: dict) -> str:
+    signature = login["signature"]
     lines = [
-        f"  offset 0{'':<10}: signature   {len(sig)} bytes  {sig!r}",
-        f"  offset {len(sig)+login['pad']}{'':<8}: length      "
+        f"  offset 0{'':<10}: signature   {len(signature)} bytes  "
+        f"{signature!r}",
+        f"  offset {len(signature)+login['pad']}{'':<8}: length      "
         f"{login['length_size']} bytes  "
         f"{'big' if login['endian'] == '>' else 'little'}-endian uint  "
         f"(GUESS: {'includes header length' if login['includes_header'] else 'payload length only'})",  # noqa: E501
@@ -539,53 +558,59 @@ def _fmt_login_cfg(login: dict) -> str:
     return "\n".join(lines)
 
 
-def _fmt_command_cfg(cmd: dict) -> str:
-    sig = cmd["signature"]
-    sig_len = len(sig) if sig else 0
+def _format_command_layout(command_framing: dict) -> str:
+    signature = command_framing["signature"]
+    signature_length = len(signature) if signature else 0
     lines = []
-    if sig:
-        lines.append(f"  offset 0{'':<10}: signature   {sig_len} bytes  "
-                     f"{sig!r}  (GUESS: repeats on every command frame)")
+    if signature:
+        lines.append(f"  offset 0{'':<10}: signature   {signature_length} "
+                     f"bytes  {signature!r}  "
+                     f"(GUESS: repeats on every command frame)")
     else:
         lines.append("  (GUESS: no signature on command frames -- "
                      "only the login carries one)")
     lines.append(
-        f"  offset {sig_len+cmd['pad']}{'':<8}: length      "
-        f"{cmd['length_size']} bytes  "
-        f"{'big' if cmd['endian'] == '>' else 'little'}-endian uint  "
-        f"(GUESS: {'includes header length' if cmd['includes_header'] else 'payload length only'})")  # noqa: E501
-    lines.append(f"  offset {sig_len+cmd['pad']+cmd['length_size']}"
+        f"  offset {signature_length+command_framing['pad']}{'':<8}: "
+        f"length      "
+        f"{command_framing['length_size']} bytes  "
+        f"{'big' if command_framing['endian'] == '>' else 'little'}"
+        f"-endian uint  "
+        f"(GUESS: {'includes header length' if command_framing['includes_header'] else 'payload length only'})")  # noqa: E501
+    lines.append(f"  offset "
+                 f"{signature_length+command_framing['pad']+command_framing['length_size']}"  # noqa: E501
                  f"{'':<8}: payload     XML")
     return "\n".join(lines)
 
 
-def analyse_direction(label: str, buf: bytes, report: dict,
+def analyse_direction(label: str, stream_bytes: bytes, report: dict,
                       max_preview: int) -> None:
-    print(f"\n--- {label}: {len(buf)} bytes reassembled ---")
-    if not buf:
+    print(f"\n--- {label}: {len(stream_bytes)} bytes reassembled ---")
+    if not stream_bytes:
         print("  (nothing)")
         return
 
-    hits = find_signature_occurrences(buf)
-    print(f"  signature occurrences: {len(hits)}"
-          + (f" (first at offset {hits[0][0]}, {hits[0][1]!r})"
-             if hits else ""))
+    signature_hits = find_signature_occurrences(stream_bytes)
+    print(f"  signature occurrences: {len(signature_hits)}"
+          + (f" (first at offset {signature_hits[0][0]}, "
+             f"{signature_hits[0][1]!r})"
+             if signature_hits else ""))
 
-    dir_report: dict = {"bytes": len(buf), "signature_hits": hits}
+    direction_report: dict = {"bytes": len(stream_bytes),
+                              "signature_hits": signature_hits}
 
-    login = infer_login_frame(buf)
+    login = infer_login_frame(stream_bytes)
     if login is None:
         print("  could not identify a login frame (no signature found, or no "
               "header shape produced an XML-looking payload).")
-        dir_report["login_frame"] = None
+        direction_report["login_frame"] = None
     else:
         print(f"  INFERRED login-frame header shape (score {login['score']}, "
               f"reasons: {'; '.join(login['reasons'])}):")
-        print(_fmt_login_cfg(login))
+        print(_format_login_layout(login))
         print(f"  first decoded XML payload ({label}, login frame):")
         print("    " + _preview(login["payload"], max_preview).replace(
             "\n", "\n    "))
-        dir_report["login_frame"] = {
+        direction_report["login_frame"] = {
             "signature": login["signature"].decode("ascii"),
             "signature_offset": login["signature_offset"],
             "pad": login["pad"], "length_size": login["length_size"],
@@ -595,35 +620,37 @@ def analyse_direction(label: str, buf: bytes, report: dict,
             "payload_preview": _preview(login["payload"], max_preview),
         }
 
-        remainder = buf[login["frame_end_absolute"]:]
-        cmd = infer_command_frames(remainder)
-        if cmd is None:
+        remainder = stream_bytes[login["frame_end_absolute"]:]
+        command_framing = infer_command_frames(remainder)
+        if command_framing is None:
             if remainder:
                 print(f"  {len(remainder)} bytes remain after the login "
                       "frame; no consistent command-frame framing was found "
                       "for them.")
-            dir_report["command_frames"] = None
+            direction_report["command_frames"] = None
         else:
             print(f"\n  INFERRED command-frame header shape "
-                  f"({len(cmd['frames'])} frame(s) recovered):")
-            print(_fmt_command_cfg(cmd))
-            for i, fr in enumerate(cmd["frames"][:3]):
+                  f"({len(command_framing['frames'])} frame(s) recovered):")
+            print(_format_command_layout(command_framing))
+            for i, frame in enumerate(command_framing["frames"][:3]):
                 print(f"  first decoded XML payload ({label}, command "
                       f"frame {i}):")
-                print("    " + _preview(fr["payload"], max_preview).replace(
+                print("    " + _preview(frame["payload"], max_preview).replace(
                     "\n", "\n    "))
-            dir_report["command_frames"] = {
-                "signature": (cmd["signature"].decode("ascii")
-                              if cmd["signature"] else None),
-                "pad": cmd["pad"], "length_size": cmd["length_size"],
-                "endian": cmd["endian"],
-                "includes_header": cmd["includes_header"],
-                "frame_count": len(cmd["frames"]),
-                "payload_previews": [_preview(fr["payload"], max_preview)
-                                     for fr in cmd["frames"][:5]],
+            direction_report["command_frames"] = {
+                "signature": (command_framing["signature"].decode("ascii")
+                              if command_framing["signature"] else None),
+                "pad": command_framing["pad"],
+                "length_size": command_framing["length_size"],
+                "endian": command_framing["endian"],
+                "includes_header": command_framing["includes_header"],
+                "frame_count": len(command_framing["frames"]),
+                "payload_previews": [
+                    _preview(frame["payload"], max_preview)
+                    for frame in command_framing["frames"][:5]],
             }
 
-    report.setdefault("directions", {})[label] = dir_report
+    report.setdefault("directions", {})[label] = direction_report
 
 
 def print_proposed_header(report: dict, port: int) -> None:
@@ -635,44 +662,49 @@ def print_proposed_header(report: dict, port: int) -> None:
     print("lead: verify against additional captures before hard-coding "
           "offsets.")
     print("=" * 72)
-    any_login = False
-    for label, d in report.get("directions", {}).items():
-        login = d.get("login_frame")
+    found_login = False
+    for label, direction_report in report.get("directions", {}).items():
+        login = direction_report.get("login_frame")
         if not login:
             continue
-        any_login = True
+        found_login = True
         print(f"\nLogin frame (first seen in direction: {label}):")
-        sig = login["signature"].encode("ascii")
-        pad, size, endian = login["pad"], login["length_size"], login["endian"]
-        print(f"  offset 0            : signature   {len(sig)} bytes  "
+        signature = login["signature"].encode("ascii")
+        pad, length_size, endian = (login["pad"], login["length_size"],
+                                    login["endian"])
+        print(f"  offset 0            : signature   {len(signature)} bytes  "
               f"b{login['signature']!r}")
-        print(f"  offset {len(sig)+pad:<3}         : length      "
-              f"{size} bytes  "
+        print(f"  offset {len(signature)+pad:<3}         : length      "
+              f"{length_size} bytes  "
               f"{'big' if endian == '>' else 'little'}-endian uint  "
               f"(GUESS: {'includes header' if login['includes_header'] else 'payload length only'})")  # noqa: E501
-        print(f"  offset {len(sig)+pad+size:<3}         : payload     "
-              f"XML, variable length")
-        cmd = d.get("command_frames")
-        if cmd:
+        print(f"  offset {len(signature)+pad+length_size:<3}         : "
+              f"payload     XML, variable length")
+        command_framing = direction_report.get("command_frames")
+        if command_framing:
             print(f"\nCommand frame(s) after login (direction: {label}):")
-            if cmd["signature"]:
-                csig = cmd["signature"].encode("ascii")
-                print(f"  offset 0            : signature   {len(csig)} "
-                      f"bytes  b{cmd['signature']!r}  "
+            if command_framing["signature"]:
+                command_signature = command_framing["signature"].encode(
+                    "ascii")
+                print(f"  offset 0            : signature   "
+                      f"{len(command_signature)} "
+                      f"bytes  b{command_framing['signature']!r}  "
                       f"(GUESS: signature repeats every frame)")
-                base = len(csig)
+                signature_length = len(command_signature)
             else:
                 print("  (GUESS: no signature -- only the login frame "
                       "carries one)")
-                base = 0
-            print(f"  offset {base+cmd['pad']:<3}         : length      "
-                  f"{cmd['length_size']} bytes  "
-                  f"{'big' if cmd['endian'] == '>' else 'little'}"
+                signature_length = 0
+            print(f"  offset {signature_length+command_framing['pad']:<3}"
+                  f"         : length      "
+                  f"{command_framing['length_size']} bytes  "
+                  f"{'big' if command_framing['endian'] == '>' else 'little'}"
                   f"-endian uint  "
-                  f"(GUESS: {'includes header' if cmd['includes_header'] else 'payload length only'})")  # noqa: E501
-            print(f"  offset {base+cmd['pad']+cmd['length_size']:<3}"
+                  f"(GUESS: {'includes header' if command_framing['includes_header'] else 'payload length only'})")  # noqa: E501
+            print(f"  offset "
+                  f"{signature_length+command_framing['pad']+command_framing['length_size']:<3}"  # noqa: E501
                   f"         : payload     XML, variable length")
-    if not any_login:
+    if not found_login:
         print("\nNo signature/framing could be inferred from this capture "
               "-- either")
         print(f"the filter matched no port-{port} traffic, or none of the "
@@ -683,19 +715,19 @@ def print_proposed_header(report: dict, port: int) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("capture",
-                    help="path to a .pcap or .pcapng capture file")
-    ap.add_argument("-o", "--out", help="write a JSON report to this path")
-    ap.add_argument("--port", type=int, default=TCP_PORT,
-                    help="TCP port to dissect: 5000 = status greeting, "
-                         "5001 = commands (default: %(default)s)")
-    ap.add_argument("--max-preview", type=int, default=400,
-                    help="max characters of each XML payload to print "
-                         "(default 400)")
-    args = ap.parse_args(argv)
+    parser.add_argument("capture",
+                        help="path to a .pcap or .pcapng capture file")
+    parser.add_argument("-o", "--out", help="write a JSON report to this path")
+    parser.add_argument("--port", type=int, default=DEFAULT_STATUS_PORT,
+                        help="TCP port to dissect: 5000 = status greeting, "
+                        "5001 = commands (default: %(default)s)")
+    parser.add_argument("--max-preview", type=int, default=400,
+                        help="max characters of each XML payload to print "
+                             "(default 400)")
+    args = parser.parse_args(argv)
 
     try:
         packets = read_capture(args.capture)
@@ -716,17 +748,17 @@ def main(argv=None) -> int:
               "actually connected during the recording.")
         print_proposed_header(report, args.port)
     else:
-        for key, st in streams.items():
-            client = st["client"]
-            server = st["server"]
+        for key, stream in streams.items():
+            client = stream["client"]
+            server = stream["server"]
             print(f"\n=== stream {client} <-> {server} ===")
             stream_report = {
                 "client": list(client) if client else None,
                 "server": list(server) if server else None,
                 "directions": {},
             }
-            to_server = reassemble(st["to_server"])
-            to_client = reassemble(st["to_client"])
+            to_server = reassemble(stream["to_server"])
+            to_client = reassemble(stream["to_client"])
             analyse_direction(f"{client}->{server} (client->server)",
                               to_server, stream_report, args.max_preview)
             analyse_direction(f"{server}->{client} (server->client)",
@@ -735,8 +767,8 @@ def main(argv=None) -> int:
             print_proposed_header(stream_report, args.port)
 
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, indent=2, default=str)
+        with open(args.out, "w", encoding="utf-8") as report_file:
+            json.dump(report, report_file, indent=2, default=str)
         print(f"\nWrote {args.out}")
 
     return 0

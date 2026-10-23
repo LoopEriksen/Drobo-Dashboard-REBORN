@@ -178,8 +178,10 @@ def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
     having passed first.
     """
     if len(set(allowlist)) != len(allowlist):
-        dupes = sorted({n for n in allowlist if allowlist.count(n) > 1})
-        raise SweepSafetyError(f"ALLOWLIST has duplicate entries: {dupes}")
+        duplicates = sorted({name for name in allowlist
+                             if allowlist.count(name) > 1})
+        raise SweepSafetyError(
+            f"ALLOWLIST has duplicate entries: {duplicates}")
 
     overlap = sorted(set(allowlist) & set(commands.DO_NOT_SEND))
     if overlap:
@@ -188,7 +190,8 @@ def assert_allowlist_safe(allowlist: list[str] = ALLOWLIST) -> None:
             f"{overlap}"
         )
 
-    unknown = sorted(n for n in allowlist if n not in commands.COMMANDS)
+    unknown = sorted(name for name in allowlist
+                     if name not in commands.COMMANDS)
     if unknown:
         raise SweepSafetyError(
             f"ALLOWLIST contains names with no confirmed numeric id: {unknown}"
@@ -201,7 +204,8 @@ assert_allowlist_safe()
 # ---------------------------------------------------------------------------
 # One command, one fresh connection.
 # ---------------------------------------------------------------------------
-def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
+def _unwrap_escaped(
+        element: ElementTree.Element) -> ElementTree.Element | None:
     """
     If this element's TEXT is really an entity-escaped XML document,
     parse it.
@@ -221,7 +225,7 @@ def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
     we see the text, so this looks for a literal angle bracket, not for
     the entity.
     """
-    text = (el.text or "").strip()
+    text = (element.text or "").strip()
     if not text or not text.startswith("<"):
         return None
     body = text
@@ -235,24 +239,24 @@ def _unwrap_escaped(el: ElementTree.Element) -> ElementTree.Element | None:
         return None
 
 
-def _collect_tags(el: ElementTree.Element) -> set[str]:
-    tags = {el.tag}
+def _collect_tags(element: ElementTree.Element) -> set[str]:
+    tags = {element.tag}
     # Descend into an escaped inner document as if it were ordinary
     # children, marking it so the report shows the reply needed
     # unwrapping.
-    inner = _unwrap_escaped(el)
+    inner = _unwrap_escaped(element)
     if inner is not None:
-        tags.add(f"{el.tag}/[escaped]")
-        tags |= {f"{el.tag}/{t}" for t in _collect_tags(inner)}
-    for child in el:
+        tags.add(f"{element.tag}/[escaped]")
+        tags |= {f"{element.tag}/{tag}" for tag in _collect_tags(inner)}
+    for child in element:
         tags |= _collect_tags(child)
     return tags
 
 
-def _has_escaped_document(el: ElementTree.Element) -> bool:
+def _has_escaped_document(element: ElementTree.Element) -> bool:
     """True if any element in this tree hides an escaped XML
     document."""
-    return any(_unwrap_escaped(node) is not None for node in el.iter())
+    return any(_unwrap_escaped(node) is not None for node in element.iter())
 
 
 def _redact_and_summarize(body: bytes) -> dict:
@@ -275,14 +279,14 @@ def _redact_and_summarize(body: bytes) -> dict:
     # secret. BOTH passes: one for real child elements, one for a
     # credential hidden inside an escaped inner document -- see
     # config_cmd for why that second pass has to exist.
-    escaped = _has_escaped_document(root)
+    has_escaped_document = _has_escaped_document(root)
     config_cmd._strip_secrets(root)
     config_cmd._redact_escaped_document(root)
 
     return {
         "tags": sorted(_collect_tags(root)),
         "redacted_value": config_cmd._element_to_dict(root),
-        "escaped_document": escaped,
+        "escaped_document": has_escaped_document,
     }
 
 
@@ -294,7 +298,7 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
     across commands -- that is deliberate, so one command's misbehavior
     can never leak state into the next.
     """
-    t0 = time.monotonic()
+    started_at = time.monotonic()
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
@@ -328,7 +332,7 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
             return {"status": "refused", "phase": "command",
                     "detail": str(exc)}
 
-        elapsed = time.monotonic() - t0
+        elapsed = time.monotonic() - started_at
         if frame_type != config_cmd.TYPE_RESULT:
             return {"status": "refused", "phase": "command",
                     "detail": f"unexpected type 0x{frame_type:02x}",
@@ -366,11 +370,11 @@ def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
 
         status = record["status"]
         tag_count = len(record.get("tags", []))
-        extra = f", {tag_count} fields" if status == "answered" else ""
+        detail_suffix = f", {tag_count} fields" if status == "answered" else ""
         if record.get("escaped_document"):
-            extra += ("  [escaped inner document -- "
-                      "invisible to the first sweep]")
-        print(f"    -> {status}{extra}", flush=True)
+            detail_suffix += ("  [escaped inner document -- "
+                              "invisible to the first sweep]")
+        print(f"    -> {status}{detail_suffix}", flush=True)
 
         if status == "timeout":
             consecutive_timeouts += 1
@@ -410,28 +414,29 @@ def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("host", help="the Drobo's IP address")
-    ap.add_argument("--command-port", type=int, default=DEFAULT_COMMAND_PORT)
-    ap.add_argument("--status-port", type=int, default=DEFAULT_STATUS_PORT)
-    ap.add_argument("--timeout", type=float, default=6.0,
-                    help="per-command timeout, seconds")
-    ap.add_argument("--pause", type=float, default=0.4,
-                    help="pause between commands, seconds")
-    ap.add_argument("-o", "--out", default=None,
-                    help="where to write the redacted JSON report "
-                         "(default: a scratch path OUTSIDE the repo)")
-    args = ap.parse_args(argv)
+    parser.add_argument("host", help="the Drobo's IP address")
+    parser.add_argument("--command-port", type=int,
+                        default=DEFAULT_COMMAND_PORT)
+    parser.add_argument("--status-port", type=int, default=DEFAULT_STATUS_PORT)
+    parser.add_argument("--timeout", type=float, default=6.0,
+                        help="per-command timeout, seconds")
+    parser.add_argument("--pause", type=float, default=0.4,
+                        help="pause between commands, seconds")
+    parser.add_argument("-o", "--out", default=None,
+                        help="where to write the redacted JSON report "
+                        "(default: a scratch path OUTSIDE the repo)")
+    args = parser.parse_args(argv)
 
     out_path = args.out
     if out_path is None:
-        scratch = os.path.join(
+        scratch_dir = os.path.join(
             os.path.expanduser("~"), ".nasd_sweep_scratch")
         out_path = (
-            os.path.join(scratch, "sweep-raw.json")
-            if os.path.isdir(scratch)
+            os.path.join(scratch_dir, "sweep-raw.json")
+            if os.path.isdir(scratch_dir)
             else os.path.join(os.path.expanduser("~"), "sweep-raw.json"))
 
     print(f"Fetching identity from {args.host}:{args.status_port} "
@@ -459,12 +464,13 @@ def main(argv: list[str] | None = None) -> int:
           f"{'OK -- greeting received' if health['healthy'] else 'PROBLEM'} "
           f"({health['detail']})")
 
-    counts: dict[str, int] = {}
-    for r in sweep["results"]:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    status_counts: dict[str, int] = {}
+    for record in sweep["results"]:
+        status_counts[record["status"]] = (
+            status_counts.get(record["status"], 0) + 1)
     print("\n== summary ==")
     for status in ("answered", "empty", "refused", "timeout"):
-        print(f"  {status:10s} {counts.get(status, 0)}")
+        print(f"  {status:10s} {status_counts.get(status, 0)}")
     if sweep["aborted"]:
         print(f"  sweep ABORTED after {sweep['sent']} of "
               f"{sweep['planned']} commands")
@@ -478,8 +484,8 @@ def main(argv: list[str] | None = None) -> int:
         "post_sweep_health": health,
     }
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(report, fh, indent=2)
+    with open(out_path, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2)
     print(f"\nRedacted report written to {out_path}")
     print("(outside the repo -- this file is not meant to be committed)")
     return 0
