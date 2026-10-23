@@ -104,22 +104,17 @@ class SimulatedWriteUnconfirmedError(Exception):
 WRITE_FAULT_NONE = "none"
 
 #: The device APPLIES the change and then hangs up without answering.
-# The
-#: read-back still finds the change, which is the only reason anything
-# knows
-#: it worked.
+#: The read-back still finds the change, which is the only reason
+#: anything knows it worked.
 WRITE_FAULT_HANGS_UP = "hangs_up"
 
 #: The device refuses the write. Nothing is applied -- the only fault
-# here
-#: that leaves the simulated device untouched.
+#: here that leaves the simulated device untouched.
 WRITE_FAULT_REFUSED = "refused"
 
 #: The device applies the change, hangs up, AND the read-back that would
-# settle
-#: it cannot be completed either. The worst case: the change is really
-# there
-#: and nothing above can prove it.
+#: settle it cannot be completed either. The worst case: the change is
+#: really there and nothing above can prove it.
 WRITE_FAULT_UNCONFIRMABLE = "unconfirmable"
 
 WRITE_FAULTS = (WRITE_FAULT_NONE, WRITE_FAULT_HANGS_UP, WRITE_FAULT_REFUSED,
@@ -277,13 +272,11 @@ class MockDriver(DroboDriver):
     # ------------------------------------------
 
     #: A believable share layout, in the EXACT shape
-    # config_cmd.get_config
-    #: returns for a real device. Deliberately so: /api/shares then runs
-    # the
-    #: real shares.summarize() and link_health() over it, which means
-    # demo
-    #: mode exercises the production parsing path rather than a parallel
-    #: pretend one. If that parser breaks, the simulator notices.
+    #: config_cmd.get_config returns for a real device. Deliberately so:
+    #: /api/shares then runs the real shares.summarize() and
+    #: link_health() over it, which means demo mode exercises the
+    #: production parsing path rather than a parallel pretend one. If
+    #: that parser breaks, the simulator notices.
     #:
     #: Chosen to be worth testing against rather than tidy:
     #:   - four shares, not one, so the list has to lay out properly
@@ -359,13 +352,10 @@ class MockDriver(DroboDriver):
     }
 
     #: Network config, again in the real shape. PortSpeed is 100 on
-    # purpose --
-    #: a gigabit-capable box negotiating 100 Mbit is a real fault this
-    # project
-    #: detects and warns about, and demo mode should show that warning
-    # rather
-    #: than a perfect machine that exercises none of the interesting
-    # code.
+    #: purpose -- a gigabit-capable box negotiating 100 Mbit is a real
+    #: fault this project detects and warns about, and demo mode should
+    #: show that warning rather than a perfect machine that exercises
+    #: none of the interesting code.
     _MOCK_NETWORK = {
         "DRINASConfig": {
             "DRINasNetworkConfig": {
@@ -384,12 +374,9 @@ class MockDriver(DroboDriver):
     }
 
     #: Admin config. The password fields are present because a real
-    # device
-    #: sends them -- they exist here so the redaction path is exercised
-    # in
-    #: demo mode too, and so a leak would show up while simulating
-    # rather
-    #: than only against real hardware.
+    #: device sends them -- they exist here so the redaction path is
+    #: exercised in demo mode too, and so a leak would show up while
+    #: simulating rather than only against real hardware.
     _MOCK_ADMIN = {
         "DRINASConfig": {
             "DRINasAdminConfig": {
@@ -402,14 +389,11 @@ class MockDriver(DroboDriver):
     }
 
     #: What the simulator claims is installed. Shaped like the real
-    # reply, but
-    #: the apps are invented -- names, versions, descriptions and states
-    # are
-    #: examples, not any real unit's list. One app is stopped on purpose
-    # so the
-    #: UI has both states to render, and the web-interface flag is set
-    # on some
-    #: and not others for the same reason.
+    #: reply, but the apps are invented -- names, versions, descriptions
+    #: and states are examples, not any real unit's list. One app is
+    #: stopped on purpose so the UI has both states to render, and
+    #: the web-interface flag is set on some and not others for the
+    #: same reason.
     _MOCK_DROBOAPPS = {
         "sdk_version": "2.1",
         "apps": [
@@ -430,20 +414,16 @@ class MockDriver(DroboDriver):
         ],
     }
 
-    #: LED brightness, as the device reports it. The real 5N returned
-    # 59.
+    #: LED brightness, as the device reports it. The real 5N
+    #: returned 59.
     _MOCK_DIMMING = 59
 
     #: What DroboSync looks like on a device with no partner -- which is
-    # what
-    #: the real 5N reports, and what almost everyone running this will
-    # see.
-    #: The simulator does NOT invent a configured sync: nobody on this
-    # project
-    #: has ever observed a populated reply, so a fake one would be
-    # teaching the
-    #: UI a shape we made up. Showing the honest empty case is the
-    # useful thing.
+    #: what the real 5N reports, and what almost everyone running this
+    #: will see. The simulator does NOT invent a configured sync: nobody
+    #: on this project has ever observed a populated reply, so a fake
+    #: one would be teaching the UI a shape we made up. Showing the
+    #: honest empty case is the useful thing.
     _MOCK_DROBOSYNC = {
         "configured": False,
         "reads": {
@@ -817,13 +797,10 @@ class MockDriver(DroboDriver):
                                f"interval={interval} (mock driver)")
 
     #: The simulated Drobo's one account: user admin, password admin,
-    # set at
-    #: the maintainer's request on 2026-09-14. Plain text on purpose and
-    # only here:
-    #: it is a fixture for a pretend device, documented in the README as
-    # the
-    #: demo login, and no real device or real login ever passes through
-    # it.
+    #: set at the maintainer's request on 2026-09-14. Plain text on
+    #: purpose and only here: it is a fixture for a pretend device,
+    #: documented in the README as the demo login, and no real device or
+    #: real login ever passes through it.
     _MOCK_ACCOUNTS = {"admin": "admin"}
 
     # Win32 codes the Windows app already explains in plain English, so
