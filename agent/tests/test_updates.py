@@ -1,12 +1,12 @@
 """
 Offline tests for updates.py -- the dormant update check.
 
-The most important test in here is that a default install contacts NOTHING.
-That is a security property, not a convenience: this runs unattended on a
-machine holding somebody's only copy of their data, and it must not phone
-anywhere its owner did not ask it to. So the network is not merely faked, it is
-BOOBY-TRAPPED -- urllib is replaced with something that fails the test if it is
-called at all.
+The most important test in here is that a default install contacts
+NOTHING. That is a security property, not a convenience: this runs
+unattended on a machine holding somebody's only copy of their data, and
+it must not phone anywhere its owner did not ask it to. So the network
+is not merely faked, it is BOOBY-TRAPPED -- urllib is replaced with
+something that fails the test if it is called at all.
 
     py test_updates.py
 """
@@ -65,8 +65,9 @@ def manifest(**overrides):
 
 # ---------------------------------------------------------------------------
 print("\n== DORMANT: a default install contacts nothing at all ==")
-# Not "checks a default endpoint that 404s" -- does not run. Proven by making
-# any network call an outright failure rather than by trusting a mock.
+# Not "checks a default endpoint that 404s" -- does not run. Proven by
+# making any network call an outright failure rather than by trusting a
+# mock.
 _real_urlopen = urllib.request.urlopen
 
 
@@ -106,8 +107,8 @@ finally:
     urllib.request.urlopen = _real_urlopen
 
 print("\n== enabled but misconfigured is surfaced, not silently ignored ==")
-# Somebody turned this on and expects it to work; a silent no-op would hide
-# their mistake indefinitely.
+# Somebody turned this on and expects it to work; a silent no-op would
+# hide their mistake indefinitely.
 no_url = updates.check({"enabled": True, "manifest_url": ""}, CURRENT)
 check(
     "enabled with no URL is disabled with a reason",
@@ -135,7 +136,8 @@ print(
 check("0.2.0 is newer than 0.1.0", updates.is_newer("0.2.0", "0.1.0"))
 check("0.1.0 is not newer than 0.1.0", not updates.is_newer("0.1.0", "0.1.0"))
 check("0.1.0 is not newer than 0.2.0", not updates.is_newer("0.1.0", "0.2.0"))
-# The classic: "0.10.0" < "0.9.0" as strings, and that ships a downgrade.
+# The classic: "0.10.0" < "0.9.0" as strings, and that ships a
+# downgrade.
 check("0.10.0 IS newer than 0.9.0 (string compare says otherwise)",
       updates.is_newer("0.10.0", "0.9.0"))
 check(
@@ -146,8 +148,8 @@ check(
     "a build suffix does not change the release",
     not updates.is_newer("0.1.0-beta", "0.1.0"),
 )
-# "Cannot tell" must never present as "an update is available" -- that is the
-# direction that gets somebody to install something.
+# "Cannot tell" must never present as "an update is available" -- that
+# is the direction that gets somebody to install something.
 check(
     "an unparseable candidate is never 'newer'",
     not updates.is_newer("banana", "0.1.0"),
@@ -198,13 +200,14 @@ check(
 )
 
 print("\n== a release with no checksum is announced, but flagged as such ==")
-# This RULE CHANGED on 2026-07-28 and the reasoning is worth keeping. It used to
-# refuse outright: telling someone to run an unverifiable binary is the whole
-# attack. That is right for a file we point at directly and wrong as a blanket
-# rule -- the GitHub Releases API publishes no checksum at all, so the rule
-# would have silently suppressed every update from the likeliest feed anyone
-# actually uses. Suppressing the news is unhelpful; implying it is verified
-# would be a lie. So: announce, and say which it is.
+# This RULE CHANGED on 2026-07-28 and the reasoning is worth keeping. It
+# used to refuse outright: telling someone to run an unverifiable binary
+# is the whole attack. That is right for a file we point at directly and
+# wrong as a blanket rule -- the GitHub Releases API publishes no
+# checksum at all, so the rule would have silently suppressed every
+# update from the likeliest feed anyone actually uses. Suppressing the
+# news is unhelpful; implying it is verified would be a lie. So:
+# announce, and say which it is.
 no_hash = updates.check(
     ENABLED_CONFIG, CURRENT, fetch=lambda url, timeout: manifest(sha256="")
 )
@@ -230,8 +233,9 @@ for bad_checksum, label in (("abc123", "too short"), ("z" * 64, "not hex")):
           "No checksum is published" in bad_checksum_status.reason,
           bad_checksum_status.reason)
 
-# http:// IS still refused outright. A link that can be rewritten in transit is
-# a different problem from an unverified one, and stays a refusal.
+# http:// IS still refused outright. A link that can be rewritten in
+# transit is a different problem from an unverified one, and stays a
+# refusal.
 plain_http_download_status = updates.check(
     ENABLED_CONFIG, CURRENT, fetch=lambda url, timeout: manifest(
         download_url="http://example.invalid/x.msi"))
@@ -243,9 +247,10 @@ check("-- and the message names the download, not the manifest",
       plain_http_download_status.reason)
 
 print("\n== the GitHub Releases shape, read by the same engine ==")
-# Two checkers used to exist: this one reading a hand-written manifest, and a
-# PowerShell script in the installer reading GitHub Releases. One engine now
-# reads both, detected by CONTENT -- a URL cannot tell you what it will return.
+# Two checkers used to exist: this one reading a hand-written manifest,
+# and a PowerShell script in the installer reading GitHub Releases. One
+# engine now reads both, detected by CONTENT -- a URL cannot tell you
+# what it will return.
 GITHUB_RELEASE = {
     "tag_name": "v0.3.0",
     "html_url": "https://example.invalid/releases/v0.3.0",
@@ -375,13 +380,14 @@ print(
     "=="
 )
 # The installer's shortcut runs agent/check_updates.py on the bundled
-# embeddable Python, whose python314._pth runs it isolated with safe_path on:
-# nothing -- not the working directory, not the script's own folder -- is on
-# sys.path unless the script puts it there. Until 2026-09-26 the shortcut ran
-# `python -m drobo_agent.updates` from inside agent/, which that runtime cannot
-# import, so it failed in every installed copy and nothing here noticed. `-I`
-# gives an ordinary interpreter the same isolation (-E -s -P), so this runs in
-# every suite sweep without building an installer.
+# embeddable Python, whose python314._pth runs it isolated with
+# safe_path on: nothing -- not the working directory, not the script's
+# own folder -- is on sys.path unless the script puts it there. Until
+# 2026-09-26 the shortcut ran `python -m drobo_agent.updates` from
+# inside agent/, which that runtime cannot import, so it failed in every
+# installed copy and nothing here noticed. `-I` gives an ordinary
+# interpreter the same isolation (-E -s -P), so this runs in every suite
+# sweep without building an installer.
 
 _agent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _check_updates_script = os.path.join(_agent_dir, "check_updates.py")
@@ -397,12 +403,14 @@ def _run_isolated(args, cwd):
 with tempfile.TemporaryDirectory() as _temp_dir:
     _config_path = os.path.join(_temp_dir, "config.json")
     with open(_config_path, "w", encoding="utf-8") as config_file:
-        # A token already present, so the run does not stop to generate one.
+        # A token already present, so the run does not stop to generate
+        # one.
         json.dump({"agent": {"token": secrets.token_urlsafe(24)}}, config_file)
 
-    # The old way first, so this section is known to reproduce the failure
-    # rather than passing on an interpreter that never had it. -P arrived in
-    # Python 3.11; on an older one -I leaves the working directory on the path.
+    # The old way first, so this section is known to reproduce the
+    # failure rather than passing on an interpreter that never had it.
+    # -P arrived in Python 3.11; on an older one -I leaves the working
+    # directory on the path.
     if hasattr(sys.flags, "safe_path"):
         old_invocation = _run_isolated(
             ["-m", "drobo_agent.updates", "--config", _config_path],
@@ -421,7 +429,8 @@ with tempfile.TemporaryDirectory() as _temp_dir:
             "reproduce"
         )
 
-    # From an unrelated folder: where it is started from must not matter.
+    # From an unrelated folder: where it is started from must not
+    # matter.
     run_by_path = _run_isolated(
         [_check_updates_script, "--config", _config_path], cwd=_temp_dir)
     check("check_updates.py, run by path from an unrelated folder, exits 0",
@@ -432,8 +441,9 @@ with tempfile.TemporaryDirectory() as _temp_dir:
     check("-- with no traceback", "Traceback" not in run_by_path.stderr,
           run_by_path.stderr)
 
-    # A failure gets an exit status of its own. Python's 1 for a crash is the
-    # same number as "an update is available", and the .bat reads the number.
+    # A failure gets an exit status of its own. Python's 1 for a crash
+    # is the same number as "an update is available", and the .bat reads
+    # the number.
     with open(_config_path, "w", encoding="utf-8") as config_file:
         config_file.write('{ "updates": { "enabled": true, ')
     invalid_json_run = _run_isolated(
@@ -478,18 +488,20 @@ with tempfile.TemporaryDirectory() as _temp_dir:
 print(
     "\n== the release version agrees with itself, everywhere it is written =="
 )
-# This suite is where the check belongs: updates.check() compares the running
-# version against a published one, so a tree whose own copies of that number
-# disagree makes the comparison meaningless before the network is ever reached.
+# This suite is where the check belongs: updates.check() compares the
+# running version against a published one, so a tree whose own copies of
+# that number disagree makes the comparison meaningless before the
+# network is ever reached.
 #
-# Seven places across three languages, and nothing compared them until now.
-# windows/README.md's "Versioning" section says "if you bump one, bump them
-# all", which is advice, not a gate. It has already been wrong in public:
-# release 1.0.0 shipped sdk/pyproject.toml still saying 0.1.0, so the metadata a
-# reader installs disagreed with the release it came from.
+# Seven places across three languages, and nothing compared them until
+# now. windows/README.md's "Versioning" section says "if you bump one,
+# bump them all", which is advice, not a gate. It has already been wrong
+# in public: release 1.0.0 shipped sdk/pyproject.toml still saying
+# 0.1.0, so the metadata a reader installs disagreed with the release it
+# came from.
 #
-# scripts/check_versions.py holds the rule, so a human can run it on its own
-# before a release; this runs it on every suite sweep.
+# scripts/check_versions.py holds the rule, so a human can run it on its
+# own before a release; this runs it on every suite sweep.
 
 _repo_root = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
@@ -528,9 +540,10 @@ if os.path.exists(_checker_path):
         _version_checker.find_problems(),
     )
 
-    # The agent's own two copies are the pair most easily forgotten, because
-    # neither is derived from the other: api.VERSION is what /api/ping and the
-    # update check report, __version__ is what a Python caller reads.
+    # The agent's own two copies are the pair most easily forgotten,
+    # because neither is derived from the other: api.VERSION is what
+    # /api/ping and the update check report, __version__ is what a
+    # Python caller reads.
     from drobo_agent import api
     from drobo_agent import __version__ as _package_version
     check("the VERSION the update check compares is the package's own",
@@ -539,10 +552,10 @@ if os.path.exists(_checker_path):
           api.VERSION == _found_versions.get("csproj <Version>"),
           (api.VERSION, _found_versions.get("csproj <Version>")))
 
-    # A disagreement must FAIL, not merely be listed. Proven by pointing one
-    # entry of the rule at a place that says something else on purpose -- this
-    # file's own CURRENT, which is 0.1.0 -- so the real tree is never edited to
-    # test the thing that guards it.
+    # A disagreement must FAIL, not merely be listed. Proven by pointing
+    # one entry of the rule at a place that says something else on
+    # purpose -- this file's own CURRENT, which is 0.1.0 -- so the real
+    # tree is never edited to test the thing that guards it.
     _original_places = _version_checker.VERSION_PLACES[:]
     try:
         _version_checker.VERSION_PLACES = _original_places[:-1] + [(
@@ -566,9 +579,9 @@ if os.path.exists(_checker_path):
           _version_checker.find_problems() == [],
           _version_checker.find_problems())
 
-    # A four-part AssemblyVersion is checked against the three-part number, not
-    # merely against the other four-part one: 1.0.0 with 1.0.1.0 twice is still
-    # a release that lies about itself.
+    # A four-part AssemblyVersion is checked against the three-part
+    # number, not merely against the other four-part one: 1.0.0 with
+    # 1.0.1.0 twice is still a release that lies about itself.
     _original_places = _version_checker.VERSION_PLACES[:]
     try:
         _version_checker.VERSION_PLACES = [

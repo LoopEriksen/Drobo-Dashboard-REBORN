@@ -1,7 +1,8 @@
 """
 Tests for Drobo5NDriver -- _read_sysinfo(), the one part of the real
-driver that has actually run against a live 5N (see drivers.py's docstring on
-it, 2026-07-26), and _read_event_log(), which follows its pattern.
+driver that has actually run against a live 5N (see drivers.py's
+docstring on it, 2026-07-26), and _read_event_log(), which follows its
+pattern.
 
 Runs entirely offline: nasd.sysinfo.get_sysinfo_and_performance and
 nasd.eventlog.get_event_log are monkeypatched to fakes that never open a
@@ -9,16 +10,16 @@ socket. Covers the things that make these methods worth pinning down:
 
   * the rate limit (sysinfo_seconds / eventlog_seconds) -- a second call
     inside the window must not reach the device at all
-  * a device failure leaves the last-known-good reading (and its original
-    timestamp) intact rather than blanking it
+  * a device failure leaves the last-known-good reading (and its
+    original timestamp) intact rather than blanking it
   * the derived uptime in read_snapshot() keeps counting between reads
     without asking the device again
   * uptime and temperature each age from their own reading, so a reply
     carrying only one of them leaves the other's time alone
   * performance figures carry the time they were measured, and a failed
     fetch keeps both the figures and that original time
-  * an event-log fetch failure degrades the snapshot to the cached (possibly
-    empty) log without ever breaking the poll
+  * an event-log fetch failure degrades the snapshot to the cached
+    (possibly empty) log without ever breaking the poll
 
     py test_drivers.py
 """
@@ -56,10 +57,11 @@ _original_get_event_log = nasd_eventlog.get_event_log
 
 
 def _eventlog_quiet(host, esa_id, port=None, timeout=8.0):
-    """File-wide default: read_snapshot() now also fetches the device's event
-    log, and every section except the dedicated one at the bottom is about
-    OTHER reads -- without this stub each fresh driver's first snapshot would
-    open a REAL socket to HOST and stall the suite for a full timeout."""
+    """File-wide default: read_snapshot() now also fetches the device's
+    event log, and every section except the dedicated one at the bottom
+    is about OTHER reads -- without this stub each fresh driver's first
+    snapshot would open a REAL socket to HOST and stall the suite for a
+    full timeout."""
     return []
 
 
@@ -205,9 +207,10 @@ try:
     check("uptime is kept too", driver._uptime_seconds == 5000,
           driver._uptime_seconds)
 
-    # ConfigError is the other declared failure mode (get_sysinfo_and_performance raises
-    # SysInfoError, a ConfigError subclass, e.g. on a bad login/reply) and
-    # must behave identically -- neither wipes the cache.
+    # ConfigError is the other declared failure mode
+    # (get_sysinfo_and_performance raises SysInfoError, a ConfigError
+    # subclass, e.g. on a bad login/reply) and must behave identically
+    # -- neither wipes the cache.
     def _command_port_refused(host, esa_id, port=None, timeout=8.0):
         calls.append((host, esa_id))
         raise config_cmd.ConfigError("command port refused (simulated)")
@@ -256,8 +259,8 @@ print("\n== an undeclared exception is NOT silently swallowed ==")
 
 # The docstring promises "never raises" only in the sense of "a device
 # failure is not an error" -- the except clause is scoped to
-# (OSError, config_cmd.ConfigError). Something else going wrong (a real bug)
-# must still surface, not vanish into "no fresh reading".
+# (OSError, config_cmd.ConfigError). Something else going wrong (a real
+# bug) must still surface, not vanish into "no fresh reading".
 def _raise_undeclared_bug(host, esa_id, port=None, timeout=8.0):
     raise ValueError("this is a bug, not a device failure")
 
@@ -661,8 +664,8 @@ try:
           == ["line one", "line two"],
           after_failure_snapshot.event_log)
 
-    # A driver whose fetch has NEVER succeeded degrades to an empty list --
-    # for both declared failure modes, EventLogError and OSError.
+    # A driver whose fetch has NEVER succeeded degrades to an empty list
+    # -- for both declared failure modes, EventLogError and OSError.
     def _eventlog_unreachable(host, esa_id, port=None, timeout=8.0):
         raise OSError("device unreachable (simulated)")
 

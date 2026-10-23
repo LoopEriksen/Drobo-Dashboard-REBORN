@@ -5,30 +5,32 @@ End-to-end simulation of every desktop-notification failure category.
 
 WHY THIS EXISTS ALONGSIDE test_agent.py AND THE C# NOTIFIER TESTS
 ------------------------------------------------------------------
-Both halves are well tested in isolation: test_agent.py proves the agent raises
-the right alert for each fault, and the C# AlertNotifier tests prove the four
-notification rules hold for a hand-typed list of keys. What neither proves is
-the SEAM: that the keys the *running agent actually emits* under each simulated
-failure are exactly the keys the notifier routes into a category. The notifier
-swallows any key it does not recognise -- by design, quiet is the safe way to
-be wrong -- which means a new alert type added to the agent would be silently
-un-notifiable, and the C# test would still pass because it only checks the keys
-it already knows about.
+Both halves are well tested in isolation: test_agent.py proves the agent
+raises the right alert for each fault, and the C# AlertNotifier tests
+prove the four notification rules hold for a hand-typed list of keys.
+What neither proves is the SEAM: that the keys the *running agent
+actually emits* under each simulated failure are exactly the keys the
+notifier routes into a category. The notifier swallows any key it does
+not recognise -- by design, quiet is the safe way to be wrong -- which
+means a new alert type added to the agent would be silently
+un-notifiable, and the C# test would still pass because it only checks
+the keys it already knows about.
 
 So this test does two things the others cannot:
 
   1. Runs a REAL mock agent, injects every fault the API supports (drive
-     fail/warn/pull, cache battery, PSU), and asserts each produces an alert
-     whose key the notifier maps to the intended category, and that it clears
-     on reset (the precondition for the "again if it returns" rule).
-  2. Drives the categories the API cannot inject -- temperature, capacity,
-     unreachable, pack health -- through monitor._evaluate_alerts() with
-     constructed snapshots, and routes THOSE keys through the same
-     category mapping.
+     fail/warn/pull, cache battery, PSU), and asserts each produces an
+     alert whose key the notifier maps to the intended category, and
+     that it clears on reset (the precondition for the "again if it
+     returns" rule).
+  2. Drives the categories the API cannot inject -- temperature,
+     capacity, unreachable, pack health -- through
+     monitor._evaluate_alerts() with constructed snapshots, and routes
+     THOSE keys through the same category mapping.
 
-The category mapping is a Python port of AlertNotifier.CategoryFor kept in
-lockstep by test #3 below, which asserts the C# source still contains every
-prefix rule this port relies on. Change one, the other test fails.
+The category mapping is a Python port of AlertNotifier.CategoryFor kept
+in lockstep by test #3 below, which asserts the C# source still contains
+every prefix rule this port relies on. Change one, the other test fails.
 Test #3 also reads the ids of the C# Categories list, which the
 app's Settings switches are built from, and requires them to be
 exactly the categories this port routes to.
@@ -76,8 +78,9 @@ def check(label, condition, failure_detail=""):
 
 
 # ---------------------------------------------------------------------------
-# A faithful port of AlertNotifier.CategoryFor (windows/.../AlertNotifier.cs).
-# Test #3 asserts the C# still contains each rule, so this cannot drift silently.
+# A faithful port of AlertNotifier.CategoryFor
+# (windows/.../AlertNotifier.cs). Test #3 asserts the C# still contains
+# each rule, so this cannot drift silently.
 # ---------------------------------------------------------------------------
 def category_for(key: str) -> str:
     if not key:
@@ -125,15 +128,16 @@ def free_port():
 PORT = free_port()
 temp_dir = tempfile.mkdtemp(prefix="notif-sim-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 with open(config_path, "w") as config_file:
     json.dump(
         {
             "agent": {"bind": "127.0.0.1", "port": PORT, "poll_seconds": 1},
-            # Explicit mock -- never inherit the driver default, which is the real one.
+            # Explicit mock -- never inherit the driver default, which
+            # is the real one.
             "drobo": {"driver": "mock"},
             "photos": {"enabled": False},
             "alerts": {"resend_seconds": 2},
@@ -170,7 +174,8 @@ def active_keys():
 
 
 def wait_for(predicate, timeout=6.0):
-    """Poll until predicate() is truthy or the monitor has had several poll cycles."""
+    """Poll until predicate() is truthy or the monitor has had several
+    poll cycles."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
@@ -187,8 +192,8 @@ check(
     baseline_alert_keys,
 )
 
-# Every fault the API can inject, with the alert key it must produce and the
-# notifier category that key must land in.
+# Every fault the API can inject, with the alert key it must produce and
+# the notifier category that key must land in.
 FAULTS = [
     (
         "drive fail (bay 3)",
@@ -247,9 +252,10 @@ for label, path, key, expected_category, expected_severity in FAULTS:
     check(f"'{key}' clears on reset (so 'again if it returns' can work)",
           wait_for(lambda: key not in active_keys()), active_keys())
 
-# A pulled drive is a distinct physical event. The mock removes the drive, so
-# there is no failed-drive alert to raise -- but the array is now short a disk.
-# Prove exactly what the app WOULD say, rather than assuming.
+# A pulled drive is a distinct physical event. The mock removes the
+# drive, so there is no failed-drive alert to raise -- but the array is
+# now short a disk. Prove exactly what the app WOULD say, rather than
+# assuming.
 print("\n== simulate: drive pulled (bay 4) ==")
 call("/api/mock/pull/4", "POST")
 time.sleep(2.5)
@@ -300,7 +306,8 @@ http_server.shutdown()
 monitor.stop()
 
 # ---------------------------------------------------------------------------
-# Part 2: categories the API cannot inject, driven through the monitor directly
+# Part 2: categories the API cannot inject, driven through the monitor
+# directly
 # ---------------------------------------------------------------------------
 print(
     "\n== the categories with no injection endpoint: temperature, capacity, "
@@ -358,8 +365,9 @@ check(
     category_for("chassis-temp-warning") == "temperature",
 )
 
-# Capacity: usable 100, used 98 -> 98%. The mock has no pack_health thresholds,
-# so the config defaults (0.85 warning / 0.95 critical) apply.
+# Capacity: usable 100, used 98 -> 98%. The mock has no pack_health
+# thresholds, so the config defaults (0.85 warning / 0.95 critical)
+# apply.
 full = alerts_by_key(make_snapshot(capacity=Capacity(usable_bytes=100,
                                                      used_bytes=98)))
 check("98% used -> capacity-critical", "capacity-critical" in full, list(full))
@@ -403,9 +411,10 @@ check(
 check("...routes to 'drives'", category_for("drive-errors-1") == "drives")
 
 # ---------------------------------------------------------------------------
-# Part 3: EVERY key the monitor can emit must land in a category -- and this
-# is derived from monitor.py's SOURCE, not a hand-typed list, so a new alert
-# added tomorrow fails here instead of being silently un-notifiable.
+# Part 3: EVERY key the monitor can emit must land in a category -- and
+# this is derived from monitor.py's SOURCE, not a hand-typed list, so a
+# new alert added tomorrow fails here instead of being silently
+# un-notifiable.
 # ---------------------------------------------------------------------------
 print(
     "\n== every alert key the monitor source can emit maps to a notifier "
@@ -419,7 +428,8 @@ monitor_source = open(
     ),
     encoding="utf-8",
 ).read()
-# Literal keys and f-string prefixes: seen["key"] and seen[f"prefix-{...}"]
+# Literal keys and f-string prefixes: seen["key"] and
+# seen[f"prefix-{...}"]
 literal_keys = set(re.findall(r'seen\["([a-z0-9-]+)"\]', monitor_source))
 fstring_key_prefixes = set(re.findall(r'seen\[f"([a-z0-9-]+)\{',
                                       monitor_source))
@@ -433,8 +443,8 @@ unrouted = sorted(
 )
 check("no monitor alert key is silently un-notifiable", not unrouted, unrouted)
 
-# The Python port must match the C# it mirrors. Assert every prefix rule this
-# test relies on is literally present in AlertNotifier.cs.
+# The Python port must match the C# it mirrors. Assert every prefix rule
+# this test relies on is literally present in AlertNotifier.cs.
 alert_notifier_path = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "..",

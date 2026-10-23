@@ -1,14 +1,15 @@
 """
 Offline tests for notify.py, with the email backend as the main event.
 
-Two properties matter more than the rest and are tested by BOOBY-TRAPPING
-rather than by mocking politely:
+Two properties matter more than the rest and are tested by
+BOOBY-TRAPPING rather than by mocking politely:
 
   - a config without email must never touch smtplib at all
   - a password must never reach stdout or an exception message
 
-Both are security properties on a service that runs unattended on a machine
-holding somebody's only copy of their data, so neither is left to inspection.
+Both are security properties on a service that runs unattended on a
+machine holding somebody's only copy of their data, so neither is left
+to inspection.
 
     py test_notify.py
 """
@@ -73,8 +74,8 @@ check("an unknown backend is ignored, not fatal",
 print("\n== a config with no email never loads smtplib ==")
 
 
-# Not "does not send" -- does not IMPORT. Proven by replacing the module with
-# something that explodes on any attribute access.
+# Not "does not send" -- does not IMPORT. Proven by replacing the module
+# with something that explodes on any attribute access.
 class _ExplodingModule:
     def __getattr__(self, name):
         raise AssertionError(
@@ -100,8 +101,8 @@ finally:
         del sys.modules["smtplib"]
 
 print("\n== a half-configured email backend is refused, not half-used ==")
-# An alert that silently fails to send is worse than one never configured,
-# because you believe you are covered.
+# An alert that silently fails to send is worse than one never
+# configured, because you believe you are covered.
 for missing, label in ((["host"], "no host"), (["to"], "no recipient")):
     notify_config = email_config()
     for field_name in missing:
@@ -147,8 +148,9 @@ check(
 )
 
 print("\n== THE PASSWORD NEVER ESCAPES ==")
-# A rejected SMTP login habitually echoes the credentials back in the server's
-# response text. That text must never reach a log line or an exception.
+# A rejected SMTP login habitually echoes the credentials back in the
+# server's response text. That text must never reach a log line or an
+# exception.
 email_backend = email_backends[0]
 check("it is not a public attribute", not any(
     getattr(email_backend, attribute, None) == SECRET
@@ -211,7 +213,8 @@ try:
     check("-- and the error TYPE, which is the useful half",
           raised is not None and "RuntimeError" in str(raised), str(raised))
 
-    # A failing backend must not stop the others -- NotifierGroup's contract.
+    # A failing backend must not stop the others -- NotifierGroup's
+    # contract.
     captured_stdout = io.StringIO()
     with contextlib.redirect_stdout(captured_stdout):
         notify.build(

@@ -1,23 +1,24 @@
 """
-End-to-end test of GET /api/spindown and POST /api/droboapps/action, against
-the simulated Drobo.
+End-to-end test of GET /api/spindown and POST /api/droboapps/action,
+against the simulated Drobo.
 
     py test_droboapps_api.py
 
-Separate from test_agent.py for the same reason test_identify_api.py is: these
-endpoints' interesting branch is the simulated one, and turning
-`simulate_config` on in that suite would change how every config read it makes
-behaves. So this spins up its own agent on its own port.
+Separate from test_agent.py for the same reason test_identify_api.py is:
+these endpoints' interesting branch is the simulated one, and turning
+`simulate_config` on in that suite would change how every config read it
+makes behaves. So this spins up its own agent on its own port.
 
 WHAT IS ACTUALLY BEING PROVEN
 
-Not that a Drobo spins its drives down or that a DroboApp starts -- nothing here
-can know that. What this proves is the contract the web page and the Windows
-app are built against: that the spin-down read reports BOTH halves of the
-state (the delay alone cannot say whether the feature is on), that an app
-action's 200 carries the device's own re-read as the read-back, that every
-refusal is a 400 with the reason in plain English before anything is sent, and
-that the simulator is no more permissive than the SDK write it stands in for.
+Not that a Drobo spins its drives down or that a DroboApp starts --
+nothing here can know that. What this proves is the contract the web
+page and the Windows app are built against: that the spin-down read
+reports BOTH halves of the state (the delay alone cannot say whether the
+feature is on), that an app action's 200 carries the device's own
+re-read as the read-back, that every refusal is a 400 with the reason in
+plain English before anything is sent, and that the simulator is no more
+permissive than the SDK write it stands in for.
 """
 
 import atexit
@@ -59,8 +60,8 @@ def check(label, condition, failure_detail=""):
 
 temp_dir = tempfile.mkdtemp(prefix="droboapps-api-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 PORT = 7438
@@ -237,8 +238,8 @@ try:
 
     print("\n== auth: 401s are clean even with a request body ==")
     # The 401 path must DRAIN the body before answering (see do_POST) --
-    # without that, Windows aborts the keep-alive socket and the client sees
-    # a connection error instead of this parseable answer.
+    # without that, Windows aborts the keep-alive socket and the client
+    # sees a connection error instead of this parseable answer.
     status, reply = call("/api/droboapps/action",
                          body={"name": "AlphaApp", "action": "Start"},
                          token="")
@@ -266,10 +267,11 @@ try:
     )
 
     print("\n== the write outcomes are not a share-only vocabulary ==")
-    # Share writes get the same treatment in test_shares_api.py. This proves it
-    # is _config_write's contract rather than something bolted onto shares:
-    # spin-down, a General-block write, reports the same four outcomes -- and
-    # the awkward one still moves the device while the answer stays silent.
+    # Share writes get the same treatment in test_shares_api.py. This
+    # proves it is _config_write's contract rather than something bolted
+    # onto shares: spin-down, a General-block write, reports the same
+    # four outcomes -- and the awkward one still moves the device while
+    # the answer stays silent.
     call("/api/config/spindown", body={"delay": 14})
     call("/api/mock/write/hangs_up", method="POST")
     status, reply = call("/api/config/spindown", body={"delay": 21})

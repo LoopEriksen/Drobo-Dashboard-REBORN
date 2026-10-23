@@ -1,29 +1,31 @@
 """
-End-to-end test of Identify through the agent, against the simulated Drobo.
+End-to-end test of Identify through the agent, against the simulated
+Drobo.
 
     py test_identify_api.py
 
 WHY THIS IS A SEPARATE FILE FROM test_agent.py
 
-test_agent.py runs its Monitor with the default driver and `simulate_config`
-off, which is right for what it tests. Identify's interesting branch is the
-simulated one, and turning `simulate_config` on there would change how every
-config read in that suite behaves. So this spins up its own agent on its own
-port instead of bending the other one.
+test_agent.py runs its Monitor with the default driver and
+`simulate_config` off, which is right for what it tests. Identify's
+interesting branch is the simulated one, and turning `simulate_config`
+on there would change how every config read in that suite behaves. So
+this spins up its own agent on its own port instead of bending the other
+one.
 
 WHAT IS ACTUALLY BEING PROVEN
 
-Not "does the Drobo blink" -- nothing here can know that. What this proves is
-that the value a caller asks for arrives intact at the driver, that the
-simulated path enforces the same rules as the hardware path, and that a bad
-interval is reported as the caller's mistake rather than as a fault in
-somebody's storage array.
+Not "does the Drobo blink" -- nothing here can know that. What this
+proves is that the value a caller asks for arrives intact at the driver,
+that the simulated path enforces the same rules as the hardware path,
+and that a bad interval is reported as the caller's mistake rather than
+as a fault in somebody's storage array.
 
-That last one matters more than it looks. `IdentifyParameterError` subclasses
-`IdentifyError`, so an `except IdentifyError` written before it existed will
-swallow it and answer 502 -- telling the operator their Drobo refused a
-command when in fact they made a typo. The ordering test below is the guard
-against that regression.
+That last one matters more than it looks. `IdentifyParameterError`
+subclasses `IdentifyError`, so an `except IdentifyError` written before
+it existed will swallow it and answer 502 -- telling the operator their
+Drobo refused a command when in fact they made a typo. The ordering test
+below is the guard against that regression.
 """
 import atexit
 import json
@@ -64,8 +66,8 @@ def check(label, condition, failure_detail=""):
 
 temp_dir = tempfile.mkdtemp(prefix="identify-api-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 PORT = 7437
@@ -127,7 +129,8 @@ try:
           driver._identify_last_interval == 45, driver._identify_last_interval)
 
     # Zero is the stop guess, and it is falsy -- exactly the value an
-    # `if interval:` somewhere in the chain would quietly turn into "unset".
+    # `if interval:` somewhere in the chain would quietly turn into
+    # "unset".
     status, reply = post("/api/identify?interval=0")
     check(
         "zero is accepted rather than treated as absent",
@@ -161,8 +164,8 @@ try:
           (identify_count_before, driver._identify_count))
 
     print("\n== the simulator is not more permissive than the hardware ==")
-    # If these two ever disagree, the simulator starts certifying intervals
-    # that a real Drobo would reject.
+    # If these two ever disagree, the simulator starts certifying
+    # intervals that a real Drobo would reject.
     for value in (-1, identify.MAX_INTERVAL + 1, "15", 15.0, True):
         sdk_refuses = False
         try:

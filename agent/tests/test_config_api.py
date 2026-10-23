@@ -1,12 +1,14 @@
 """
-The configuration-write routes, through HTTP, against the simulated driver.
+The configuration-write routes, through HTTP, against the simulated
+driver.
 
 /api/config/brightness, /api/config/spindown and /api/backup/plan had no
-API-level test at all (found by the 2026-09-01 audit): the SDK paths under
-them are covered in sdk/tests, but nothing checked that a bad request body
-comes back as a 400 rather than a 500, that the token gate holds, or that a
-simulated write reports itself as simulated. That is what this does. Same
-shape as test_shares_api.py: a real agent on its own port, plain urllib.
+API-level test at all (found by the 2026-09-01 audit): the SDK paths
+under them are covered in sdk/tests, but nothing checked that a bad
+request body comes back as a 400 rather than a 500, that the token gate
+holds, or that a simulated write reports itself as simulated. That is
+what this does. Same shape as test_shares_api.py: a real agent on its
+own port, plain urllib.
 """
 import atexit
 import json
@@ -47,8 +49,8 @@ def check(label, condition, failure_detail=""):
 
 temp_dir = tempfile.mkdtemp(prefix="config-api-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 PORT = 7440
@@ -168,9 +170,9 @@ try:
     status, reply = call("/api/backup/plan", body=b"nope")
     check("unparseable JSON is 400", status == 400 and "error" in reply,
           (status, reply))
-    # A plan is a dry run that REPORTS refusals rather than erroring: the
-    # caller reads `allowed` and `refusals`. So an empty plan is a 200 that
-    # says no, and the thing to pin is that it says no.
+    # A plan is a dry run that REPORTS refusals rather than erroring:
+    # the caller reads `allowed` and `refusals`. So an empty plan is a
+    # 200 that says no, and the thing to pin is that it says no.
     status, reply = call("/api/backup/plan", body={})
     check("empty source/destination plans as not allowed",
           status == 200 and reply.get("allowed") is False

@@ -1,13 +1,14 @@
 """
 Offline tests for backup.py.
 
-Two things here could destroy somebody's data if wrong, so they get the most
-attention: robocopy's exit codes (success is NOT zero, and reading it as Unix
-would report every good backup as broken) and the destination refusals (which
-exist to stop a mirror being pointed somewhere that deletes things).
+Two things here could destroy somebody's data if wrong, so they get the
+most attention: robocopy's exit codes (success is NOT zero, and reading
+it as Unix would report every good backup as broken) and the destination
+refusals (which exist to stop a mirror being pointed somewhere that
+deletes things).
 
-A real backup IS run, into temp folders, because "the dry run copies nothing"
-is not a claim worth taking on trust.
+A real backup IS run, into temp folders, because "the dry run copies
+nothing" is not a claim worth taking on trust.
 
     py test_backup.py
 """
@@ -45,8 +46,8 @@ def check(label, condition, failure_detail=""):
 
 temp_dir = tempfile.mkdtemp(prefix="drobobackup-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 source_dir = os.path.join(temp_dir, "source")
 destination_dir = os.path.join(temp_dir, "backup")
@@ -57,8 +58,8 @@ for name in ("a.jpg", "b.jpg"):
         photo_file.write("pretend photo " + name)
 
 print("\n== robocopy exit codes: success is NOT zero ==")
-# The classic bug in every script that wraps robocopy. Reading these as Unix
-# exit codes reports every successful backup as a failure.
+# The classic bug in every script that wraps robocopy. Reading these as
+# Unix exit codes reports every successful backup as a failure.
 for code, expected_ok, note in [
     (0, True, "nothing to copy"),
     (1, True, "files copied"),
@@ -213,8 +214,8 @@ else:
           f"exit={second_job.exit_code} ({second_job.summary})")
 
     print("\n== two at once is refused ==")
-    # Two robocopy processes on one destination would interleave and neither
-    # result would be trustworthy.
+    # Two robocopy processes on one destination would interleave and
+    # neither result would be trustworthy.
     concurrent_runner = backup.BackupRunner()
     concurrent_runner.start(source_dir, os.path.join(temp_dir, "backup2"))
     try:
@@ -231,9 +232,10 @@ else:
             "already running" in str(exc),
             str(exc),
         )
-    # Let whichever copy is still running finish before the folder is removed:
-    # robocopy still writing into it kept part of the folder from being
-    # deleted, so an empty backup folder was left behind in TEMP.
+    # Let whichever copy is still running finish before the folder is
+    # removed: robocopy still writing into it kept part of the folder
+    # from being deleted, so an empty backup folder was left behind in
+    # TEMP.
     for _ in range(150):                      # up to ~15s
         if concurrent_runner.job is None or not concurrent_runner.job.running:
             break

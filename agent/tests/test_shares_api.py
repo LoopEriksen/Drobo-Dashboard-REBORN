@@ -4,31 +4,33 @@ against the simulated Drobo.
 
     py test_shares_api.py
 
-Separate from test_agent.py for the same reason test_droboapps_api.py is:
-these endpoints' interesting branch is the simulated one, and turning
-`simulate_config` on in that suite would change how every config read it
-makes behaves. So this spins up its own agent on its own port.
+Separate from test_agent.py for the same reason test_droboapps_api.py
+is: these endpoints' interesting branch is the simulated one, and
+turning `simulate_config` on in that suite would change how every config
+read it makes behaves. So this spins up its own agent on its own port.
 
 WHAT IS ACTUALLY BEING PROVEN
 
-Not that a Drobo grows or loses a share -- nothing here can know that. What
-this proves is the contract the web page and the Windows app are built
-against: that a created share appears in /api/shares IMMEDIATELY (the write
-drops the 60-second shares cache -- a stale cache once made a verified write
-look failed), that a deleted one disappears the same way, that confirm_name
-must repeat the name exactly before anything reaches any device, that every
-refusal is a 400 with the reason in plain English, and that the simulator is
-no more permissive than the SDK write it stands in for.
+Not that a Drobo grows or loses a share -- nothing here can know that.
+What this proves is the contract the web page and the Windows app are
+built against: that a created share appears in /api/shares IMMEDIATELY
+(the write drops the 60-second shares cache -- a stale cache once made a
+verified write look failed), that a deleted one disappears the same way,
+that confirm_name must repeat the name exactly before anything reaches
+any device, that every refusal is a 400 with the reason in plain
+English, and that the simulator is no more permissive than the SDK write
+it stands in for.
 
-And, since 2026-08-26, the four ways a write can END. A real 5N took a share
-create, closed the socket without answering, and had created the share anyway
--- so "the device said yes" and "the change is there" are separate questions,
-with four combinations between them. The mock's injected write endings drive
-all four through the simulated fork; a stand-in for sharewrite.create_share
-drives the same four through the SDK fork. Both are checked on both halves:
-what the agent answers, AND what the device actually holds afterwards. The two
-middles matter most -- a write that applied without being acknowledged must
-never read as failed, and one nobody can settle must never read as done.
+And, since 2026-08-26, the four ways a write can END. A real 5N took a
+share create, closed the socket without answering, and had created the
+share anyway -- so "the device said yes" and "the change is there" are
+separate questions, with four combinations between them. The mock's
+injected write endings drive all four through the simulated fork; a
+stand-in for sharewrite.create_share drives the same four through the
+SDK fork. Both are checked on both halves: what the agent answers, AND
+what the device actually holds afterwards. The two middles matter most
+-- a write that applied without being acknowledged must never read as
+failed, and one nobody can settle must never read as done.
 """
 import atexit
 import json
@@ -70,8 +72,8 @@ def check(label, condition, failure_detail=""):
 
 temp_dir = tempfile.mkdtemp(prefix="shares-api-")
 # Removed when the script exits, however it exits: a failed check or an
-# exception as well as a clean pass. Until 2026-09-16 every run left this
-# folder behind in TEMP.
+# exception as well as a clean pass. Until 2026-09-16 every run left
+# this folder behind in TEMP.
 atexit.register(shutil.rmtree, temp_dir, ignore_errors=True)
 config_path = os.path.join(temp_dir, "config.json")
 PORT = 7439
@@ -119,8 +121,9 @@ def listed_names():
 
 
 def version_basis():
-    """The simulated device's own config version -- bumped by every simulated
-    write, so an unchanged value is proof nothing touched the (mock) device."""
+    """The simulated device's own config version -- bumped by every
+    simulated write, so an unchanged value is proof nothing touched the
+    (mock) device."""
     return monitor.driver._shares["DRINASConfig"]["DRIShareConfig"][
         "ConfigVersionBasis"
     ]
@@ -130,7 +133,8 @@ driver = monitor.driver
 check("the simulated driver is the one under test",
       getattr(driver, "simulate_config", False) is True, type(driver).__name__)
 
-# /api/shares lists shares sorted by name, so expectations are sorted too.
+# /api/shares lists shares sorted by name, so expectations are sorted
+# too.
 BASELINE_SHARE_NAMES = ["Documents", "Photo Library", "Private", "TimeMachine"]
 
 try:
@@ -219,10 +223,10 @@ try:
     check("the message says the share starts with no access",
           "no access" in reply.get("message", ""), reply.get("message"))
 
-    # This read happens well inside the 60s shares TTL, and the cache was
-    # filled by the baseline read above -- so a listing that carries the new
-    # share is proof the write invalidated the cache rather than leaving a
-    # stale copy that makes a verified write look failed.
+    # This read happens well inside the 60s shares TTL, and the cache
+    # was filled by the baseline read above -- so a listing that carries
+    # the new share is proof the write invalidated the cache rather than
+    # leaving a stale copy that makes a verified write look failed.
     status, names, reply = listed_names()
     check("the new share is listed immediately, not after the TTL",
           names == sorted(BASELINE_SHARE_NAMES + ["Backups"]), names)
@@ -235,10 +239,10 @@ try:
     print(
         "\n== the flow the create message promises: grant access afterwards =="
     )
-    # A new share is stored with an EMPTY <ShareUsers/> -- None once parsed --
-    # and the create message tells the user to grant access next. That is the
-    # one share on the device whose users container is empty, so it is also the
-    # one the access write must handle.
+    # A new share is stored with an EMPTY <ShareUsers/> -- None once
+    # parsed -- and the create message tells the user to grant access
+    # next. That is the one share on the device whose users container is
+    # empty, so it is also the one the access write must handle.
     status, reply = call("/api/config/share-access",
                          body={"share": "Backups", "user": "Everyone",
                                "access": "1"})
@@ -335,9 +339,9 @@ try:
     check("-- explaining the retype rule",
           "typed twice" in reply.get("error", ""), reply.get("error"))
 
-    # The mismatch 400 comes from the parse step, before the simulate fork or
-    # any device lookup -- so even an unknown share fails on the CONFIRMATION,
-    # proving the gate runs first.
+    # The mismatch 400 comes from the parse step, before the simulate
+    # fork or any device lookup -- so even an unknown share fails on the
+    # CONFIRMATION, proving the gate runs first.
     status, reply = call("/api/shares/delete",
                          body={"name": "Nope", "confirm_name": "nope"})
     check("the confirmation is checked before the share is even looked up",
@@ -405,11 +409,12 @@ try:
     print(
         "\n== all four write outcomes, through the mock's injected endings =="
     )
-    # The point of this whole section is the two middles. On 2026-08-25 a real
-    # 5N was sent a share create, closed the socket without answering, and had
-    # created the share -- and every layer above reported a failure. So each
-    # ending below is checked on BOTH halves: what the agent says, and what the
-    # simulated device actually holds afterwards.
+    # The point of this whole section is the two middles. On 2026-08-25
+    # a real 5N was sent a share create, closed the socket without
+    # answering, and had created the share -- and every layer above
+    # reported a failure. So each ending below is checked on BOTH
+    # halves: what the agent says, and what the simulated device
+    # actually holds afterwards.
 
     def arm_write_ending(mode):
         status, reply = call("/api/mock/write/" + mode, method="POST")
@@ -450,9 +455,9 @@ try:
     check("-- and says to re-read before sending it again",
           "before sending this again" in reply.get("error", ""),
           reply.get("error"))
-    # The trap this outcome exists for: the change IS on the device while the
-    # answer says nothing of the sort. A UI that renders this as "failed"
-    # invites a retry of a write that already happened.
+    # The trap this outcome exists for: the change IS on the device
+    # while the answer says nothing of the sort. A UI that renders this
+    # as "failed" invites a retry of a write that already happened.
     check("-- and the write had in fact applied",
           version_basis() != version_basis_before,
           (version_basis_before, version_basis()))
@@ -500,9 +505,10 @@ try:
         reply,
     )
 
-    # Delete is destructive, so its unacknowledged case matters most of all:
-    # reporting a completed delete as a failure is how a share gets deleted
-    # twice, and the second attempt would fail on a share that is already gone.
+    # Delete is destructive, so its unacknowledged case matters most of
+    # all: reporting a completed delete as a failure is how a share gets
+    # deleted twice, and the second attempt would fail on a share that
+    # is already gone.
     arm_write_ending("hangs_up")
     status, reply = call("/api/shares/delete",
                          body={"name": "Unanswered",
@@ -534,11 +540,12 @@ try:
     )
 
     print("\n== the SAME four outcomes off the real SDK, without hardware ==")
-    # Everything above drives the simulated fork. This drives the HARDWARE fork
-    # -- the one that calls the SDK -- with the SDK function replaced by
-    # something that answers the way the SDK documents. No socket is opened:
-    # the fake stands where sharewrite.create_share would, and what is being
-    # checked is purely how the agent files each SDK answer.
+    # Everything above drives the simulated fork. This drives the
+    # HARDWARE fork -- the one that calls the SDK -- with the SDK
+    # function replaced by something that answers the way the SDK
+    # documents. No socket is opened: the fake stands where
+    # sharewrite.create_share would, and what is being checked is purely
+    # how the agent files each SDK answer.
 
     original_create_share = sharewrite.create_share
     driver.simulate_config = False
@@ -561,8 +568,8 @@ try:
               status == 200 and reply.get("outcome") == "verified",
               (status, reply))
 
-        # (b) the shape config_cmd returns when the device hung up and the
-        # arbitrating read-back found the change anyway.
+        # (b) the shape config_cmd returns when the device hung up and
+        # the arbitrating read-back found the change anyway.
         sdk_answers({"section": "shares", "result_code": None,
                      "acknowledged": False, "verified": True,
                      "note": "the device never acknowledged this write"})
@@ -573,9 +580,9 @@ try:
         check("-- labelled verified_unacknowledged",
               reply.get("outcome") == "verified_unacknowledged", reply)
 
-        # (d) via config_cmd's own type. It subclasses ConfigWriteError, so a
-        # handler that caught that first would file this as a flat failure --
-        # this check is what stops that regression.
+        # (d) via config_cmd's own type. It subclasses ConfigWriteError,
+        # so a handler that caught that first would file this as a flat
+        # failure -- this check is what stops that regression.
         sdk_answers(config_cmd.ConfigWriteOutcomeUnknownError(
             "the write to section 'shares' WAS sent, then the device closed "
             "the connection without answering."))
@@ -616,8 +623,8 @@ try:
               status == 502 and reply.get("outcome") == "failed",
               (status, reply))
 
-        # A device that is simply off. Nothing was sent, so this must NOT be
-        # dressed up as "may have applied".
+        # A device that is simply off. Nothing was sent, so this must
+        # NOT be dressed up as "may have applied".
         sdk_answers(OSError("[WinError 10061] connection refused"))
         status, reply = call("/api/shares/create", body={"name": "SdkOffline"})
         check("SDK: an unreachable command port is 502 failed, not 'unknown'",
@@ -655,7 +662,8 @@ try:
     check("a read-back that says unchanged is 'failed'",
           api._write_outcome({"verified": False})[0] == api.WRITE_FAILED)
     # The defensive half: an SDK shape nobody here has seen must land on
-    # "unknown", never on "verified". One costs a re-read; the other lies.
+    # "unknown", never on "verified". One costs a re-read; the other
+    # lies.
     check("a shape this code does not recognise is 'unknown', never a success",
           api._write_outcome({"applied": True})[0] == api.WRITE_UNKNOWN)
     check("a non-dict result is 'unknown' too",
