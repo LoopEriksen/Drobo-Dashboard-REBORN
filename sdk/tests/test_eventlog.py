@@ -3,13 +3,14 @@ Tests for eCmdGetUserEventLog -- the Drobo's own event history.
 
 WHAT THESE FIXTURES ARE, HONESTLY: no reply to command 91 has ever been
 captured -- the 2026-08-05/06 captures recorded only the REQUEST
-(<Params><Path>/uel.log</Path></Params>, docs/protocol-map.md). So the reply
-fixtures below are built to the channel's confirmed ENVELOPE conventions (the
-TMCmd / ResultDetails shapes measured for eCmdGetSysInfo and friends), with
-opaque text standing in for log content. What they prove is the contract the
-module promises while the format is unknown: lines come back verbatim, nothing
-is invented, and any structured shape we have never seen is refused rather
-than guessed at. The one CAPTURED byte-for-byte assertion here is the request.
+(<Params><Path>/uel.log</Path></Params>, docs/protocol-map.md). So the
+reply fixtures below are built to the channel's confirmed ENVELOPE
+conventions (the TMCmd / ResultDetails shapes measured for
+eCmdGetSysInfo and friends), with opaque text standing in for log
+content. What they prove is the contract the module promises while the
+format is unknown: lines come back verbatim, nothing is invented, and
+any structured shape we have never seen is refused rather than guessed
+at. The one CAPTURED byte-for-byte assertion here is the request.
 
     py test_eventlog.py
 """
@@ -38,17 +39,19 @@ def check(label, condition, failure_detail=""):
 
 
 def result_envelope(inner_text: str, escaped: bool = True) -> bytes:
-    """A TMCmd result carrying `inner_text` in <ResultDetails>, escaped the
-    way eCmdGetSysInfo's replies are, or raw for the unescaped variant."""
+    """A TMCmd result carrying `inner_text` in <ResultDetails>, escaped
+    the way eCmdGetSysInfo's replies are, or raw for the unescaped
+    variant."""
     details_text = html.escape(inner_text) if escaped else inner_text
     return (b"<TMCmd><CmdID>91</CmdID><Result>8589934592</Result>"
             b"<ResultDetails>" + details_text.encode() + b"</ResultDetails>"
             b"</TMCmd>\x00")
 
 
-# Placeholder log content -- the parser must treat it as opaque, so these
-# lines are arbitrary on purpose. The CRLF endings and the blank line are the
-# point: a log FILE will have them, and they must not become entries.
+# Placeholder log content -- the parser must treat it as opaque, so
+# these lines are arbitrary on purpose. The CRLF endings and the blank
+# line are the point: a log FILE will have them, and they must not
+# become entries.
 LOG_TEXT = ("first line of the log\r\n"
             "second line, with an & ampersand\r\n"
             "\r\n"

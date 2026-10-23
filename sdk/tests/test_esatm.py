@@ -1,10 +1,10 @@
 """
 Offline tests for the real Drobo 5N status path (nasd/esatm.py).
 
-Uses a sanitized capture of an actual <ESATMUpdate> greeting (fake serials, fake
-name, synthetic drive models, firmware revisions and capacities) so the parser
-is regression-tested without hardware and without any real device identity in
-the repo. No network is touched.
+Uses a sanitized capture of an actual <ESATMUpdate> greeting (fake
+serials, fake name, synthetic drive models, firmware revisions and
+capacities) so the parser is regression-tested without hardware and
+without any real device identity in the repo. No network is touched.
 
     py test_esatm.py
 """
@@ -57,10 +57,11 @@ check("model is Drobo 5N", snapshot_dict["device"]["model"] == "Drobo 5N")
 present_drives = [drive for drive in snapshot_dict["drives"]
                   if drive["present"]]
 check("five drives present", len(present_drives) == 5, len(present_drives))
-# A 5N reports mSlotCountExp = 6, but it only has five physical bays: the sixth
-# is a firmware placeholder that is always empty. parse_esatm() trims it, so a
-# fully-populated 5N shows five bays and no empty one. (This assertion used to
-# expect the phantom bay back when we surfaced it.)
+# A 5N reports mSlotCountExp = 6, but it only has five physical bays:
+# the sixth is a firmware placeholder that is always empty.
+# parse_esatm() trims it, so a fully-populated 5N shows five bays and no
+# empty one. (This assertion used to expect the phantom bay back when we
+# surfaced it.)
 check(
     "no phantom sixth bay",
     sum(1 for drive in snapshot_dict["drives"] if not drive["present"]) == 0,
@@ -76,9 +77,10 @@ check("all present drives ok",
       all(drive["state"] == STATE_OK for drive in present_drives))
 check("drive capacity ~4TB", all(
     3.9e12 < drive["capacity_bytes"] < 4.1e12 for drive in present_drives))
-# Per-slot mSerial is the DISK's serial, which is a different field from the
-# device's mESAID. Confusing the two was a real bug once, so assert they are
-# distinct per drive and disk-shaped, not that they equal the device serial.
+# Per-slot mSerial is the DISK's serial, which is a different field from
+# the device's mESAID. Confusing the two was a real bug once, so assert
+# they are distinct per drive and disk-shaped, not that they equal the
+# device serial.
 check("each disk has its own distinct serial",
       len({drive["serial"] for drive in present_drives})
       == len(present_drives),
@@ -155,10 +157,11 @@ check("used_fraction between 0 and 1", 0 <
       capacity["used_fraction"] < 1, capacity["used_fraction"])
 
 print("\n== absent pack-status fields must read as unknown, not zero ==")
-# Regression: these codes were parsed with a default of 0. Because the healthy
-# baseline includes non-zero values (dnas_status=6, device_status=98304), a
-# device that omitted a field would have looked like it CHANGED, firing a false
-# alarm. Absent must be None so the alert rule skips it.
+# Regression: these codes were parsed with a default of 0. Because the
+# healthy baseline includes non-zero values (dnas_status=6,
+# device_status=98304), a device that omitted a field would have looked
+# like it CHANGED, firing a false alarm. Absent must be None so the
+# alert rule skips it.
 
 _greeting_without_pack_status = GREETING_PAYLOAD.rstrip(b"\x00")
 for _tag in (b"mDiskPackStatus", b"DNASStatus", b"mStatusEx",
@@ -191,14 +194,14 @@ check("a field that IS present still parses",
       _partial_pack_health.device_status)
 
 # The ALERT consequence of this -- that absent fields raise no false
-# "changed from baseline" alarm -- is an agent concern rather than a protocol
-# one, so it lives in agent/tests/test_agent.py under "absent pack-status fields
-# raise no false alarm". This suite stops at "absent parses as None", which is
-# the part the library is responsible for.
+# "changed from baseline" alarm -- is an agent concern rather than a
+# protocol one, so it lives in agent/tests/test_agent.py under "absent
+# pack-status fields raise no false alarm". This suite stops at "absent
+# parses as None", which is the part the library is responsible for.
 #
-# Worth knowing: when this moved out during the SDK split, the comment claiming
-# it lived there was written before it did, and the check was briefly lost
-# altogether. Restored 2026-07-27.
+# Worth knowing: when this moved out during the SDK split, the comment
+# claiming it lived there was written before it did, and the check was
+# briefly lost altogether. Restored 2026-07-27.
 
 print("\n== frame reading over a real socket ==")
 frame = esatm.SIGNATURE + b"\x01\x01\x00\x00" + \
@@ -237,12 +240,13 @@ finally:
     reader_socket.close()
 
 print("\n== a stalling peer cannot hold the read open for ever ==")
-# The header declares a 4 MB payload that never arrives. Before the deadline
-# there was only a PER-RECV timeout, so a peer that went quiet on a socket in
-# blocking mode -- or dribbled one byte inside every window -- held the reader
-# indefinitely, and the agent runs this while holding its process-wide
-# discovery lock. Anything on the LAN can answer on port 5000 and claim to be
-# a Drobo, so a peer that behaves badly on purpose is the realistic case.
+# The header declares a 4 MB payload that never arrives. Before the
+# deadline there was only a PER-RECV timeout, so a peer that went quiet
+# on a socket in blocking mode -- or dribbled one byte inside every
+# window -- held the reader indefinitely, and the agent runs this while
+# holding its process-wide discovery lock. Anything on the LAN can
+# answer on port 5000 and claim to be a Drobo, so a peer that behaves
+# badly on purpose is the realistic case.
 reader_socket, writer_socket = socket.socketpair()
 writer_socket.sendall(esatm.SIGNATURE + b"\x01\x01\x00\x00"
                       + struct.pack(">I", 4 * 1024 * 1024))
@@ -251,9 +255,10 @@ try:
     esatm.read_frame(reader_socket, deadline=time.monotonic() + 0.3)
     check("a stalled read gives up", False)
 except (esatm.FrameError, OSError):
-    # FrameError once the budget is spent, or the socket timeout that the
-    # shrinking deadline puts on the last recv -- which one you get depends on
-    # the scheduler, so this asserts that it stopped, not how.
+    # FrameError once the budget is spent, or the socket timeout that
+    # the shrinking deadline puts on the last recv -- which one you get
+    # depends on the scheduler, so this asserts that it stopped, not
+    # how.
     check("a stalled read gives up", True)
 finally:
     _elapsed = time.monotonic() - _started_at
@@ -263,12 +268,12 @@ check(
     "...and within its budget rather than for ever", _elapsed < 5.0, _elapsed
 )
 
-# The deadline works by shrinking the socket's own timeout as the budget runs
-# down, and that value belongs to the one read. fetch_greeting closes the
-# socket straight after, so nothing here would notice it being left behind --
-# but config_cmd's copy of this read sends on the socket afterwards, and the
-# two copies are deliberately the same read. Checked on both sides so they
-# cannot drift apart again.
+# The deadline works by shrinking the socket's own timeout as the budget
+# runs down, and that value belongs to the one read. fetch_greeting
+# closes the socket straight after, so nothing here would notice it
+# being left behind -- but config_cmd's copy of this read sends on the
+# socket afterwards, and the two copies are deliberately the same read.
+# Checked on both sides so they cannot drift apart again.
 reader_socket, writer_socket = socket.socketpair()
 reader_socket.settimeout(5.0)
 writer_socket.sendall(
@@ -281,11 +286,12 @@ writer_socket.close()
 
 
 print("\n== volumes, read from the greeting at no extra cost ==")
-# The pack is carved into volumes (Drobo calls them LUNs); each becomes a drive
-# letter in Windows. Every volume-MANAGEMENT command in the firmware table
-# answers empty on this firmware -- but the device volunteers the STATE of its
-# volumes in the ordinary status greeting, which is the half worth having and
-# costs no extra connection to a device that tires easily.
+# The pack is carved into volumes (Drobo calls them LUNs); each becomes
+# a drive letter in Windows. Every volume-MANAGEMENT command in the
+# firmware table answers empty on this firmware -- but the device
+# volunteers the STATE of its volumes in the ordinary status greeting,
+# which is the half worth having and costs no extra connection to a
+# device that tires easily.
 check("the real greeting carries one volume", len(
     snapshot.volumes) == 1, len(snapshot.volumes))
 check("the pack could hold sixteen", snapshot.max_volumes == 16,
@@ -300,9 +306,10 @@ check("partition count read", _volume.partition_count == 2,
 check("partition type carried raw", _volume.partition_type == 3,
       _volume.partition_type)
 # ...and now also decoded. Scheme 3 is GPT, on two independent grounds:
-# drobo-utils (Peter Silva's reverse-engineering of Drobo's SCSI management
-# protocol) says so, and MBR cannot address the 64 TiB ceiling this volume
-# reports. See models.Volume for the full credit, including what got rejected.
+# drobo-utils (Peter Silva's reverse-engineering of Drobo's SCSI
+# management protocol) says so, and MBR cannot address the 64 TiB
+# ceiling this volume reports. See models.Volume for the full credit,
+# including what got rejected.
 check("partition scheme 3 is decoded as GPT",
       _volume.partition_scheme == "GPT", _volume.partition_scheme)
 check(
@@ -314,14 +321,16 @@ check("the raw number is still carried alongside the word",
       _volume.to_dict()["partition_type"] == 3,
       _volume.to_dict().get("partition_type"))
 
-# The format number stays raw. drobo-utils' format table (NO FORMAT/NTFS/HFS/
-# EXT3/FAT32) contains no 64, so that mapping does NOT transfer -- and a
-# neighbouring table being right is not evidence for guessing this one.
+# The format number stays raw. drobo-utils' format table (NO
+# FORMAT/NTFS/HFS/ EXT3/FAT32) contains no 64, so that mapping does NOT
+# transfer -- and a neighbouring table being right is not evidence for
+# guessing this one.
 check("partition format carried raw",
       _volume.partition_format == 64, _volume.partition_format)
 
-# An unrecognised scheme yields "" rather than "Unknown", so a UI falls back to
-# showing the raw number it already has instead of a word that means nothing.
+# An unrecognised scheme yields "" rather than "Unknown", so a UI falls
+# back to showing the raw number it already has instead of a word that
+# means nothing.
 check("an unknown scheme is empty, not 'Unknown'",
       dataclasses.replace(_volume, partition_type=99).partition_scheme == "")
 check("an absent scheme is empty too",
@@ -331,8 +340,8 @@ check("scheme 1 is MBR", dataclasses.replace(
 check("an unnamed volume stays unnamed rather than being invented",
       _volume.name == "", repr(_volume.name))
 
-# Absent must not read as zero -- a volume reporting no partition count is not
-# a volume with zero partitions.
+# Absent must not read as zero -- a volume reporting no partition count
+# is not a volume with zero partitions.
 _bare_volumes = esatm._parse_volumes(
     ElementTree.fromstring(
         "<r><mLUNUpdates><n0><mLUN>0</mLUN></n0></mLUNUpdates></r>"

@@ -1,13 +1,14 @@
 """
-Tests for the first write this project ever sends, and the two reads that
-landed alongside it.
+Tests for the first write this project ever sends, and the two reads
+that landed alongside it.
 
     py test_identify.py
 
-The Identify tests carry more weight than their size suggests. This project
-was read-only against the hardware for its entire life; eCmdIdentify is the
-single, deliberate exception. What is being tested here is not really "does
-the command work" -- it is "is the boundary still exactly where we put it".
+The Identify tests carry more weight than their size suggests. This
+project was read-only against the hardware for its entire life;
+eCmdIdentify is the single, deliberate exception. What is being tested
+here is not really "does the command work" -- it is "is the boundary
+still exactly where we put it".
 
 Runs entirely offline against a fake device. No hardware, no network.
 """
@@ -96,7 +97,8 @@ def fake_device(reply_type, reply_body, port_holder, login_ok=True):
 
 
 def send_identify(**identify_options):
-    """One identify against a throwaway fake device; returns (result, bytes)."""
+    """One identify against a throwaway fake device; returns (result,
+    bytes)."""
     ports = []
     received_frames = fake_device(config_cmd.TYPE_RESULT, b"", ports)
     result = identify.identify(
@@ -119,8 +121,9 @@ check("the wire carries the right command id",
       sent_command[:160])
 check("the device serial is included", "drb000000SAMPLE" in sent_command)
 
-# An empty reply is success here. Identify's result is a blinking light, not a
-# document -- so unlike the read commands, no payload must NOT read as failure.
+# An empty reply is success here. Identify's result is a blinking light,
+# not a document -- so unlike the read commands, no payload must NOT
+# read as failure.
 check("an empty reply is still success",
       result["device_replied"] is False, result)
 
@@ -131,23 +134,26 @@ print(
     "binary 2026-08-06 =="
 )
 #
-# This replaces an assertion that used to read "params are sent EMPTY -- never
-# guessed", and the replacement is deliberate rather than a relaxation.
+# This replaces an assertion that used to read "params are sent EMPTY --
+# never guessed", and the replacement is deliberate rather than a
+# relaxation.
 #
-# Empty Params was the honest answer while the parameter was unknown: the
-# firmware names command 26 but not its arguments. It was believed to be why
-# nothing ever blinked, until the 2026-08-07 hardware test sent 15 and nothing
-# blinked either. `IdentifyInterval` was recovered from Drobo Dashboard.exe
-# 3.5.0, where it sits in the run of <Params> tag names. It is also CONFIRMED
-# on the wire: the 2026-07-25 capture of the original Dashboard's Blink Lights
-# carries <IdentifyInterval>900</IdentifyInterval>. (This comment said "no
+# Empty Params was the honest answer while the parameter was unknown:
+# the firmware names command 26 but not its arguments. It was believed
+# to be why nothing ever blinked, until the 2026-08-07 hardware test
+# sent 15 and nothing blinked either. `IdentifyInterval` was recovered
+# from Drobo Dashboard.exe 3.5.0, where it sits in the run of <Params>
+# tag names. It is also CONFIRMED on the wire: the 2026-07-25 capture of
+# the original Dashboard's Blink Lights carries
+# <IdentifyInterval>900</IdentifyInterval>. (This comment said "no
 # capture of the button exists" until 2026-09-26. One did.)
 #
-# The default checked below is 15, this project's own guess, NOT the captured
+# The default checked below is 15, this project's own guess, NOT the
+# captured
 # 900. It changes only after 900 has been sent while someone watches the
-# unit. What is still open is the UNIT, and these tests are careful not to
-# pretend otherwise. They check that the number we chose is transmitted
-# exactly as given; none of them claims it means minutes.
+# unit. What is still open is the UNIT, and these tests are careful not
+# to pretend otherwise. They check that the number we chose is
+# transmitted exactly as given; none of them claims it means minutes.
 
 check("the interval element is the one from Dashboard's binary",
       identify.INTERVAL_TAG == "IdentifyInterval", identify.INTERVAL_TAG)
@@ -176,9 +182,9 @@ check("zero -- the stop guess -- is sent, not silently dropped",
 check("zero is reported as zero, not as 'nothing asked for'",
       stop_interval_result["interval"] == 0, stop_interval_result)
 
-# The control case. If the device blinks with an interval and not without one,
-# THAT is the measurement that upgrades this from inference to fact -- so the
-# old behaviour has to stay reachable on purpose.
+# The control case. If the device blinks with an interval and not
+# without one, THAT is the measurement that upgrades this from inference
+# to fact -- so the old behaviour has to stay reachable on purpose.
 no_interval_result, no_interval_command = send_identify(interval=None)
 check("interval=None still sends the historical empty Params",
       "<Params></Params>" in no_interval_command, no_interval_command[:200])
@@ -189,8 +195,8 @@ check("None is reported as None", no_interval_result["interval"] is None,
 
 
 print("\n== bad intervals are refused before a socket is opened ==")
-# Refused early and locally: a typo should not become a connection to storage
-# hardware that is then logged and abandoned half-done.
+# Refused early and locally: a typo should not become a connection to
+# storage hardware that is then logged and abandoned half-done.
 for bad_interval, reason in ((-1, "negative"), (-900, "very negative"),
                              (identify.MAX_INTERVAL + 1,
                               "beyond the sanity limit"),
@@ -260,8 +266,9 @@ check("apps come back sorted by name",
       [app["name"] for app in parsed_apps["apps"]] == ["AlphaApp", "betaapp"],
       parsed_apps["apps"])
 
-# The device says "Stopped"; people say "running". The flip happens once, in
-# the parser, so nothing above it has to remember the polarity is inverted.
+# The device says "Stopped"; people say "running". The flip happens
+# once, in the parser, so nothing above it has to remember the polarity
+# is inverted.
 check("Stopped=0 becomes running=True",
       apps_by_name["betaapp"]["running"] is True)
 check("Stopped=1 becomes running=False",
@@ -293,8 +300,8 @@ def parse_brightness(value):
 
 
 check("the live device's reading parses", parse_brightness(59) == 59)
-# The distinction that matters: lights-off is a real setting, and must not be
-# confused with having no reading at all.
+# The distinction that matters: lights-off is a real setting, and must
+# not be confused with having no reading at all.
 check("zero is a brightness, not a missing value", parse_brightness(0) == 0)
 check("...and is not None", parse_brightness(0) is not None)
 check("empty means no reading", parse_brightness("") is None)

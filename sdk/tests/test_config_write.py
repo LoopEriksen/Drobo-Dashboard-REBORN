@@ -1,22 +1,24 @@
 """
-Tests for the configuration WRITE path -- config_cmd.set_config and the first
-write built on it, droboapps.set_dimming.
+Tests for the configuration WRITE path -- config_cmd.set_config and the
+first write built on it, droboapps.set_dimming.
 
     py test_config_write.py
 
-This is the most safety-critical code in the SDK: it is the only sanctioned way
-to send eCmdSetConfig, the single command the real Dashboard uses for every
-config change including rename and share permissions. So the tests lean hard on
-the ways a write could go WRONG -- a sibling field clobbered, an unknown field
-dropped, a value out of band, the device not actually accepting it -- rather
-than just proving the happy path.
+This is the most safety-critical code in the SDK: it is the only
+sanctioned way to send eCmdSetConfig, the single command the real
+Dashboard uses for every config change including rename and share
+permissions. So the tests lean hard on the ways a write could go WRONG
+-- a sibling field clobbered, an unknown field dropped, a value out of
+band, the device not actually accepting it -- rather than just proving
+the happy path.
 
 Everything runs against a fake device on loopback. No hardware.
 
-The write path does TWO exchanges: config_cmd.set_config reads the section
-(one connection), then sends the modified document (a second connection). The
-fake device below therefore serves a queue of replies, one per connection, and
-records the bytes of the write so a test can assert exactly what went out.
+The write path does TWO exchanges: config_cmd.set_config reads the
+section (one connection), then sends the modified document (a second
+connection). The fake device below therefore serves a queue of replies,
+one per connection, and records the bytes of the write so a test can
+assert exactly what went out.
 """
 import html
 import os
@@ -54,7 +56,8 @@ def _raises(attempt, expected_error_type):
 
 
 def _write_result_reply(code: int) -> bytes:
-    """A reply carrying a <Result> code and no details -- what a write gets back."""
+    """A reply carrying a <Result> code and no details -- what a write
+    gets back."""
     return (f"<TMCmd><CmdID>31</CmdID><Result>{code}</Result>"
             f"<ResultDetails/></TMCmd>").encode() + b"\x00"
 
@@ -62,12 +65,12 @@ def _write_result_reply(code: int) -> bytes:
 def _general_reply(feature_states="7", spindown_delay="14", dim_level="59",
                    extra_general_xml="") -> bytes:
     """
-    A read reply for the General section, in the shape the REAL 5N returns:
-    the fields wrapped in <DRINASConfig><General> (measured on firmware 4.3.1,
-    2026-08-10 -- earlier fixtures used a flat shape and hid a wrapper bug that
-    only surfaced on the first hardware read). `extra_general_xml` injects an
-    unexpected element inside <General> so a test can prove the writer
-    refuses to drop it.
+    A read reply for the General section, in the shape the REAL 5N
+    returns: the fields wrapped in <DRINASConfig><General> (measured on
+    firmware 4.3.1, 2026-08-10 -- earlier fixtures used a flat shape and
+    hid a wrapper bug that only surfaced on the first hardware read).
+    `extra_general_xml` injects an unexpected element inside <General>
+    so a test can prove the writer refuses to drop it.
     """
     general_fields_xml = (f"<FeatureStates>{feature_states}</FeatureStates>"
                           f"<SpindownDelay>{spindown_delay}</SpindownDelay>"
@@ -80,14 +83,16 @@ def _general_reply(feature_states="7", spindown_delay="14", dim_level="59",
 
 
 def _dimming_reply(value) -> bytes:
-    """A read-back reply for eCmdGetDimming: a bare number in <ResultDetails>."""
+    """A read-back reply for eCmdGetDimming: a bare number in
+    <ResultDetails>."""
     return (
         f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>"
     ).encode() + b"\x00"
 
 
 def _apps_reply(*names) -> bytes:
-    """A eCmdGetDroboAppsStatus reply listing the given app names (all stopped)."""
+    """A eCmdGetDroboAppsStatus reply listing the given app names (all
+    stopped)."""
     apps_xml = "".join(f"<App><Name>{n}</Name><Version>1.0</Version>"
                        f"<Stopped>1</Stopped></App>" for n in names)
     escaped_inner_xml = html.escape(
@@ -99,9 +104,9 @@ def _apps_reply(*names) -> bytes:
 
 class FakeDrobo:
     """
-    Serves a fixed queue of replies, one per incoming connection, and records
-    the command payload of each. Enough to stand in for the read-then-write
-    dance without a device.
+    Serves a fixed queue of replies, one per incoming connection, and
+    records the command payload of each. Enough to stand in for the
+    read-then-write dance without a device.
     """
 
     def __init__(self, replies, login_ok=True):
@@ -156,7 +161,8 @@ SAMPLE_ESA_ID = "drb000000SAMPLE"
 # ---------------------------------------------------------------------------
 print("== the happy path: change only Dim, keep the siblings ==")
 
-# Three connections now: read General, write, read-back to verify it applied.
+# Three connections now: read General, write, read-back to verify it
+# applied.
 fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(
     config_cmd.RESULT_ACCEPTED), _dimming_reply(10)])
 result = droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
@@ -267,9 +273,10 @@ print(
     "\n== the siblings are sacred: unknown/missing fields refuse the write =="
 )
 
-# An unknown field in the block -> refuse, do not drop it. Block-preservation
-# failures raise GeneralWriteError (the shared base), since they are shared by
-# every General-block write, not just brightness.
+# An unknown field in the block -> refuse, do not drop it.
+# Block-preservation failures raise GeneralWriteError (the shared base),
+# since they are shared by every General-block write, not just
+# brightness.
 fake_drobo = FakeDrobo(
     [_general_reply(extra_general_xml="<NightMode>1</NightMode>"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED)])
@@ -283,7 +290,8 @@ except droboapps.GeneralWriteError as exc:
 check("...and the write was never sent (only the read happened)",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
 
-# A missing expected field -> refuse rather than write a block unlike what was read.
+# A missing expected field -> refuse rather than write a block unlike
+# what was read.
 fake_drobo = FakeDrobo([("<TMCmd><CmdID>30</CmdID><ResultDetails>"
                          "<FeatureStates>7</FeatureStates><Dim>59</Dim>"
                          "</ResultDetails></TMCmd>").encode() + b"\x00",
@@ -298,8 +306,8 @@ except droboapps.GeneralWriteError as exc:
 
 print("\n== the device's verdict is believed, not assumed ==")
 
-# A well-formed reply that is NOT the accept code must raise -- the Identify
-# lesson: accepted is not the same as replied.
+# A well-formed reply that is NOT the accept code must raise -- the
+# Identify lesson: accepted is not the same as replied.
 fake_drobo = FakeDrobo([_general_reply(), _write_result_reply(0)])
 try:
     droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
@@ -378,9 +386,9 @@ check("build_section_document is handed the device's current document",
       and captured_baseline["before"], captured_baseline)
 
 print("\n== the write is confined to the section it read ==")
-# A build_section_document whose document is NOT the section's element is
-# refused, so an empty-DRIShareConfig 'wipe every share' cannot be shipped under
-# section=general.
+# A build_section_document whose document is NOT the section's element
+# is refused, so an empty-DRIShareConfig 'wipe every share' cannot be
+# shipped under section=general.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
@@ -395,9 +403,10 @@ check("...and nothing was written (only the read happened)",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 print("\n== a masked credential is never written back ==")
-# The write baseline read is un-redacted (redact=False), so a real value is
-# preserved. But belt-and-braces: if the sentinel ever appears in the built
-# document, set_config refuses rather than writing "[redacted]" over a secret.
+# The write baseline read is un-redacted (redact=False), so a real value
+# is preserved. But belt-and-braces: if the sentinel ever appears in the
+# built document, set_config refuses rather than writing "[redacted]"
+# over a secret.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
@@ -414,8 +423,8 @@ except config_cmd.ConfigWriteError as exc:
 check("...and the masked write never reached the device",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
 
-# And the baseline read really is un-redacted: a secret-named field in the
-# General reply comes through to build_section_document intact, not
+# And the baseline read really is un-redacted: a secret-named field in
+# the General reply comes through to build_section_document intact, not
 # masked.
 grabbed_baseline = {}
 fake_drobo = FakeDrobo(
@@ -454,8 +463,8 @@ check("...and is STILL refused to ordinary senders (in DO_NOT_SEND)",
       "eCmdSetConfig" in commands.DO_NOT_SEND)
 
 print("\n== a non-scalar General sibling is refused, not repr'd ==")
-# _element_to_dict yields a dict for an element with children; set_dimming must
-# not serialize {'x': '1'} into the block.
+# _element_to_dict yields a dict for an element with children;
+# set_dimming must not serialize {'x': '1'} into the block.
 fake_drobo = FakeDrobo([("<TMCmd><CmdID>30</CmdID><ResultDetails>"
                          "<FeatureStates><Nested>1</Nested></FeatureStates>"
                          "<SpindownDelay>14</SpindownDelay><Dim>59</Dim>"
@@ -471,8 +480,9 @@ except droboapps.GeneralWriteError as exc:
 check("...and nothing was written", len(fake_drobo.sent) == 1, fake_drobo.sent)
 
 print("\n== spin-down rides the same vetted General path ==")
-# A nonzero delay while spin-down is already enabled (bit set, FeatureStates=7)
-# changes only SpindownDelay and keeps Dim + FeatureStates.
+# A nonzero delay while spin-down is already enabled (bit set,
+# FeatureStates=7) changes only SpindownDelay and keeps Dim +
+# FeatureStates.
 fake_drobo = FakeDrobo(
     [_general_reply(feature_states="7", spindown_delay="14", dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED),
@@ -492,9 +502,10 @@ check("the LED brightness is untouched by a spin-down write",
 check("spin-down verifies via read-back",
       result.get("verified") is True, result)
 
-# MEASURED ON HARDWARE 2026-08-12: a bare delay of 0 does NOT disable spin-down.
-# With the enable bit set the device accepts 0, returns the success code, and
-# stores 15. So set_spindown(0) must be REFUSED before any network write.
+# MEASURED ON HARDWARE 2026-08-12: a bare delay of 0 does NOT disable
+# spin-down. With the enable bit set the device accepts 0, returns the
+# success code, and stores 15. So set_spindown(0) must be REFUSED before
+# any network write.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:
@@ -521,8 +532,8 @@ check(
     written_document,
 )
 
-# disable = clear the bit AND zero the delay in ONE write -- the exact pair the
-# original Dashboard sends (capture 2026-08-06: 7/14 -> 5/0).
+# disable = clear the bit AND zero the delay in ONE write -- the exact
+# pair the original Dashboard sends (capture 2026-08-06: 7/14 -> 5/0).
 fake_drobo = FakeDrobo(
     [_general_reply(feature_states="7", spindown_delay="14", dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED),
@@ -540,7 +551,8 @@ check(
 check("disable verifies BOTH fields on read-back",
       result.get("verified") is True, result)
 
-# A disable the device did not actually apply (bit still set) must raise.
+# A disable the device did not actually apply (bit still set) must
+# raise.
 fake_drobo = FakeDrobo(
     [_general_reply(feature_states="7", spindown_delay="14", dim_level="59"),
      _write_result_reply(config_cmd.RESULT_ACCEPTED),
@@ -554,7 +566,8 @@ except droboapps.SpindownWriteError as exc:
     check("a coerced/unapplied disable raises",
           "not applied" in str(exc), str(exc))
 
-# Its guards are the shared ones (block preservation) plus its own band check.
+# Its guards are the shared ones (block preservation) plus its own band
+# check.
 fake_drobo = FakeDrobo(
     [_general_reply(), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 check(
@@ -611,7 +624,8 @@ check(
 check("...and nothing was sent for a bad verb", len(fake_drobo.sent) == 0,
       fake_drobo.sent)
 
-# An app that is not installed is refused (the read happened, the action did not).
+# An app that is not installed is refused (the read happened, the action
+# did not).
 fake_drobo = FakeDrobo(
     [_apps_reply("AlphaApp"), _write_result_reply(config_cmd.RESULT_ACCEPTED)])
 try:

@@ -1,11 +1,11 @@
 """
 Offline tests for drobosync.py.
 
-The honest situation this suite encodes: every DroboSync reply this project has
-ever observed was EMPTY, because only a single unit is available to this
-project and the feature needs two. So the tests that matter most are about behaving correctly when there is
-nothing to report -- and about not pretending to know a schema nobody here has
-seen.
+The honest situation this suite encodes: every DroboSync reply this
+project has ever observed was EMPTY, because only a single unit is
+available to this project and the feature needs two. So the tests that
+matter most are about behaving correctly when there is nothing to report
+-- and about not pretending to know a schema nobody here has seen.
 
     py test_drobosync.py
 """
@@ -35,10 +35,10 @@ def _result_reply(details_xml: str) -> bytes:
 
 
 print("\n== the reply we have actually seen: empty ==")
-# Swept against the live 5N on 2026-07-26. All four read commands answered
-# empty. That is CORRECT for a device with no sync partner, and must not be
-# reported as a failure -- a red error for a perfectly healthy machine is worse
-# than saying nothing.
+# Swept against the live 5N on 2026-07-26. All four read commands
+# answered empty. That is CORRECT for a device with no sync partner, and
+# must not be reported as a failure -- a red error for a perfectly
+# healthy machine is worse than saying nothing.
 for payload in (b"", b"\x00", _result_reply(""), b"   \x00"):
     parsed = drobosync.parse_sync_reply(payload)
     check(f"{payload!r} parses as not-configured",
@@ -52,9 +52,10 @@ check("-- and no raw document", parsed_empty_reply["raw_xml"] == "",
       parsed_empty_reply)
 
 print("\n== a populated reply, whose real shape nobody here has seen ==")
-# So the parser stays GENERIC on purpose: it reports the leaf elements it found
-# rather than mapping them onto field names we would be guessing at. If this
-# ever runs against a real second Drobo, raw_xml is what tells us the truth.
+# So the parser stays GENERIC on purpose: it reports the leaf elements
+# it found rather than mapping them onto field names we would be
+# guessing at. If this ever runs against a real second Drobo, raw_xml is
+# what tells us the truth.
 populated_details_xml = (
     "&lt;DroboSync&gt;<Enabled>1</Enabled>"
     "<TargetName>Upstairs Drobo</TargetName>"
@@ -76,8 +77,8 @@ check(
 print(
     "\n== escaped nesting is unwrapped, as everywhere else in this firmware =="
 )
-# Reading these as opaque strings is the mistake that made temperature and the
-# performance counters look unobtainable for weeks.
+# Reading these as opaque strings is the mistake that made temperature
+# and the performance counters look unobtainable for weeks.
 nested = drobosync.parse_sync_reply(
     _result_reply(
         "&lt;DroboSync&gt;&lt;Enabled&gt;1&lt;/Enabled&gt;&lt;/DroboSync&gt;"
@@ -114,8 +115,9 @@ for name in drobosync.READ_COMMANDS.values():
           not commands.is_dangerous(name), name)
 
 print("\n== the writes stay refused, permanently ==")
-# Triggering a replication run moves real data between two arrays. It is not a
-# safe write, it cannot be tested with one Drobo, and it is not going in.
+# Triggering a replication run moves real data between two arrays. It is
+# not a safe write, it cannot be tested with one Drobo, and it is not
+# going in.
 for name in drobosync.WRITE_COMMANDS:
     check(f"{name} is in DO_NOT_SEND", commands.is_dangerous(name), name)
     check(f"{name} is not a safe write",
@@ -142,11 +144,12 @@ try:
           set(sync_summary["reads"]) == set(drobosync.READ_COMMANDS),
           sync_summary["reads"])
 
-    # Each read costs its own connection, and this device's command port stops
-    # answering after roughly ninety connections in an hour. Spending four on a
-    # switched-off feature every time a page refreshes would be actively
-    # harmful to a box that tires easily -- and with no partner configured
-    # there are no logs to fetch by definition.
+    # Each read costs its own connection, and this device's command port
+    # stops answering after roughly ninety connections in an hour.
+    # Spending four on a switched-off feature every time a page
+    # refreshes would be actively harmful to a box that tires easily --
+    # and with no partner configured there are no logs to fetch by
+    # definition.
     check("only settings is actually asked when sync is off",
           _reads_asked == ["settings"], _reads_asked)
     check("the three skipped reads say they were not asked",
@@ -157,7 +160,8 @@ try:
           sync_summary["reads"]["settings"]["asked"] is True,
           sync_summary["reads"]["settings"])
 
-    # The note is the whole point of shipping this dormant: explain, don't fail.
+    # The note is the whole point of shipping this dormant: explain,
+    # don't fail.
     check("it explains WHY rather than showing four empty panels",
           "needs two" in sync_summary["note"], sync_summary["note"])
     check("it says the work is already done and waiting",

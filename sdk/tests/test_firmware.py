@@ -23,8 +23,8 @@ def check(label, condition, failure_detail=""):
 
 print("\n== the release, separated from the build ==")
 # The device sends release-build. Two units on the SAME firmware carry
-# different build tails, so comparing the whole string would make them look
-# like different releases.
+# different build tails, so comparing the whole string would make them
+# look like different releases.
 check("a real device string parses to its release",
       firmware.parse_version("4.3.1-8.126.117497") == (4, 3, 1))
 check(
@@ -56,10 +56,11 @@ check("it says who withdrew it", "Drobo" in assessment.detail,
 check("it names the last-known-good version",
       firmware.LAST_KNOWN_GOOD in assessment.detail, assessment.detail)
 
-# The line this module must not cross. Downgrading means writing an unsigned
-# image to hardware with no recovery tool -- the one action that can destroy the
-# device. Informing about the firmware is useful; nudging toward a flash is not,
-# and DO_NOT_SEND refuses every flashing command anyway.
+# The line this module must not cross. Downgrading means writing an
+# unsigned image to hardware with no recovery tool -- the one action
+# that can destroy the device. Informing about the firmware is useful;
+# nudging toward a flash is not, and DO_NOT_SEND refuses every flashing
+# command anyway.
 lowered_detail = assessment.detail.lower()
 check("it never tells you to downgrade", "downgrade" not in lowered_detail,
       assessment.detail)
@@ -88,7 +89,8 @@ check("it ends on advice true regardless of firmware",
       "backups" in lowered_detail, assessment.detail)
 
 print("\n== everything else stays quiet ==")
-# A dashboard that comments on healthy firmware teaches people to ignore it.
+# A dashboard that comments on healthy firmware teaches people to ignore
+# it.
 for version in ("4.2.2", "4.2.1", "4.1.0", "1.2.7", "5.0.0", "4.4.0"):
     assessment = firmware.assess(version)
     check(f"{version} says nothing", assessment.risk ==
@@ -101,14 +103,15 @@ for version in ("", "unknown", None):
     assessment = firmware.assess(version)
     check(f"{version!r} is UNKNOWN", assessment.risk == firmware.RISK_UNKNOWN,
           assessment.risk)
-    # Unknown must not be NOTABLE either -- a device that hasn't answered yet
-    # would otherwise raise a firmware warning on every fresh agent start.
+    # Unknown must not be NOTABLE either -- a device that hasn't
+    # answered yet would otherwise raise a firmware warning on every
+    # fresh agent start.
     check(f"{version!r} is not shown to the user", not assessment.notable)
 
 print("\n== near-misses are not swept in ==")
-# 4.3.2 does not exist; if one ever turned up it would not be a build Drobo
-# pulled, because Drobo was gone. Matching "4.3.x" as a family would have
-# claimed otherwise.
+# 4.3.2 does not exist; if one ever turned up it would not be a build
+# Drobo pulled, because Drobo was gone. Matching "4.3.x" as a family
+# would have claimed otherwise.
 check("4.3.2 is not treated as withdrawn",
       firmware.assess("4.3.2").risk == firmware.RISK_NONE)
 check("4.30.1 is not confused with 4.3.1",

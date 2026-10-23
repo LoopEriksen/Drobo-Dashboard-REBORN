@@ -1,17 +1,19 @@
 """
-Tests for the eCmdGetConfig command path -- the first thing this project SENDS
-to a Drobo.
+Tests for the eCmdGetConfig command path -- the first thing this project
+SENDS to a Drobo.
 
-Runs entirely offline against a fake device, so it passes on a machine with no
-hardware. The fixtures are shaped exactly like the real responses observed on a
-live 5N, including the credential fields the device really does hand out.
+Runs entirely offline against a fake device, so it passes on a machine
+with no hardware. The fixtures are shaped exactly like the real
+responses observed on a live 5N, including the credential fields the
+device really does hand out.
 
-The redaction tests are the important ones. Asking a Drobo for its admin config
-makes it return <Password>, <EncryptedPassword> and <ValidPassword> in the
-clear, to anyone who completes a login -- and the login is just the device
-serial, which the Drobo gives to any unauthenticated caller. We cannot fix the
-device. We can refuse to become a second copy of the leak, and these tests are
-what keep that true.
+The redaction tests are the important ones. Asking a Drobo for its admin
+config makes it return <Password>, <EncryptedPassword> and
+<ValidPassword> in the clear, to anyone who completes a login -- and the
+login is just the device serial, which the Drobo gives to any
+unauthenticated caller. We cannot fix the device. We can refuse to
+become a second copy of the leak, and these tests are what keep that
+true.
 
     py test_config_cmd.py
 """
@@ -117,11 +119,12 @@ check("a password NESTED inside a share is redacted too",
 
 print("\n== the two redaction holes found by audit, 2026-07-26 ==")
 # Hole 1: this firmware sometimes returns its result as an XML document
-# *escaped into a text node* (&lt;Password&gt;, not <Password>) -- which is
-# exactly how eCmdGetSysInfo replies. _strip_secrets matches on element tags,
-# so against that shape it had nothing to match and the whole document walked
-# straight out. eCmdGetAdminConfig is in nasd_sweep's allowlist, so the next
-# sweep would have written a live admin password to disk.
+# *escaped into a text node* (&lt;Password&gt;, not <Password>) -- which
+# is exactly how eCmdGetSysInfo replies. _strip_secrets matches on
+# element tags, so against that shape it had nothing to match and the
+# whole document walked straight out. eCmdGetAdminConfig is in
+# nasd_sweep's allowlist, so the next sweep would have written a live
+# admin password to disk.
 PLANTED_SECRET = "hunter2-REAL-SECRET"
 
 
@@ -167,9 +170,9 @@ check(
     ),
 )
 
-# Hole 2: a credential element whose value lived in CHILD elements rather than
-# its own text survived, because the old code replaced .text (empty here) and
-# then deliberately skipped descending.
+# Hole 2: a credential element whose value lived in CHILD elements
+# rather than its own text survived, because the old code replaced .text
+# (empty here) and then deliberately skipped descending.
 child_element_reply = (b"<TMCmd><ResultDetails><DRINasAdminConfig>"
                        b"<UserName>admin</UserName>"
                        b"<Password><Value>" + PLANTED_SECRET.encode()
@@ -255,7 +258,8 @@ except config_cmd.ConfigError as exc:
 
 
 # --------------------------------------------------------------------------
-# End to end against a fake Drobo -- proves login + command + parse together
+# End to end against a fake Drobo -- proves login + command + parse
+# together
 # --------------------------------------------------------------------------
 print("\n== end to end against a fake device ==")
 
@@ -332,17 +336,19 @@ except config_cmd.ConfigError as exc:
 print("\n== a dribbling peer cannot hold the command channel open ==")
 # This is the defect the bounded-read fix closed on the status channel
 # (esatm._receive_exactly), still live here until now. _receive_exactly
-# had only a PER-RECV socket timeout, and a socket timeout is not a bound: a
-# peer that sends one byte just inside every window keeps the loop running for
-# as long as it likes, and the header can declare a payload of up to
-# MAX_PAYLOAD_BYTES to make "as long as it likes" mean hours. On THIS channel
-# that is worse than a stalled read, because a write left waiting on a result
-# frame that never finishes arriving is an outcome-unknown write.
+# had only a PER-RECV socket timeout, and a socket timeout is not a
+# bound: a peer that sends one byte just inside every window keeps the
+# loop running for as long as it likes, and the header can declare a
+# payload of up to MAX_PAYLOAD_BYTES to make "as long as it likes" mean
+# hours. On THIS channel that is worse than a stalled read, because a
+# write left waiting on a result frame that never finishes arriving is
+# an outcome-unknown write.
 #
-# Everything below is a socketpair or 127.0.0.1: loopback only, no hardware.
+# Everything below is a socketpair or 127.0.0.1: loopback only, no
+# hardware.
 
-# A well-formed header declaring the largest payload the module will accept --
-# exactly what a peer wanting to stall would send.
+# A well-formed header declaring the largest payload the module will
+# accept -- exactly what a peer wanting to stall would send.
 HEADER_DECLARING_MAX_PAYLOAD = (config_cmd.SIGNATURE
                                 + bytes([config_cmd.TYPE_RESULT, 0x01])
                                 + b"\x00\x00"
@@ -354,7 +360,8 @@ ELAPSED_CEILING_SECONDS = 5.0
 
 
 def dribble(sending_socket, data, gap_seconds=0.02):
-    """Send `data` a byte at a time -- the peer a per-recv timeout can't catch."""
+    """Send `data` a byte at a time -- the peer a per-recv timeout can't
+    catch."""
     def send_one_byte_at_a_time():
         try:
             for i in range(len(data)):
@@ -378,9 +385,10 @@ for _label, _sent_at_once, _trickled_bytes in (
                                deadline=time.monotonic() + READ_BUDGET_SECONDS)
         check(f"a dribbled {_label} gives up", False)
     except (config_cmd.ConfigError, OSError):
-        # ConfigError once the budget is spent, or the socket timeout the
-        # shrinking deadline puts on the last recv -- which one you get depends
-        # on the scheduler, so this asserts that it stopped, not how.
+        # ConfigError once the budget is spent, or the socket timeout
+        # the shrinking deadline puts on the last recv -- which one you
+        # get depends on the scheduler, so this asserts that it stopped,
+        # not how.
         check(f"a dribbled {_label} gives up", True)
     finally:
         _elapsed = time.monotonic() - _started_at
@@ -389,7 +397,8 @@ for _label, _sent_at_once, _trickled_bytes in (
     check(f"...and the dribbled {_label} read ends within its budget",
           _elapsed < ELAPSED_CEILING_SECONDS, _elapsed)
 
-# ...without the bound getting in the way of a device that simply answers.
+# ...without the bound getting in the way of a device that simply
+# answers.
 reader_socket, writer_socket = socket.socketpair()
 writer_socket.sendall(
     config_cmd._build_frame(config_cmd.TYPE_RESULT, NETWORK_CONFIG_REPLY))
@@ -403,8 +412,8 @@ reader_socket.close()
 writer_socket.close()
 
 # And the default is still no bound at all, so every caller outside this
-# module -- droboapps, eventlog, identify, sysinfo, drobosync, nasd_sweep --
-# reads exactly as it did before.
+# module -- droboapps, eventlog, identify, sysinfo, drobosync,
+# nasd_sweep -- reads exactly as it did before.
 reader_socket, writer_socket = socket.socketpair()
 writer_socket.sendall(config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
 frame_type, frame_payload = config_cmd._read_frame(reader_socket)
@@ -418,12 +427,13 @@ reader_socket.close()
 writer_socket.close()
 
 print("\n-- the error is the one esatm raises for the same situation --")
-# Same situation on both channels: the budget is already spent when the read
-# begins, so neither module even reaches recv. The class differs because each
-# raises its own framing error -- FrameError there, ConfigError here, which is
-# what every other bad-frame path in this module raises and what
-# _send_section_document reads as "the result frame was lost". The WORDING must
-# not differ: one fix, one message, whichever channel stalled.
+# Same situation on both channels: the budget is already spent when the
+# read begins, so neither module even reaches recv. The class differs
+# because each raises its own framing error -- FrameError there,
+# ConfigError here, which is what every other bad-frame path in this
+# module raises and what _send_section_document reads as "the result
+# frame was lost". The WORDING must not differ: one fix, one message,
+# whichever channel stalled.
 _spent_deadline = time.monotonic() - 1.0
 reader_socket, writer_socket = socket.socketpair()
 esatm_reader_socket, esatm_writer_socket = socket.socketpair()
@@ -449,9 +459,9 @@ check("...and both say the same thing",
       (str(config_cmd_error), str(esatm_error)))
 
 print("\n== the command path is bounded, not just the helper ==")
-# A bounded helper is worth nothing if get_config never passes a deadline.
-# Here is the end-to-end version: a device that logs us in, takes the command,
-# and then trickles a reply that never finishes.
+# A bounded helper is worth nothing if get_config never passes a
+# deadline. Here is the end-to-end version: a device that logs us in,
+# takes the command, and then trickles a reply that never finishes.
 
 
 def fake_dribbler(port_holder):
@@ -499,14 +509,15 @@ check("...in bounded time", _elapsed < ELAPSED_CEILING_SECONDS, _elapsed)
 
 
 print("\n== a bounded read hands the socket back as it found it ==")
-# The deadline is implemented by shrinking the socket's OWN timeout as the
-# budget runs down, and that shrunken value belongs to the one read. This
-# channel, unlike esatm's read-the-greeting-and-close, keeps using the socket:
-# get_config, _send_section_document and get_config_element all read the login
-# reply and then send the command frame on the same socket. A timeout left
-# shrunken would quietly become the budget for that sendall, so a device that
-# answered LOGIN_OK late in the budget could make the command frame time out on
-# send -- a narrowing of the caller's timeout that nobody asked for.
+# The deadline is implemented by shrinking the socket's OWN timeout as
+# the budget runs down, and that shrunken value belongs to the one read.
+# This channel, unlike esatm's read-the-greeting-and-close, keeps using
+# the socket: get_config, _send_section_document and get_config_element
+# all read the login reply and then send the command frame on the same
+# socket. A timeout left shrunken would quietly become the budget for
+# that sendall, so a device that answered LOGIN_OK late in the budget
+# could make the command frame time out on send -- a narrowing of the
+# caller's timeout that nobody asked for.
 reader_socket, writer_socket = socket.socketpair()
 reader_socket.settimeout(5.0)
 dribble(writer_socket, config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
@@ -517,8 +528,9 @@ check("a completed bounded read leaves the socket's timeout alone",
 reader_socket.close()
 writer_socket.close()
 
-# ...and so does one that runs out of budget: the restore sits in a finally,
-# so the failing path cannot be the one that leaks the shrunken value.
+# ...and so does one that runs out of budget: the restore sits in a
+# finally, so the failing path cannot be the one that leaks the shrunken
+# value.
 reader_socket, writer_socket = socket.socketpair()
 reader_socket.settimeout(5.0)
 # a header promising a payload that never arrives

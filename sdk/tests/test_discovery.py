@@ -1,12 +1,15 @@
 """
-Offline tests for finding the Drobo without a static IP (drobo_nasd/discovery.py).
+Offline tests for finding the Drobo without a static IP
+(drobo_nasd/discovery.py).
 
-Everything here runs without a LAN or a real device: mDNS packets are built by
-hand, and "the Drobo" for identity-verification tests is a local TCP server
-that plays back the real captured greeting at sdk/tests/fixtures/esatm-sample.xml
-(esa_id "FAKESERIALFAKES"). The one exception -- a live end-to-end check
-against real hardware, at the address in the DROBO_LIVE_HOST environment
-variable -- SKIPs gracefully when no device answers, so this suite passes on a machine with no Drobo too.
+Everything here runs without a LAN or a real device: mDNS packets are
+built by hand, and "the Drobo" for identity-verification tests is a
+local TCP server that plays back the real captured greeting at
+sdk/tests/fixtures/esatm-sample.xml (esa_id "FAKESERIALFAKES"). The one
+exception -- a live end-to-end check against real hardware, at the
+address in the DROBO_LIVE_HOST environment variable -- SKIPs gracefully
+when no device answers, so this suite passes on a machine with no Drobo
+too.
 
     py test_discovery.py
 
@@ -32,8 +35,9 @@ from drobo_nasd import discovery, esatm  # noqa: E402
 FIXTURE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "fixtures", "esatm-sample.xml")
 SAMPLE_ESA_ID = "FAKESERIALFAKES"
-# Overridable so no real address needs to live in this file. The default is a
-# placeholder; the live check simply SKIPs unless a device answers there.
+# Overridable so no real address needs to live in this file. The default
+# is a placeholder; the live check simply SKIPs unless a device answers
+# there.
 LIVE_HOST = os.environ.get("DROBO_LIVE_HOST", "10.0.0.50")
 LIVE_PORT = 5000
 
@@ -51,9 +55,10 @@ GREETING_PAYLOAD = open(FIXTURE_PATH, "rb").read()
 
 
 # ---------------------------------------------------------------------------
-# A tiny fake nasd: serve one DRINASD greeting on localhost, exactly like the
-# real device does unprompted on connect, so verify_candidate/resolve() can
-# be exercised end-to-end through the real socket path.
+# A tiny fake nasd: serve one DRINASD greeting on localhost, exactly
+# like the real device does unprompted on connect, so
+# verify_candidate/resolve() can be exercised end-to-end through the
+# real socket path.
 # ---------------------------------------------------------------------------
 
 @contextlib.contextmanager
@@ -63,10 +68,10 @@ def fake_drobo(payload: bytes):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(("127.0.0.1", 0))
     server_socket.listen(1)
-    # Set here, before the thread starts, not inside serve(): the with-block
-    # below can close server_socket before the thread first runs, and
-    # settimeout() on a closed socket raised an uncaught OSError that
-    # printed a traceback.
+    # Set here, before the thread starts, not inside serve(): the
+    # with-block below can close server_socket before the thread first
+    # runs, and settimeout() on a closed socket raised an uncaught
+    # OSError that printed a traceback.
     server_socket.settimeout(2.0)
     host, port = server_socket.getsockname()
 
@@ -261,8 +266,8 @@ check("SRV record target name decoded",
 check("A record extracted",
       a_records and a_records[0]["value"] == "10.0.0.50", a_records)
 
-# name compression: a second record whose name is a pointer back into the packet
-# points at offset 12, the first record's name
+# name compression: a second record whose name is a pointer back into
+# the packet points at offset 12, the first record's name
 compressed_name_pointer = struct.pack("!H", 0xC000 | 12)
 compressed_packet = (
     struct.pack("!HHHHHH", 0, 0x8400, 0, 2, 0, 0)
@@ -339,7 +344,8 @@ try:
         deduplicated_candidates,
     )
 
-    # -- addresses somebody typed, because mDNS doesn't work on their network --
+    # -- addresses somebody typed, because mDNS doesn't work on their
+    # network --
     discovery.discover_mdns = lambda timeout=3.0: [
         discovery.Candidate("10.0.0.5", 5000, "mdns")]
     manual_first_candidates = discovery._gather_candidates(
@@ -349,9 +355,10 @@ try:
           [c.source for c in manual_first_candidates] == [
               "manual", "mdns", "hostname", "last-known"],
           [c.source for c in manual_first_candidates])
-    # The reason for that order: on a network that filters multicast, mDNS
-    # never answers, and making someone wait out a dead browse on every poll
-    # when they have told us exactly where the device is would be perverse.
+    # The reason for that order: on a network that filters multicast,
+    # mDNS never answers, and making someone wait out a dead browse on
+    # every poll when they have told us exactly where the device is
+    # would be perverse.
     check("the typed address is the one that was typed",
           manual_first_candidates[0].host == "10.0.0.77",
           manual_first_candidates[0])
@@ -480,7 +487,8 @@ finally:
     discovery._read_arp_table_text = _original_read_arp_table_text
 
 
-# _read_arp_table_text itself must swallow subprocess failure, not just callers of it.
+# _read_arp_table_text itself must swallow subprocess failure, not just
+# callers of it.
 _original_subprocess_run = subprocess.run
 subprocess.run = lambda *args, **kwargs: (
     _ for _ in ()).throw(FileNotFoundError("no arp on PATH"))
@@ -571,8 +579,9 @@ _original_discover_mdns, _original_resolve_hostname, _original_sweep_subnet = (
     discovery.resolve_hostname,
     discovery.sweep_subnet,
 )
-# mDNS (normally highest priority) hands back the link-local address; the
-# routable one only shows up as the lower-priority last-known-good IP.
+# mDNS (normally highest priority) hands back the link-local address;
+# the routable one only shows up as the lower-priority last-known-good
+# IP.
 discovery.discover_mdns = lambda timeout=3.0: [
     discovery.Candidate("169.254.7.77", 5000, "mdns")]
 discovery.resolve_hostname = lambda hostname, port=esatm.DEFAULT_PORT: None
@@ -604,9 +613,10 @@ print(
 )
 # ---------------------------------------------------------------------------
 
-# The two addresses must be in genuinely different /24s, or this test passes
-# without testing anything. Using the documentation range (RFC 5737) for the
-# out-of-range one makes that impossible to break by a search-and-replace.
+# The two addresses must be in genuinely different /24s, or this test
+# passes without testing anything. Using the documentation range (RFC
+# 5737) for the out-of-range one makes that impossible to break by a
+# search-and-replace.
 in_range_candidate = discovery.Candidate("10.0.0.50", 5000, "test")
 out_of_range_candidate = discovery.Candidate("203.0.113.5", 5000, "test")
 allowed, rejected = discovery.filter_allowed_subnets(
@@ -627,8 +637,8 @@ check(
     (no_restriction_allowed, no_restriction_rejected),
 )
 
-# end-to-end via resolve(): the fake Drobo listens on 127.0.0.1, which is
-# outside the allowed range, so resolve() must refuse it WITHOUT ever
+# end-to-end via resolve(): the fake Drobo listens on 127.0.0.1, which
+# is outside the allowed range, so resolve() must refuse it WITHOUT ever
 # connecting -- if it had connected it would return VerificationResult,
 # not raise.
 _original_discover_mdns, _original_resolve_hostname, _original_sweep_subnet = (
@@ -690,9 +700,10 @@ if not live_available:
     print(f"  SKIP    no Drobo answered at {LIVE_HOST}:{LIVE_PORT} -- "
           "fine on a machine with no Drobo on the LAN")
 else:
-    # First-run pairing against the real device: pass no expected id, since
-    # hardcoding this unit's serial would both fail on anyone else's Drobo and
-    # bake a real device serial into the repo (see ROADMAP.md Phase 6).
+    # First-run pairing against the real device: pass no expected id,
+    # since hardcoding this unit's serial would both fail on anyone
+    # else's Drobo and bake a real device serial into the repo (see
+    # ROADMAP.md Phase 6).
     candidate = discovery.Candidate(LIVE_HOST, LIVE_PORT, "config")
     verified = discovery.verify_candidate(
         candidate, expected_esa_id="", timeout=5.0)
@@ -703,7 +714,8 @@ else:
           verified.identity["model"])
 
     # And the safety property that actually matters, proven against real
-    # hardware rather than a fake server: a wrong expectation is refused.
+    # hardware rather than a fake server: a wrong expectation is
+    # refused.
     try:
         discovery.verify_candidate(
             candidate, expected_esa_id="drb-definitely-not-this", timeout=5.0
