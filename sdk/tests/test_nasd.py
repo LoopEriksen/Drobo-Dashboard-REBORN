@@ -21,7 +21,15 @@ failures = []
 
 
 def check(label, condition, failure_detail=""):
-    print(("  PASS  " if condition else "  FAIL  ") + label + ("  " + str(failure_detail) if failure_detail and not condition else ""))
+    print(
+        ("  PASS  " if condition else "  FAIL  ")
+        + label
+        + (
+            "  " + str(failure_detail)
+            if failure_detail and not condition
+            else ""
+        )
+    )
     if not condition:
         failures.append(label)
 
@@ -30,7 +38,11 @@ def check(label, condition, failure_detail=""):
 print("\n== commands.py: enum completeness ==")
 # ---------------------------------------------------------------------------
 
-check("exactly 103 commands", len(commands.COMMANDS) == 103, len(commands.COMMANDS))
+check(
+    "exactly 103 commands",
+    len(commands.COMMANDS) == 103,
+    len(commands.COMMANDS),
+)
 check(
     "ids are exactly 0..102, each used once",
     sorted(commands.COMMANDS.values()) == list(range(103)),
@@ -52,9 +64,19 @@ expected_command_ids = {
     "eCmdGetNASUsernamePassword": 102,
 }
 for name, expected in expected_command_ids.items():
-    check(f"spot id {name} == {expected}", commands.COMMANDS.get(name) == expected, commands.COMMANDS.get(name))
+    check(
+        f"spot id {name} == {expected}",
+        commands.COMMANDS.get(name) == expected,
+        commands.COMMANDS.get(name),
+    )
 
-check("ID_TO_NAME is the exact inverse", all(commands.ID_TO_NAME[command_id] == command_name for command_name, command_id in commands.COMMANDS.items()))
+check(
+    "ID_TO_NAME is the exact inverse",
+    all(
+        commands.ID_TO_NAME[command_id] == command_name
+        for command_name, command_id in commands.COMMANDS.items()
+    ),
+)
 
 print("\n== commands.py: DO-NOT-SEND group ==")
 expected_escape_hatches = {
@@ -78,10 +100,18 @@ check("the two groups don't overlap",
 print("\n== SAFE_WRITES: the one narrow exception to read-only ==")
 # Opened 2026-07-27. This is the boundary that keeps "we don't write to the
 # hardware" true, so it is tested harder than anything else in this file.
-check("eCmdIdentify is an approved write", commands.is_safe_write("eCmdIdentify"))
-check("...and is therefore NOT refused", not commands.is_dangerous("eCmdIdentify"))
-check("the approved-write set is exactly one command so far",
-      commands.SAFE_WRITES == frozenset({"eCmdIdentify"}), sorted(commands.SAFE_WRITES))
+check(
+    "eCmdIdentify is an approved write", commands.is_safe_write("eCmdIdentify")
+)
+check(
+    "...and is therefore NOT refused",
+    not commands.is_dangerous("eCmdIdentify"),
+)
+check(
+    "the approved-write set is exactly one command so far",
+    commands.SAFE_WRITES == frozenset({"eCmdIdentify"}),
+    sorted(commands.SAFE_WRITES),
+)
 check("refused and approved sets cannot overlap",
       commands.DO_NOT_SEND.isdisjoint(commands.SAFE_WRITES),
       sorted(commands.DO_NOT_SEND & commands.SAFE_WRITES))
@@ -91,16 +121,36 @@ check("every approved write is a real command",
 # The things that must NOT have crept in on Identify's coat-tails. Each of
 # these fails at least one of the four tests in commands.SAFE_WRITES, and a
 # future change that quietly adds one should fail here loudly.
-for name in ("eCmdSetDimming", "eCmdRename", "eCmdSetTime", "eCmdToggleNightMode",
-             "eCmdStandby", "eCmdRestart", "eCmdShutdown", "eCmdFormatDevice",
-             "eCmdInstallFirmware", "eCmdDroboAppsAction", "eCmdUpdateUserGroupList"):
+for name in (
+    "eCmdSetDimming",
+    "eCmdRename",
+    "eCmdSetTime",
+    "eCmdToggleNightMode",
+    "eCmdStandby",
+    "eCmdRestart",
+    "eCmdShutdown",
+    "eCmdFormatDevice",
+    "eCmdInstallFirmware",
+    "eCmdDroboAppsAction",
+    "eCmdUpdateUserGroupList",
+):
     check(f"{name} is NOT an approved write", not commands.is_safe_write(name))
     check(f"{name} is still refused", commands.is_dangerous(name))
 
 print("\n== the commands that must never reach the hardware ==")
-for name in ("eCmdFormatDevice", "eCmdFormatLUN", "eCmdInstallFirmware",
-             "eCmdRevertFirmware", "eCmdReset", "eCmdRepair", "eCmdForceRepair",
-             "eCmdShutdown", "eCmdRestart", "eCmdSetConfig", "eCmdSetAdmin"):
+for name in (
+    "eCmdFormatDevice",
+    "eCmdFormatLUN",
+    "eCmdInstallFirmware",
+    "eCmdRevertFirmware",
+    "eCmdReset",
+    "eCmdRepair",
+    "eCmdForceRepair",
+    "eCmdShutdown",
+    "eCmdRestart",
+    "eCmdSetConfig",
+    "eCmdSetAdmin",
+):
     check(f"{name} is refused", commands.is_dangerous(name))
 
 # Two traps where the name lies about what the command does.
@@ -121,15 +171,25 @@ check("every destructive name is a real command (no typos)",
       sorted(n for n in commands.DESTRUCTIVE
              if n not in commands.COMMANDS
              and n not in commands.NAMES_WITHOUT_CONFIRMED_ID))
-check("eCmdRunESACommand is dangerous", commands.is_dangerous("eCmdRunESACommand"))
+check(
+    "eCmdRunESACommand is dangerous",
+    commands.is_dangerous("eCmdRunESACommand"),
+)
 check("eCmdRunESACommand is dangerous by id (51)", commands.is_dangerous(51))
 check("eCmdFormatDevice is dangerous by id (33)", commands.is_dangerous(33))
-check("eCmdGetVersion is NOT dangerous", not commands.is_dangerous("eCmdGetVersion"))
+check(
+    "eCmdGetVersion is NOT dangerous",
+    not commands.is_dangerous("eCmdGetVersion"),
+)
 check(
     "eCmdRouter has no numeric id (absent from the recovered 103-entry table)",
-    "eCmdRouter" not in commands.COMMANDS and "eCmdRouter" in commands.NAMES_WITHOUT_CONFIRMED_ID,
+    "eCmdRouter" not in commands.COMMANDS
+    and "eCmdRouter" in commands.NAMES_WITHOUT_CONFIRMED_ID,
 )
-check("eCmdRouter is still flagged dangerous by name", commands.is_dangerous("eCmdRouter"))
+check(
+    "eCmdRouter is still flagged dangerous by name",
+    commands.is_dangerous("eCmdRouter"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -145,24 +205,49 @@ envelope_cases = [
     # indistinguishable from the int 1 after a round trip (both come back as
     # int). Use non-numeric strings and ints here to keep the round-trip
     # comparison meaningful instead of exercising that documented ambiguity.
-    ("eCmdGetSysInfo", {"Name": "unit-test", "Count": 5, "Nested": {"A": "alpha", "B": 2}}),
+    (
+        "eCmdGetSysInfo",
+        {"Name": "unit-test", "Count": 5, "Nested": {"A": "alpha", "B": 2}},
+    ),
 ]
 for name, params in envelope_cases:
     xml_text = envelope.build_command("ESA-1234", name, params)
-    check(f"{name}: build() produced the exact XML declaration", xml_text.startswith('<?xml version="1.0"?>\n'))
-    check(f"{name}: build() produced a DRINETTM root", "<DRINETTM>" in xml_text)
+    check(
+        f"{name}: build() produced the exact XML declaration",
+        xml_text.startswith('<?xml version="1.0"?>\n'),
+    )
+    check(
+        f"{name}: build() produced a DRINETTM root", "<DRINETTM>" in xml_text
+    )
 
     parsed_envelope = envelope.parse(xml_text)
     check(f"{name}: round-trip esa_id", parsed_envelope.esa_id == "ESA-1234",
           parsed_envelope.esa_id)
-    check(f"{name}: round-trip command_name", parsed_envelope.command_name == name, parsed_envelope.command_name)
-    check(f"{name}: round-trip command_id", parsed_envelope.command_id == commands.COMMANDS[name], parsed_envelope.command_id)
-    check(f"{name}: round-trip params", parsed_envelope.params == (params or {}), parsed_envelope.params)
+    check(
+        f"{name}: round-trip command_name",
+        parsed_envelope.command_name == name,
+        parsed_envelope.command_name,
+    )
+    check(
+        f"{name}: round-trip command_id",
+        parsed_envelope.command_id == commands.COMMANDS[name],
+        parsed_envelope.command_id,
+    )
+    check(
+        f"{name}: round-trip params",
+        parsed_envelope.params == (params or {}),
+        parsed_envelope.params,
+    )
 
 # building by numeric id instead of name should resolve the same way
-xml_by_id = envelope.build_command("ESA-1", commands.COMMANDS["eCmdGetVersion"], None)
+xml_by_id = envelope.build_command(
+    "ESA-1", commands.COMMANDS["eCmdGetVersion"], None
+)
 envelope_by_id = envelope.parse(xml_by_id)
-check("build by numeric id resolves command_name", envelope_by_id.command_name == "eCmdGetVersion")
+check(
+    "build by numeric id resolves command_name",
+    envelope_by_id.command_name == "eCmdGetVersion",
+)
 
 # unknown command name must be rejected, not silently accepted
 try:
@@ -172,19 +257,41 @@ except KeyError:
     check("unknown command name raises KeyError", True)
 
 print("\n== envelope.py: response build/parse (Error / Result) ==")
-response_xml = envelope.build_response("ESA-9", "eCmdGetVersion", error=0, result="4.2.1")
+response_xml = envelope.build_response(
+    "ESA-9", "eCmdGetVersion", error=0, result="4.2.1"
+)
 response_envelope = envelope.parse(response_xml)
-check("response error round-trips as int 0", response_envelope.error == 0, response_envelope.error)
-check("response result round-trips", response_envelope.result == "4.2.1", response_envelope.result)
+check(
+    "response error round-trips as int 0",
+    response_envelope.error == 0,
+    response_envelope.error,
+)
+check(
+    "response result round-trips",
+    response_envelope.result == "4.2.1",
+    response_envelope.result,
+)
 
-error_response_xml = envelope.build_response("ESA-9", "eCmdGetVersion", error=1, result_details={"Reason": "denied"})
+error_response_xml = envelope.build_response(
+    "ESA-9", "eCmdGetVersion", error=1, result_details={"Reason": "denied"}
+)
 error_response_envelope = envelope.parse(error_response_xml)
-check("response error round-trips as int 1", error_response_envelope.error == 1, error_response_envelope.error)
-check("response result_details round-trips", error_response_envelope.result_details == {"Reason": "denied"}, error_response_envelope.result_details)
+check(
+    "response error round-trips as int 1",
+    error_response_envelope.error == 1,
+    error_response_envelope.error,
+)
+check(
+    "response result_details round-trips",
+    error_response_envelope.result_details == {"Reason": "denied"},
+    error_response_envelope.result_details,
+)
 
 print("\n== envelope.py: malformed input is rejected ==")
 try:
-    envelope.parse("<NotDRINETTM><ESAID>1</ESAID><Command>1</Command></NotDRINETTM>")
+    envelope.parse(
+        "<NotDRINETTM><ESAID>1</ESAID><Command>1</Command></NotDRINETTM>"
+    )
     check("wrong root tag raises EnvelopeError", False)
 except envelope.EnvelopeError:
     check("wrong root tag raises EnvelopeError", True)
@@ -204,7 +311,9 @@ for byteorder in ("big", "little"):
     payload = f"hello nasd ({byteorder})".encode("utf-8")
     frame = framing.encode_frame(payload, byteorder=byteorder)
     decoded, remainder = framing.decode_frame(frame, byteorder=byteorder)
-    check(f"encode/decode round trip ({byteorder})", decoded == payload, decoded)
+    check(
+        f"encode/decode round trip ({byteorder})", decoded == payload, decoded
+    )
     check(f"no remainder after exact frame ({byteorder})", remainder == b"")
 
 # empty payload is a legitimate frame
@@ -246,22 +355,40 @@ whole_frame = framing.encode_frame(b"fragmented-payload")
 chunk_points = [3, 9]
 chunks = [
     whole_frame[: chunk_points[0]],
-    whole_frame[chunk_points[0] : chunk_points[1]],
-    whole_frame[chunk_points[1] :],
+    whole_frame[chunk_points[0]:chunk_points[1]],
+    whole_frame[chunk_points[1]:],
 ]
 collected = []
 for chunk in chunks:
     collected.extend(assembler.feed(chunk))
-check("fragmented frame reassembled into exactly one payload", collected == [b"fragmented-payload"], collected)
-check("assembler has no leftover bytes buffered", assembler.pending_bytes() == 0, assembler.pending_bytes())
+check(
+    "fragmented frame reassembled into exactly one payload",
+    collected == [b"fragmented-payload"],
+    collected,
+)
+check(
+    "assembler has no leftover bytes buffered",
+    assembler.pending_bytes() == 0,
+    assembler.pending_bytes(),
+)
 
-three_frames = framing.encode_frame(b"one") + framing.encode_frame(b"two") + framing.encode_frame(b"three")
+three_frames = (
+    framing.encode_frame(b"one")
+    + framing.encode_frame(b"two")
+    + framing.encode_frame(b"three")
+)
 multi_frame_assembler = framing.FrameAssembler()
 multi_frame_payloads = multi_frame_assembler.feed(three_frames)
-check("assembler yields multiple frames fed at once", multi_frame_payloads == [b"one", b"two", b"three"], multi_frame_payloads)
+check(
+    "assembler yields multiple frames fed at once",
+    multi_frame_payloads == [b"one", b"two", b"three"],
+    multi_frame_payloads,
+)
 
 
-print("\n== framing.py: NasdHeader candidates are internally self-consistent ==")
+print(
+    "\n== framing.py: NasdHeader candidates are internally self-consistent =="
+)
 # This does NOT prove any candidate matches a real Drobo -- see NasdHeader's
 # docstring. It only proves each candidate's own encode/decode pair agrees
 # with itself, which is what client.py depends on structurally.
@@ -269,8 +396,16 @@ for candidate_name, (encoder,
                      decoder) in framing.NasdHeader.CANDIDATES.items():
     header_bytes = encoder(42)
     _signature, length = decoder(header_bytes)
-    check(f"NasdHeader.{candidate_name}: encode/decode agree on length", length == 42, length)
-    check(f"NasdHeader.{candidate_name}: header is 12 bytes", len(header_bytes) == 12, len(header_bytes))
+    check(
+        f"NasdHeader.{candidate_name}: encode/decode agree on length",
+        length == 42,
+        length,
+    )
+    check(
+        f"NasdHeader.{candidate_name}: header is 12 bytes",
+        len(header_bytes) == 12,
+        len(header_bytes),
+    )
 
 check(
     "NasdHeader.SIGNATURE_V4 matches the firmware string 'DRINASD4'",
@@ -342,7 +477,11 @@ else:
     check("payload is NUL-terminated (protocol detail)",
           greeting_payload.rstrip().endswith(b"\x00"))
     check("parses despite the trailing NUL", snapshot.reachable is True)
-    check("device name read", snapshot.device.name == "TestDrobo", snapshot.device.name)
+    check(
+        "device name read",
+        snapshot.device.name == "TestDrobo",
+        snapshot.device.name,
+    )
     check("firmware read", snapshot.device.firmware.startswith("4.3.1"),
           snapshot.device.firmware)
 
@@ -361,8 +500,11 @@ else:
     check("drive models parsed",
           all("WD" in drive.model for drive in snapshot.drives),
           [drive.model for drive in snapshot.drives])
-    check("serials parsed", all(drive.serial.startswith("WD-") for drive in snapshot.drives),
-          [drive.serial for drive in snapshot.drives])
+    check(
+        "serials parsed",
+        all(drive.serial.startswith("WD-") for drive in snapshot.drives),
+        [drive.serial for drive in snapshot.drives],
+    )
 
     # mTemperature is 0 on this hardware. It must read as "unknown", never as a
     # literal 0 C, or the alert rules would treat a healthy array as freezing.
@@ -372,14 +514,23 @@ else:
 
     check("capacity usable > used",
           snapshot.capacity.usable_bytes > snapshot.capacity.used_bytes)
-    check("raw capacity is the sum of the disks",
-          snapshot.capacity.raw_bytes == sum(drive.capacity_bytes for drive in snapshot.drives),
-          (snapshot.capacity.raw_bytes, sum(drive.capacity_bytes for drive in snapshot.drives)))
+    check(
+        "raw capacity is the sum of the disks",
+        snapshot.capacity.raw_bytes
+        == sum(drive.capacity_bytes for drive in snapshot.drives),
+        (
+            snapshot.capacity.raw_bytes,
+            sum(drive.capacity_bytes for drive in snapshot.drives),
+        ),
+    )
     check("array reads healthy overall", snapshot.overall_state == "ok",
           snapshot.overall_state)
 
 # Safety: the trim must never hide a slot that actually holds a disk.
-_six_populated_slots = [DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(6)]
+_six_populated_slots = [
+    DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1)
+    for i in range(6)
+]
 esatm._trim_phantom_slots(_six_populated_slots, "Drobo 5N")
 check("trim never hides a populated slot", len(_six_populated_slots) == 6,
       len(_six_populated_slots))
@@ -391,7 +542,10 @@ esatm._trim_phantom_slots(_unknown_model_slots, "Unknown Model")
 check("trim is a no-op for unknown models", len(_unknown_model_slots) == 2,
       len(_unknown_model_slots))
 
-_five_populated_plus_phantom_slots = [DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1) for i in range(5)]
+_five_populated_plus_phantom_slots = [
+    DriveSlot(bay=i + 1, present=True, state="ok", capacity_bytes=1)
+    for i in range(5)
+]
 _five_populated_plus_phantom_slots.append(
     DriveSlot(bay=6, present=False, state="empty"))
 esatm._trim_phantom_slots(_five_populated_plus_phantom_slots, "Drobo 5N")

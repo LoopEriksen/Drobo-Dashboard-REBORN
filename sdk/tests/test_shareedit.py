@@ -65,7 +65,10 @@ check("every share is found",
       shareedit.share_names(DEVICE_CONFIG) == ["Documents", "Photo Library",
                                                "Private"],
       shareedit.share_names(DEVICE_CONFIG))
-check("a share name with a space survives", "Photo Library" in shareedit.share_names(DEVICE_CONFIG))
+check(
+    "a share name with a space survives",
+    "Photo Library" in shareedit.share_names(DEVICE_CONFIG),
+)
 
 print("\n== the edit itself ==")
 config_before_edit = copy.deepcopy(DEVICE_CONFIG)
@@ -78,8 +81,11 @@ check("the access code is changed",
       private_share["ShareUsers"]["ShareUser"]["ShareUserAccess"] == "1",
       private_share)
 check("the input document is NOT mutated", DEVICE_CONFIG == config_before_edit)
-check("a single user stays a dict, as the device sends it",
-      isinstance(private_share["ShareUsers"]["ShareUser"], dict), type(private_share["ShareUsers"]["ShareUser"]))
+check(
+    "a single user stays a dict, as the device sends it",
+    isinstance(private_share["ShareUsers"]["ShareUser"], dict),
+    type(private_share["ShareUsers"]["ShareUser"]),
+)
 
 documents_with_new_user_config = shareedit.set_user_access(DEVICE_CONFIG,
                                                            "Documents",
@@ -99,7 +105,11 @@ documents_revoked_config = shareedit.revoke_user(DEVICE_CONFIG, "Documents",
 revoked_documents_share = [s for s in (documents_revoked_config["DRINASConfig"]
                                        ["DRIShareConfig"]["Shares"]["Share"])
                            if s["ShareName"] == "Documents"][0]
-check("revoking sets code 0", revoked_documents_share["ShareUsers"]["ShareUser"]["ShareUserAccess"] == "0")
+check(
+    "revoking sets code 0",
+    revoked_documents_share["ShareUsers"]["ShareUser"]["ShareUserAccess"]
+    == "0",
+)
 # Deliberate: the row stays. We cannot interpret access codes, so we could not
 # faithfully restore a deleted one.
 check("revoking does NOT delete the user row",
@@ -137,9 +147,23 @@ check("code 0 is always allowed -- it is the one we are surest of",
 # CONFIRMED, so it may be set even on a device whose shares are ALL zero and
 # thus have no non-zero code to copy -- the case this capability exists for.
 ALL_ZERO_CONFIG = {
-    "DRINASConfig": {"DRIShareConfig": {"ConfigVersionBasis": "9",
-    "Shares": {"Share": {"ShareName": "Locked", "ShareUsers": {"ShareUser": {
-        "ShareUsername": "Everyone", "ShareUserAccess": "0"}}}}}}}
+    "DRINASConfig": {
+        "DRIShareConfig": {
+            "ConfigVersionBasis": "9",
+            "Shares": {
+                "Share": {
+                    "ShareName": "Locked",
+                    "ShareUsers": {
+                        "ShareUser": {
+                            "ShareUsername": "Everyone",
+                            "ShareUserAccess": "0",
+                        }
+                    },
+                }
+            },
+        }
+    }
+}
 unlocked_config = shareedit.set_user_access(ALL_ZERO_CONFIG, "Locked",
                                             "Everyone", "1")
 share_user = (shareedit._share_block(unlocked_config)
@@ -154,7 +178,10 @@ try:
     shareedit.set_user_access(DEVICE_CONFIG, "Nope", "Everyone", "0")
     check("editing a share that isn't there is refused", False)
 except shareedit.ShareEditError as exc:
-    check("editing a share that isn't there is refused", "no share named" in str(exc))
+    check(
+        "editing a share that isn't there is refused",
+        "no share named" in str(exc),
+    )
 
 try:
     shareedit._share_block({"something": "else"})
@@ -170,7 +197,10 @@ try:
     shareedit._assert_only_shares_changed(DEVICE_CONFIG, tampered_config)
     check("a change to the network block IS caught", False)
 except shareedit.ShareEditError as exc:
-    check("a change to the network block IS caught", "outside DRIShareConfig" in str(exc))
+    check(
+        "a change to the network block IS caught",
+        "outside DRIShareConfig" in str(exc),
+    )
 
 share_dropped_config = copy.deepcopy(DEVICE_CONFIG)
 share_dropped_config["DRINASConfig"]["DRIShareConfig"]["Shares"]["Share"].pop()
@@ -178,10 +208,17 @@ try:
     shareedit._assert_no_share_lost(DEVICE_CONFIG, share_dropped_config)
     check("a vanished share IS caught", False)
 except shareedit.ShareEditError as exc:
-    check("a vanished share IS caught", "would remove share" in str(exc), str(exc))
+    check(
+        "a vanished share IS caught",
+        "would remove share" in str(exc),
+        str(exc),
+    )
 
 print("\n== the confirmation a person reads before agreeing ==")
-change_lines = shareedit.describe_change(DEVICE_CONFIG, shareedit.set_user_access(DEVICE_CONFIG, "Private", "Everyone", "1"))
+change_lines = shareedit.describe_change(
+    DEVICE_CONFIG,
+    shareedit.set_user_access(DEVICE_CONFIG, "Private", "Everyone", "1"),
+)
 check("the change is described in one line", len(change_lines) == 1,
       change_lines)
 check("it names the user and the share",
@@ -190,7 +227,10 @@ check("it names the user and the share",
 check("it reports the raw code without claiming to know what it means",
       "code 1" in change_lines[0], change_lines)
 
-revoke_change_lines = shareedit.describe_change(DEVICE_CONFIG, shareedit.revoke_user(DEVICE_CONFIG, "Documents", "Everyone"))
+revoke_change_lines = shareedit.describe_change(
+    DEVICE_CONFIG,
+    shareedit.revoke_user(DEVICE_CONFIG, "Documents", "Everyone"),
+)
 check("losing access is described as losing access",
       "loses access" in revoke_change_lines[0], revoke_change_lines)
 check("an unchanged document describes nothing",
@@ -202,7 +242,12 @@ shareedit_source = open(
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "..", "drobo_nasd", "shareedit.py"),
     encoding="utf-8").read()
-for forbidden in ("import socket", "config_cmd", "sendall", "create_connection"):
+for forbidden in (
+    "import socket",
+    "config_cmd",
+    "sendall",
+    "create_connection",
+):
     check(f"no {forbidden!r} anywhere in the module",
           forbidden not in shareedit_source)
 

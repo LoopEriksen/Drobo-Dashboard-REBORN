@@ -285,6 +285,9 @@ released. Every push to this repository carries this file.
   - Eight of the SDK's test suites (`sdk/tests/`: config command,
     config write, discovery, DroboSync, status greeting, event log,
     firmware and Identify)
+  - The SDK's other nine test suites (`sdk/tests/`: shared fixtures,
+    command channel, network check, share edit, share lifecycle, shares,
+    share write, system info and write arbitration)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

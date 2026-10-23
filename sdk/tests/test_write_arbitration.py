@@ -22,6 +22,7 @@ what it holds, and the tests below pin every branch of that decision:
 
 Everything runs against fake devices on loopback. No hardware.
 """
+
 import html
 import os
 import socket
@@ -99,7 +100,9 @@ class ScriptedDrobo:
                 connection.sendall(
                     config_cmd._build_frame(config_cmd.TYPE_LOGIN_OK, b""))
                 payload = self._receive_frame(connection)  # command
-                self.sent.append((payload or b"").rstrip(b"\x00").decode("utf-8", "replace"))
+                self.sent.append(
+                    (payload or b"").rstrip(b"\x00").decode("utf-8", "replace")
+                )
                 # The command frame is fully read either way -- the client's
                 # sendall must complete before the socket goes away, or the
                 # test would be measuring a SEND failure, not an ACK failure.
@@ -152,8 +155,10 @@ def _pretty_printed_share_config(pretty_printed_shares_xml):
 
 
 def _read_reply(share_config_xml):
-    return (f"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig>"
-            f"{share_config_xml}</DRINASConfig></ResultDetails></TMCmd>").encode() + b"\x00"
+    return (
+        f"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig>"
+        f"{share_config_xml}</DRINASConfig></ResultDetails></TMCmd>"
+    ).encode() + b"\x00"
 
 
 def _accepted_reply():
@@ -163,31 +168,44 @@ def _accepted_reply():
 
 
 def _general_reply(feature_states="7", spindown_delay="14", dim_level="59"):
-    return (f"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig><General>"
-            f"<FeatureStates>{feature_states}</FeatureStates>"
-            f"<SpindownDelay>{spindown_delay}</SpindownDelay>"
-            f"<Dim>{dim_level}</Dim>"
-            f"</General></DRINASConfig></ResultDetails></TMCmd>").encode() + b"\x00"
+    return (
+        f"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig><General>"
+        f"<FeatureStates>{feature_states}</FeatureStates>"
+        f"<SpindownDelay>{spindown_delay}</SpindownDelay>"
+        f"<Dim>{dim_level}</Dim>"
+        f"</General></DRINASConfig></ResultDetails></TMCmd>"
+    ).encode() + b"\x00"
 
 
 def _dimming_reply(value):
-    return f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>".encode() + b"\x00"
+    return (
+        f"<TMCmd><ResultDetails>{value}</ResultDetails></TMCmd>".encode()
+        + b"\x00"
+    )
 
 
 SAMPLE_ESA_ID = "drb000000SAMPLE"
 ORIGINAL_SHARE_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Alpha") + _pretty_printed_share("Beta"))
 CONFIG_WITH_FRESH_SHARE = ORIGINAL_SHARE_CONFIG.replace(
-    "</Shares>", sharewrite._NEW_SHARE_NODE.format(name="Fresh", volume="Volume1") + "</Shares>")
+    "</Shares>",
+    sharewrite._NEW_SHARE_NODE.format(name="Fresh", volume="Volume1")
+    + "</Shares>",
+)
 LOCKED_SHARE_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Locked", access_code="0"))
 UNLOCKED_SHARE_CONFIG = _pretty_printed_share_config(
     _pretty_printed_share("Locked", access_code="1"))
 
 # ---------------------------------------------------------------------------
-print("== config_cmd: where the line between 'not sent' and 'no answer' sits ==")
+print(
+    "== config_cmd: where the line between 'not sent' and 'no answer' sits =="
+)
 
-GENERAL_DOCUMENT = "<General><FeatureStates>7</FeatureStates><SpindownDelay>14</SpindownDelay><Dim>3</Dim></General>"
+GENERAL_DOCUMENT = (
+    "<General><FeatureStates>7</FeatureStates>"
+    "<SpindownDelay>14</SpindownDelay><Dim>3</Dim></General>"
+)
 
 
 def _recording_readback(readback_answer):
@@ -210,8 +228,12 @@ try:
                                       refused_port(), 2, readback=readback)
     check("a refused connection raises", False)
 except config_cmd.ConfigWriteError as exc:
-    check("a refused connection is a plain ConfigWriteError, not outcome-unknown",
-          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+    check(
+        "a refused connection is a plain ConfigWriteError, "
+        "not outcome-unknown",
+        not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError),
+        type(exc).__name__,
+    )
     check("...with the pre-existing 'could not reach' wording",
           "could not reach the command port" in str(exc), str(exc))
 check("...and the read-back arbiter was never consulted", readback_calls == [],
@@ -248,7 +270,11 @@ except config_cmd.ConfigWriteError as exc:
     check("a refused login is a plain failure, not outcome-unknown",
           not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError)
           and "login refused" in str(exc), str(exc))
-check("...and the arbiter was never consulted for a refused login", readback_calls == [], readback_calls)
+check(
+    "...and the arbiter was never consulted for a refused login",
+    readback_calls == [],
+    readback_calls,
+)
 
 print("\n== config_cmd: the acknowledged path is untouched ==")
 
@@ -270,7 +296,9 @@ check("...and carries no 'verified' of its own",
       "verified" not in result, result)
 
 # A device that answers with a non-accept code still fails, on its own word.
-scripted_drobo = ScriptedDrobo([("<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"])
+scripted_drobo = ScriptedDrobo(
+    [("<TMCmd><Result>0</Result><ResultDetails/></TMCmd>").encode() + b"\x00"]
+)
 # would rescue the write if it were ever consulted
 readback, readback_calls = _recording_readback(True)
 try:
@@ -320,7 +348,11 @@ except config_cmd.ConfigWriteError as exc:
     check("an unanswered write whose change is ABSENT is a genuine failure",
           not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError)
           and "did not apply" in str(exc), str(exc))
-check("...and still only one write frame went out", len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
+check(
+    "...and still only one write frame went out",
+    len(scripted_drobo.set_config_writes()) == 1,
+    scripted_drobo.sent,
+)
 
 print("\n== config_cmd: sent, silence, and no usable read-back -> UNKNOWN ==")
 
@@ -341,12 +373,24 @@ except config_cmd.ConfigWriteOutcomeUnknownError as exc:
     check("an unarbitrable write raises ConfigWriteOutcomeUnknownError", True)
     check("...the wording says the frame WAS sent",
           "WAS sent" in message, message)
-    check("...the wording says it MAY have applied", "MAY have applied" in message, message)
+    check(
+        "...the wording says it MAY have applied",
+        "MAY have applied" in message,
+        message,
+    )
     check("...the wording tells the caller to re-read first",
           "Re-read the configuration" in message, message)
-    check("...the wording forbids a blind retry", "do NOT simply retry" in message, message)
-    check("...and nothing in it implies nothing happened",
-          "did not apply" not in message and "Nothing is confirmed changed" not in message, message)
+    check(
+        "...the wording forbids a blind retry",
+        "do NOT simply retry" in message,
+        message,
+    )
+    check(
+        "...and nothing in it implies nothing happened",
+        "did not apply" not in message
+        and "Nothing is confirmed changed" not in message,
+        message,
+    )
 
 # With no arbiter at all the outcome is equally unknown -- never a failure.
 scripted_drobo = ScriptedDrobo([HANGUP])
@@ -356,8 +400,11 @@ try:
                                       SET_CONFIG_ID, scripted_drobo.port, 5)
     check("an unanswered write with no arbiter raises", False)
 except config_cmd.ConfigWriteOutcomeUnknownError as exc:
-    check("an unanswered write with no arbiter is outcome-unknown, not failure",
-          "MAY have applied" in str(exc), str(exc))
+    check(
+        "an unanswered write with no arbiter is outcome-unknown, not failure",
+        "MAY have applied" in str(exc),
+        str(exc),
+    )
 
 # An arbiter that fails in an unexpected way still yields UNKNOWN, never a
 # claim that the write failed.
@@ -378,9 +425,13 @@ except config_cmd.ConfigWriteOutcomeUnknownError as exc:
     check("a broken arbiter yields UNKNOWN, not a false failure",
           "TypeError" in str(exc) and "MAY have applied" in str(exc), str(exc))
 
-check("ConfigWriteOutcomeUnknownError is still a ConfigWriteError (broad handlers catch it)",
-      issubclass(config_cmd.ConfigWriteOutcomeUnknownError,
-                 config_cmd.ConfigWriteError))
+check(
+    "ConfigWriteOutcomeUnknownError is still a ConfigWriteError "
+    "(broad handlers catch it)",
+    issubclass(
+        config_cmd.ConfigWriteOutcomeUnknownError, config_cmd.ConfigWriteError
+    ),
+)
 
 print("\n== create_share: the write the hardware actually did this to ==")
 
@@ -395,8 +446,16 @@ check("an unacknowledged create that applied is reported as SUCCESS",
       result.get("verified") is True, result)
 check("...and surfaces that the device never acknowledged it",
       result.get("acknowledged") is False, result)
-check("...and explains why in a note", "never acknowledged" in result.get("note", ""), result)
-check("...having sent the create exactly once", len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
+check(
+    "...and explains why in a note",
+    "never acknowledged" in result.get("note", ""),
+    result,
+)
+check(
+    "...having sent the create exactly once",
+    len(scripted_drobo.set_config_writes()) == 1,
+    scripted_drobo.sent,
+)
 check("...and having read back exactly once, not twice",
       len(scripted_drobo.sent) == 3, scripted_drobo.sent)
 
@@ -450,7 +509,11 @@ result = sharewrite.delete_share("127.0.0.1", SAMPLE_ESA_ID, "Fresh",
 check("an unacknowledged delete that applied is reported as SUCCESS",
       result.get("verified") is True
       and result.get("acknowledged") is False, result)
-check("...having sent the delete exactly once", len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
+check(
+    "...having sent the delete exactly once",
+    len(scripted_drobo.set_config_writes()) == 1,
+    scripted_drobo.sent,
+)
 
 scripted_drobo = ScriptedDrobo(
     [_read_reply(CONFIG_WITH_FRESH_SHARE), HANGUP,
@@ -473,7 +536,11 @@ try:
 except sharewrite.ShareWriteOutcomeUnknownError as exc:
     message = str(exc)
     check("an unarbitrable delete raises ShareWriteOutcomeUnknownError", True)
-    check("...saying the share MAY already be gone", "MAY already be gone" in message, message)
+    check(
+        "...saying the share MAY already be gone",
+        "MAY already be gone" in message,
+        message,
+    )
     check("...and forbidding a blind retry of a destructive write",
           "do NOT simply retry" in message, message)
 
@@ -496,7 +563,9 @@ try:
     sharewrite.set_share_user_access("127.0.0.1", SAMPLE_ESA_ID, "Locked",
                                      "Everyone",
                                      "1", port=scripted_drobo.port, timeout=5)
-    check("an unacknowledged permission write that did NOT apply raises", False)
+    check(
+        "an unacknowledged permission write that did NOT apply raises", False
+    )
 except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged permission write that did NOT apply is a failure",
           "did not apply" in str(exc), str(exc))
@@ -508,8 +577,12 @@ try:
                                      "1", port=scripted_drobo.port, timeout=3)
     check("an unarbitrable permission write raises", False)
 except sharewrite.ShareWriteOutcomeUnknownError as exc:
-    check("an unarbitrable permission write raises ShareWriteOutcomeUnknownError",
-          "WAS sent" in str(exc) and "MAY now be changed" in str(exc), str(exc))
+    check(
+        "an unarbitrable permission write raises "
+        "ShareWriteOutcomeUnknownError",
+        "WAS sent" in str(exc) and "MAY now be changed" in str(exc),
+        str(exc),
+    )
 
 print("\n== every config write benefits, not just the share ones ==")
 
@@ -521,14 +594,20 @@ result = droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
 check("an unacknowledged brightness write that applied is reported as SUCCESS",
       result.get("verified") is True
       and result.get("acknowledged") is False, result)
-check("...having sent the write exactly once", len(scripted_drobo.set_config_writes()) == 1, scripted_drobo.sent)
+check(
+    "...having sent the write exactly once",
+    len(scripted_drobo.set_config_writes()) == 1,
+    scripted_drobo.sent,
+)
 
 scripted_drobo = ScriptedDrobo(
     [_general_reply(dim_level="59"), HANGUP, _dimming_reply(59)])
 try:
     droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
                           port=scripted_drobo.port, timeout=5)
-    check("an unacknowledged brightness write that did NOT apply raises", False)
+    check(
+        "an unacknowledged brightness write that did NOT apply raises", False
+    )
 except config_cmd.ConfigWriteError as exc:
     check("an unacknowledged brightness write that did NOT apply is a failure",
           "did not apply" in str(exc), str(exc))
@@ -548,11 +627,16 @@ scripted_drobo = ScriptedDrobo(
      _general_reply(feature_states="5", spindown_delay="0")])
 result = droboapps.disable_spindown("127.0.0.1", SAMPLE_ESA_ID,
                                     port=scripted_drobo.port, timeout=5)
-check("an unacknowledged spin-down DISABLE that applied is reported as SUCCESS",
-      result.get("verified") is True
-      and result.get("acknowledged") is False, result)
+check(
+    "an unacknowledged spin-down DISABLE that applied is reported as SUCCESS",
+    result.get("verified") is True and result.get("acknowledged") is False,
+    result,
+)
 
-print("\n== accepted-but-unapplied is untouched: still 'Received, not applied' ==")
+print(
+    "\n== accepted-but-unapplied is untouched: "
+    "still 'Received, not applied' =="
+)
 
 scripted_drobo = ScriptedDrobo(
     [_read_reply(ORIGINAL_SHARE_CONFIG), _accepted_reply(),
@@ -573,10 +657,18 @@ try:
     sharewrite.set_share_user_access("127.0.0.1", SAMPLE_ESA_ID, "Locked",
                                      "Everyone",
                                      "1", port=scripted_drobo.port, timeout=5)
-    check("an accepted permission write the read-back does not show still raises", False)
+    check(
+        "an accepted permission write the read-back does not show "
+        "still raises",
+        False,
+    )
 except ShareEditError as exc:
-    check("an accepted permission write the read-back does not show still raises",
-          "Received, not applied" in str(exc), str(exc))
+    check(
+        "an accepted permission write the read-back does not show "
+        "still raises",
+        "Received, not applied" in str(exc),
+        str(exc),
+    )
 
 print("\n== the acknowledged share path is unchanged, and says so ==")
 
@@ -593,9 +685,12 @@ check("...and reports acknowledged True",
 check("...and still carries the device's result code",
       result.get("result_code") == config_cmd.RESULT_ACCEPTED, result)
 written_document = html.unescape(scripted_drobo.sent[1])
-check("...and the document on the wire is still the read plus the new node",
-      "<ShareName>Fresh</ShareName>" in written_document and "<ShareName>Alpha</ShareName>" in written_document,
-      written_document)
+check(
+    "...and the document on the wire is still the read plus the new node",
+    "<ShareName>Fresh</ShareName>" in written_document
+    and "<ShareName>Alpha</ShareName>" in written_document,
+    written_document,
+)
 
 # The no-op permission write still sends nothing, and says nothing was
 # acknowledged because nothing was sent.
@@ -677,16 +772,25 @@ try:
                                       readback=readback)
     check("an unreadable reply with the change absent raises", False)
 except config_cmd.ConfigWriteError as exc:
-    check("an unreadable reply with the change absent is a plain failure",
-          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+    check(
+        "an unreadable reply with the change absent is a plain failure",
+        not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError),
+        type(exc).__name__,
+    )
     check("...and the read-back was what decided it",
           readback_calls == [False], readback_calls)
 
 # A stated refusal is still a verdict: the device read the command and said no,
 # so a read-back may not overrule it.
-refusing_drobo = ScriptedDrobo([(f"<TMCmd><CmdID>{SET_CONFIG_ID}</CmdID><Result>5</Result>"
-                                 f"<ResultDetails/></TMCmd>").encode()
-                                + b"\x00"])
+refusing_drobo = ScriptedDrobo(
+    [
+        (
+            f"<TMCmd><CmdID>{SET_CONFIG_ID}</CmdID><Result>5</Result>"
+            f"<ResultDetails/></TMCmd>"
+        ).encode()
+        + b"\x00"
+    ]
+)
 readback, readback_calls = _recording_readback(True)
 try:
     config_cmd._send_section_document("127.0.0.1", SAMPLE_ESA_ID, "general",
@@ -695,11 +799,17 @@ try:
                                       readback=readback)
     check("a stated refusal raises", False)
 except config_cmd.ConfigWriteError as exc:
-    check("a stated refusal stays a refusal", "did not accept" in str(exc), str(exc))
+    check(
+        "a stated refusal stays a refusal",
+        "did not accept" in str(exc),
+        str(exc),
+    )
 check("...and the read-back was never consulted for it", readback_calls == [],
       readback_calls)
 
-print("\n== a failure before the frame goes out is typed as a write failure ==")
+print(
+    "\n== a failure before the frame goes out is typed as a write failure =="
+)
 
 # The layers above read an untyped ConfigError as "this may have applied".
 # Everything above THE LINE must therefore be a ConfigWriteError, or a login
@@ -729,8 +839,11 @@ try:
 except config_cmd.ConfigWriteError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           True, type(exc).__name__)
-    check("...and not outcome-unknown, because nothing was sent",
-          not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError), type(exc).__name__)
+    check(
+        "...and not outcome-unknown, because nothing was sent",
+        not isinstance(exc, config_cmd.ConfigWriteOutcomeUnknownError),
+        type(exc).__name__,
+    )
 except config_cmd.ConfigError as exc:
     check("a login that dies is a ConfigWriteError, not a bare ConfigError",
           False, type(exc).__name__)
