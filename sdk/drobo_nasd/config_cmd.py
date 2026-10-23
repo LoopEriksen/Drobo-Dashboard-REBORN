@@ -682,9 +682,8 @@ def _send_section_document(host: str, esa_id: str, section: str,
     if _REDACTION_SENTINEL in section_document:
         raise ConfigWriteError(
             "the document to write contains the redaction sentinel "
-            f"{_REDACTION_SENTINEL!r}; "
-            "refusing -- a masked value must never be written back to the "
-            f"device")
+            f"{_REDACTION_SENTINEL!r}; refusing -- a masked value must never "
+            "be written back to the device")
 
     # The device escapes the inner document into <Params>. quote=False
     # so only &lt; &gt; &amp; are produced -- the only escaping the
@@ -823,14 +822,12 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
     if readback is None:
         raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device "
-            f"closed "
-            f"the connection without answering ({type(cause).__name__}: "
-            f"{cause}), "
-            f"and no read-back was available to settle it. The write MAY have "
-            "applied -- a device that hangs up after a write has been "
-            f"measured "
-            f"to apply it anyway. Re-read the configuration before deciding "
-            f"anything, and do NOT simply retry the write.") from cause
+            "closed the connection without answering "
+            f"({type(cause).__name__}: {cause}), and no read-back was "
+            "available to settle it. The write MAY have applied -- a device "
+            "that hangs up after a write has been measured to apply it "
+            "anyway. Re-read the configuration before deciding anything, and "
+            "do NOT simply retry the write.") from cause
 
     try:
         applied = readback()
@@ -843,14 +840,12 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
         # in the arbiter findable.
         raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device "
-            f"closed "
-            f"the connection without answering ({type(cause).__name__}: "
-            f"{cause}), "
-            f"and the read-back that would settle it could not be completed "
-            f"either ({type(exc).__name__}: {exc}). The write MAY have "
-            f"applied. "
-            f"Re-read the configuration before deciding anything, and do NOT "
-            f"simply retry the write.") from exc
+            "closed the connection without answering "
+            f"({type(cause).__name__}: {cause}), and the read-back that would "
+            f"settle it could not be completed either ({type(exc).__name__}: "
+            f"{exc}). The write MAY have applied. Re-read the configuration "
+            "before deciding anything, and do NOT simply "
+            "retry the write.") from exc
 
     if not applied:
         # The device is the arbiter and it says the change is not there.

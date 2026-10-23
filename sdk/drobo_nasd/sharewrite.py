@@ -217,10 +217,9 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
         if access_code not in allowed_codes:
             raise ShareEditError(
                 f"access code {access_code!r} is neither confirmed nor "
-                f"already "
-                f"on this device (allowed: {sorted(allowed_codes)}). This "
-                f"does not invent access codes -- an unconfirmed code is a "
-                f"guess and must not be written to someone's permissions.")
+                f"already on this device (allowed: {sorted(allowed_codes)}). "
+                "This does not invent access codes -- an unconfirmed code is "
+                "a guess and must not be written to someone's permissions.")
 
         before_names = [(_child_text(s, "ShareName"))
                         for s in _share_elements(share_config)]
@@ -263,23 +262,18 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
         if len(matching_users) > 1:
             raise ShareEditError(
                 f"share {share_name!r} has {len(matching_users)} user entries "
-                f"folding "
-                f"to {username!r}. Duplicate or case-colliding rows are "
-                f"ambiguous "
-                f"to reconcile safely -- changing one and leaving the others "
-                f"would silently leave the wrong access in place. Resolve the "
-                f"duplicates on the device first.")
+                f"folding to {username!r}. Duplicate or case-colliding rows "
+                "are ambiguous to reconcile safely -- changing one and "
+                "leaving the others would silently leave the wrong access in "
+                "place. Resolve the duplicates on the device first.")
         if matching_users:
             access_elements = matching_users[0].findall("ShareUserAccess")
             if len(access_elements) > 1:
                 raise ShareEditError(
                     f"user {username!r} on {share_name!r} carries "
-                    f"{len(access_elements)} "
-                    "<ShareUserAccess> elements; changing one would leave "
-                    f"the "
-                    "other on the wire. Refusing a row this module cannot "
-                    f"edit "
-                    f"unambiguously.")
+                    f"{len(access_elements)} <ShareUserAccess> elements; "
+                    "changing one would leave the other on the wire. Refusing "
+                    "a row this module cannot edit unambiguously.")
             access_element = access_elements[0] if access_elements else None
             if access_element is None:
                 access_element = ElementTree.SubElement(
@@ -306,9 +300,8 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
         if before_names != after_names:
             raise ShareEditError(
                 "the edit changed the set of shares -- refusing. This should "
-                "be "
-                "impossible with a surgical edit and means something is "
-                "wrong.")
+                "be impossible with a surgical edit and means "
+                "something is wrong.")
 
     def _reads_back() -> bool:
         return _access_reads_back_as(host, esa_id, share_name, username,
@@ -333,10 +326,10 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
         raise ShareWriteOutcomeUnknownError(
             f"the write setting {username!r} to access {access_code} on "
             f"{share_name!r} WAS sent, but neither the device's "
-            f"acknowledgement nor a read-back could settle whether it applied "
+            "acknowledgement nor a read-back could settle whether it applied "
             f"({exc}). The access MAY now be changed. Re-read the share "
-            f"config "
-            f"before deciding anything -- and do NOT simply retry the write."
+            "config before deciding anything -- and do NOT simply "
+            "retry the write."
         ) from exc
 
     # Stop here without a fresh read in two cases: config_cmd already
@@ -357,21 +350,17 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
         result["verified"] = None
         raise ShareWriteOutcomeUnknownError(
             f"the device ACCEPTED the write for {username!r} on "
-            f"{share_name!r} "
-            f"(access {access_code}), but the read-back to confirm it could "
-            f"not "
-            f"be completed ({type(exc).__name__}: {exc}). The change most "
-            f"likely "
-            "applied. Re-read the share config before deciding anything -- "
-            f"and "
-            f"do NOT simply retry the write.") from exc
+            f"{share_name!r} (access {access_code}), but the read-back to "
+            f"confirm it could not be completed ({type(exc).__name__}: "
+            f"{exc}). The change most likely applied. Re-read the share "
+            "config before deciding anything -- and do NOT simply "
+            "retry the write.") from exc
 
     if not result["verified"]:
         raise ShareEditError(
             f"the device accepted the write but {username!r} on "
-            f"{share_name!r} "
-            f"does not read back as access {access_code}. Received, not "
-            f"applied.")
+            f"{share_name!r} does not read back as access {access_code}. "
+            "Received, not applied.")
     return result
 
 
@@ -542,12 +531,9 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         if document.count("</Shares>") != 1:
             raise ShareEditError(
                 "the share config does not contain exactly one </Shares> "
-                "close "
-                "tag to insert before -- an empty or missing <Shares> "
-                "container "
-                "is a shape no capture has shown a share appended to. "
-                "Refusing "
-                "rather than guessing where the node goes.")
+                "close tag to insert before -- an empty or missing <Shares> "
+                "container is a shape no capture has shown a share appended "
+                "to. Refusing rather than guessing where the node goes.")
         new_share_node = _NEW_SHARE_NODE.format(name=name,
                                                 volume=chosen_volume)
         document_to_send = document.replace("</Shares>",
@@ -580,11 +566,10 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         raise ShareWriteOutcomeUnknownError(
             f"the write creating share {name!r} WAS sent, but neither the "
-            "device's acknowledgement nor a read-back could settle whether "
-            f"it "
+            "device's acknowledgement nor a read-back could settle whether it "
             f"applied ({exc}). The share MAY now exist. Re-read the share "
-            f"config before deciding anything -- and do NOT simply retry the "
-            f"create.") from exc
+            "config before deciding anything -- and do NOT simply "
+            "retry the create.") from exc
 
     # Stop here without a fresh read in two cases: config_cmd already
     # settled this write by reading the device back (its verdict IS the
@@ -706,12 +691,10 @@ def delete_share(host: str, esa_id: str, name: str,
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         raise ShareWriteOutcomeUnknownError(
             f"the delete of share {name!r} WAS sent, but neither the device's "
-            f"acknowledgement nor a read-back could settle whether it applied "
+            "acknowledgement nor a read-back could settle whether it applied "
             f"({exc}). The share MAY already be gone -- and with it whatever "
-            f"it "
-            "held. Re-read the share config before deciding anything -- and "
-            f"do "
-            f"NOT simply retry the delete.") from exc
+            "it held. Re-read the share config before deciding anything -- "
+            "and do NOT simply retry the delete.") from exc
 
     target_name = resolved_target["name"]
     # Stop here without a fresh read in two cases: config_cmd already
