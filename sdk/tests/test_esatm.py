@@ -50,8 +50,9 @@ check(
     snapshot_dict["device"]["name"] == "TestDrobo",
     snapshot_dict["device"]["name"],
 )
-check("firmware parsed", snapshot_dict["device"]["firmware"].startswith(
-    "4.3.1"), snapshot_dict["device"]["firmware"])
+check("firmware parsed",
+      snapshot_dict["device"]["firmware"].startswith("4.3.1"),
+      snapshot_dict["device"]["firmware"])
 check("model is Drobo 5N", snapshot_dict["device"]["model"] == "Drobo 5N")
 
 present_drives = [drive for drive in snapshot_dict["drives"]
@@ -75,8 +76,9 @@ check("exactly five bays reported", len(snapshot_dict["drives"]) == 5,
       len(snapshot_dict["drives"]))
 check("all present drives ok",
       all(drive["state"] == STATE_OK for drive in present_drives))
-check("drive capacity ~4TB", all(
-    3.9e12 < drive["capacity_bytes"] < 4.1e12 for drive in present_drives))
+check("drive capacity ~4TB",
+      all(3.9e12 < drive["capacity_bytes"] < 4.1e12
+          for drive in present_drives))
 # Per-slot mSerial is the DISK's serial, which is a different field from
 # the device's mESAID. Confusing the two was a real bug once, so assert
 # they are distinct per drive and disk-shaped, not that they equal the
@@ -99,8 +101,8 @@ check("firmware rev parsed per drive",
       all(drive["firmware_rev"] for drive in present_drives),
       [drive["firmware_rev"] for drive in present_drives])
 check("ssd_life_remaining parsed per drive",
-      [drive["ssd_life_remaining"]
-          for drive in present_drives] == [100, 100, 100, 100, 100],
+      [drive["ssd_life_remaining"] for drive in present_drives]
+      == [100, 100, 100, 100, 100],
       [drive["ssd_life_remaining"] for drive in present_drives])
 check("rotational_speed parsed per drive (bay 1 spins down to 0, others 27)",
       [drive["rotational_speed"] for drive in present_drives]
@@ -147,14 +149,16 @@ check("use_unprotected_capacity is false on the fixture",
       pack_health["use_unprotected_capacity"])
 
 capacity = snapshot_dict["capacity"]
-check("usable ~11.7 TB", 11.4e12 <
-      capacity["usable_bytes"] < 12.0e12, capacity["usable_bytes"])
+check("usable ~11.7 TB",
+      11.4e12 < capacity["usable_bytes"] < 12.0e12,
+      capacity["usable_bytes"])
 check("used < free (array nearly empty)",
       capacity["used_bytes"] < capacity["free_bytes"])
-check("raw is sum of the pack (~20 TB)", 19.5e12 <
-      capacity["raw_bytes"] < 20.5e12, capacity["raw_bytes"])
-check("used_fraction between 0 and 1", 0 <
-      capacity["used_fraction"] < 1, capacity["used_fraction"])
+check("raw is sum of the pack (~20 TB)",
+      19.5e12 < capacity["raw_bytes"] < 20.5e12,
+      capacity["raw_bytes"])
+check("used_fraction between 0 and 1",
+      0 < capacity["used_fraction"] < 1, capacity["used_fraction"])
 
 print("\n== absent pack-status fields must read as unknown, not zero ==")
 # Regression: these codes were parsed with a default of 0. Because the
@@ -204,8 +208,8 @@ check("a field that IS present still parses",
 # briefly lost altogether. Restored 2026-07-27.
 
 print("\n== frame reading over a real socket ==")
-frame = esatm.SIGNATURE + b"\x01\x01\x00\x00" + \
-    struct.pack(">I", len(GREETING_PAYLOAD)) + GREETING_PAYLOAD
+frame = (esatm.SIGNATURE + b"\x01\x01\x00\x00"
+         + struct.pack(">I", len(GREETING_PAYLOAD)) + GREETING_PAYLOAD)
 # Each peer below sends from this thread, before the read, as
 # test_config_cmd.py does. They used to send from threads whose lambdas
 # looked `writer_socket` up when they RAN, so a sender still going when
@@ -292,15 +296,15 @@ print("\n== volumes, read from the greeting at no extra cost ==")
 # volunteers the STATE of its volumes in the ordinary status greeting,
 # which is the half worth having and costs no extra connection to a
 # device that tires easily.
-check("the real greeting carries one volume", len(
-    snapshot.volumes) == 1, len(snapshot.volumes))
+check("the real greeting carries one volume",
+      len(snapshot.volumes) == 1, len(snapshot.volumes))
 check("the pack could hold sixteen", snapshot.max_volumes == 16,
       snapshot.max_volumes)
 _volume = snapshot.volumes[0]
 check("volume number read", _volume.lun == 0, _volume.lun)
 check("unique id read", _volume.unique_id == "1000", _volume.unique_id)
-check("max size read (64 TiB)", _volume.max_size_bytes ==
-      70368744177664, _volume.max_size_bytes)
+check("max size read (64 TiB)",
+      _volume.max_size_bytes == 70368744177664, _volume.max_size_bytes)
 check("partition count read", _volume.partition_count == 2,
       _volume.partition_count)
 check("partition type carried raw", _volume.partition_type == 3,
@@ -321,10 +325,11 @@ check("the raw number is still carried alongside the word",
       _volume.to_dict()["partition_type"] == 3,
       _volume.to_dict().get("partition_type"))
 
-# The format number stays raw. drobo-utils' format table (NO
-# FORMAT/NTFS/HFS/ EXT3/FAT32) contains no 64, so that mapping does NOT
-# transfer -- and a neighbouring table being right is not evidence for
-# guessing this one.
+# The format number stays raw. drobo-utils'
+# format table (NO FORMAT/NTFS/HFS/
+# EXT3/FAT32) contains no 64, so that mapping does NOT transfer --
+# and a neighbouring table being right is not evidence for guessing
+# this one.
 check("partition format carried raw",
       _volume.partition_format == 64, _volume.partition_format)
 
@@ -335,8 +340,9 @@ check("an unknown scheme is empty, not 'Unknown'",
       dataclasses.replace(_volume, partition_type=99).partition_scheme == "")
 check("an absent scheme is empty too",
       dataclasses.replace(_volume, partition_type=None).partition_scheme == "")
-check("scheme 1 is MBR", dataclasses.replace(
-    _volume, partition_type=1).partition_scheme == "MBR")
+check("scheme 1 is MBR",
+      dataclasses.replace(_volume, partition_type=1).partition_scheme
+      == "MBR")
 check("an unnamed volume stays unnamed rather than being invented",
       _volume.name == "", repr(_volume.name))
 

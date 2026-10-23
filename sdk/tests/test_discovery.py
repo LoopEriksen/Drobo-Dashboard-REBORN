@@ -63,8 +63,8 @@ GREETING_PAYLOAD = open(FIXTURE_PATH, "rb").read()
 
 @contextlib.contextmanager
 def fake_drobo(payload: bytes):
-    frame = esatm.SIGNATURE + b"\x01\x01\x00\x00" + \
-        struct.pack(">I", len(payload)) + payload
+    frame = (esatm.SIGNATURE + b"\x01\x01\x00\x00"
+             + struct.pack(">I", len(payload)) + payload)
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(("127.0.0.1", 0))
     server_socket.listen(1)
@@ -310,8 +310,8 @@ try:
     candidates = discovery._gather_candidates(
         hostname="drobo.local", last_known_ip="10.0.0.9",
         try_sweep=False, mdns_timeout=0.1)
-    check("sweep excluded when not opted in", all(
-        c.source != "sweep" for c in candidates), candidates)
+    check("sweep excluded when not opted in",
+          all(c.source != "sweep" for c in candidates), candidates)
     check("order is mdns, hostname, last-known",
           [c.source for c in candidates] == ["mdns", "hostname", "last-known"],
           [c.source for c in candidates])
@@ -328,8 +328,8 @@ try:
         hostname="", last_known_ip="10.0.0.9",
         try_sweep=False, mdns_timeout=0.1)
     check("last-known IP is tried even with no hostname",
-          any(c.host == "10.0.0.9" and c.source ==
-              "last-known" for c in last_known_only_candidates),
+          any(c.host == "10.0.0.9" and c.source == "last-known"
+              for c in last_known_only_candidates),
           last_known_only_candidates)
 
     discovery.discover_mdns = lambda timeout=3.0: [
@@ -386,8 +386,9 @@ try:
 
     candidates_without_manual_ips = discovery._gather_candidates(
         try_sweep=False, mdns_timeout=0.1)
-    check("no manual_ips changes nothing", all(c.source !=
-          "manual" for c in candidates_without_manual_ips))
+    check("no manual_ips changes nothing",
+          all(c.source != "manual"
+              for c in candidates_without_manual_ips))
 finally:
     (
         discovery.discover_mdns,
@@ -418,8 +419,8 @@ check("sweep stays roughly within its time budget", _elapsed < 6.0, _elapsed)
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== MAC/ARP corroboration: parsing realistic captured arp output (no "
-    "LAN) =="
+    "\n== MAC/ARP corroboration: parsing realistic captured arp output "
+    "(no LAN) =="
 )
 # ---------------------------------------------------------------------------
 
@@ -432,15 +433,11 @@ Interface: 10.0.0.50 --- 0x9
   224.0.0.22             01-00-5e-00-00-16     static
 """
 
-UNIX_ARP_N = (
-    "\n"
-    "Address                  HWtype  HWaddress           Flags Mask"
-    "            Iface\n"
-    "10.0.0.1              ether   aa:bb:cc:dd:ee:01   C"
-    "                     eth0\n"
-    "10.0.0.50             ether   e0:ab:cd:12:34:56   C"
-    "                     eth0\n"
-)
+UNIX_ARP_N = """
+Address                  HWtype  HWaddress           Flags Mask            Iface
+10.0.0.1              ether   aa:bb:cc:dd:ee:01   C                     eth0
+10.0.0.50             ether   e0:ab:cd:12:34:56   C                     eth0
+"""  # noqa: E501
 
 UNIX_ARP_A = """
 ? (10.0.0.1) at aa:bb:cc:dd:ee:01 [ether] on eth0
@@ -472,8 +469,8 @@ check("garbage arp text yields empty table, no crash",
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== MAC/ARP corroboration: absent/unreadable table degrades gracefully "
-    "=="
+    "\n== MAC/ARP corroboration: absent/unreadable table "
+    "degrades gracefully =="
 )
 # ---------------------------------------------------------------------------
 
@@ -490,8 +487,8 @@ finally:
 # _read_arp_table_text itself must swallow subprocess failure, not just
 # callers of it.
 _original_subprocess_run = subprocess.run
-subprocess.run = lambda *args, **kwargs: (
-    _ for _ in ()).throw(FileNotFoundError("no arp on PATH"))
+subprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(
+    FileNotFoundError("no arp on PATH"))
 try:
     arp_text = discovery._read_arp_table_text(timeout=0.5)
     check(
@@ -504,8 +501,8 @@ finally:
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== verify_candidate: expected_mac REFUSES on mismatch, WARNS when "
-    "unknown =="
+    "\n== verify_candidate: expected_mac REFUSES on mismatch, "
+    "WARNS when unknown =="
 )
 # ---------------------------------------------------------------------------
 
@@ -608,15 +605,15 @@ finally:
 
 # ---------------------------------------------------------------------------
 print(
-    "\n== allowed_subnets: rejects an out-of-range candidate before "
-    "connecting =="
+    "\n== allowed_subnets: rejects an out-of-range candidate "
+    "before connecting =="
 )
 # ---------------------------------------------------------------------------
 
 # The two addresses must be in genuinely different /24s, or this test
-# passes without testing anything. Using the documentation range (RFC
-# 5737) for the out-of-range one makes that impossible to break by a
-# search-and-replace.
+# passes without testing anything. Using the documentation range
+# (RFC 5737) for the out-of-range one makes that impossible to break
+# by a search-and-replace.
 in_range_candidate = discovery.Candidate("10.0.0.50", 5000, "test")
 out_of_range_candidate = discovery.Candidate("203.0.113.5", 5000, "test")
 allowed, rejected = discovery.filter_allowed_subnets(

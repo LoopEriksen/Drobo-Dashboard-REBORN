@@ -149,11 +149,10 @@ print(
 # capture of the button exists" until 2026-09-26. One did.)
 #
 # The default checked below is 15, this project's own guess, NOT the
-# captured
-# 900. It changes only after 900 has been sent while someone watches the
-# unit. What is still open is the UNIT, and these tests are careful not
-# to pretend otherwise. They check that the number we chose is
-# transmitted exactly as given; none of them claims it means minutes.
+# captured 900. It changes only after 900 has been sent while someone
+# watches the unit. What is still open is the UNIT, and these tests are
+# careful not to pretend otherwise. They check that the number we chose
+# is transmitted exactly as given; none of them claims it means minutes.
 
 check("the interval element is the one from Dashboard's binary",
       identify.INTERVAL_TAG == "IdentifyInterval", identify.INTERVAL_TAG)
@@ -284,8 +283,8 @@ try:
     droboapps.parse_droboapps(b"<not xml\x00")
     check("malformed XML raises", False)
 except Exception as exc:
-    check("malformed XML raises", type(exc).__name__ ==
-          "SysInfoError", type(exc).__name__)
+    check("malformed XML raises",
+          type(exc).__name__ == "SysInfoError", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------

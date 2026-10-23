@@ -43,8 +43,8 @@ check("None is tolerated", firmware.parse_version(None) is None)
 print("\n== the two builds Drobo withdrew ==")
 for version in ("4.3.0", "4.3.1", "4.3.1-8.126.117497"):
     assessment = firmware.assess(version)
-    check(f"{version} is flagged as withdrawn", assessment.risk ==
-          firmware.RISK_WITHDRAWN, assessment.risk)
+    check(f"{version} is flagged as withdrawn",
+          assessment.risk == firmware.RISK_WITHDRAWN, assessment.risk)
     check(f"{version} is worth showing", assessment.notable)
 
 assessment = firmware.assess("4.3.1-8.126.117497")
@@ -93,8 +93,10 @@ print("\n== everything else stays quiet ==")
 # it.
 for version in ("4.2.2", "4.2.1", "4.1.0", "1.2.7", "5.0.0", "4.4.0"):
     assessment = firmware.assess(version)
-    check(f"{version} says nothing", assessment.risk ==
-          firmware.RISK_NONE and not assessment.notable, assessment.risk)
+    check(f"{version} says nothing",
+          assessment.risk == firmware.RISK_NONE
+          and not assessment.notable,
+          assessment.risk)
     check(f"{version} carries no text",
           assessment.headline == "" and assessment.detail == "")
 

@@ -146,8 +146,9 @@ class FakeDrobo:
                     connection.close()
                     continue
                 payload = self._receive_frame(connection)  # command
-                self.sent.append((payload or b"").rstrip(
-                    b"\x00").decode("utf-8", "replace"))
+                self.sent.append(
+                    (payload or b"").rstrip(b"\x00").decode("utf-8",
+                                                            "replace"))
                 connection.sendall(
                     config_cmd._build_frame(config_cmd.TYPE_RESULT, reply))
                 connection.close()
@@ -163,8 +164,13 @@ print("== the happy path: change only Dim, keep the siblings ==")
 
 # Three connections now: read General, write, read-back to verify it
 # applied.
-fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(
-    config_cmd.RESULT_ACCEPTED), _dimming_reply(10)])
+fake_drobo = FakeDrobo(
+    [
+        _general_reply(dim_level="59"),
+        _write_result_reply(config_cmd.RESULT_ACCEPTED),
+        _dimming_reply(10),
+    ]
+)
 result = droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
                                port=fake_drobo.port, timeout=5)
 check("set_dimming reports the accepted result",
@@ -215,8 +221,13 @@ for brightness in (0, 255, 1):
 
 print("\n== accepted is not applied: read-back must agree ==")
 # Device says ACCEPTED but the brightness did not change -> must raise.
-fake_drobo = FakeDrobo([_general_reply(dim_level="59"), _write_result_reply(
-    config_cmd.RESULT_ACCEPTED), _dimming_reply(59)])
+fake_drobo = FakeDrobo(
+    [
+        _general_reply(dim_level="59"),
+        _write_result_reply(config_cmd.RESULT_ACCEPTED),
+        _dimming_reply(59),
+    ]
+)
 try:
     droboapps.set_dimming("127.0.0.1", SAMPLE_ESA_ID, 10,
                           port=fake_drobo.port, timeout=5)
@@ -237,8 +248,8 @@ result = droboapps.set_dimming(
     timeout=5,
     verify=False,
 )
-check("verify=False skips the read-back", len(fake_drobo.sent)
-      == 2 and "verified" not in result, result)
+check("verify=False skips the read-back",
+      len(fake_drobo.sent) == 2 and "verified" not in result, result)
 
 print("\n== the guards: a bad value never reaches the device ==")
 

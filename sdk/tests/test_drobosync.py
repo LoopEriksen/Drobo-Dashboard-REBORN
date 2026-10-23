@@ -107,8 +107,8 @@ except ValueError as exc:
           "settings" in str(exc), str(exc))
 
 print("\n== the four reads we support are the four the firmware has ==")
-check("exactly four read commands", len(
-    drobosync.READ_COMMANDS) == 4, drobosync.READ_COMMANDS)
+check("exactly four read commands",
+      len(drobosync.READ_COMMANDS) == 4, drobosync.READ_COMMANDS)
 for name in drobosync.READ_COMMANDS.values():
     check(f"{name} has a firmware id", name in commands.COMMANDS, name)
     check(f"{name} is NOT refused (it is a query)",
@@ -207,8 +207,8 @@ def _read_with_failing_settings(host, esa_id, what, port=None, timeout=None):
 drobosync.read = _read_with_failing_settings
 try:
     sync_summary = drobosync.summary("10.0.0.50", "drbTEST")
-    check("a failing read still returns all four entries", len(
-        sync_summary["reads"]) == 4, sync_summary["reads"])
+    check("a failing read still returns all four entries",
+          len(sync_summary["reads"]) == 4, sync_summary["reads"])
     check("the failure is recorded against the read it belongs to",
           "error" in sync_summary["reads"]["settings"],
           sync_summary["reads"]["settings"])

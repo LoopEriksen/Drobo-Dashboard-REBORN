@@ -88,8 +88,9 @@ admin_config = (config_cmd.parse_config_result(ADMIN_CONFIG_REPLY)
                 ["DRINASConfig"]["DRINasAdminConfig"])
 check("admin username kept (not a secret)",
       admin_config["UserName"] == "admin", admin_config.get("UserName"))
-check("Password redacted", admin_config["Password"]
-      == "[redacted]", admin_config.get("Password"))
+check("Password redacted",
+      admin_config["Password"] == "[redacted]",
+      admin_config.get("Password"))
 check(
     "ValidPassword redacted",
     admin_config["ValidPassword"] == "[redacted]",
@@ -224,8 +225,8 @@ frame = config_cmd._build_frame(config_cmd.TYPE_COMMAND, b"abc")
 check("frame starts with DRINETTM", frame[:8] == b"DRINETTM", frame[:8])
 check("type byte placed correctly",
       frame[8] == config_cmd.TYPE_COMMAND, frame[8])
-check("length is big-endian", struct.unpack(">I",
-      frame[12:16])[0] == 3, frame[12:16].hex())
+check("length is big-endian",
+      struct.unpack(">I", frame[12:16])[0] == 3, frame[12:16].hex())
 
 login_payload = config_cmd._login_payload("drb000000SAMPLE")
 check("login payload is 220 bytes", len(login_payload) == 220,
@@ -258,8 +259,8 @@ except config_cmd.ConfigError as exc:
 
 
 # --------------------------------------------------------------------------
-# End to end against a fake Drobo -- proves login + command + parse
-# together
+# End to end against a fake Drobo -- proves login + command
+# + parse together
 # --------------------------------------------------------------------------
 print("\n== end to end against a fake device ==")
 
