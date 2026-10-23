@@ -2,12 +2,12 @@
 """
 fwtool.py - unpack Drobo firmware (.tdf) files.
 
-Drobo firmware is a container Data Robotics called TDIH. This tool reads it,
-lists what's inside, extracts each section, and rebuilds the Linux root
-filesystem so its files can be read directly.
+Drobo firmware is a container Data Robotics called TDIH. This tool reads
+it, lists what's inside, extracts each section, and rebuilds the Linux
+root filesystem so its files can be read directly.
 
-Everything here is read-only. Nothing is executed, and nothing is written back
-to a Drobo.
+Everything here is read-only. Nothing is executed, and nothing is
+written back to a Drobo.
 
     py fwtool.py info    release.Drobo5N.4-2-1.tdf
     py fwtool.py extract release.Drobo5N.4-2-1.tdf -o out/
@@ -17,7 +17,8 @@ to a Drobo.
 Standard library only, Python 3.9+.
 
 --------------------------------------------------------------------------
-Container layout (worked out from Drobo 5N firmware 4.2.1, all big-endian)
+Container layout (worked out from Drobo 5N firmware 4.2.1, all
+big-endian)
 
     +0x000  u32   offset of the payload area (0x22c on 5N 4.2.1)
     +0x004  u32   format version (5)
@@ -37,10 +38,10 @@ Container layout (worked out from Drobo 5N firmware 4.2.1, all big-endian)
                     +0x14 u32    checksum
 
 Section tags seen so far:
-    VXI2   ARM ELF - the VxWorks-side storage application (BeyondRAID)
-    RTPI   ARM ELF - second runtime image
-    LXKI   u-boot uImage - the Linux kernel
-    LXFS   JFFS2 filesystem - the Linux root filesystem, where nasd lives
+    VXI2  ARM ELF - the VxWorks-side storage application (BeyondRAID)
+    RTPI  ARM ELF - second runtime image
+    LXKI  u-boot uImage - the Linux kernel
+    LXFS  JFFS2 filesystem - the Linux root filesystem, where nasd lives
 --------------------------------------------------------------------------
 """
 
@@ -80,7 +81,8 @@ class Section:
 
     def __str__(self):
         return (f"{self.tag:6s} @0x{self.offset:08x}  {self.size:>12,} bytes  "
-                f"build=0x{self.build:x}  csum=0x{self.checksum:08x}  {self.kind}")
+                f"build=0x{self.build:x}  csum=0x{self.checksum:08x}  "
+                f"{self.kind}")
 
 
 def read_container(path: str):
@@ -102,7 +104,8 @@ def read_container(path: str):
     for i in range(count):
         base = TABLE_OFFSET + i * ENTRY_SIZE
         tag = blob[base:base + 4].decode("latin1")
-        off, size, _resv, sbuild, csum = struct.unpack_from(">IIIII", blob, base + 4)
+        off, size, _resv, sbuild, csum = struct.unpack_from(
+            ">IIIII", blob, base + 4)
         sec = Section(tag, data_off + off, size, sbuild, csum)
         head = blob[sec.offset:sec.offset + 16]
         for sig, name in FORMATS:
@@ -127,24 +130,30 @@ def cmd_info(args) -> int:
     print(f"  model           {meta['model']}")
     print(f"  format version  {meta['format_version']}")
     print(f"  build           0x{meta['build']:x}")
-    print(f"  payload         {meta['payload_size']:,} bytes at 0x{meta['data_offset']:x}")
+    print(f"  payload         {meta['payload_size']:,} bytes at "
+          f"0x{meta['data_offset']:x}")
     print(f"  checksum        0x{meta['checksum']:08x}")
     print(f"  sections        {len(meta['sections'])}")
     covered = 0
     for sec in meta["sections"]:
         print("   ", sec)
         covered += sec.size
-    print(f"\n  {covered:,} of {meta['payload_size']:,} payload bytes accounted for"
-          f" ({'complete' if covered == meta['payload_size'] else 'INCOMPLETE'})")
+    print(
+        f"\n  {covered:,} of {meta['payload_size']:,} payload bytes "
+        f"accounted for"
+        f" ({'complete' if covered == meta['payload_size'] else 'INCOMPLETE'})"
+    )
 
     for sec in meta["sections"]:
         if sec.kind == "u-boot uImage":
             u = sec.offset
             size = struct.unpack_from(">I", blob, u + 12)[0]
             load, entry = struct.unpack_from(">II", blob, u + 16)
-            name = blob[u + 32:u + 64].rstrip(b"\0").decode("latin1", "replace")
+            name = blob[u + 32:u + 64].rstrip(b"\0").decode(
+                "latin1", "replace")
             print(f"\n  kernel: {name}")
-            print(f"    {size:,} bytes, load=0x{load:08x}, entry=0x{entry:08x}")
+            print(f"    {size:,} bytes, load=0x{load:08x}, "
+                  f"entry=0x{entry:08x}")
     return 0
 
 
@@ -168,7 +177,8 @@ def cmd_extract(args) -> int:
 
 J_MAGIC, J_DIRENT, J_INODE = 0x1985, 0xE001, 0xE002
 C_NONE, C_ZERO, C_RTIME, C_COPY, C_ZLIB = 0, 1, 2, 4, 6
-DTYPE = {1: "fifo", 2: "chr", 4: "dir", 6: "blk", 8: "file", 10: "link", 12: "sock"}
+DTYPE = {1: "fifo", 2: "chr", 4: "dir", 6: "blk", 8: "file", 10: "link",
+         12: "sock"}
 
 
 def _rtime(src: bytes, destlen: int) -> bytes:
@@ -176,16 +186,21 @@ def _rtime(src: bytes, destlen: int) -> bytes:
     out = bytearray(destlen)
     outpos = ip = 0
     while outpos < destlen and ip + 1 < len(src):
-        value = src[ip]; ip += 1
-        out[outpos] = value; outpos += 1
-        repeat = src[ip]; ip += 1
+        value = src[ip]
+        ip += 1
+        out[outpos] = value
+        outpos += 1
+        repeat = src[ip]
+        ip += 1
         back = positions[value]
         positions[value] = outpos
         if repeat:
             if back + repeat >= outpos:
                 while repeat and outpos < destlen:
                     out[outpos] = out[back]
-                    outpos += 1; back += 1; repeat -= 1
+                    outpos += 1
+                    back += 1
+                    repeat -= 1
             else:
                 n = min(repeat, destlen - outpos)
                 out[outpos:outpos + n] = out[back:back + n]
@@ -215,8 +230,8 @@ def cmd_rootfs(args) -> int:
     with open(args.file, "rb") as fh:
         fs = fh.read()
     if fs[:2] != b"\x85\x19":
-        print("warning: this does not start with the JFFS2 magic; trying anyway",
-              file=sys.stderr)
+        print("warning: this does not start with the JFFS2 magic; "
+              "trying anyway", file=sys.stderr)
 
     dirents = collections.defaultdict(list)
     frags = collections.defaultdict(list)
@@ -233,13 +248,15 @@ def cmd_rootfs(args) -> int:
             nsize, dtype = struct.unpack_from("<BB", fs, pos + 28)
             name = fs[pos + 40:pos + 40 + nsize]
             if nsize and name:
-                dirents[ino].append((version, name.decode("utf-8", "replace"), pino, dtype))
+                dirents[ino].append(
+                    (version, name.decode("utf-8", "replace"), pino, dtype))
         elif nodetype == J_INODE and pos + 68 <= size:
             ino, version = struct.unpack_from("<II", fs, pos + 12)
             isize = struct.unpack_from("<I", fs, pos + 28)[0]
             offset, csize, dsize = struct.unpack_from("<III", fs, pos + 44)
             comp = fs[pos + 56]
-            out = _decompress(comp, fs[pos + 68:pos + 68 + csize], csize, dsize)
+            out = _decompress(comp, fs[pos + 68:pos + 68 + csize], csize,
+                              dsize)
             if out is None:
                 unsupported[comp] += 1
             else:
@@ -304,14 +321,16 @@ def cmd_rootfs(args) -> int:
         # other unnamed type.
         names = {3: "RUBINMIPS", 5: "DYNRUBIN", 7: "LZO"}
         print("  unsupported compression: "
-              + ", ".join(f"{names.get(k, k)} x{v}" for k, v in unsupported.items()))
+              + ", ".join(f"{names.get(k, k)} x{v}"
+                          for k, v in unsupported.items()))
     return 0
 
 
 def cmd_strings(args) -> int:
     with open(args.file, "rb") as fh:
         data = fh.read()
-    found = [s.decode("latin1") for s in re.findall(rb"[\x20-\x7e]{%d,}" % args.min, data)]
+    found = [s.decode("latin1")
+             for s in re.findall(rb"[\x20-\x7e]{%d,}" % args.min, data)]
     uniq = list(dict.fromkeys(found))
     if args.grep:
         pat = re.compile(args.grep, re.I)
@@ -323,8 +342,9 @@ def cmd_strings(args) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("info", help="describe a .tdf firmware container")
@@ -342,7 +362,8 @@ def main(argv=None) -> int:
     p.add_argument("-o", "--out", default="rootfs")
     p.set_defaults(func=cmd_rootfs)
 
-    p = sub.add_parser("strings", help="printable strings, optionally filtered")
+    p = sub.add_parser(
+        "strings", help="printable strings, optionally filtered")
     p.add_argument("file")
     p.add_argument("--min", type=int, default=4)
     p.add_argument("--grep", default=None, help="regex filter")

@@ -2,23 +2,26 @@
 """
 drobo_probe.py - Phase 1 discovery tool for Drobo Dashboard REBORN.
 
-Finds a Drobo on the local network and reports what it is listening on, so we
-can work out how the original Drobo Dashboard talks to it. Nothing here writes
-to the Drobo -- it only opens connections and reads what comes back.
+Finds a Drobo on the local network and reports what it is listening on,
+so we can work out how the original Drobo Dashboard talks to it. Nothing
+here writes to the Drobo -- it only opens connections and reads what
+comes back.
 
 Standard library only, Python 3.9+. No admin rights needed.
 
 Usage:
     py drobo_probe.py mdns
         Ask the network to list every advertised service (Bonjour/mDNS).
-        This is how Drobo Dashboard finds a Drobo, so the Drobo should answer.
+        This is how Drobo Dashboard finds a Drobo, so the Drobo should
+        answer.
 
     py drobo_probe.py scan
     py drobo_probe.py scan --cidr 10.0.0.0/24
         Sweep the local subnet for hosts that look like a NAS.
 
     py drobo_probe.py portsweep 10.0.0.50
-        Every port from 1-10000 on one host. Run this once you know the IP.
+        Every port from 1-10000 on one host. Run this once you know the
+        IP.
 
     py drobo_probe.py fingerprint 10.0.0.50
         Connect to each open port and record whatever it says.
@@ -27,8 +30,9 @@ Usage:
         mdns + portsweep + fingerprint, written out as JSON.
 
 NOTE ON PORT NUMBERS: the "likely Drobo" ports below are candidates, not
-confirmed facts. Confirming which port Dashboard actually uses is the whole
-point of this tool -- see docs/archive/phase-1-capture-playbook.md.
+confirmed facts. Confirming which port Dashboard actually uses is the
+whole point of this tool -- see
+docs/archive/phase-1-capture-playbook.md.
 """
 
 from __future__ import annotations
@@ -76,7 +80,8 @@ SWEEP_RANGE = (1, 10000)
 
 
 def local_ipv4() -> str:
-    """Best-guess local IP by asking the OS which interface reaches the internet."""
+    """Best-guess local IP by asking the OS which interface reaches the
+    internet."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 53))
@@ -104,11 +109,12 @@ def tcp_open(host: str, port: int, timeout: float = 0.35) -> bool:
 
 
 def hexdump(data: bytes, limit: int = 256) -> list[str]:
-    """Classic offset / hex / ascii dump, capped so output stays readable."""
+    """Classic offset / hex / ascii dump, capped so output stays
+    readable."""
     out = []
     data = data[:limit]
     for off in range(0, len(data), 16):
-        chunk = data[off : off + 16]
+        chunk = data[off:off + 16]
         hexpart = " ".join(f"{b:02x}" for b in chunk).ljust(47)
         asciipart = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
         out.append(f"{off:04x}  {hexpart}  {asciipart}")
@@ -119,10 +125,10 @@ def hexdump(data: bytes, limit: int = 256) -> list[str]:
 # Minimal mDNS (Bonjour) client
 #
 # We send one query to the multicast address asking for the special
-# "_services._dns-sd._udp.local" record, which means "list every service type
-# you advertise". We set the QU bit so responders reply straight back to us
-# instead of multicasting -- that avoids fighting with Apple's Bonjour service
-# for UDP port 5353 on Windows.
+# "_services._dns-sd._udp.local" record, which means "list every service
+# type you advertise". We set the QU bit so responders reply straight
+# back to us instead of multicasting -- that avoids fighting with
+# Apple's Bonjour service for UDP port 5353 on Windows.
 # --------------------------------------------------------------------------
 
 MDNS_ADDR = "224.0.0.251"
@@ -152,14 +158,16 @@ def _decode_name(data: bytes, offset: int) -> tuple[str, int]:
         if length & 0xC0 == 0xC0:
             if offset + 1 >= len(data):
                 break
-            pointer = struct.unpack("!H", data[offset : offset + 2])[0] & 0x3FFF
+            pointer = struct.unpack(
+                "!H", data[offset:offset + 2])[0] & 0x3FFF
             if not jumped:
                 resume = offset + 2
             jumped = True
             offset = pointer
             continue
         offset += 1
-        labels.append(data[offset : offset + length].decode("utf-8", "replace"))
+        labels.append(
+            data[offset:offset + length].decode("utf-8", "replace"))
         offset += length
     return ".".join(labels), (resume if jumped else offset)
 
@@ -185,9 +193,10 @@ def _parse_response(data: bytes) -> list[dict]:
         name, offset = _decode_name(data, offset)
         if offset + 10 > len(data):
             break
-        rtype, _rclass, _ttl, rdlen = struct.unpack("!HHIH", data[offset : offset + 10])
+        rtype, _rclass, _ttl, rdlen = struct.unpack(
+            "!HHIH", data[offset:offset + 10])
         offset += 10
-        rdata = data[offset : offset + rdlen]
+        rdata = data[offset:offset + rdlen]
         rec = {"name": name, "type": QTYPE.get(rtype, str(rtype))}
         if rtype == 12:  # PTR
             rec["value"], _ = _decode_name(data, offset)
@@ -202,7 +211,8 @@ def _parse_response(data: bytes) -> list[dict]:
             parts, i = [], 0
             while i < len(rdata):
                 ln = rdata[i]
-                parts.append(rdata[i + 1 : i + 1 + ln].decode("utf-8", "replace"))
+                parts.append(
+                    rdata[i + 1:i + 1 + ln].decode("utf-8", "replace"))
                 i += 1 + ln
             rec["value"] = " | ".join(parts)
         else:
@@ -213,11 +223,13 @@ def _parse_response(data: bytes) -> list[dict]:
 
 
 def mdns_discover(wait: float = 4.0) -> list[dict]:
-    """Enumerate service types, then ask about anything Drobo-ish we see."""
+    """Enumerate service types, then ask about anything Drobo-ish we
+    see."""
     queries = [
         "_services._dns-sd._udp.local",
-        # Confirmed from firmware: /etc/avahi/services/nasd.service advertises
-        # _nasd._tcp on port 5000. This is how Dashboard finds a Drobo.
+        # Confirmed from firmware: /etc/avahi/services/nasd.service
+        # advertises _nasd._tcp on port 5000. This is how Dashboard
+        # finds a Drobo.
         "_nasd._tcp.local",
         "_smb._tcp.local",
         "_afpovertcp._tcp.local",
@@ -232,7 +244,8 @@ def mdns_discover(wait: float = 4.0) -> list[dict]:
             try:
                 sock.sendto(_build_query(q), (MDNS_ADDR, MDNS_PORT))
             except OSError as exc:
-                print(f"  ! could not send mDNS query {q}: {exc}", file=sys.stderr)
+                print(f"  ! could not send mDNS query {q}: {exc}",
+                      file=sys.stderr)
         deadline = time.time() + wait
         while time.time() < deadline:
             try:
@@ -255,7 +268,8 @@ def mdns_discover(wait: float = 4.0) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
-def scan_subnet(cidr: str, ports: dict[int, str], workers: int = 256) -> list[dict]:
+def scan_subnet(cidr: str, ports: dict[int, str],
+                workers: int = 256) -> list[dict]:
     net = ipaddress.ip_network(cidr, strict=False)
     targets = [(str(h), p) for h in net.hosts() for p in ports if p != 5353]
     print(f"  scanning {net} -- {len(targets)} host/port pairs ...")
@@ -266,7 +280,8 @@ def scan_subnet(cidr: str, ports: dict[int, str], workers: int = 256) -> list[di
             if is_open:
                 hits.setdefault(host, []).append(port)
     out = []
-    for host, plist in sorted(hits.items(), key=lambda kv: ipaddress.ip_address(kv[0])):
+    for host, plist in sorted(
+            hits.items(), key=lambda kv: ipaddress.ip_address(kv[0])):
         plist.sort()
         try:
             name = socket.gethostbyaddr(host)[0]
@@ -311,7 +326,8 @@ def fingerprint_port(host: str, port: int, timeout: float = 2.5) -> dict:
         sock.settimeout(timeout)
         try:
             if sock.connect_ex((host, port)) != 0:
-                result["attempts"].append({"probe": label, "error": "connect failed"})
+                result["attempts"].append(
+                    {"probe": label, "error": "connect failed"})
                 continue
             if payload:
                 sock.sendall(payload)
@@ -346,7 +362,8 @@ def fingerprint_port(host: str, port: int, timeout: float = 2.5) -> dict:
 
 def print_mdns(records: list[dict]) -> None:
     if not records:
-        print("  (no mDNS replies -- see the troubleshooting notes in the playbook)")
+        print("  (no mDNS replies -- see the troubleshooting notes in the "
+              "playbook)")
         return
     by_host: dict[str, list[dict]] = {}
     for r in records:
@@ -355,7 +372,7 @@ def print_mdns(records: list[dict]) -> None:
         print(f"\n  from {host}")
         for r in sorted(recs, key=lambda x: (x["type"], x["name"])):
             print(f"    {r['type']:<5} {r['name']}")
-            print(f"          -> {r.get('value','')}")
+            print(f"          -> {r.get('value', '')}")
 
 
 def print_fingerprint(fp: dict) -> None:
@@ -370,13 +387,16 @@ def print_fingerprint(fp: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_mdns = sub.add_parser("mdns", help="list advertised network services")
     p_mdns.add_argument("--wait", type=float, default=4.0)
 
-    p_scan = sub.add_parser("scan", help="sweep the subnet for likely NAS hosts")
+    p_scan = sub.add_parser(
+        "scan", help="sweep the subnet for likely NAS hosts")
     p_scan.add_argument("--cidr", default=None)
 
     p_ps = sub.add_parser("portsweep", help="all ports on one host")
@@ -386,7 +406,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_fp = sub.add_parser("fingerprint", help="see what each open port says")
     p_fp.add_argument("host")
-    p_fp.add_argument("--ports", default=None, help="comma-separated; default = quick list")
+    p_fp.add_argument("--ports", default=None,
+                      help="comma-separated; default = quick list")
 
     p_rep = sub.add_parser("report", help="everything, as JSON")
     p_rep.add_argument("host")

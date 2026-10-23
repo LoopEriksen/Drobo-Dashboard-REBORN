@@ -4,33 +4,36 @@ access_codes.py -- work out what ShareUserAccess numbers actually mean.
 
 THE QUESTION
 ------------
-A Drobo stores share permissions as a bare integer. The live 5N uses 0 and 1;
-the firmware never says what they mean, and sweeping every binary in the rootfs
-for `read list` / `write list` / `valid users` finds them ONLY in Samba's own
-libraries -- no Drobo binary mentions them. So the mapping is computed at
-runtime and cannot be recovered by reading the firmware.
+A Drobo stores share permissions as a bare integer. The live 5N uses 0
+and 1; the firmware never says what they mean, and sweeping every binary
+in the rootfs for `read list` / `write list` / `valid users` finds them
+ONLY in Samba's own libraries -- no Drobo binary mentions them. So the
+mapping is computed at runtime and cannot be recovered by reading the
+firmware.
 
-Guessing is not acceptable here. Telling someone a share is "read-only" when it
-is actually writable is worse than telling them nothing, so
-`drobo_nasd/shareedit.py` refuses to invent a code and this project shows raw numbers
-until somebody measures what they mean.
+Guessing is not acceptable here. Telling someone a share is "read-only"
+when it is actually writable is worse than telling them nothing, so
+`drobo_nasd/shareedit.py` refuses to invent a code and this project
+shows raw numbers until somebody measures what they mean.
 
 HOW THIS MEASURES IT
 --------------------
-The original Drobo Dashboard 3.5.0 still installs, still talks to the device,
-and shows permissions in plain words. So it becomes the reference:
+The original Drobo Dashboard 3.5.0 still installs, still talks to the
+device, and shows permissions in plain words. So it becomes the
+reference:
 
     1.  py tools/access_codes.py before
-    2.  In Drobo Dashboard, set a share's permission to something you can name
-        ("Read only" for a user, say) and apply it.
+    2.  In Drobo Dashboard, set a share's permission to something you
+        can name ("Read only" for a user, say) and apply it.
     3.  py tools/access_codes.py after
 
-Step 3 prints exactly which numbers changed, so the word you chose in Dashboard
-is pinned to the number the device stores.
+Step 3 prints exactly which numbers changed, so the word you chose in
+Dashboard is pinned to the number the device stores.
 
-This tool only READS. It never sends a write of any kind -- the changing is
-done by Dashboard, which is software Drobo shipped for the job. That is the
-whole point of doing it this way: a measurement that costs no risk.
+This tool only READS. It never sends a write of any kind -- the changing
+is done by Dashboard, which is software Drobo shipped for the job. That
+is the whole point of doing it this way: a measurement that costs no
+risk.
 
     py tools/access_codes.py before
     py tools/access_codes.py after
@@ -44,8 +47,9 @@ import os
 import sys
 import tempfile
 
-# Two different siblings, for two different reasons: the protocol comes from
-# the SDK, and the Drobo's address comes from the agent's own config file.
+# Two different siblings, for two different reasons: the protocol comes
+# from the SDK, and the Drobo's address comes from the agent's own
+# config file.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SDK_DIR = os.path.abspath(os.path.join(_HERE, "..", "sdk"))
 _AGENT_DIR = os.path.abspath(os.path.join(_HERE, "..", "agent"))
@@ -92,11 +96,16 @@ def show(codes: dict) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["before", "after", "show"],
-                    help="'before', then change a permission in Drobo Dashboard, then 'after'")
-    ap.add_argument("--host", default="", help="Drobo address (default: from agent/config.json)")
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument(
+        "step", choices=["before", "after", "show"],
+        help="'before', then change a permission in Drobo Dashboard, "
+             "then 'after'")
+    ap.add_argument(
+        "--host", default="",
+        help="Drobo address (default: from agent/config.json)")
     args = ap.parse_args(argv)
 
     host = args.host

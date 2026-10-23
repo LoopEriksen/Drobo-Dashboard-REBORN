@@ -298,6 +298,12 @@ released. Every push to this repository carries this file.
     `nasd_probe.py`, `nasd_sweep.py`, `nasd_tap.py`,
     `sweep_last_six.py`, `sweep_remainder.py` and the command-extract,
     firmware-parameter, dissector and sweep test suites)
+  - The other tools (`tools/`: `access_codes.py`,
+    `dashboard_strings.py`, `drobo_probe.py`, `extract_commands.py`,
+    `fw_params.py`, `fwtool.py` and `nasd_dissect.py`); the `--help`
+    descriptions of `access_codes.py`, `drobo_probe.py`, `fwtool.py` and
+    `nasd_dissect.py` are re-wrapped to the new line lengths, with the
+    same words and the usage and option lines unchanged
   - The repository's own scripts and the icon generator
     (`scripts/check_versions.py`, `scripts/scan_for_pii.py`,
     `windows/DroboDashboardReborn/Assets/generate_icon.py`)
