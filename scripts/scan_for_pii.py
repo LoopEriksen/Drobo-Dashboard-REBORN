@@ -162,7 +162,8 @@ def load_local_patterns():
                 notes.append(f"pii_patterns.local:{lineno} is not a valid "
                              f"regex and was skipped ({exc}).")
     if not private_patterns:
-        notes.append("pii_patterns.local exists but defines no usable patterns.")
+        notes.append(
+            "pii_patterns.local exists but defines no usable patterns.")
     return private_patterns, notes
 
 
@@ -192,8 +193,8 @@ def load_allowlist():
             try:
                 allow_patterns.append(re.compile(line, re.I))
             except re.error as exc:
-                notes.append(f"pii_allow.txt:{lineno} is not a valid regex and "
-                             f"was skipped ({exc}).")
+                notes.append(f"pii_allow.txt:{lineno} is not a valid regex "
+                             f"and was skipped ({exc}).")
     return allow_patterns, notes
 
 
@@ -201,7 +202,8 @@ def load_allowlist():
 # their job. Without this the scanner reports its own siblings for ever.
 SKIP_FILES = {"scripts/scan_for_pii.py", "scripts/hooks/pre-commit",
               "scripts/pii_patterns.local", "scripts/pii_allow.txt",
-              "windows/build-installer.ps1"}       # the payload identifier check
+              # the payload identifier check
+              "windows/build-installer.ps1"}
 
 
 def tracked_files():
@@ -311,9 +313,11 @@ def scan_files(patterns, allow_patterns, relative_paths):
                         # hid a real one later on the same line.
                         for match in pattern.finditer(line):
                             snippet = match.group(0).strip()
-                            if label == "email address" and ALLOWED_EMAIL_DOMAIN.search(snippet):
+                            if (label == "email address"
+                                    and ALLOWED_EMAIL_DOMAIN.search(snippet)):
                                 continue
-                            if label == "private pattern" and CREDIT_CONTEXT.search(line):
+                            if (label == "private pattern"
+                                    and CREDIT_CONTEXT.search(line)):
                                 continue
                             if any(a.search(snippet) for a in allow_patterns):
                                 continue
@@ -329,9 +333,12 @@ def main():
     # one it happens to live in. Before this existed, an unknown flag was
     # silently ignored and you got a clean-looking scan of the WRONG directory.
     global REPO_ROOT
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--path", help="repo to scan (default: the one this script lives in)")
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--path",
+        help="repo to scan (default: the one this script lives in)")
     scope_group = parser.add_mutually_exclusive_group()
     scope_group.add_argument(
         "--all", action="store_true",
@@ -363,9 +370,13 @@ def main():
                 print(f"Not a git checkout (or git unavailable): {REPO_ROOT}")
                 return 2
             relative_paths = walked_files()
-            scope_description = "every file in the tree (not a git checkout, so nothing is 'tracked')"
+            scope_description = (
+                "every file in the tree "
+                "(not a git checkout, so nothing is 'tracked')")
         else:
-            scope_description = f"the {len(relative_paths)} files git tracks (use --all for everything)"
+            scope_description = (
+                f"the {len(relative_paths)} files git tracks "
+                f"(use --all for everything)")
 
     print(f"Scanning {REPO_ROOT}")
     if args.generic_only:
@@ -384,7 +395,8 @@ def main():
         print(f"  !! {note}")
     for note in allowlist_notes:
         print(f"  !  {note}")
-    print(f"  {len(BUILTIN_PATTERNS)} built-in pattern(s), {len(private_patterns)} private pattern(s), "
+    print(f"  {len(BUILTIN_PATTERNS)} built-in pattern(s), "
+          f"{len(private_patterns)} private pattern(s), "
           f"{len(allow_patterns)} reviewed exception(s)")
     print(f"  scanning {scope_description}")
 
@@ -393,12 +405,12 @@ def main():
     if not hits:
         # "Clean" is only honest when every category was actually checked.
         if private_pattern_notes:
-            print("PII scan: no hits from the patterns that RAN -- but see the "
-                  "warnings above; this is not a clean bill of health.")
+            print("PII scan: no hits from the patterns that RAN -- but see "
+                  "the warnings above; this is not a clean bill of health.")
             return 1
         if args.generic_only:
-            print("PII scan: clean for the built-in categories — names were not "
-                  "checked here.")
+            print("PII scan: clean for the built-in categories — names were "
+                  "not checked here.")
             return 0
         print("PII scan: clean — no personal or identifying data found.")
         return 0
@@ -406,9 +418,9 @@ def main():
     for relative_path, lineno, label, snippet in hits:
         print(f"  {relative_path}:{lineno}  [{label}]  "
               f"{redact(label, snippet)}")
-    print("\nReview each hit. Demo accounts (@demo.com) and reserved test domains "
-          "are allowed;\nanything else should be removed, replaced, or -- once "
-          "reviewed -- added to scripts/pii_allow.txt.")
+    print("\nReview each hit. Demo accounts (@demo.com) and reserved test "
+          "domains are allowed;\nanything else should be removed, replaced, "
+          "or -- once reviewed -- added to scripts/pii_allow.txt.")
     return 1
 
 

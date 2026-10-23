@@ -48,8 +48,10 @@ WORDMARK_HALO = (46, 52, 61, 255)    # dark halo around the front word
 REBORN_RED = (211, 58, 46, 255)      # the REBORN stamp
 WORDMARK = (238, 242, 247, 255)      # the "drobo" lettering in front
 PLATE = (26, 30, 37, 255)            # dark plate the lockup sits on
-ALERT_RED = (226, 43, 36, 255)       # tray badge when a critical alert is active
-ALERT_RING = (255, 255, 255, 230)    # thin light ring around the badge for contrast
+# tray badge when a critical alert is active
+ALERT_RED = (226, 43, 36, 255)
+# thin light ring around the badge for contrast
+ALERT_RING = (255, 255, 255, 230)
 TRANSPARENT = (0, 0, 0, 0)
 
 # ---- a tiny, original 5x7 block font, only the letters REBORN needs ----
@@ -109,7 +111,9 @@ def word_width(word: str, dot_size: float) -> float:
     return len(word) * 5 * dot_size + (len(word) - 1) * dot_size
 
 
-def in_rounded_rectangle(x: float, y: float, left: float, top: float, right: float, bottom: float, radius: float) -> bool:
+def in_rounded_rectangle(x: float, y: float, left: float, top: float,
+                         right: float, bottom: float,
+                         radius: float) -> bool:
     if x < left or x > right or y < top or y > bottom:
         return False
     radius = min(radius, (right - left) / 2, (bottom - top) / 2)
@@ -209,16 +213,24 @@ def build_shapes(size: float, with_badge: bool):
     # exactly where it crosses the red. Cheap halo: the same glyph, grown.
     halo_offset = front_dot_size * 0.55
     shapes.append((
-        lambda x, y, covers_front_word=word_predicate(FRONT_WORD, front_left, front_top, front_dot_size), offset=halo_offset:
-            covers_front_word(x, y) or covers_front_word(x - offset, y) or covers_front_word(x + offset, y) or covers_front_word(x, y - offset) or covers_front_word(x, y + offset),
+        lambda x, y, covers_front_word=word_predicate(
+            FRONT_WORD, front_left, front_top, front_dot_size
+        ), offset=halo_offset:
+            covers_front_word(x, y)
+            or covers_front_word(x - offset, y)
+            or covers_front_word(x + offset, y)
+            or covers_front_word(x, y - offset)
+            or covers_front_word(x, y + offset),
         None,  # placeholder, replaced below
     ))
     shapes[-1] = (shapes[-1][0], WORDMARK_HALO)
 
     # ...but the letter itself must win over its own halo, so insert it first.
-    shapes.insert(0, (word_predicate(FRONT_WORD, front_left, front_top, front_dot_size), WORDMARK))
+    shapes.insert(0, (word_predicate(FRONT_WORD, front_left, front_top,
+                                     front_dot_size), WORDMARK))
 
-    shapes.append((word_predicate(BEHIND_WORD, behind_left, behind_top, behind_dot_size), REBORN_RED))
+    shapes.append((word_predicate(BEHIND_WORD, behind_left, behind_top,
+                                  behind_dot_size), REBORN_RED))
     shapes.append((in_plate, PLATE))
     return _add_alert_badge(shapes, size, with_badge)
 
@@ -279,7 +291,8 @@ def render(size: int, with_badge: bool):
 # ---- minimal PNG encoder (stdlib zlib only) -----------------------------
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    return (struct.pack(">I", len(data)) + chunk_type + data
+            + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF))
 
 
 def encode_png(pixels) -> bytes:
@@ -293,7 +306,9 @@ def encode_png(pixels) -> bytes:
     image_header = struct.pack(">IIBBBBB", width, height,
                                8, 6, 0, 0, 0)  # 8-bit RGBA
     compressed_scanlines = zlib.compress(bytes(scanlines), 9)
-    return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", image_header) + _png_chunk(b"IDAT", compressed_scanlines) + _png_chunk(b"IEND", b"")
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", image_header)
+            + _png_chunk(b"IDAT", compressed_scanlines)
+            + _png_chunk(b"IEND", b""))
 
 
 # ---- minimal ICO container (PNG-compressed frames, one per size) --------
@@ -307,7 +322,9 @@ def write_ico(path: str, frames) -> None:
     for size, png in frames:
         # 0 means 256 per the ICO spec
         dimension_byte = size if size < 256 else 0
-        directory_entry = struct.pack("<BBBBHHII", dimension_byte, dimension_byte, 0, 0, 1, 32, len(png), image_offset)
+        directory_entry = struct.pack(
+            "<BBBBHHII", dimension_byte, dimension_byte, 0, 0, 1, 32,
+            len(png), image_offset)
         directory_entries += directory_entry
         image_data += png
         image_offset += len(png)
@@ -329,11 +346,15 @@ def main():
 
     normal_frames = build_frames(with_badge=False)
     write_ico(os.path.join(output_dir, "AppIcon.ico"), normal_frames)
-    print("Wrote AppIcon.ico (%d frames: %s)" % (len(normal_frames), ", ".join(str(size) for size, _ in normal_frames)))
+    print("Wrote AppIcon.ico (%d frames: %s)" % (
+        len(normal_frames),
+        ", ".join(str(size) for size, _ in normal_frames)))
 
     alert_frames = build_frames(with_badge=True)
     write_ico(os.path.join(output_dir, "AppIconAlert.ico"), alert_frames)
-    print("Wrote AppIconAlert.ico (%d frames: %s)" % (len(alert_frames), ", ".join(str(size) for size, _ in alert_frames)))
+    print("Wrote AppIconAlert.ico (%d frames: %s)" % (
+        len(alert_frames),
+        ", ".join(str(size) for size, _ in alert_frames)))
 
 
 if __name__ == "__main__":

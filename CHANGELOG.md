@@ -292,6 +292,9 @@ released. Every push to this repository carries this file.
     `nasd_probe.py`, `nasd_sweep.py`, `nasd_tap.py`,
     `sweep_last_six.py`, `sweep_remainder.py` and the command-extract,
     firmware-parameter, dissector and sweep test suites)
+  - The repository's own scripts and the icon generator
+    (`scripts/check_versions.py`, `scripts/scan_for_pii.py`,
+    `windows/DroboDashboardReborn/Assets/generate_icon.py`)
 
 ### Removed
 - **Four pieces of code that nothing used.** An unused `_text` helper in

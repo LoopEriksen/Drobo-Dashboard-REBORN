@@ -33,25 +33,33 @@ import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-APP_CSPROJ_PATH = os.path.join("windows", "DroboDashboardReborn", "DroboDashboardReborn.csproj")
+APP_CSPROJ_PATH = os.path.join(
+    "windows", "DroboDashboardReborn", "DroboDashboardReborn.csproj")
 
 # (label, path relative to the repo root, regex with one capturing group).
 # Order is the order they are printed in: the csproj first, because it is the
 # number a release is named by and the one a human bumps first.
 VERSION_PLACES = [
-    ("csproj <Version>",        APP_CSPROJ_PATH,
+    ("csproj <Version>",
+     APP_CSPROJ_PATH,
      r"<Version>([^<]+)</Version>"),
-    ("csproj <AssemblyVersion>", APP_CSPROJ_PATH,
+    ("csproj <AssemblyVersion>",
+     APP_CSPROJ_PATH,
      r"<AssemblyVersion>([^<]+)</AssemblyVersion>"),
-    ("csproj <FileVersion>",    APP_CSPROJ_PATH,
+    ("csproj <FileVersion>",
+     APP_CSPROJ_PATH,
      r"<FileVersion>([^<]+)</FileVersion>"),
-    ("agent api.VERSION",       os.path.join("agent", "drobo_agent", "api.py"),
+    ("agent api.VERSION",
+     os.path.join("agent", "drobo_agent", "api.py"),
      r"^VERSION\s*=\s*[\"']([^\"']+)[\"']"),
-    ("agent __version__",       os.path.join("agent", "drobo_agent", "__init__.py"),
+    ("agent __version__",
+     os.path.join("agent", "drobo_agent", "__init__.py"),
      r"^__version__\s*=\s*[\"']([^\"']+)[\"']"),
-    ("sdk __version__",         os.path.join("sdk", "drobo_nasd", "__init__.py"),
+    ("sdk __version__",
+     os.path.join("sdk", "drobo_nasd", "__init__.py"),
      r"^__version__\s*=\s*[\"']([^\"']+)[\"']"),
-    ("sdk pyproject version",   os.path.join("sdk", "pyproject.toml"),
+    ("sdk pyproject version",
+     os.path.join("sdk", "pyproject.toml"),
      r"^version\s*=\s*[\"']([^\"']+)[\"']"),
 ]
 
@@ -144,7 +152,8 @@ def main(argv=None):
         for problem in problems:
             print(f"  - {problem}")
         print("")
-        print("Fix every place listed under \"Versioning\" in windows/README.md,")
+        print("Fix every place listed under \"Versioning\" in "
+              "windows/README.md,")
         print("then re-run. Do not guess which one is right.")
         return 1
 
