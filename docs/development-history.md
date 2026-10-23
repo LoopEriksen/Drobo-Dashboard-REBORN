@@ -771,7 +771,7 @@ exists to show, so the field name now has to be followed directly by `:` or
 only an all-letter string is spared. A new suite, the fifth under `tools/`,
 checks both with made-up strings; eleven of its 25 checks fail against 1.1.0.
 
-## Names that say what they mean (2026-10-19)
+## Names that say what they mean (2026-10-19 to 23)
 
 **10-19.** The maintainer approved a pass that brings the Python in line with
 PEP 8: every name says what it holds or does, every exception's name ends in
@@ -820,6 +820,15 @@ A last tidy-up fixed what the greedy reflow had left behind: `#:` blocks
 broken into alternating fragments, two-line comments and docstring
 paragraphs whose second line was one word, strings split with a lone word
 on a line, and section rules split in two.
+
+**10-23.** The last step made the result stick. A `.flake8` file nobody runs
+is advice, so a new workflow, `style.yml`, runs flake8 with those settings on
+every push. It is a workflow of its own rather than a step in `lint.yml`,
+because `lint.yml` installs nothing on purpose, so that its red always means
+broken code; flake8 has to come from PyPI. Every version is pinned too,
+flake8 and each of its plugins, so an upstream release cannot turn the job
+red on a commit that changed nothing. Run with those exact versions
+from the top of the repository, it reported nothing.
 
 ## The principles that emerged
 

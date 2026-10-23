@@ -12,8 +12,17 @@ released. Every push to this repository carries this file.
   comments and docstrings, exception names ending in `Error`), exempts
   only the dashboard page's HTML in `agent/drobo_agent/webui.py` from the
   line limit, and skips the local-only `vendor/` folder, so a plain
-  `python3 -m flake8` checks the same thing the pass was held to. It is
-  for a local check; CI still only compiles every file. (2026-10-19)
+  `python3 -m flake8` checks the same thing the pass was held to.
+  (2026-10-19)
+- **A style check on every push.** A new workflow,
+  `.github/workflows/style.yml`, runs flake8 with the settings in
+  `.flake8` on every push and pull request, so a line over the limits or
+  a name out of PEP 8's style turns the run red instead of piling up
+  until the next pass. It is separate from `lint.yml`, which still
+  compiles every file and installs nothing, and it pins flake8 and each
+  of its plugins to an exact version, so a new upstream release cannot
+  turn it red on a commit that changed nothing. Nothing the software does
+  changes. (2026-10-23)
 - **Kept activity figures show how old they are.** When a fetch of the
   Drobo's read/write counters fails, the agent keeps serving the last
   figures, and the command port can stop answering for half an hour. Until

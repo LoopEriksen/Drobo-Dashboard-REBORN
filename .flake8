@@ -1,7 +1,8 @@
 # Style settings for flake8, so a plain "python3 -m flake8" from the top
 # of the repository checks exactly what the PEP 8 pass of 2026-10 made
-# true. CI does not run flake8 (lint.yml only compiles every file and
-# stays dependency-free); this file is for a local check.
+# true. CI runs the same check on every push, in its own workflow
+# (.github/workflows/style.yml, with every version pinned), so lint.yml
+# can go on compiling every file without installing anything.
 [flake8]
 # PEP 8's limits: 79 columns for code, 72 for comments and docstrings.
 max-line-length = 79

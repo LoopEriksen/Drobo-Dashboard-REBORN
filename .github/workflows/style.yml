@@ -1,0 +1,59 @@
+# CI: on every change pushed here, prove the Python still follows PEP 8.
+#
+# WHY this exists: the October 2026 pass took the style checker's
+# findings from 6,273 to 0 -- 79 columns for code, 72 for comments and
+# docstrings, PEP 8's naming conventions, exception names ending in
+# "Error" -- and the tracked .flake8 file records those limits. A file
+# nobody runs is advice, not a gate: without this job the count would
+# creep back up one long line at a time, and nobody would notice until
+# the next pass.
+#
+# WHY a separate workflow, not a step in lint.yml: lint.yml deliberately
+# installs nothing, so a red run there always means the code itself is
+# broken. flake8 and its plugins are packages from PyPI, so this job can
+# fail for reasons that have nothing to do with our source, such as
+# the package index being down. Keeping it apart means lint.yml stays
+# dependency-free and its red still means one thing, and a red cross
+# here reads as "style", not "the code does not compile".
+#
+# WHY every version is pinned, the plugins included: flake8's checks
+# live in pycodestyle, pyflakes, mccabe and pep8-naming, and each new
+# release of any of them can add a check or tighten one. Unpinned, an
+# upstream release could turn this job red on a commit that changed
+# nothing. Pinned, a finding always means a change here broke the style.
+# Moving a pin is a deliberate change, made in its own commit, with the
+# findings it brings fixed in the same one.
+#
+# The settings -- the limits, the one exemption for the dashboard page's
+# HTML in agent/drobo_agent/webui.py, and the vendor/ exclusion -- come
+# from the tracked .flake8, so a plain "python -m flake8" from the top
+# of the repository checks exactly what this job does.
+name: style
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  flake8:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned style checker
+        shell: bash
+        run: |
+          python -m pip install \
+            flake8==7.4.1 \
+            pep8-naming==0.15.1 \
+            pycodestyle==2.15.0 \
+            pyflakes==4.0.3 \
+            mccabe==0.7.0
+
+      - name: Check every Python file against .flake8
+        shell: bash
+        run: python -m flake8

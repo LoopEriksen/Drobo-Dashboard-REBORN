@@ -24,7 +24,7 @@
 # 3.13/3.14-only syntax or library calls, and every import is the standard
 # library. Pinning one version below the development interpreter is
 # deliberate: it catches a 3.14-only habit before somebody running an older
-# Python does, and it matches the version the other two workflows already use.
+# Python does, and it matches the version the other workflows already use.
 #
 # WHY no installs, like lint.yml: this project has no dependencies, on
 # purpose, and nothing here may quietly acquire one. If a suite ever needs a
