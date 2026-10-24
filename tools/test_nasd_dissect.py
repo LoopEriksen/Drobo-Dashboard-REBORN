@@ -277,17 +277,17 @@ def run_dissector(argv: list[str]) -> tuple[object, str]:
     return result, printed.getvalue()
 
 
-def run_without_login_frame(tmp_dir: str) -> None:
+def run_without_login_frame(temp_dir: str) -> None:
     print("\n=== no login frame: --port 5001, and an empty capture ===")
     request_payload = b"<TMCmd><CmdID>30</CmdID><Params></Params></TMCmd>\x00"
     frame = (b"DRINETTM" + struct.pack(">II", 0, len(request_payload))
              + request_payload)
     segment = tcp_segment(CLIENT_PORT, 5001, 1000, PSH_ACK, frame)
-    command_capture = os.path.join(tmp_dir, "command-port.pcap")
+    command_capture = os.path.join(temp_dir, "command-port.pcap")
     write_pcap_classic(command_capture,
                        [ethernet_frame(ipv4_packet(CLIENT_IP, SERVER_IP,
                                                    segment))])
-    empty_capture = os.path.join(tmp_dir, "empty.pcap")
+    empty_capture = os.path.join(temp_dir, "empty.pcap")
     write_pcap_classic(empty_capture, [])
 
     for path, label in ((command_capture, "a DRINETTM stream"),
@@ -311,14 +311,14 @@ def main() -> int:
     # The synthetic captures go in a temp folder that is removed however
     # the run ends. Until 2026-09-16 every run left its folder behind in
     # TEMP.
-    tmp_dir = tempfile.mkdtemp(prefix="nasd_dissect_test_")
+    temp_dir = tempfile.mkdtemp(prefix="nasd_dissect_test_")
     try:
-        return run_checks(tmp_dir)
+        return run_checks(temp_dir)
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def run_checks(tmp_dir: str) -> int:
+def run_checks(temp_dir: str) -> int:
     known_stream = build_known_stream()
     # Split into three chunks and deliberately list them out of arrival
     # order, so the dissector has to sort by TCP sequence number to get
@@ -338,16 +338,16 @@ def run_checks(tmp_dir: str) -> int:
     ]
     link_frames = build_frames_for_chunks(chunks)
 
-    pcap_path = os.path.join(tmp_dir, "known.pcap")
-    pcapng_path = os.path.join(tmp_dir, "known.pcapng")
-    pcapng_le_path = os.path.join(tmp_dir, "known-little-endian.pcapng")
+    pcap_path = os.path.join(temp_dir, "known.pcap")
+    pcapng_path = os.path.join(temp_dir, "known.pcapng")
+    pcapng_le_path = os.path.join(temp_dir, "known-little-endian.pcapng")
     write_pcap_classic(pcap_path, link_frames)
     write_pcapng(pcapng_path, link_frames, endian=">")
     write_pcapng(pcapng_le_path, link_frames, endian="<")
 
     print(f"Synthesized {len(known_stream)}-byte known stream, split into "
           f"{len(chunks)} out-of-order TCP segments.")
-    print(f"Temp captures written to {tmp_dir} (removed when the test ends)")
+    print(f"Temp captures written to {temp_dir} (removed when the test ends)")
 
     run_against(pcap_path, "classic pcap")
     run_against(pcapng_path, "pcapng (big-endian)")
@@ -356,7 +356,7 @@ def run_checks(tmp_dir: str) -> int:
     # zero packets -- until 2026-07-26. Without it the suite passes
     # while the tool is useless on every real file.
     run_against(pcapng_le_path, "pcapng (little-endian, as real tools write)")
-    run_without_login_frame(tmp_dir)
+    run_without_login_frame(temp_dir)
 
     print()
     if failures:

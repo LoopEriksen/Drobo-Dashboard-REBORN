@@ -128,7 +128,11 @@ class DroboDriver:
     name = "base"
 
     def __init__(self, drobo_config: dict):
-        self.cfg = drobo_config
+        """Take the drobo section of the agent's config.
+
+        The base class keeps nothing from it; a driver that needs a
+        setting reads it in its own __init__.
+        """
 
     def connect(self) -> None:
         """

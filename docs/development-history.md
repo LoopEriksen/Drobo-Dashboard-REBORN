@@ -771,7 +771,7 @@ exists to show, so the field name now has to be followed directly by `:` or
 only an all-letter string is spared. A new suite, the fifth under `tools/`,
 checks both with made-up strings; eleven of its 25 checks fail against 1.1.0.
 
-## Names that say what they mean (2026-10-19 to 23)
+## Names that say what they mean (2026-10-19 to 24)
 
 **10-19.** The maintainer approved a pass that brings the Python in line with
 PEP 8: every name says what it holds or does, every exception's name ends in
@@ -829,6 +829,16 @@ broken code; flake8 has to come from PyPI. Every version is pinned too,
 flake8 and each of its plugins, so an upstream release cannot turn the job
 red on a commit that changed nothing. Run with those exact versions
 from the top of the repository, it reported nothing.
+
+**10-24.** An independent audit of the finished pass found a few things it had
+left. Three `# noqa` comments hid nothing at all, two more kept an import
+nothing used and a line of fourteen imports, and one hid a 115-column line that
+splits like any other, which also made the changelog's claim that the last such
+lines had been dealt with untrue. The base driver class still kept the Drobo
+settings as `cfg`, an abbreviation the naming rules ban, though nothing read
+it: the same dead copy an earlier review had removed from the photo store. Two
+names in tests still read as shorthand, `tmp_dir` and `cs_category_ids`. All
+were fixed, still held to the same suites, counts and recorded bytes.
 
 ## The principles that emerged
 

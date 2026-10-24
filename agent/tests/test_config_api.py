@@ -34,7 +34,7 @@ from drobo_nasd.droboapps import (  # noqa: E402
     _DIMMING_MIN,
     _DIMMING_MAX,
     _SPINDOWN_MAX,
-)  # noqa: E402
+)
 
 failures = []
 

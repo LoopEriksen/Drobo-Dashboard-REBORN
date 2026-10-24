@@ -329,8 +329,8 @@ released. Every push to this repository carries this file.
     the `JFFS2_*` names, after `linux/jffs2.h`, and `DIRENT_TYPE_NAMES`,
     and `drobo_probe.py`'s mDNS helpers, which take the SDK's names
     (`_encode_dns_name`, `_decode_dns_name`, `_build_mdns_query`,
-    `MDNS_MULTICAST_ADDRESS`); every option, `--help` text and printed
-    line stays
+    `MDNS_MULTICAST_ADDRESS`), and `test_nasd_dissect.py`'s `tmp_dir`
+    -> `temp_dir`; every option, `--help` text and printed line stays
   - Internal names in the repository's scripts (the privacy scanner, its
     pre-commit hook's notes and the version checker) and the Windows
     app's icon generator; no behaviour changes
@@ -396,8 +396,14 @@ released. Every push to this repository carries this file.
     `# noqa` is an ordinary comment above it; section rules are one
     line again, with shorter dash runs; and the last few lines that
     only fitted behind a `# noqa: E501` or wrapped awkwardly work their
-    value out in a local first. `eCmd` names the earlier renames missed
-    in two tools and a test are called `command_name`, and
+    value out in a local first. A `# noqa` that hid nothing goes, and so
+    do the ones that only kept a needless import or a crowded line: the
+    end-to-end suite imports one module per line, and the brightness
+    write no longer imports a `ConfigWriteError` it never uses. The
+    notification simulation's C# category list is held in
+    `app_category_ids` where it was `cs_category_ids`. `eCmd` names the
+    earlier renames missed in two tools and a test are called
+    `command_name`, and
     `tools/access_codes.py`'s `read_share_access_codes` docstring now
     gives the dictionary's real key shape, a tab-joined `"share\tuser"`
     string. Messages, labels and printed text are unchanged; four
@@ -406,9 +412,11 @@ released. Every push to this repository carries this file.
     with the same words
 
 ### Removed
-- **Four pieces of code that nothing used.** An unused `_text` helper in
+- **Five pieces of code that nothing used.** An unused `_text` helper in
   `sdk/drobo_nasd/drobosync.py`, a copy of the photo settings that
-  `agent/drobo_agent/photos.py` stored and never read, three palette
+  `agent/drobo_agent/photos.py` stored and never read, the same kind of
+  copy of the Drobo settings that the agent's base driver class kept as
+  `cfg` and nothing read (2026-10-24), three palette
   colours the icon generator no longer draws with, and an unused helper
   in `sdk/tests/test_discovery.py`. The DroboSync module's notes also
   said its field names were read defensively. No field is named there:

@@ -480,15 +480,15 @@ for rule in (
 # could never be switched on, and its alerts would never notify.
 categories_block = re.search(r"\bCategories\s*=\s*\{(.*?)\};",
                              alert_notifier_source, re.S)
-cs_category_ids = (
+app_category_ids = (
     re.findall(r'\(\s*"([a-z-]+)"\s*,', categories_block.group(1))
     if categories_block else [])
 check("found the category ids of the C# Categories list",
-      bool(cs_category_ids), cs_category_ids)
-missing_from_cs = sorted(NOTIFIER_CATEGORIES - set(cs_category_ids))
+      bool(app_category_ids), app_category_ids)
+missing_from_app = sorted(NOTIFIER_CATEGORIES - set(app_category_ids))
 check("every category this port routes to is a row of the C# list",
-      not missing_from_cs, missing_from_cs)
-unknown_to_port = sorted(set(cs_category_ids) - NOTIFIER_CATEGORIES)
+      not missing_from_app, missing_from_app)
+unknown_to_port = sorted(set(app_category_ids) - NOTIFIER_CATEGORIES)
 check("the C# list has no category this port never routes to",
       not unknown_to_port, unknown_to_port)
 

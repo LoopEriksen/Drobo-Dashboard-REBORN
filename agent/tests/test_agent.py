@@ -12,8 +12,20 @@ serves and alerts. No hardware needed, and no Drobo is contacted.
 Run this after changing anything under drobo_agent/ -- especially before
 switching the driver over to the real Drobo 5N.
 """
-import atexit, contextlib, hashlib, io, json, os, shutil, socket, sys, \
-    tempfile, threading, time, urllib.request, urllib.error  # noqa: E401
+import atexit
+import contextlib
+import hashlib
+import io
+import json
+import os
+import shutil
+import socket
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

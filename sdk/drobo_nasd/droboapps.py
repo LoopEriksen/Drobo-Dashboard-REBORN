@@ -309,10 +309,12 @@ def _extract_general_block(before: dict) -> dict:
             and isinstance(block["General"], dict)):
         block = block["General"]
     if not isinstance(block, dict) or not (set(block) & set(_GENERAL_FIELDS)):
+        received_shape = (sorted(block) if isinstance(block, dict)
+                          else type(block).__name__)
         raise GeneralWriteError(
             "the device's General config did not parse into the expected "
             "fields; refusing to write a block built from an unrecognised "
-            f"shape (got keys {sorted(block) if isinstance(block, dict) else type(block).__name__})")  # noqa: E501
+            f"shape (got keys {received_shape})")
     return block
 
 
@@ -438,7 +440,7 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     # Import here, not at module load: keeps the read-only surface of
     # this module importable in contexts that never write, and mirrors
     # how the project gates its one other write path (identify.py).
-    from .config_cmd import set_config, ConfigWriteError  # noqa: F401
+    from .config_cmd import set_config
 
     if isinstance(value, bool) or not isinstance(value, int):
         raise DimmingWriteError(
@@ -549,7 +551,7 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
     `verify` re-reads and confirms;
     RESULT_ACCEPTED means received, not applied.
     """
-    from .config_cmd import set_config  # noqa: F401
+    from .config_cmd import set_config
 
     if isinstance(delay, bool) or not isinstance(delay, int):
         raise SpindownWriteError(
@@ -616,7 +618,7 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     Verified by read-back of BOTH fields.
     Reversible with set_spindown(delay).
     """
-    from .config_cmd import set_config  # noqa: F401
+    from .config_cmd import set_config
 
     def build_section_document(before: dict) -> str:
         feature_bits = _parse_feature_states(_extract_general_block(before))
