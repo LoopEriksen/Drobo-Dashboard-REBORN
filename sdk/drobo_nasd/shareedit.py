@@ -77,7 +77,18 @@ NO_ACCESS_CODE = "0"
 
 
 class ShareEditError(Exception):
-    """The requested change is unsafe or does not make sense."""
+    """
+    The requested change is unsafe or does not make sense, or a write
+    was shown not to have been applied.
+
+    One class for every such answer, so a caller can show the message
+    as it stands: each one says why. Catching it does NOT mean nothing
+    was sent. The edits here raise it before any send, but sharewrite
+    also raises it after an accepted send whose read-back does not
+    match ("Received, not applied"), and its subclass
+    ShareWriteOutcomeUnknownError means the write WAS sent. Never take
+    it as "safe to resend".
+    """
 
 
 def _share_block(config: dict) -> dict:
@@ -92,11 +103,11 @@ def _share_block(config: dict) -> dict:
     raise ShareEditError("no DRIShareConfig in this document")
 
 
-def _share_entries(block: dict) -> list:
+def _share_entries(share_block: dict) -> list:
     """
     The share list, always as a list even when the device sent one dict.
     """
-    entries = (block.get("Shares") or {}).get("Share")
+    entries = (share_block.get("Shares") or {}).get("Share")
     if entries is None:
         return []
     return entries if isinstance(entries, list) else [entries]
@@ -105,6 +116,10 @@ def _share_entries(block: dict) -> list:
 def share_names(config: dict) -> list[str]:
     """
     Every share name in the document, in the order the device gave them.
+
+    A list in the device's order rather than a set because it is
+    public and callers (the tests among them) rely on that order;
+    _assert_no_share_lost, its only caller here, compares them as sets.
     """
     return [(s.get("ShareName") or "").strip()
             for s in _share_entries(_share_block(config))
@@ -112,6 +127,11 @@ def share_names(config: dict) -> list[str]:
 
 
 def _user_entries(share: dict) -> list:
+    """
+    The share's user rows, always as a list: the device sends a single
+    user as a dict and several as a list, and every caller here wants
+    to walk them the same way.
+    """
     entries = (share.get("ShareUsers") or {}).get("ShareUser")
     if entries is None:
         return []
@@ -156,6 +176,62 @@ def _assert_no_share_lost(before: dict, after: dict,
             f"refusing. Removing a share is its own deliberate action.")
 
 
+def _allowed_access_codes(config: dict) -> set[str]:
+    """
+    No-access, plus every confirmed-meaning code, plus every code
+    already live on this device. The confirmed set is what makes "grant
+    read/write to a share that is currently locked to nobody" possible
+    on a device with no non-zero code to copy.
+    """
+    allowed_codes = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
+    live_codes = (str(user.get("ShareUserAccess", "")).strip()
+                  for share in _share_entries(_share_block(config))
+                  for user in _user_entries(share))
+    allowed_codes.update(code for code in live_codes if code)
+    return allowed_codes
+
+
+def _find_share_entry(share_block: dict, share_name: str) -> dict:
+    """The first share whose stripped name is exactly `share_name`,
+    or raise.
+    """
+    for share in _share_entries(share_block):
+        if (share.get("ShareName") or "").strip() == share_name:
+            return share
+    raise ShareEditError(f"no share named {share_name!r} on this device")
+
+
+def _set_or_append_user(users: list, username: str,
+                        access_code: str) -> None:
+    """
+    Change the first row folding to `username`, or append a new row
+    when there is none.
+    """
+    for user in users:
+        if ((user.get("ShareUsername") or "").strip().lower()
+                == username.strip().lower()):
+            user["ShareUserAccess"] = str(access_code)
+            return
+    users.append({"ShareUsername": username.strip(),
+                  "ShareUserAccess": str(access_code)})
+
+
+def _set_or_add_user_entry(target_share: dict, username: str,
+                           access_code: str) -> None:
+    """Set the user's code on `target_share`, adding the user if needed,
+    and store the rows back in the device's own shape.
+    """
+    users = _user_entries(target_share)
+    _set_or_append_user(users, username, access_code)
+
+    # Normalise back to the device's own shape: one user is a dict,
+    # several a list. Writing a list where the device expects a dict is
+    # exactly the kind of malformed document that makes eCmdSetConfig
+    # dangerous.
+    target_share["ShareUsers"] = {
+        "ShareUser": users[0] if len(users) == 1 else users}
+
+
 def set_user_access(config: dict, share_name: str, username: str,
                     access_code: str) -> dict:
     """
@@ -168,21 +244,14 @@ def set_user_access(config: dict, share_name: str, username: str,
     unconfirmed code means is a guess, and this will not write a guess
     to someone's permissions. See the module docstring.
 
-    Returns a new document. The input is never mutated.
+    Returns a new document. The input is never mutated, so the caller
+    still holds the original to compare against and to describe the
+    change from.
     """
     edited_config = copy.deepcopy(config)
     share_block = _share_block(edited_config)
 
-    # Allowed = no-access, plus every confirmed-meaning code, plus every
-    # code already live on this device. The confirmed set is what makes
-    # "grant read/write to a share that is currently locked to nobody"
-    # possible on a device with no non-zero code to copy.
-    allowed_codes = {NO_ACCESS_CODE} | set(CONFIRMED_ACCESS_CODES)
-    for share in _share_entries(_share_block(config)):
-        for user in _user_entries(share):
-            code = str(user.get("ShareUserAccess", "")).strip()
-            if code:
-                allowed_codes.add(code)
+    allowed_codes = _allowed_access_codes(config)
     if str(access_code) not in allowed_codes:
         raise ShareEditError(
             f"access code {access_code!r} is neither confirmed nor already on "
@@ -191,30 +260,8 @@ def set_user_access(config: dict, share_name: str, username: str,
             f"is unknown, and a guess must not be written to someone's "
             f"permissions.")
 
-    target_share = None
-    for share in _share_entries(share_block):
-        if (share.get("ShareName") or "").strip() == share_name:
-            target_share = share
-            break
-    if target_share is None:
-        raise ShareEditError(f"no share named {share_name!r} on this device")
-
-    users = _user_entries(target_share)
-    for user in users:
-        if ((user.get("ShareUsername") or "").strip().lower()
-                == username.strip().lower()):
-            user["ShareUserAccess"] = str(access_code)
-            break
-    else:
-        users.append({"ShareUsername": username.strip(),
-                      "ShareUserAccess": str(access_code)})
-
-    # Normalise back to the device's own shape: one user is a dict,
-    # several a list. Writing a list where the device expects a dict is
-    # exactly the kind of malformed document that makes eCmdSetConfig
-    # dangerous.
-    target_share["ShareUsers"] = {
-        "ShareUser": users[0] if len(users) == 1 else users}
+    target_share = _find_share_entry(share_block, share_name)
+    _set_or_add_user_entry(target_share, username, access_code)
 
     _assert_only_shares_changed(config, edited_config)
     _assert_no_share_lost(config, edited_config)
@@ -233,6 +280,22 @@ def revoke_user(config: dict, share_name: str, username: str) -> dict:
     return set_user_access(config, share_name, username, NO_ACCESS_CODE)
 
 
+def _access_by_share_and_user(config: dict) -> dict:
+    """
+    Every user row's access code, keyed by (share name, user name), so
+    two documents can be compared row by row whatever order the device
+    listed them in.
+    """
+    access_by_key = {}
+    for share in _share_entries(_share_block(config)):
+        share_name = (share.get("ShareName") or "").strip()
+        for user in _user_entries(share):
+            access_code = str(user.get("ShareUserAccess", "")).strip()
+            user_name = (user.get("ShareUsername") or "").strip()
+            access_by_key[(share_name, user_name)] = access_code
+    return access_by_key
+
+
 def describe_change(before: dict, after: dict) -> list[str]:
     """
     A plain-English list of what actually differs,
@@ -242,34 +305,31 @@ def describe_change(before: dict, after: dict) -> list[str]:
     shares and users rather than XML paths, and reports the raw access
     codes without pretending to know what they mean.
     """
-    def access_by_share_and_user(config):
-        access_by_key = {}
-        for share in _share_entries(_share_block(config)):
-            name = (share.get("ShareName") or "").strip()
-            for user in _user_entries(share):
-                access_by_key[(name,
-                               (user.get("ShareUsername") or "").strip())] = \
-                    str(user.get("ShareUserAccess", "")).strip()
-        return access_by_key
-
-    access_before = access_by_share_and_user(before)
-    access_after = access_by_share_and_user(after)
-    lines = []
+    access_before = _access_by_share_and_user(before)
+    access_after = _access_by_share_and_user(after)
+    change_descriptions = []
     for key in sorted(set(access_before) | set(access_after)):
-        share, user = key
+        share_name, user_name = key
         old_code, new_code = access_before.get(key), access_after.get(key)
         if old_code == new_code:
             continue
-        if old_code is None:
-            lines.append(f"{user} gains access to {share} (code {new_code})")
-        elif new_code is None:
-            lines.append(f"{user} is removed from {share}")
-        elif new_code == NO_ACCESS_CODE:
-            lines.append(f"{user} loses access to {share}")
-        elif old_code == NO_ACCESS_CODE:
-            lines.append(
-                f"{user} is given access to {share} (code {new_code})")
-        else:
-            lines.append(
-                f"{user} on {share}: access code {old_code} -> {new_code}")
-    return lines
+        change_descriptions.append(_describe_one_change(
+            share_name, user_name, old_code, new_code))
+    return change_descriptions
+
+
+def _describe_one_change(share_name: str, user_name: str,
+                         old_code: str | None,
+                         new_code: str | None) -> str:
+    """One line of describe_change, for a row whose code differs."""
+    if old_code is None:
+        return f"{user_name} gains access to {share_name} (code {new_code})"
+    if new_code is None:
+        return f"{user_name} is removed from {share_name}"
+    if new_code == NO_ACCESS_CODE:
+        return f"{user_name} loses access to {share_name}"
+    if old_code == NO_ACCESS_CODE:
+        return (f"{user_name} is given access to {share_name} "
+                f"(code {new_code})")
+    return (f"{user_name} on {share_name}: access code {old_code} -> "
+            f"{new_code}")

@@ -78,6 +78,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     names only; every check, every except clause and its order, the
     read-back that decides an unacknowledged write, and every byte sent
     to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/shareedit.py`: `set_user_access` and
+    `describe_change` read as their steps. Private helpers and local
+    names only; every check and message is as it was, and the module
+    still sends nothing to the Drobo. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
