@@ -48,8 +48,64 @@ APPS_STATUS_COMMAND_NAME = "eCmdGetDroboAppsStatus"
 
 
 def _child_text(element, tag: str) -> str:
+    """
+    The stripped text of `element`'s first `tag` child, or "" when
+    there is none, so a missing field and an empty one read the same.
+    """
     child = element.find(tag)
     return (child.text or "").strip() if child is not None else ""
+
+
+def _parse_reply_root(payload: bytes):
+    """
+    The reply's root element, or None for an empty reply.
+
+    Every reader here starts the same way, and an empty reply is not an
+    error (each parser decides what "nothing said" means), whereas XML
+    that does not parse is: it raises SysInfoError.
+    """
+    text = payload.rstrip(b"\x00").rstrip()
+    if not text:
+        return None
+    try:
+        return ElementTree.fromstring(text)
+    except ElementTree.ParseError as exc:
+        raise SysInfoError(f"malformed result XML: {exc}") from exc
+
+
+def _unwrap_to(details, tag: str):
+    """
+    The `tag` element a reply carries, whether it arrived as an
+    entity-escaped document inside <ResultDetails> or as plain child
+    elements. It looks at the element itself and one level below it,
+    no deeper. Falls back to that element when no `tag` is there, so
+    the caller's field lookups simply come back empty.
+    """
+    inner_document = _inner_document(details)
+    element = inner_document if inner_document is not None else details
+    if element.tag == tag:
+        return element
+    # `is not None`, never `or`: an Element with no children is falsy,
+    # so `or` would quietly fall back to the parent.
+    tagged_node = element.find(tag)
+    return tagged_node if tagged_node is not None else element
+
+
+def _app_record(app_element, name: str) -> dict:
+    """One installed app, as the record every caller reads."""
+    # "Stopped" is the device's own polarity, and it is inverted
+    # relative to how anyone would say it out loud. Flip it here so
+    # every caller above this line deals in "running", which is what
+    # a person reads.
+    stopped = _child_text(app_element, "Stopped")
+    return {
+        "name": name,
+        "version": _child_text(app_element, "Version"),
+        "description": _child_text(app_element, "Description"),
+        "running": stopped == "0",
+        "status": _child_text(app_element, "ActiveStatus"),
+        "has_web_ui": bool(_child_text(app_element, "WebUI")),
+    }
 
 
 def parse_droboapps(payload: bytes) -> dict:
@@ -61,44 +117,21 @@ def parse_droboapps(payload: bytes) -> dict:
     something a person can act on, and showing a blank row is worse than
     showing nothing.
     """
-    text = payload.rstrip(b"\x00").rstrip()
-    if not text:
+    root = _parse_reply_root(payload)
+    if root is None:
         return {"sdk_version": "", "apps": []}
-    try:
-        root = ElementTree.fromstring(text)
-    except ElementTree.ParseError as exc:
-        raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
     if details is None:
         raise SysInfoError("result carried no <ResultDetails>")
-
-    inner_document = _inner_document(details)
-    apps_element = inner_document if inner_document is not None else details
-    if apps_element.tag != "DroboApps":
-        # `is not None`, never `or`: an Element with no children is
-        # falsy, so `or` would quietly fall back to the parent.
-        apps_node = apps_element.find("DroboApps")
-        apps_element = apps_node if apps_node is not None else apps_element
+    apps_element = _unwrap_to(details, "DroboApps")
 
     apps = []
     for app_element in apps_element.findall("App"):
         name = _child_text(app_element, "Name")
         if not name:
             continue
-        # "Stopped" is the device's own polarity, and it is inverted
-        # relative to how anyone would say it out loud. Flip it here so
-        # every caller above this line deals in "running", which is what
-        # a person reads.
-        stopped = _child_text(app_element, "Stopped")
-        apps.append({
-            "name": name,
-            "version": _child_text(app_element, "Version"),
-            "description": _child_text(app_element, "Description"),
-            "running": stopped == "0",
-            "status": _child_text(app_element, "ActiveStatus"),
-            "has_web_ui": bool(_child_text(app_element, "WebUI")),
-        })
+        apps.append(_app_record(app_element, name))
 
     apps.sort(key=lambda a: a["name"].lower())
     return {"sdk_version": _child_text(apps_element, "SDKVersion"),
@@ -120,13 +153,9 @@ def parse_dimming(payload: bytes) -> int | None:
     legitimate brightness ("lights off"), so conflating the two would be
     a real bug.
     """
-    text = payload.rstrip(b"\x00").rstrip()
-    if not text:
+    root = _parse_reply_root(payload)
+    if root is None:
         return None
-    try:
-        root = ElementTree.fromstring(text)
-    except ElementTree.ParseError as exc:
-        raise SysInfoError(f"malformed result XML: {exc}") from exc
     details = root.find("ResultDetails")
     if details is None:
         return None
@@ -134,10 +163,10 @@ def parse_dimming(payload: bytes) -> int | None:
     if not dimming_text:
         return None
     try:
-        value = int(dimming_text)
+        brightness = int(dimming_text)
     except ValueError:
         return None
-    return value if value >= 0 else None
+    return brightness if brightness >= 0 else None
 
 
 def parse_demo_mode(payload: bytes) -> dict:
@@ -160,34 +189,22 @@ def parse_demo_mode(payload: bytes) -> dict:
     means the device did not say, which is NOT the same as "off" -- see
     the caller, which only warns on an explicit yes.
     """
-    text = payload.rstrip(b"\x00").rstrip()
     demo_mode_info: dict = {"demo_mode": None, "scale_factor": None}
-    if not text:
+    root = _parse_reply_root(payload)
+    if root is None:
         return demo_mode_info
-    try:
-        root = ElementTree.fromstring(text)
-    except ElementTree.ParseError as exc:
-        raise SysInfoError(f"malformed result XML: {exc}") from exc
 
     details = root.find("ResultDetails")
     if details is None:
         return demo_mode_info
-    inner_document = _inner_document(details)
-    firmware_info_element = (inner_document if inner_document is not None
-                             else details)
-    if firmware_info_element.tag != "FirmwareInfo":
-        firmware_node = firmware_info_element.find("FirmwareInfo")
-        firmware_info_element = (firmware_node if firmware_node is not None
-                                 else firmware_info_element)
+    firmware_info_element = _unwrap_to(details, "FirmwareInfo")
 
     demo_mode_text = _child_text(firmware_info_element, "DemoMode")
-    if demo_mode_text:
-        # The device sends 0/1. Anything else is left as unknown rather
-        # than coerced -- a truthy string would otherwise read as "demo
-        # mode on" and put a false warning on a perfectly ordinary
-        # array.
-        if demo_mode_text in ("0", "1"):
-            demo_mode_info["demo_mode"] = demo_mode_text == "1"
+    # The device sends 0/1. Anything else is left as unknown rather than
+    # coerced -- a truthy string would otherwise read as "demo mode on"
+    # and put a false warning on a perfectly ordinary array.
+    if demo_mode_text in ("0", "1"):
+        demo_mode_info["demo_mode"] = demo_mode_text == "1"
     scale_factor_text = _child_text(firmware_info_element, "ScaleFactor")
     if scale_factor_text:
         try:
@@ -204,9 +221,10 @@ def _query_reply_body(host: str, esa_id: str, command_name: str,
     Send one query and hand back its raw reply body.
 
     Shared by the small reads that need no bespoke socket dance of their
-    own (dimming, demo mode). The guard and the login are identical
-    either way, so duplicating them per command would just be three more
-    places for the do-not-send check to be forgotten.
+    own (dimming, demo mode, the installed-app list). The guard and the
+    login are identical either way, so duplicating them per command
+    would just be more places for the do-not-send check to be
+    forgotten.
     """
     if _commands.is_dangerous(command_name):
         raise SysInfoError(f"{command_name} is on the do-not-send list")
@@ -236,8 +254,10 @@ def _query_reply_body(host: str, esa_id: str, command_name: str,
 
 def get_dimming(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> int | None:
-    """LED brightness as the device reports it.
-    Read-only; see parse_dimming.
+    """
+    LED brightness as the device reports it. Read-only; see
+    parse_dimming. It is also set_dimming's read-back, which is why it
+    returns the raw number rather than anything interpreted.
     """
     return parse_dimming(
         _query_reply_body(host, esa_id, "eCmdGetDimming", port, timeout))
@@ -275,12 +295,14 @@ class GeneralWriteError(SysInfoError):
 class DimmingWriteError(GeneralWriteError):
     """
     LED brightness could not be set safely, or the device refused it.
+    Its own class so a caller can tell which setting failed.
     """
 
 
 class SpindownWriteError(GeneralWriteError):
-    """The spin-down delay could not be set safely,
-    or the device refused it.
+    """
+    The spin-down delay could not be set safely, or the device refused
+    it. Its own class so a caller can tell which setting failed.
     """
 
 
@@ -301,21 +323,23 @@ def _extract_general_block(before: dict) -> dict:
     read. That is why the read-before-write happens against hardware
     before anything is trusted.
     """
-    block = before
-    if isinstance(block, dict) and "DRINASConfig" in block \
-            and isinstance(block["DRINASConfig"], dict):
-        block = block["DRINASConfig"]
-    if (isinstance(block, dict) and "General" in block
-            and isinstance(block["General"], dict)):
-        block = block["General"]
-    if not isinstance(block, dict) or not (set(block) & set(_GENERAL_FIELDS)):
-        received_shape = (sorted(block) if isinstance(block, dict)
-                          else type(block).__name__)
-        raise GeneralWriteError(
-            "the device's General config did not parse into the expected "
-            "fields; refusing to write a block built from an unrecognised "
-            f"shape (got keys {received_shape})")
-    return block
+    general_block = before
+    if (isinstance(general_block, dict) and "DRINASConfig" in general_block
+            and isinstance(general_block["DRINASConfig"], dict)):
+        general_block = general_block["DRINASConfig"]
+    if (isinstance(general_block, dict) and "General" in general_block
+            and isinstance(general_block["General"], dict)):
+        general_block = general_block["General"]
+    if (isinstance(general_block, dict)
+            and set(general_block) & set(_GENERAL_FIELDS)):
+        return general_block
+    received_shape = (sorted(general_block)
+                      if isinstance(general_block, dict)
+                      else type(general_block).__name__)
+    raise GeneralWriteError(
+        "the device's General config did not parse into the expected "
+        "fields; refusing to write a block built from an unrecognised "
+        f"shape (got keys {received_shape})")
 
 
 def _make_general_block_builder(field_name=None, new_value=None, *,
@@ -350,40 +374,84 @@ def _make_general_block_builder(field_name=None, new_value=None, *,
             f"{sorted(unsupported_fields)}")
 
     def build_section_document(before: dict) -> str:
-        block = _extract_general_block(before)
-
-        unrecognised_fields = set(block) - set(_GENERAL_FIELDS)
-        if unrecognised_fields:
-            raise GeneralWriteError(
-                f"the General block has fields this build does not know how "
-                f"to preserve ({sorted(unrecognised_fields)}); refusing to "
-                f"write rather than risk dropping them")
-        missing_fields = set(_GENERAL_FIELDS) - set(block)
-        if missing_fields:
-            raise GeneralWriteError(
-                f"the General block is missing expected fields "
-                f"({sorted(missing_fields)}); "
-                f"refusing to write a block that does not match what was read")
-
-        for field_tag in _GENERAL_FIELDS:
-            if field_tag in new_values_by_field:
-                continue  # overwritten below; its prior shape is irrelevant
-            if not isinstance(block[field_tag], str):
-                raise GeneralWriteError(
-                    f"General field <{field_tag}> came back as "
-                    f"{type(block[field_tag]).__name__}, "
-                    f"not a scalar; refusing to serialize a value we cannot "
-                    f"round-trip faithfully")
-
-        merged_fields = dict(block)
-        for field_tag, value in new_values_by_field.items():
-            merged_fields[field_tag] = str(value)
-        field_elements = "".join(
-            f"<{field_tag}>{merged_fields[field_tag]}</{field_tag}>"
-            for field_tag in _GENERAL_FIELDS)
-        return f"<General>{field_elements}</General>"
+        general_block = _extract_general_block(before)
+        _refuse_unknown_or_missing_fields(general_block)
+        _refuse_non_scalar_siblings(general_block, new_values_by_field)
+        return _serialize_general_block(general_block, new_values_by_field)
 
     return build_section_document
+
+
+def _refuse_unknown_or_missing_fields(general_block: dict) -> None:
+    """
+    Refuse a block whose fields are not exactly the three confirmed: an
+    extra field would be dropped by the write, and a missing one would
+    write a block unlike what was read.
+    """
+    unrecognised_fields = set(general_block) - set(_GENERAL_FIELDS)
+    if unrecognised_fields:
+        raise GeneralWriteError(
+            f"the General block has fields this build does not know how "
+            f"to preserve ({sorted(unrecognised_fields)}); refusing to "
+            f"write rather than risk dropping them")
+    missing_fields = set(_GENERAL_FIELDS) - set(general_block)
+    if missing_fields:
+        raise GeneralWriteError(
+            f"the General block is missing expected fields "
+            f"({sorted(missing_fields)}); "
+            f"refusing to write a block that does not match what was read")
+
+
+def _refuse_non_scalar_siblings(general_block: dict,
+                                new_values_by_field: dict) -> None:
+    """
+    Refuse an ECHOED field that is not a scalar string: it would be
+    written as a Python repr. The fields being SET are exempt, because
+    they are overwritten and their prior shape is irrelevant.
+    """
+    for field_tag in _GENERAL_FIELDS:
+        if field_tag in new_values_by_field:
+            continue  # overwritten below; its prior shape is irrelevant
+        if not isinstance(general_block[field_tag], str):
+            raise GeneralWriteError(
+                f"General field <{field_tag}> came back as "
+                f"{type(general_block[field_tag]).__name__}, "
+                f"not a scalar; refusing to serialize a value we cannot "
+                f"round-trip faithfully")
+
+
+def _serialize_general_block(general_block: dict,
+                             new_values_by_field: dict) -> str:
+    """
+    The <General> document to send: every field in _GENERAL_FIELDS
+    order, each echoed as read unless it is one being set.
+    """
+    merged_fields = dict(general_block)
+    for field_tag, value in new_values_by_field.items():
+        merged_fields[field_tag] = str(value)
+    field_elements = "".join(
+        f"<{field_tag}>{merged_fields[field_tag]}</{field_tag}>"
+        for field_tag in _GENERAL_FIELDS)
+    return f"<General>{field_elements}</General>"
+
+
+def _validate_brightness(brightness: int) -> None:
+    """
+    Refuse anything but a whole number inside the sanity band, before
+    anything is read or sent. A bool is refused although it is an int,
+    because True reaching the device as brightness 1 is a mistake, not
+    an intention.
+    """
+    if isinstance(brightness, bool) or not isinstance(brightness, int):
+        raise DimmingWriteError(
+            f"brightness must be a whole number, "
+            f"not {type(brightness).__name__}")
+    if not (_DIMMING_MIN <= brightness <= _DIMMING_MAX):
+        raise DimmingWriteError(
+            f"brightness {brightness} is outside the "
+            f"{_DIMMING_MIN}-{_DIMMING_MAX} sanity "
+            f"band; the scale is unconfirmed, so a value beyond it is far "
+            f"more likely a mistake than an intention")
 
 
 def set_dimming(host: str, esa_id: str, brightness: int,
@@ -443,47 +511,41 @@ def set_dimming(host: str, esa_id: str, brightness: int,
     # how the project gates its one other write path (identify.py).
     from .config_cmd import set_config
 
-    if isinstance(brightness, bool) or not isinstance(brightness, int):
-        raise DimmingWriteError(
-            f"brightness must be a whole number, "
-            f"not {type(brightness).__name__}")
-    if not (_DIMMING_MIN <= brightness <= _DIMMING_MAX):
-        raise DimmingWriteError(
-            f"brightness {brightness} is outside the "
-            f"{_DIMMING_MIN}-{_DIMMING_MAX} sanity "
-            f"band; the scale is unconfirmed, so a value beyond it is far "
-            f"more likely a mistake than an intention")
+    _validate_brightness(brightness)
 
     # The read-back doubles as config_cmd's arbiter for a write the
     # device never acknowledges: sent, socket closed, no result frame.
     # Reporting that as a failure would be a lie (measured on a share
     # create, 2026-08-25/26), so the arbiter is passed whatever `verify`
     # says -- see config_cmd._send_section_document.
-    def _reads_back() -> bool:
+    def brightness_reads_back() -> bool:
         return get_dimming(host, esa_id, port=port,
                            timeout=timeout) == brightness
 
-    result = set_config(host, esa_id, "general",
-                        _make_general_block_builder("Dim", brightness),
-                        port=port, timeout=timeout, readback=_reads_back)
+    write_summary = set_config(
+        host, esa_id, "general",
+        _make_general_block_builder("Dim", brightness),
+        port=port, timeout=timeout, readback=brightness_reads_back)
 
     # Stop here without a fresh read in two cases: config_cmd already
     # settled this write by reading the device back (its verdict IS the
     # verification -- reading again only invites a second answer), or
     # the caller asked for no verification at all.
-    if decided_by_readback(result) or not verify:
-        return result
+    if decided_by_readback(write_summary) or not verify:
+        return write_summary
 
     # Confirm the write actually took, not merely that it was accepted.
-    read_back = get_dimming(host, esa_id, port=port, timeout=timeout)
-    result["read_back"] = read_back
-    result["verified"] = read_back == brightness
-    if read_back != brightness:
+    brightness_read_back = get_dimming(host, esa_id, port=port,
+                                       timeout=timeout)
+    write_summary["read_back"] = brightness_read_back
+    write_summary["verified"] = brightness_read_back == brightness
+    if brightness_read_back != brightness:
         raise DimmingWriteError(
             f"the device accepted the write but brightness reads back as "
-            f"{read_back!r}, not {brightness}. The command was received "
-            f"and not applied -- nothing here can be relied on as changed.")
-    return result
+            f"{brightness_read_back!r}, not {brightness}. The command was "
+            f"received and not applied -- nothing here can be relied on as "
+            f"changed.")
+    return write_summary
 
 
 def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
@@ -496,9 +558,9 @@ def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     second command to depend on.
     """
     from .config_cmd import get_config
-    block = _extract_general_block(
+    general_block = _extract_general_block(
         get_config(host, esa_id, "general", port=port, timeout=timeout))
-    delay_text = block.get("SpindownDelay")
+    delay_text = general_block.get("SpindownDelay")
     if not isinstance(delay_text, str) or not delay_text.strip():
         return None
     try:
@@ -517,8 +579,13 @@ def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
 _SPINDOWN_ENABLED_BIT = 0b010
 
 
-def _parse_feature_states(block: dict) -> int:
-    feature_states_text = block.get("FeatureStates")
+def _parse_feature_states(general_block: dict) -> int:
+    """
+    FeatureStates as a number, or raise SpindownWriteError: the
+    spin-down writes compute a bitmask from it, and a bitmask computed
+    from text that is not a number would be a guess sent to the device.
+    """
+    feature_states_text = general_block.get("FeatureStates")
     if (not isinstance(feature_states_text, str)
             or not feature_states_text.strip().isdigit()):
         raise SpindownWriteError(
@@ -528,8 +595,47 @@ def _parse_feature_states(block: dict) -> int:
     return int(feature_states_text)
 
 
-def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
-                 timeout: float = 8.0, verify: bool = True) -> dict:
+def _validate_spindown_delay(spindown_delay: int) -> None:
+    """
+    Refuse anything but a whole number in 1.._SPINDOWN_MAX, before
+    anything is read or sent. 0 gets its own message, because it is the
+    one value somebody would send meaning "off", and the device does not
+    read it that way (see set_spindown).
+    """
+    if (isinstance(spindown_delay, bool)
+            or not isinstance(spindown_delay, int)):
+        raise SpindownWriteError(
+            f"spin-down delay must be a whole number, "
+            f"not {type(spindown_delay).__name__}")
+    if spindown_delay == 0:
+        raise SpindownWriteError(
+            "a spin-down delay of 0 does not disable spin-down -- the device "
+            "coerces it (measured: sent 0, stored 15). To turn spin-down off "
+            "use disable_spindown(), which clears the enable bit as well.")
+    if not (_SPINDOWN_MIN < spindown_delay <= _SPINDOWN_MAX):
+        raise SpindownWriteError(
+            f"spin-down delay {spindown_delay} is outside the "
+            f"1-{_SPINDOWN_MAX} sanity band; the units are unconfirmed, so a "
+            f"value beyond it is far more likely a mistake than an intention")
+
+
+def _spindown_changes_for(before: dict, spindown_delay: int) -> dict:
+    """
+    The General fields a nonzero delay changes: the delay itself, plus
+    the enable bit when it is clear, because a delay with the feature
+    disabled is a value nobody can observe.
+    """
+    general_block = _extract_general_block(before)
+    feature_bits = _parse_feature_states(general_block)
+    changes = {"SpindownDelay": spindown_delay}
+    if not (feature_bits & _SPINDOWN_ENABLED_BIT):
+        changes["FeatureStates"] = feature_bits | _SPINDOWN_ENABLED_BIT
+    return changes
+
+
+def set_spindown(host: str, esa_id: str, delay: int,
+                 port: int = DEFAULT_PORT, timeout: float = 8.0,
+                 verify: bool = True) -> dict:
     """
     Set the drive spin-down delay to a NONZERO value. Rides the vetted
     General-block path -- read the live block, change only
@@ -548,64 +654,56 @@ def set_spindown(host: str, esa_id: str, delay: int, port: int = DEFAULT_PORT,
 
     This sets a SETTING; it does not spin the drives down now (there is
     no such command -- capture, 2026-08-06). Reversible: read the
-    current value first and set it back. Units unconfirmed (see
-    _SPINDOWN_MAX).
+    current value first and set it back. `delay` carries no
+    unit in its name because its unit is unconfirmed -- minutes and a
+    dropdown index both fit (see _SPINDOWN_MAX).
 
     `verify` re-reads and confirms;
     RESULT_ACCEPTED means received, not applied.
     """
     from .config_cmd import set_config
 
-    if isinstance(delay, bool) or not isinstance(delay, int):
-        raise SpindownWriteError(
-            f"spin-down delay must be a whole number, "
-            f"not {type(delay).__name__}")
-    if delay == 0:
-        raise SpindownWriteError(
-            "a spin-down delay of 0 does not disable spin-down -- the device "
-            "coerces it (measured: sent 0, stored 15). To turn spin-down off "
-            "use disable_spindown(), which clears the enable bit as well.")
-    if not (_SPINDOWN_MIN < delay <= _SPINDOWN_MAX):
-        raise SpindownWriteError(
-            f"spin-down delay {delay} is outside the 1-{_SPINDOWN_MAX} sanity "
-            f"band; the units are unconfirmed, so a value beyond it is far "
-            f"more likely a mistake than an intention")
-
-    def spindown_changes_for(before: dict) -> dict:
-        block = _extract_general_block(before)
-        feature_bits = _parse_feature_states(block)
-        changes = {"SpindownDelay": delay}
-        if not (feature_bits & _SPINDOWN_ENABLED_BIT):
-            changes["FeatureStates"] = feature_bits | _SPINDOWN_ENABLED_BIT
-        return changes
+    _validate_spindown_delay(delay)
 
     # The changes depend on the live block (whether the bit is already
     # set), so build them inside build_section_document rather than
     # ahead of the read.
     def build_section_document(before: dict) -> str:
         return _make_general_block_builder(
-            changes=spindown_changes_for(before))(before)
+            changes=_spindown_changes_for(before, delay))(before)
 
-    def _reads_back() -> bool:
-        return get_spindown(host, esa_id, port=port, timeout=timeout) == delay
+    def delay_reads_back() -> bool:
+        return get_spindown(host, esa_id, port=port,
+                            timeout=timeout) == delay
 
-    result = set_config(host, esa_id, "general", build_section_document,
-                        port=port, timeout=timeout, readback=_reads_back)
+    write_summary = set_config(host, esa_id, "general",
+                               build_section_document, port=port,
+                               timeout=timeout, readback=delay_reads_back)
     # Stop here without a fresh read in two cases: config_cmd already
     # settled this write by reading the device back (its verdict IS the
     # verification -- reading again only invites a second answer), or
     # the caller asked for no verification at all.
-    if decided_by_readback(result) or not verify:
-        return result
+    if decided_by_readback(write_summary) or not verify:
+        return write_summary
 
-    read_back = get_spindown(host, esa_id, port=port, timeout=timeout)
-    result["read_back"] = read_back
-    result["verified"] = read_back == delay
-    if read_back != delay:
+    delay_read_back = get_spindown(host, esa_id, port=port, timeout=timeout)
+    write_summary["read_back"] = delay_read_back
+    write_summary["verified"] = delay_read_back == delay
+    if delay_read_back != delay:
         raise SpindownWriteError(
             f"the device accepted the write but the spin-down delay reads "
-            f"back as {read_back!r}, not {delay}. Received, not applied.")
-    return result
+            f"back as {delay_read_back!r}, not {delay}. Received, "
+            f"not applied.")
+    return write_summary
+
+
+def _spindown_is_off(feature_bits: int, stored_delay) -> bool:
+    """
+    Whether a read-back shows spin-down off: the enable bit clear AND
+    the delay "0". Either alone is not off (see disable_spindown).
+    """
+    return (not (feature_bits & _SPINDOWN_ENABLED_BIT)
+            and stored_delay == "0")
 
 
 def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
@@ -632,44 +730,47 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
 
     from .config_cmd import get_config
 
-    def _read_spindown_state() -> tuple[int, object]:
-        block = _extract_general_block(get_config(host, esa_id, "general",
-                                                  port=port, timeout=timeout))
-        return _parse_feature_states(block), block.get("SpindownDelay")
+    def read_spindown_state() -> tuple[int, object]:
+        """FeatureStates as a number, and the stored delay as read."""
+        general_block = _extract_general_block(get_config(
+            host, esa_id, "general", port=port, timeout=timeout))
+        return (_parse_feature_states(general_block),
+                general_block.get("SpindownDelay"))
 
-    def _reads_back() -> bool:
-        feature_bits, stored_delay = _read_spindown_state()
-        return (not (feature_bits & _SPINDOWN_ENABLED_BIT)
-                and stored_delay == "0")
+    def spindown_reads_back_off() -> bool:
+        return _spindown_is_off(*read_spindown_state())
 
-    result = set_config(host, esa_id, "general", build_section_document,
-                        port=port, timeout=timeout, readback=_reads_back)
+    write_summary = set_config(host, esa_id, "general",
+                               build_section_document, port=port,
+                               timeout=timeout,
+                               readback=spindown_reads_back_off)
     # Stop here without a fresh read in two cases: config_cmd already
     # settled this write by reading the device back (its verdict IS the
     # verification -- reading again only invites a second answer), or
     # the caller asked for no verification at all.
-    if decided_by_readback(result) or not verify:
-        return result
+    if decided_by_readback(write_summary) or not verify:
+        return write_summary
 
-    feature_bits, stored_delay = _read_spindown_state()
-    spindown_is_off = (not (feature_bits & _SPINDOWN_ENABLED_BIT)
-                       and stored_delay == "0")
-    result["read_back"] = {"FeatureStates": feature_bits,
-                           "SpindownDelay": stored_delay}
-    result["verified"] = spindown_is_off
+    feature_bits, stored_delay = read_spindown_state()
+    spindown_is_off = _spindown_is_off(feature_bits, stored_delay)
+    write_summary["read_back"] = {"FeatureStates": feature_bits,
+                                  "SpindownDelay": stored_delay}
+    write_summary["verified"] = spindown_is_off
     if not spindown_is_off:
         raise SpindownWriteError(
             f"the device accepted the disable but reads back "
             f"FeatureStates={feature_bits} "
             f"SpindownDelay={stored_delay!r}; expected the enable bit clear "
             f"and delay 0. Received, not applied.")
-    return result
+    return write_summary
 
 
 def get_demo_mode(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
     """
-    Whether this unit is in shop-display mode. See parse_demo_mode.
+    Whether this unit is in shop-display mode. See parse_demo_mode for
+    why it is asked at all: a unit in demo mode reports capacity that
+    is not real.
     """
     return parse_demo_mode(
         _query_reply_body(host, esa_id, "eCmdGetDemoModeInfo", port, timeout))
@@ -677,33 +778,16 @@ def get_demo_mode(host: str, esa_id: str, port: int = DEFAULT_PORT,
 
 def get_droboapps(host: str, esa_id: str, port: int = DEFAULT_PORT,
                   timeout: float = 8.0) -> dict:
-    """Ask the Drobo what is installed on it. Read-only."""
-    if _commands.is_dangerous(APPS_STATUS_COMMAND_NAME):
-        raise SysInfoError(
-            f"{APPS_STATUS_COMMAND_NAME} is on the do-not-send list")
-    command_id = _commands.COMMANDS.get(APPS_STATUS_COMMAND_NAME)
-    if command_id is None:
-        raise SysInfoError(
-            f"{APPS_STATUS_COMMAND_NAME} has no confirmed command id")
+    """
+    Ask the Drobo what is installed on it. Read-only.
 
-    request_payload = (
-        f"<TMCmd><CmdID>{command_id}</CmdID><Params></Params>"
-        f"<ESAID>{esa_id}</ESAID></TMCmd>").encode() + b"\x00"
-
-    sock = socket.create_connection((host, port), timeout=timeout)
-    sock.settimeout(timeout)
-    try:
-        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        frame_type, _ = _read_frame(sock)
-        if frame_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
-        sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
-        frame_type, body = _read_frame(sock)
-        if frame_type != TYPE_RESULT:
-            raise SysInfoError(f"unexpected reply type 0x{frame_type:02x}")
-        return parse_droboapps(body)
-    finally:
-        sock.close()
+    It goes through _query_reply_body like the other small reads, so the
+    do-not-send guard and the login live in one place. It is also
+    droboapps_action's check that an app is installed before acting.
+    """
+    return parse_droboapps(
+        _query_reply_body(host, esa_id, APPS_STATUS_COMMAND_NAME, port,
+                          timeout))
 
 
 # The two action verbs the capture confirmed, exactly as the device
@@ -713,7 +797,8 @@ _APP_ACTIONS = ("Start", "Stop")
 
 class DroboAppsActionError(SysInfoError):
     """Starting or stopping a DroboApp could not be done safely, or the
-    device refused it."""
+    device refused it. Its own class so the agent can tell a refused
+    action from a failed read."""
 
 
 def droboapps_action(host: str, esa_id: str, name: str, action: str,
@@ -754,8 +839,22 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     Raises DroboAppsActionError on a bad verb, an unknown app, a refused
     device, or a non-accepted result.
     """
-    from .config_cmd import RESULT_ACCEPTED, _parse_result_code
+    app_name = _validated_app_action(action, name)
+    command_id = _vetted_action_command_id()
+    if check_installed:
+        _refuse_uninstalled(host, esa_id, app_name, port, timeout)
+    request_payload = _action_request_payload(command_id, esa_id, app_name,
+                                              action)
+    return _send_action(host, esa_id, request_payload, port, timeout,
+                        action, app_name)
 
+
+def _validated_app_action(action: str, name: str) -> str:
+    """
+    The stripped app name, or raise for a verb the device does not use
+    or an empty name. Checked before anything is read or sent, so a
+    typo'd "start" never reaches the device.
+    """
     if action not in _APP_ACTIONS:
         raise DroboAppsActionError(
             f"action must be one of {_APP_ACTIONS!r}, not {action!r} -- "
@@ -764,7 +863,15 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     app_name = (name or "").strip()
     if not app_name:
         raise DroboAppsActionError("no app name given")
+    return app_name
 
+
+def _vetted_action_command_id() -> int:
+    """
+    eCmdDroboAppsAction's command id, read through the write gate: the
+    command must be in commands.VETTED_WRITES and have a confirmed id,
+    or nothing is sent.
+    """
     command_name = "eCmdDroboAppsAction"
     if command_name not in _commands.VETTED_WRITES:
         raise DroboAppsActionError(
@@ -773,25 +880,58 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     if command_id is None:
         raise DroboAppsActionError(
             f"{command_name} has no confirmed command id")
+    return command_id
 
-    if check_installed:
-        installed_names = {a["name"] for a in get_droboapps(
-            host, esa_id, port, timeout).get("apps", [])}
-        if app_name not in installed_names:
-            raise DroboAppsActionError(
-                f"{app_name!r} is not an installed DroboApp on this device "
-                f"(installed: {sorted(installed_names)}); refusing to act on "
-                f"a name the device did not report")
 
+def _refuse_uninstalled(host: str, esa_id: str, app_name: str, port: int,
+                        timeout: float) -> None:
+    """
+    Refuse an app the device does not REPORT as installed, rather than
+    let the device decide what to do with a name it does not recognise.
+    """
+    installed_names = {a["name"] for a in get_droboapps(
+        host, esa_id, port, timeout).get("apps", [])}
+    if app_name in installed_names:
+        return
+    raise DroboAppsActionError(
+        f"{app_name!r} is not an installed DroboApp on this device "
+        f"(installed: {sorted(installed_names)}); refusing to act on "
+        f"a name the device did not report")
+
+
+def _action_request_payload(command_id: int, esa_id: str, app_name: str,
+                            action: str) -> bytes:
+    """
+    The captured request, <CmdID><ESAID><Params> in that order, with the
+    trailing NUL every request carries.
+    """
     # The Name value is escaped in case an app name ever carries a
     # special character; Action is one of two literals. quote=False
     # matches the only escaping the wire format was observed to use.
     import html
     escaped_name = html.escape(app_name, quote=False)
     params_xml = f"<Name>{escaped_name}</Name><Action>{action}</Action>"
-    request_payload = (
+    return (
         f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
         f"<Params>{params_xml}</Params></TMCmd>").encode() + b"\x00"
+
+
+def _send_action(host: str, esa_id: str, request_payload: bytes,
+                 port: int, timeout: float, action: str,
+                 app_name: str) -> dict:
+    """
+    Log in, send the action once, and require RESULT_ACCEPTED.
+
+    Never retried: an action the device took and did not answer would
+    otherwise be sent twice. Only the connect is wrapped: a connection
+    that cannot be opened is a DroboAppsActionError. Failures after the
+    connect propagate unwrapped -- OSError (a broken pipe, a timeout)
+    from the sends and receives, and config_cmd.ConfigError from
+    _read_frame for a hang-up, a bad signature or a short frame -- and
+    by then the action frame may already be on the wire, so none of
+    them means the action was not taken.
+    """
+    from .config_cmd import RESULT_ACCEPTED, _parse_result_code
 
     try:
         sock = socket.create_connection((host, port), timeout=timeout)

@@ -86,6 +86,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     flat, and the access advice and link report are built by named
     helpers. Every user-visible string, JSON key and key order is as
     it was. (2026-10-29)
+  - `sdk/drobo_nasd/droboapps.py`: the readers share one parse,
+    and each writer reads as its checks. Private helpers and local
+    names only (`set_spindown` keeps its `delay` parameter); every
+    check, its order, every message, the read-backs and every byte
+    sent to the Drobo are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
