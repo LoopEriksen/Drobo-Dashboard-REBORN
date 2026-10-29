@@ -65,6 +65,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `sdk/drobo_nasd/envelope.py`: building and parsing a request read
     as named steps. Private helpers only; every byte and every XML
     element sent to the Drobo is unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/framing.py`: frame decoding names its lengths and
+    offsets; for testers who call it by keyword, `decode_frame(data)`
+    -> `decode_frame(buffered_bytes)` and `FrameReader.feed(data)` ->
+    `feed(received_bytes)` (positional calls are unaffected).
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
