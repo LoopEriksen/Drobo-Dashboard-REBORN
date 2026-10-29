@@ -4,6 +4,19 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
+## Unreleased
+
+Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
+
+### Changed
+- **Backup is graded Built, unverified in both records.** The roadmap
+  called it Working and `docs/capabilities.md` Built, unverified, a split
+  flagged on 2026-09-26. Its test suite copies real files between ordinary
+  folders on every push (on the Windows runner, where robocopy exists), but
+  no record shows it ever copying from a real Drobo share, and Working means
+  working against the real device. Nothing the software does changes; one
+  copy of a real share to an external drive moves it. (2026-10-29)
+
 ## 1.2.0 -- not yet released
 
 Everything below has landed since 1.1.0.

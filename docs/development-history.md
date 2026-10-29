@@ -857,6 +857,29 @@ The release is therefore cut in two commits: this one, and a later one that
 dates the changelog and records the elevated lifecycle run, once the MSI has
 been built and tested on Windows.
 
+## Backup's grade settled (2026-10-29)
+
+**10-29.** Backup had been Working in the roadmap and Built, unverified in
+`capabilities.md` since the 09-21 merge, and the split was flagged on 09-26
+for the maintainer. The maintainer asked for it to be settled from the
+evidence, using the two files' own status words rather than a new one. It is
+now **Built, unverified** in both.
+
+The case for Working was real. Nothing in `backup.py` speaks the Drobo's
+protocol: it plans, then runs robocopy between two paths on a separate,
+explicit call. Its suite copies real files between ordinary folders, checks
+that they arrived and that a second run copies nothing, and that part, which
+skips anywhere but Windows, does run on every push, because `tests.yml` runs
+the suites on a Windows runner precisely so that it cannot be skipped (44
+checks there). But the definitions decide it. `capabilities.md` defines
+*Complete* as working against a real Drobo 5N, and the roadmap's *Working*
+covers *Complete* and nothing else. The source backup is built for is an SMB
+share on the Drobo -- its own notes name the 2013 NAS as the reason it uses
+robocopy -- and no record anywhere in this repository shows a copy ever made
+from one, let alone a whole array. That is the same test that moved
+DroboApp start and stop down on 09-26: no record of it reaching a device.
+One copy of a real share to an external drive, from the Tools tab, moves it.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -890,7 +913,8 @@ worth doing: build 1.2.0's MSI on Windows, run its elevated lifecycle test
 (which also runs the Check for Updates shortcut) and publish it, which is what
 puts everything since 1.1.0 into testers' hands; re-run share create on
 hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
-watching the unit; start and stop a DroboApp on hardware for the first time;
+watching the unit; copy a real Drobo share to an external drive once, which
+backup's grade waits on; start and stop a DroboApp on hardware for the first time;
 give the remaining command-channel reads the whole-frame deadline the
 settings reads already have; one elevated install of the
 fallback scripts into the real Program Files;

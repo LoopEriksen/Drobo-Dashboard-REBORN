@@ -163,7 +163,7 @@ convention.
 
 | Capability | Status | Notes |
 |---|---|---|
-| Back up the Drobo to an external drive: plan first, confirm, then copy with bounded retries and progress | **Built, unverified** | Hardware-independent (any two paths); tested over ordinary folders, and no full array has been copied. **The two records disagree on this row:** `../ROADMAP.md` grades it Working, a split left by the 88bedd2 merge. Flagged 2026-09-26 for the maintainer to decide which grade is right |
+| Back up the Drobo to an external drive: plan first, confirm, then copy with bounded retries and progress | **Built, unverified** | Nothing in it speaks the Drobo's protocol: it plans, then runs robocopy between two paths, and only on a separate explicit call. `agent/tests/test_backup.py` copies real files between ordinary folders, and that part runs only on Windows -- on every push, since the suites run on a Windows runner (44 checks there; 35 elsewhere, where the copy is skipped). No record shows a copy ever made from a real Drobo share, and no full array has been copied. The roadmap graded it Working until 2026-10-29, a split left by the 88bedd2 merge; settled as Built, unverified because *Complete* means working against a real Drobo 5N, and the source this is built for, an SMB share on the Drobo, has never been read by it. One copy from a real share to an external drive moves it |
 | Photo-upload API: pairing by QR code, hash-first dedupe, resumable chunked upload for large video, capture-date preservation | **Built, dormant** | Complete and tested on the agent side; waits for a phone client |
 | Local thumbnail generation | **Planned** | |
 

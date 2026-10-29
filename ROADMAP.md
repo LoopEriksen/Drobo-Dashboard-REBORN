@@ -99,10 +99,6 @@ been proven against the real 5N**
   unit reports no user accounts, so a populated user list has never been seen)
 - DroboApps list
 - Event log fetch (per-line timestamp/severity format still undecoded)
-- Backup to an external drive (tested over ordinary folders; no full array
-  has been copied). **Graded differently in the two records:** Working here
-  and in Features, Built, unverified in `docs/capabilities.md` -- a split left
-  by the 88bedd2 merge, flagged 2026-09-26 for the maintainer to settle
 - Photo-upload API on the agent side, ready for a mobile client
 - DroboSync status (dormant; reports "not configured" honestly)
 - Diagnostics that lead with *why* the Drobo was unreachable
@@ -113,7 +109,11 @@ left this list on 2026-09-26. Identify and saving a share login were never
 graded Working in Features (Partial and Built, unverified). DroboApp start and
 stop was graded Working, but no record shows this project ever sending it to
 a device, so it was downgraded to Built, unverified the same day. All three
-are now in Working on now.*
+are now in Working on now. Backup to an external drive left it on
+2026-10-29: it was graded Working here and Built, unverified in
+`docs/capabilities.md`, and no record shows it ever copying from a real
+Drobo share, so it is Built, unverified in both and is in Working on now
+too.*
 
 **Not started, or blocked on something the project does not have**
 
@@ -163,6 +163,7 @@ the event log's replies, one permission code, and creating and deleting a user.
 | Remembering a share login | **Built, unverified** | Tested against the real Credential Manager. Not yet proven in use: sign out, sign back in, and reach a Drobo share on the saved login without being asked again. |
 | Create a share on the device | **Built, unverified** | Applied to a real Drobo once, before the fix that settles an unacknowledged write by reading the value back. One more run against the hardware decides it. |
 | Delete a share on the device | **Built, unverified** | Built from a capture, never sent to a device at all. Needs one run against the hardware. |
+| Back up the Drobo to an external drive | **Built, unverified** | Copies real files between ordinary folders on every push (the suites run on a Windows runner, where robocopy exists), but no record shows it ever copying from a real Drobo share. Graded Working here until 2026-10-29. Needs one copy of a real share to an external drive, from the Tools tab. |
 | The "Check for Updates" shortcut in an installed copy | **Working** | Broken in every installed copy from 2026-09-02, when the installer began bundling its own Python, until 2026-09-26: it asked that Python to find the agent's code in the folder it was started from, which the bundled runtime never looks in, and its window closed before the error could be read. No published release had it; 1.0.0 used the PC's own Python. Fixed, and proven against a copy of the bundled runtime; a check on every push now runs it the way that runtime does. The lifecycle test now runs the installed shortcut as well, and did so in the elevated run of 2026-10-08: it gave the "switched off" answer and exit 0. |
 | Publishing this repository, with release 1.1.0 | **Working** | The next release is **1.1.0** (a minor bump, decided 2026-09-21): every place the number is written says so, and the changelog's top section is 1.1.0, dated 2026-10-15, and opens by telling testers to uninstall 1.0.0 first. No longer blocked by the bounded reads, which are merged. How it is published changed on 2026-10-08: this repository becomes the public one, published as one fresh first commit with none of its earlier history, and the separate export repository is retired, so there is no export or carry-back step any more (see Phase 6). Every tracked file was scrubbed for it the same day. Published 2026-10-08; release 1.1.0, on .NET 10, went out on this repository's Releases page on 2026-10-15 after the elevated lifecycle test passed (70 checks). |
 | Publishing release 1.2.0 | **In progress** | The next release is **1.2.0** (a minor bump, chosen by the maintainer on condition that the PEP 8 refactor was finished first, which an independent audit then confirmed): every place the number is written says so, and the changelog's top section is headed 1.2.0, not yet released. It opens by saying that 1.1.0 upgrades in place keeping its settings, that 1.0.0 must still be uninstalled first, and that the renamed SDK names break testers' own scripts that import the SDK. Left: build the MSI on Windows from this tree, run the elevated lifecycle test with its upgrade leg (a throwaway 1.2.1 over 1.2.0) and confirm `LICENSE` lands in the program folder, then date the changelog and publish on this repository's Releases page. |
@@ -194,7 +195,7 @@ the same commit.
 | Start and stop installed Drobo apps | **Built, unverified** | Wire format captured in both directions and validated against the list the device itself reports. No record shows this project ever sending it to a device; graded Working until 2026-09-26. See Working on now. |
 | The device's own event log | **Partial** | Fetching works; the per-line format does not decode. See Working on now. |
 | Create and delete a share | **Built, unverified** | See Working on now. |
-| Back up the Drobo to an external drive | **Working** | Plans the copy, asks for confirmation, then copies with robocopy, with bounded retries and progress, only on a separate explicit call. Nothing in it talks to the Drobo: it copies between two folders, and its own test suite runs a real copy on Windows end to end (44 checks). There is no record of a whole array having been copied, which is a question of size, not of whether the copy works. **The two records disagree on this row:** `docs/capabilities.md` grades it Built, unverified (tested over ordinary folders), a split left by the 88bedd2 merge. Flagged 2026-09-26 for the maintainer to decide which grade is right. |
+| Back up the Drobo to an external drive | **Built, unverified** | Plans the copy, asks for confirmation, then copies with robocopy, with bounded retries and progress, only on a separate explicit call. Nothing in it speaks the Drobo's protocol: it copies between two folders, and its own test suite runs a real copy end to end on the Windows runner on every push (44 checks there). What has never been recorded is a copy from a real Drobo share, the source it is built for, let alone a whole array. Graded Working here until 2026-10-29, while `docs/capabilities.md` said Built, unverified, a split left by the 88bedd2 merge; settled as Built, unverified, because Working means working against the real 5N. See Working on now. |
 | Photo upload service for a future phone app | **Dormant** | Pairing by QR code, duplicate detection by hash before any bytes move, resumable chunked upload for long videos — all three covered by tests against a running agent, including the attempts to write outside the target folder. Capture dates survive a resume as well — the test resumes without resending the date and still finds the video filed under it; only setting the stored file's own timestamp is untested. Nothing connects to any of it until the iPhone app exists. |
 | Drobo-to-Drobo replication status | **Dormant** | Reports "not configured" honestly. Needs a second Drobo to do anything at all. |
 | Update check | **Dormant** | On demand only, never automatic, and off until a release address is configured. Verifies a checksum. The Windows app shows the answer on its Preferences panel; the Start Menu "Check for Updates" shortcut the installer creates is the only way to ask for one deliberately. That shortcut failed in every installed copy from 2026-09-02 until its fix on 2026-09-26, and the fix was proven in the elevated installer run of 2026-10-08, which ran the installed shortcut (see Working on now). |
