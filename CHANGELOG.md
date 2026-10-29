@@ -91,6 +91,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     names only (`set_spindown` keeps its `delay` parameter); every
     check, its order, every message, the read-backs and every byte
     sent to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/drobosync.py`: `parse_sync_reply` and
+    `summary` read as their steps. The reads happen in the same order
+    with the same skips, and their keys are unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

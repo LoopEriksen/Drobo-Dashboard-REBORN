@@ -78,9 +78,41 @@ WRITE_COMMANDS = ("eCmdSetDroboSyncSettings", "eCmdSyncNow", "eCmdStopSync")
 
 
 class DroboSyncError(SysInfoError):
-    """A DroboSync read failed. Subclasses SysInfoError so existing
-    callers
-    that already handle command-port failures keep working unchanged."""
+    """
+    A DroboSync read failed. Subclasses SysInfoError so existing callers
+    that already handle command-port failures keep working unchanged.
+    """
+
+
+def _raw_document_text(details, inner_document) -> str:
+    """
+    The reply's payload as text: the inner document reserialized when
+    there is one, otherwise <ResultDetails>' own text. Kept verbatim so
+    the first populated reply anyone sees can be read as the device
+    sent it.
+    """
+    raw_xml = (
+        ElementTree.tostring(inner_document, encoding="unicode").strip()
+        if inner_document is not None else "")
+    if not raw_xml:
+        raw_xml = (details.text or "").strip()
+    return raw_xml
+
+
+def _leaf_fields(document_root) -> dict[str, str]:
+    """
+    Every non-empty leaf element under `document_root`, as {tag: text}.
+    Containers are skipped, because only leaves carry values, and no
+    field is named because no schema is known.
+    """
+    fields: dict[str, str] = {}
+    for element in document_root.iter():
+        if len(element):
+            continue  # a container, not a value
+        value = (element.text or "").strip()
+        if value:
+            fields[element.tag] = value
+    return fields
 
 
 def parse_sync_reply(payload: bytes) -> dict:
@@ -121,19 +153,8 @@ def parse_sync_reply(payload: bytes) -> dict:
     inner_document = _inner_document(details)
     document_root = inner_document if inner_document is not None else details
 
-    raw_xml = (
-        ElementTree.tostring(document_root, encoding="unicode").strip()
-        if inner_document is not None else "")
-    if not raw_xml:
-        raw_xml = (details.text or "").strip()
-
-    fields: dict[str, str] = {}
-    for element in document_root.iter():
-        if len(element):
-            continue  # a container, not a value
-        value = (element.text or "").strip()
-        if value:
-            fields[element.tag] = value
+    raw_xml = _raw_document_text(details, inner_document)
+    fields = _leaf_fields(document_root)
 
     # "Configured" means the device told us something, not that sync is
     # currently running -- we have no way to tell those apart yet, and
@@ -182,10 +203,10 @@ def read(host: str, esa_id: str, read_kind: str = "settings",
         frame_type, body = _read_frame(sock)
         if frame_type != TYPE_RESULT:
             raise DroboSyncError(f"unexpected reply type 0x{frame_type:02x}")
-        result = parse_sync_reply(body)
-        result["command"] = command_name
-        result["what"] = read_kind
-        return result
+        sync_read = parse_sync_reply(body)
+        sync_read["command"] = command_name
+        sync_read["what"] = read_kind
+        return sync_read
     finally:
         sock.close()
 
@@ -219,7 +240,17 @@ def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     sync_summary: dict = {"configured": False, "reads": {}, "note": ""}
 
-    def _read_one(read_kind: str) -> dict:
+    def read_one(read_kind: str) -> dict:
+        """
+        One read, marked as asked. A DroboSyncError or OSError becomes
+        an entry carrying its error, so a read that fails that way does
+        not hide the others. Anything else -- a config_cmd.ConfigError
+        from a hang-up or a garbled frame, a plain SysInfoError (the
+        parent class, not a DroboSyncError) from a malformed inner
+        document -- aborts summary(). A failed settings read also
+        counts as "not configured", so the three logs are then not
+        asked.
+        """
         try:
             answer = read(host, esa_id, read_kind, port, timeout)
             answer["asked"] = True
@@ -228,16 +259,16 @@ def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
             return {"configured": False, "error": str(exc),
                     "raw_xml": "", "fields": {}, "asked": True}
 
-    sync_summary["reads"]["settings"] = _read_one("settings")
-    if sync_summary["reads"]["settings"].get("configured"):
-        for read_kind in ("summary_log", "detailed_log", "log"):
-            sync_summary["reads"][read_kind] = _read_one(read_kind)
-    else:
-        for read_kind in ("summary_log", "detailed_log", "log"):
-            sync_summary["reads"][read_kind] = dict(_NOT_ASKED_READ)
+    sync_summary["reads"]["settings"] = read_one("settings")
+    partner_configured = sync_summary["reads"]["settings"].get("configured")
+    for read_kind in ("summary_log", "detailed_log", "log"):
+        sync_summary["reads"][read_kind] = (
+            read_one(read_kind) if partner_configured
+            else dict(_NOT_ASKED_READ))
 
     sync_summary["configured"] = any(
-        r.get("configured") for r in sync_summary["reads"].values())
+        sync_read.get("configured")
+        for sync_read in sync_summary["reads"].values())
     if not sync_summary["configured"]:
         sync_summary["note"] = (
             "This Drobo has no DroboSync partner set up. DroboSync copied one "
