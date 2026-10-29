@@ -126,6 +126,10 @@ COMMANDS: dict[str, int] = {
     "eCmdGetNASUsernamePassword": 102,
 }
 
+# How many entries the recovered firmware table holds: ids 0..102,
+# each used once. _self_check holds COMMANDS to it.
+_COMMAND_COUNT = 103
+
 # reverse lookup: numeric id -> name
 ID_TO_NAME: dict[int, str] = {v: k for k, v in COMMANDS.items()}
 
@@ -291,21 +295,35 @@ assert DO_NOT_SEND.isdisjoint(SAFE_WRITES), (
 )
 
 
-def is_safe_write(name: str) -> bool:
-    """True if `name` is one of the narrow,
+def is_safe_write(command_name: str) -> bool:
+    """True if `command_name` is one of the narrow,
     explicitly-approved writes.
+
+    A name, never an id: SAFE_WRITES is a short list the maintainer
+    approved by name, and a sender asks this before the one write it
+    exists to make (identify checks it by name before blinking the
+    lights).
     """
-    return name in SAFE_WRITES
+    return command_name in SAFE_WRITES
 
 
 def is_dangerous(name_or_id) -> bool:
     """True if `name_or_id` (a command name or numeric id) is
     in DO_NOT_SEND.
+
+    Takes either form because callers hold either: the SDK's senders
+    check by eCmd name, and an id is what goes in <CmdID>. Note that
+    this answers only "is it on the refused list". False does not mean
+    a command is known to be safe (eCmdGetNASUsernamePassword, for one,
+    is not refused), and a numeric id that is not in ID_TO_NAME at all
+    gets the same False as any command that is not refused.
     """
     if isinstance(name_or_id, str):
         return name_or_id in DO_NOT_SEND
-    name = ID_TO_NAME.get(name_or_id)
-    return name in DO_NOT_SEND if name else False
+    command_name = ID_TO_NAME.get(name_or_id)
+    if not command_name:
+        return False
+    return command_name in DO_NOT_SEND
 
 
 def _self_check() -> None:
@@ -315,10 +333,11 @@ def _self_check() -> None:
     loads in a silently-corrupted state (dropped entry, typo'd id,
     duplicate id).
     """
-    assert len(COMMANDS) == 103, f"expected 103 commands, got {len(COMMANDS)}"
+    assert len(COMMANDS) == _COMMAND_COUNT, (
+        f"expected {_COMMAND_COUNT} commands, got {len(COMMANDS)}")
 
     sorted_ids = sorted(COMMANDS.values())
-    assert sorted_ids == list(range(103)), (
+    assert sorted_ids == list(range(_COMMAND_COUNT)), (
         "command ids must be exactly 0..102, each used once"
     )
 
@@ -333,15 +352,17 @@ def _self_check() -> None:
         "eCmdRunCommand": 89,
         "eCmdGetNASUsernamePassword": 102,
     }
-    for name, expected_id in spot_checks.items():
-        assert COMMANDS[name] == expected_id, (
-            f"{name} expected id {expected_id}, got {COMMANDS.get(name)}"
+    for command_name, expected_id in spot_checks.items():
+        assert COMMANDS[command_name] == expected_id, (
+            f"{command_name} expected id {expected_id}, "
+            f"got {COMMANDS.get(command_name)}"
         )
 
-    for name in DO_NOT_SEND:
-        assert name in COMMANDS or name in NAMES_WITHOUT_CONFIRMED_ID, (
-            f"DO_NOT_SEND entry {name!r} is neither a known command nor a "
-            f"documented no-id exception"
+    for command_name in DO_NOT_SEND:
+        assert (command_name in COMMANDS
+                or command_name in NAMES_WITHOUT_CONFIRMED_ID), (
+            f"DO_NOT_SEND entry {command_name!r} is neither a known command "
+            f"nor a documented no-id exception"
         )
 
 

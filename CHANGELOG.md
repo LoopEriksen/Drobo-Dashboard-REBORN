@@ -58,6 +58,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     (positional calls are unaffected). Every except clause, its order,
     the read-back that decides an unacknowledged write, and every byte
     sent to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/commands.py`: the gate helpers say what they check
+    and why; for testers who call it by keyword, `is_safe_write(name)`
+    -> `is_safe_write(command_name)`. The write-gate sets, their
+    members and every refusal are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
