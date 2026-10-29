@@ -84,6 +84,16 @@ TYPE_LOGIN_OK = 0x87
 TYPE_COMMAND = 0x0A
 TYPE_RESULT = 0x8A
 
+# Where the fields sit in the 16-byte header: the 8-byte signature, the
+# frame type, the version byte, two flag bytes, then the big-endian
+# payload length.
+_FRAME_TYPE_OFFSET = 8
+_PAYLOAD_LENGTH_FIELD = slice(12, 16)
+
+# The most one recv call asks for. Only a cap on each call: a frame
+# longer than this is read in several calls, never cut short.
+_RECEIVE_CHUNK_BYTES = 65536
+
 # The login packet is the device serial twice, in two 20-byte NUL-padded
 # slots, then padding to 220. Confirmed on the wire.
 LOGIN_PAYLOAD_BYTES = 220
@@ -119,15 +129,47 @@ _REDACTION_SENTINEL = "[redacted]"
 class ConfigError(Exception):
     """The command channel refused us,
     or answered with something unusable.
+
+    Protocol failures -- a refused login, a bad or short frame, a reply
+    with no <ResultDetails> -- are this type. Transport errors are NOT
+    wrapped: a refused connect, a send or receive timeout or a reset
+    passes through get_config and get_config_element as OSError, and
+    get_config_element lets ElementTree.ParseError out for a reply
+    whose XML is malformed. That split is relied on, which is why the
+    callers that report a failure handle OSError as well as
+    ConfigError: most catch the tuple (OSError, ConfigError), and
+    api.py catches them apart and reads a bare OSError as "the command
+    port could not be reached, nothing applied". Wrapping OSError in
+    this type would turn that "nothing applied" into "may have
+    applied". The write errors below subclass it so that a caller
+    catching ConfigError still sees them.
     """
 
 
 def _build_frame(frame_type: int, payload: bytes) -> bytes:
+    """
+    Wrap a payload in a DRINETTM frame.
+
+    The version byte 0x01 and the two zero flag bytes are fixed because
+    they are what the captured Dashboard frames carry (the protocol map
+    records the version as observed 0x01 and the flags as usually
+    0x0000); nothing here has a reason to send anything else, and a
+    frame the device has never seen is not one to experiment with on
+    the only unit there is.
+    """
     return (SIGNATURE + bytes([frame_type, 0x01]) + b"\x00\x00"
             + struct.pack(">I", len(payload)) + payload)
 
 
 def _login_payload(esa_id: str) -> bytes:
+    """
+    The 220-byte login: the device serial in two 20-byte slots.
+
+    The serial goes in twice because that is the captured login; the
+    device has never been seen accepting any other shape. A serial
+    longer than one slot is refused rather than truncated, because a
+    cut-down serial is a login for a different device.
+    """
     serial_bytes = esa_id.encode("ascii", "ignore")
     if not serial_bytes or len(serial_bytes) > _LOGIN_SLOT_BYTES:
         raise ConfigError(f"implausible device serial {esa_id!r}")
@@ -182,31 +224,53 @@ def _receive_exactly(
     try:
         while len(received) < byte_count:
             if deadline is not None:
-                remaining_seconds = deadline - time.monotonic()
-                if remaining_seconds <= 0:
-                    raise ConfigError(
-                        f"timed out reading frame: "
-                        f"got {len(received)} of {byte_count} bytes")
-                # Shrink the per-recv wait as the budget runs down, or
-                # the very last recv could still overshoot by a full
-                # socket timeout.
-                sock.settimeout(remaining_seconds)
-            chunk = sock.recv(min(65536, byte_count - len(received)))
+                _shrink_timeout_to_deadline(sock, deadline, len(received),
+                                            byte_count)
+            chunk = sock.recv(
+                min(_RECEIVE_CHUNK_BYTES, byte_count - len(received)))
             if not chunk:
                 break
             received += chunk
     finally:
         if deadline is not None:
-            try:
-                sock.settimeout(original_timeout)
-            except OSError:
-                # The socket is already unusable -- the peer went away
-                # and it was closed underneath this read. That is the
-                # read's own failure to report; restoring a timeout on
-                # it must not replace that error with a confusing one
-                # from the cleanup.
-                pass
+            _restore_socket_timeout(sock, original_timeout)
     return received
+
+
+def _shrink_timeout_to_deadline(sock: socket.socket, deadline: float,
+                                received_bytes: int,
+                                byte_count: int) -> None:
+    """
+    Give the next recv only what is left of the read's budget, or raise
+    ConfigError once the budget is spent.
+
+    Shrinking the per-recv wait as the budget runs down is what makes
+    `deadline` a bound at all: without it the very last recv could
+    still overshoot by a full socket timeout. The message is the one
+    esatm raises for the same stall, word for word.
+    """
+    remaining_seconds = deadline - time.monotonic()
+    if remaining_seconds <= 0:
+        raise ConfigError(
+            f"timed out reading frame: "
+            f"got {received_bytes} of {byte_count} bytes")
+    sock.settimeout(remaining_seconds)
+
+
+def _restore_socket_timeout(sock: socket.socket,
+                            original_timeout: float | None) -> None:
+    """
+    Hand the socket back with the timeout it had before the read.
+
+    An OSError here means the socket is already unusable -- the peer
+    went away and it was closed underneath the read. That is the read's
+    own failure to report; restoring a timeout on it must not replace
+    that error with a confusing one from the cleanup.
+    """
+    try:
+        sock.settimeout(original_timeout)
+    except OSError:
+        pass
 
 
 def _read_frame(sock: socket.socket,
@@ -223,21 +287,23 @@ def _read_frame(sock: socket.socket,
     if len(header) < HEADER_BYTES:
         raise ConfigError(
             f"short header: {len(header)} of {HEADER_BYTES} bytes")
-    if header[:8] != SIGNATURE:
-        raise ConfigError(f"bad signature {header[:8]!r}")
-    length = struct.unpack(">I", header[12:16])[0]
-    if length > MAX_PAYLOAD_BYTES:
-        raise ConfigError(f"implausible payload length {length}")
-    body = _receive_exactly(sock, length, deadline)
-    if len(body) < length:
+    signature = header[:len(SIGNATURE)]
+    if signature != SIGNATURE:
+        raise ConfigError(f"bad signature {signature!r}")
+    payload_length = struct.unpack(">I", header[_PAYLOAD_LENGTH_FIELD])[0]
+    if payload_length > MAX_PAYLOAD_BYTES:
+        raise ConfigError(f"implausible payload length {payload_length}")
+    body = _receive_exactly(sock, payload_length, deadline)
+    if len(body) < payload_length:
         # Name truncation as truncation. Returned silently, a write
         # reply cut off before <Result> read as "the device did not
         # accept" -- a rejection -- when the truth is "the connection
         # dropped after the command was sent", which is the
         # outcome-unknown case a caller must treat differently (do not
         # blindly retry a write).
-        raise ConfigError(f"short payload: {len(body)} of {length} bytes")
-    return header[8], body
+        raise ConfigError(
+            f"short payload: {len(body)} of {payload_length} bytes")
+    return header[_FRAME_TYPE_OFFSET], body
 
 
 def _strip_secrets(node: ElementTree.Element) -> None:
@@ -262,16 +328,23 @@ def _strip_secrets(node: ElementTree.Element) -> None:
     """
     for child in node:
         if _CREDENTIAL_NAME_RE.search(child.tag):
-            # Whatever hangs off a credential node is suspect, so
-            # nothing from it survives: no text, no attributes, no
-            # children.
-            child.text = _REDACTION_SENTINEL
-            child.tail = child.tail  # keep layout, drop nothing else
-            child.attrib.clear()
-            for grandchild in list(child):
-                child.remove(grandchild)
+            _empty_credential_element(child)
             continue
         _strip_secrets(child)
+
+
+def _empty_credential_element(element: ElementTree.Element) -> None:
+    """
+    Leave only the redaction sentinel in a credential element.
+
+    Whatever hangs off a credential node is suspect, so nothing from it
+    survives: no text, no attributes, no children.
+    """
+    element.text = _REDACTION_SENTINEL
+    element.tail = element.tail  # keep layout, drop nothing else
+    element.attrib.clear()
+    for grandchild in list(element):
+        element.remove(grandchild)
 
 
 def _redact_escaped_document(node: ElementTree.Element) -> None:
@@ -301,41 +374,68 @@ def _redact_escaped_document(node: ElementTree.Element) -> None:
     to pass along on the hope that it isn't.
     """
     for child in node.iter():
-        text = (child.text or "").strip()
-        # NOTE: by the time we see it, ElementTree has ALREADY turned
-        # &lt; back into '<' -- so look for a literal angle bracket, not
-        # for the entity. (Checking for "&lt;" here was the first
-        # attempt at this fix, and it never matched a single real
-        # document.)
-        if not text or "<" not in text:
-            continue
-        unescaped_text = html.unescape(text).strip()
-        if not unescaped_text.startswith("<"):
-            continue
-        # Drop an inner <?xml ...?> declaration; ElementTree rejects one
-        # that isn't at the very start of the string it is handed.
-        document_text = unescaped_text
-        if document_text.startswith("<?xml"):
-            end = document_text.find("?>")
-            if end != -1:
-                document_text = document_text[end + 2:].strip()
-        try:
-            inner_root = ElementTree.fromstring(document_text)
-        except ElementTree.ParseError:
-            # Unparseable but XML-shaped. Refuse to pass it on.
-            if _CREDENTIAL_NAME_RE.search(text):
-                child.text = _REDACTION_SENTINEL
-            continue
-        if _CREDENTIAL_NAME_RE.search(inner_root.tag):
-            child.text = _REDACTION_SENTINEL
-            continue
-        _strip_secrets(inner_root)
-        child.text = ElementTree.tostring(inner_root, encoding="unicode")
+        _redact_escaped_text(child)
+
+
+def _redact_escaped_text(element: ElementTree.Element) -> None:
+    """
+    Redact one element's text if it is an escaped XML document.
+
+    One element per call, so each "not this one" is a plain return
+    rather than another level of nesting in _redact_escaped_document's
+    loop.
+    """
+    text = (element.text or "").strip()
+    # NOTE: by the time we see it, ElementTree has ALREADY turned &lt;
+    # back into '<' -- so look for a literal angle bracket, not for the
+    # entity. (Checking for "&lt;" here was the first attempt at this
+    # fix, and it never matched a single real document.)
+    if not text or "<" not in text:
+        return
+    unescaped_text = html.unescape(text).strip()
+    if not unescaped_text.startswith("<"):
+        return
+    document_text = _strip_xml_declaration(unescaped_text)
+    try:
+        inner_root = ElementTree.fromstring(document_text)
+    except ElementTree.ParseError:
+        # Unparseable but XML-shaped. Refuse to pass it on.
+        if _CREDENTIAL_NAME_RE.search(text):
+            element.text = _REDACTION_SENTINEL
+        return
+    if _CREDENTIAL_NAME_RE.search(inner_root.tag):
+        element.text = _REDACTION_SENTINEL
+        return
+    _strip_secrets(inner_root)
+    element.text = ElementTree.tostring(inner_root, encoding="unicode")
+
+
+def _strip_xml_declaration(document_text: str) -> str:
+    """
+    Drop a leading <?xml ...?> declaration from an inner document.
+
+    ElementTree rejects a declaration that isn't at the very start of
+    the string it is handed, and an escaped inner document may carry
+    one of its own. Text with no closing "?>" is returned unchanged.
+    """
+    if not document_text.startswith("<?xml"):
+        return document_text
+    declaration_end_index = document_text.find("?>")
+    if declaration_end_index == -1:
+        return document_text
+    return document_text[declaration_end_index + 2:].strip()
 
 
 def _element_to_dict(node: ElementTree.Element):
     """XML subtree -> plain dict/list/str,
     with repeated tags becoming lists.
+
+    Repeated tags become lists because the device repeats an element
+    for each item of a collection (one <Share> per share), and a dict
+    keyed by tag would otherwise keep only the last. Attributes and
+    text beside child elements are dropped: this shape is for reading
+    values, and it is lossy -- which is why a write that has to send a
+    section back byte for byte uses get_config_element instead.
     """
     children = list(node)
     if not children:
@@ -343,12 +443,12 @@ def _element_to_dict(node: ElementTree.Element):
     converted: dict = {}
     for child in children:
         value = _element_to_dict(child)
-        if child.tag in converted:
-            if not isinstance(converted[child.tag], list):
-                converted[child.tag] = [converted[child.tag]]
-            converted[child.tag].append(value)
-        else:
+        if child.tag not in converted:
             converted[child.tag] = value
+            continue
+        if not isinstance(converted[child.tag], list):
+            converted[child.tag] = [converted[child.tag]]
+        converted[child.tag].append(value)
     return converted
 
 
@@ -374,25 +474,40 @@ def parse_config_result(payload: bytes, redact: bool = True) -> dict:
     Kept separate from the socket work so it can be tested against a
     recorded response with no device present.
     """
-    text = payload.rstrip(b"\x00").rstrip()
-    if not text:
+    reply_bytes = payload.rstrip(b"\x00").rstrip()
+    if not reply_bytes:
         return {}
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(reply_bytes)
     except ElementTree.ParseError as exc:
         raise ConfigError(f"malformed result XML: {exc}") from exc
 
-    details = root.find("ResultDetails")
-    if details is None:
+    result_details_element = root.find("ResultDetails")
+    if result_details_element is None:
         raise ConfigError("result carried no <ResultDetails>")
 
     # Redact BEFORE converting, so a secret never exists in our
     # structures. Both passes are needed: one for real child elements,
     # one for an inner document the device escaped into a text node.
     if redact:
-        _strip_secrets(details)
-        _redact_escaped_document(details)
-    return _element_to_dict(details)
+        _strip_secrets(result_details_element)
+        _redact_escaped_document(result_details_element)
+    return _element_to_dict(result_details_element)
+
+
+def _build_read_request_payload(command_id: int, esa_id: str,
+                                section_tag: str) -> bytes:
+    """
+    The NUL-terminated eCmdGetConfig request for one section.
+
+    Shared by get_config and get_config_element so the two reads ask
+    the device the same question in the same bytes: <CmdID>, <ESAID>,
+    then <Params> naming the section by its own tag, as captured.
+    """
+    return (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params><{section_tag}>{section_tag}</{section_tag}>"
+        f"</Params></TMCmd>").encode() + b"\x00"
 
 
 def get_config(host: str, esa_id: str, section: str = "network",
@@ -408,6 +523,9 @@ def get_config(host: str, esa_id: str, section: str = "network",
     `redact` defaults to True and should stay so for every ordinary
     read. Only set_config sets it False, for a write baseline it keeps
     strictly local; see parse_config_result.
+
+    `timeout` is in seconds: the connect timeout, the per-recv socket
+    timeout, and the budget for each reply frame in turn.
     """
     if section not in SECTIONS:
         raise ConfigError(
@@ -420,11 +538,8 @@ def get_config(host: str, esa_id: str, section: str = "network",
     if command_id is None:
         raise ConfigError(f"{command_name} has no confirmed command id")
 
-    section_tag = SECTIONS[section]
-    request_payload = (
-        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params><{section_tag}>{section_tag}</{section_tag}>"
-        f"</Params></TMCmd>").encode() + b"\x00"
+    request_payload = _build_read_request_payload(command_id, esa_id,
+                                                  SECTIONS[section])
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -494,13 +609,16 @@ def _parse_result_code(payload: bytes) -> int | None:
     the first, so it returns None (which the caller treats as "not
     accepted") rather than risk reading the wrong one.
     """
-    matches = re.findall(r"<Result>\s*(-?\d+)\s*</Result>",
-                         payload.decode("utf-8", "replace"))
-    if len(matches) != 1:
+    result_code_texts = re.findall(r"<Result>\s*(-?\d+)\s*</Result>",
+                                   payload.decode("utf-8", "replace"))
+    if len(result_code_texts) != 1:
         return None
     try:
-        return int(matches[0])
+        return int(result_code_texts[0])
     except ValueError:
+        # Reachable: int() refuses a digit string longer than 4300
+        # digits (Python 3.11+), and that reply must not escape past THE
+        # LINE as a bare ValueError. Do not remove this as dead code.
         return None
 
 
@@ -550,6 +668,9 @@ def set_config(host: str, esa_id: str, section: str, build_section_document,
     read-back available: without it, a write that applied but was never
     acknowledged can only be reported as ConfigWriteOutcomeUnknownError.
     See _send_section_document.
+
+    `timeout` is in seconds and applies to the read and the write
+    alike, as it does for get_config.
 
     Returns a small dict: what was sent, the device's result code, and
     whether the device acknowledged it (see _send_section_document's
@@ -606,7 +727,7 @@ def set_config(host: str, esa_id: str, section: str, build_section_document,
 
 def _send_section_document(host: str, esa_id: str, section: str,
                            section_document: str,
-                           command_id: int, port: float, timeout: float,
+                           command_id: int, port: int, timeout: float,
                            readback=None) -> dict:
     """
     The shared tail of every eCmdSetConfig write:
@@ -664,71 +785,21 @@ def _send_section_document(host: str, esa_id: str, section: str,
         function has already done the read-back the caller would
         otherwise do.
     """
-    # Confine the write to the section that was read. Without this, the
-    # "one sanctioned path" is only a convention: an empty
-    # <DRIShareConfig/> could wipe every share. Parse it and require its
-    # root to be the section's own element.
-    try:
-        root_element = ElementTree.fromstring(section_document)
-    except ElementTree.ParseError as exc:
-        raise ConfigWriteError(
-            f"the document to write is not valid XML: {exc}") from exc
-    expected_root_tag = SECTIONS[section]
-    if root_element.tag != expected_root_tag:
-        raise ConfigWriteError(
-            f"the document root is <{root_element.tag}> but section "
-            f"{section!r} writes <{expected_root_tag}>; refusing a document "
-            f"that does not match the section it was built from")
-
-    # Belt and braces for the redaction fix: a real write document must
-    # never carry the sentinel. If it does -- a device that literally
-    # stored "[redacted]", or a value sourced from a redacted read --
-    # refuse rather than write a mask over a real value.
-    if _REDACTION_SENTINEL in section_document:
-        raise ConfigWriteError(
-            "the document to write contains the redaction sentinel "
-            f"{_REDACTION_SENTINEL!r}; refusing -- a masked value must never "
-            "be written back to the device")
-
-    # The device escapes the inner document into <Params>. quote=False
-    # so only &lt; &gt; &amp; are produced -- the only escaping the
-    # capture confirmed; emitting &#x27;/&quot; for an apostrophe in a
-    # device or share name is not something the wire format was ever
-    # observed to accept.
-    escaped_document = html.escape(
-        f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>",
-        quote=False)
-    request_payload = (
-        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params>{escaped_document}</Params></TMCmd>").encode() + b"\x00"
+    root_tag = _confined_root_tag(section, section_document)
+    _refuse_redaction_sentinel(section_document)
+    request_payload = _build_write_request_payload(command_id, esa_id,
+                                                   section_document)
 
     # Everything from here to the sendall below is the "nothing
     # happened" half of the write. A refused connection, a rejected
     # login, a login reply we cannot read: the command frame has not
     # left this process, so the device cannot have acted on it, and a
     # plain failure is the honest report.
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout)
-    except OSError as exc:
-        raise ConfigWriteError(
-            f"could not reach the command port: {exc}") from exc
-    sock.settimeout(timeout)
+    sock = _connect_for_write(host, port, timeout)
     # The transport error that ate the result frame, if one does.
     acknowledgement_error = None
     try:
-        # Typed as a write failure rather than left as a bare transport
-        # error. The layers above read an untyped ConfigError as "the
-        # write may have applied", which would be a lie about a login
-        # that never got as far as sending the command frame.
-        try:
-            sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-            frame_type, _ = _read_frame(
-                sock, deadline=time.monotonic() + timeout)
-        except (OSError, ConfigError) as exc:
-            raise ConfigWriteError(
-                f"could not log in to write: {exc}") from exc
-        if frame_type != TYPE_LOGIN_OK:
-            raise ConfigWriteError(f"login refused (type 0x{frame_type:02x})")
+        _log_in_for_write(sock, esa_id, timeout)
 
         # A partial sendall raises too, and that also counts as not
         # sent: a truncated DRINETTM frame is a length the device is
@@ -757,45 +828,155 @@ def _send_section_document(host: str, esa_id: str, section: str,
             # an answer of "no" -- no answer at all.
             acknowledgement_error = exc
 
+        if acknowledgement_error is None and frame_type != TYPE_RESULT:
+            # The device answered, but not with a result frame. Noise,
+            # not a verdict. A reply we cannot read as a result is no
+            # more an answer of "no" than silence is, and the command
+            # frame is already on the wire either way -- so the
+            # read-back settles it, exactly as it does when nothing
+            # comes back.
+            acknowledgement_error = ConfigError(
+                f"unexpected reply type 0x{frame_type:02x}")
         if acknowledgement_error is None:
-            # The device answered. This is the path that already worked,
-            # and it is deliberately unchanged: a real result frame
-            # still decides the outcome on its own, with no read-back
-            # involved.
-            if frame_type != TYPE_RESULT:
-                # Noise, not a verdict. A reply we cannot read as a
-                # result is no more an answer of "no" than silence is,
-                # and the command frame is already on the wire either
-                # way -- so the read-back settles it, exactly as it does
-                # when nothing comes back.
-                acknowledgement_error = ConfigError(
-                    f"unexpected reply type 0x{frame_type:02x}")
-            else:
-                result_code = _parse_result_code(body or b"")
-                if result_code != RESULT_ACCEPTED:
-                    raise ConfigWriteError(
-                        f"the device did not accept the write "
-                        f"(Result {result_code!r}, "
-                        f"expected {RESULT_ACCEPTED}). "
-                        f"Nothing is confirmed changed.")
-                # NOT the document itself: for a secret-bearing section
-                # (rename carries password fields) that would hand the
-                # un-redacted baseline -- which this function promises
-                # to keep strictly local -- straight to the caller. A
-                # size and root are enough to log or display.
-                return {"section": section, "sent_root": root_element.tag,
-                        "sent_bytes": len(section_document),
-                        "result_code": result_code,
-                        "acknowledged": True}
+            # A real result frame still decides the outcome on its own,
+            # with no read-back involved.
+            return _settle_answered_write(section, root_tag,
+                                          section_document, body)
     finally:
         sock.close()
 
     # Reached only when the frame went out and the acknowledgement did
     # not come back. The socket is closed first so the arbitrating read
     # starts clean.
-    return _arbitrate_unacknowledged(section, root_element.tag,
+    return _arbitrate_unacknowledged(section, root_tag,
                                      len(section_document),
                                      readback, acknowledgement_error)
+
+
+def _confined_root_tag(section: str, section_document: str) -> str:
+    """
+    The root tag of the document to write, once it is known to be the
+    section's own element; ConfigWriteError otherwise.
+
+    Confine the write to the section that was read. Without this, the
+    "one sanctioned path" is only a convention: an empty
+    <DRIShareConfig/> could wipe every share. Parse it and require its
+    root to be the section's own element.
+    """
+    try:
+        root_element = ElementTree.fromstring(section_document)
+    except ElementTree.ParseError as exc:
+        raise ConfigWriteError(
+            f"the document to write is not valid XML: {exc}") from exc
+    expected_root_tag = SECTIONS[section]
+    if root_element.tag != expected_root_tag:
+        raise ConfigWriteError(
+            f"the document root is <{root_element.tag}> but section "
+            f"{section!r} writes <{expected_root_tag}>; refusing a document "
+            f"that does not match the section it was built from")
+    return root_element.tag
+
+
+def _refuse_redaction_sentinel(section_document: str) -> None:
+    """
+    Refuse a document to write that carries the redaction sentinel.
+
+    Belt and braces for the redaction fix: a real write document must
+    never carry the sentinel. If it does -- a device that literally
+    stored "[redacted]", or a value sourced from a redacted read --
+    refuse rather than write a mask over a real value.
+    """
+    if _REDACTION_SENTINEL in section_document:
+        raise ConfigWriteError(
+            "the document to write contains the redaction sentinel "
+            f"{_REDACTION_SENTINEL!r}; refusing -- a masked value must never "
+            "be written back to the device")
+
+
+def _build_write_request_payload(command_id: int, esa_id: str,
+                                 section_document: str) -> bytes:
+    """
+    The NUL-terminated eCmdSetConfig request carrying one section.
+
+    The device escapes the inner document into <Params>. quote=False so
+    only &lt; &gt; &amp; are produced -- the only escaping the capture
+    confirmed; emitting &#x27;/&quot; for an apostrophe in a device or
+    share name is not something the wire format was ever observed to
+    accept.
+    """
+    escaped_document = html.escape(
+        f"<{_WRITE_ROOT_TAG}>{section_document}</{_WRITE_ROOT_TAG}>",
+        quote=False)
+    return (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params>{escaped_document}</Params></TMCmd>").encode() + b"\x00"
+
+
+def _connect_for_write(host: str, port: int,
+                       timeout: float) -> socket.socket:
+    """
+    Open the command port for a write, as a ConfigWriteError on failure.
+
+    A refused connection is before the command frame exists, so the
+    device cannot have acted on anything and a plain failure is the
+    honest report.
+    """
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError as exc:
+        raise ConfigWriteError(
+            f"could not reach the command port: {exc}") from exc
+    sock.settimeout(timeout)
+    return sock
+
+
+def _log_in_for_write(sock: socket.socket, esa_id: str,
+                      timeout: float) -> None:
+    """
+    Log in on a write's connection, or raise ConfigWriteError.
+
+    Typed as a write failure rather than left as a bare transport
+    error. The layers above read an untyped ConfigError as "the write
+    may have applied", which would be a lie about a login that never
+    got as far as sending the command frame.
+    """
+    try:
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(
+            sock, deadline=time.monotonic() + timeout)
+    except (OSError, ConfigError) as exc:
+        raise ConfigWriteError(
+            f"could not log in to write: {exc}") from exc
+    if frame_type != TYPE_LOGIN_OK:
+        raise ConfigWriteError(f"login refused (type 0x{frame_type:02x})")
+
+
+def _settle_answered_write(section: str, root_tag: str,
+                           section_document: str, body: bytes) -> dict:
+    """
+    The summary of a write the device answered with a result frame, or
+    ConfigWriteError when its <Result> is not RESULT_ACCEPTED.
+
+    This is the path that already worked, and it is unchanged by the
+    read-back arbitration: a real result frame still decides the
+    outcome on its own, with no read-back involved.
+    """
+    result_code = _parse_result_code(body or b"")
+    if result_code != RESULT_ACCEPTED:
+        raise ConfigWriteError(
+            f"the device did not accept the write "
+            f"(Result {result_code!r}, "
+            f"expected {RESULT_ACCEPTED}). "
+            f"Nothing is confirmed changed.")
+    # NOT the document itself: for a secret-bearing section (rename
+    # carries password fields) that would hand the un-redacted baseline
+    # -- which _send_section_document promises to keep strictly local --
+    # straight to the caller. A size and root are enough to log or
+    # display.
+    return {"section": section, "sent_root": root_tag,
+            "sent_bytes": len(section_document),
+            "result_code": result_code,
+            "acknowledged": True}
 
 
 def decided_by_readback(result: dict) -> bool:
@@ -813,8 +994,21 @@ def decided_by_readback(result: dict) -> bool:
     return result.get("acknowledged") is False
 
 
+def _describe_error(error: BaseException) -> str:
+    """
+    "TypeName: message" for an error quoted inside an outcome message.
+
+    The type is kept beside the text because a bare message such as
+    "timed out" does not say whether the socket or the frame budget
+    gave out, and the arbiter's messages are what a person reads when
+    deciding whether a write applied.
+    """
+    return f"{type(error).__name__}: {error}"
+
+
 def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
-                              readback, cause: Exception) -> dict:
+                              readback,
+                              acknowledgement_error: Exception) -> dict:
     """
     Decide the outcome of a write the device never acknowledged, by
     asking the device what it now holds. Never re-sends anything.
@@ -823,19 +1017,23 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
     reports: a caller told "the write failed" will retry, and retrying a
     write that already applied is the harm this whole path exists to
     prevent. So no message below says or implies that nothing happened.
+
+    `acknowledgement_error` is the transport error (or unreadable
+    reply) that took the place of the device's answer; every message
+    quotes it, so the cause stays findable.
     """
     if readback is None:
         raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device "
             "closed the connection without answering "
-            f"({type(cause).__name__}: {cause}), and no read-back was "
-            "available to settle it. The write MAY have applied -- a device "
-            "that hangs up after a write has been measured to apply it "
-            "anyway. Re-read the configuration before deciding anything, and "
-            "do NOT simply retry the write.") from cause
+            f"({_describe_error(acknowledgement_error)}), and no read-back "
+            "was available to settle it. The write MAY have applied -- a "
+            "device that hangs up after a write has been measured to apply "
+            "it anyway. Re-read the configuration before deciding anything, "
+            "and do NOT simply retry the write.") from acknowledgement_error
 
     try:
-        applied = readback()
+        change_is_present = readback()
     except Exception as exc:
         # Deliberately any exception, not just transport ones. Past THE
         # LINE the only honest verdicts are "applied", "did not apply"
@@ -846,28 +1044,29 @@ def _arbitrate_unacknowledged(section: str, sent_root: str, sent_bytes: int,
         raise ConfigWriteOutcomeUnknownError(
             f"the write to section {section!r} WAS sent, then the device "
             "closed the connection without answering "
-            f"({type(cause).__name__}: {cause}), and the read-back that would "
-            f"settle it could not be completed either ({type(exc).__name__}: "
-            f"{exc}). The write MAY have applied. Re-read the configuration "
-            "before deciding anything, and do NOT simply "
+            f"({_describe_error(acknowledgement_error)}), and the read-back "
+            "that would settle it could not be completed either "
+            f"({_describe_error(exc)}). The write MAY have applied. Re-read "
+            "the configuration before deciding anything, and do NOT simply "
             "retry the write.") from exc
 
-    if not applied:
+    if not change_is_present:
         # The device is the arbiter and it says the change is not there.
         # This is the one branch where a failed write is the truth.
         raise ConfigWriteError(
             f"the write to section {section!r} was sent, the device never "
-            f"answered ({type(cause).__name__}: {cause}), and the read-back "
-            f"shows the change is NOT present. The write did not apply.")
+            f"answered ({_describe_error(acknowledgement_error)}), and the "
+            "read-back shows the change is NOT present. The write did not "
+            "apply.")
 
     return {"section": section, "sent_root": sent_root,
             "sent_bytes": sent_bytes, "result_code": None,
             "acknowledged": False, "verified": True,
-            "note": (f"the device never acknowledged this write -- it closed "
-                     f"the connection first ({type(cause).__name__}: {cause}) "
-                     f"-- but the read-back shows the change is present. "
-                     f"Believed applied on the device's own state, not on its "
-                     f"word.")}
+            "note": ("the device never acknowledged this write -- it closed "
+                     "the connection first "
+                     f"({_describe_error(acknowledgement_error)}) -- but the "
+                     "read-back shows the change is present. Believed "
+                     "applied on the device's own state, not on its word.")}
 
 
 def get_config_element(host: str, esa_id: str, section: str,
@@ -894,10 +1093,8 @@ def get_config_element(host: str, esa_id: str, section: str,
     if command_id is None:
         raise ConfigError(f"{command_name} has no confirmed command id")
     section_tag = SECTIONS[section]
-    request_payload = (
-        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-        f"<Params><{section_tag}>{section_tag}</{section_tag}>"
-        f"</Params></TMCmd>").encode() + b"\x00"
+    request_payload = _build_read_request_payload(command_id, esa_id,
+                                                  section_tag)
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -916,24 +1113,34 @@ def get_config_element(host: str, esa_id: str, section: str,
     finally:
         sock.close()
 
+    return _find_section_element(body, section, section_tag)
+
+
+def _find_section_element(body: bytes, section: str,
+                          section_tag: str) -> ElementTree.Element:
+    """
+    The section's own element in an eCmdGetConfig reply, wherever the
+    device put it; ConfigError when it is not there.
+
+    The section element may be a direct child of ResultDetails, nested
+    under a <DRINASConfig> wrapper (which is what the real 5N sends --
+    measured 2026-08-10), or an escaped inner document in the text.
+    `.iter(section_tag)` finds it at any depth in the first two cases;
+    the escaped case is handled below. An earlier version used
+    details.find(tag), which only searches direct children and so
+    missed the wrapper the device actually uses.
+    """
     root = ElementTree.fromstring(body.rstrip(b"\x00").rstrip())
-    details = root.find("ResultDetails")
-    if details is None:
+    result_details_element = root.find("ResultDetails")
+    if result_details_element is None:
         raise ConfigError("result carried no <ResultDetails>")
-    # The section element may be a direct child of ResultDetails, nested
-    # under a <DRINASConfig> wrapper (which is what the real 5N sends --
-    # measured 2026-08-10), or an escaped inner document in the text.
-    # `.iter(section_tag)` finds it at any depth in the first two cases;
-    # the escaped case is handled below.
-    # An earlier version used details.find(tag), which only
-    # searches direct children and so missed the wrapper the device
-    # actually uses.
-    section_element = next(iter(details.iter(section_tag)), None)
+    section_element = next(iter(result_details_element.iter(section_tag)),
+                           None)
     if section_element is not None:
         return section_element
-    text = (details.text or "").strip()
-    if text and "<" in html.unescape(text):
-        inner_root = ElementTree.fromstring(html.unescape(text))
+    escaped_text = (result_details_element.text or "").strip()
+    if escaped_text and "<" in html.unescape(escaped_text):
+        inner_root = ElementTree.fromstring(html.unescape(escaped_text))
         escaped_section_element = (
             inner_root if inner_root.tag == section_tag
             else next(iter(inner_root.iter(section_tag)), None))
@@ -943,38 +1150,40 @@ def get_config_element(host: str, esa_id: str, section: str,
         f"reply for {section!r} contained no <{section_tag}> element")
 
 
-def set_config_raw(host: str, esa_id: str, section: str, edit,
+def set_config_raw(host: str, esa_id: str, section: str, edit_section,
                    port: int = DEFAULT_PORT, timeout: float = 10.0,
                    readback=None) -> dict:
     """
-    Surgical read-modify-send: hand `edit` the section's live XML
-    Element to change in place, then send the whole thing back
+    Surgical read-modify-send: hand `edit_section` the section's live
+    XML Element to change in place, then send the whole thing back
     byte-for-byte except what it touched.
 
     This is the path for whole-section writes where faithful
     preservation matters more than convenience -- share permissions,
-    rename. `edit(element)` receives the parsed <DRIShareConfig> (or
-    <Network>...) Element, mutates it in place (typically one .text
-    change on one node), and returns nothing. The element is
-    un-redacted, so real credential values round-trip untouched;
-    _send_section_document's sentinel check still guards against a mask
-    slipping in.
+    rename. `edit_section(element)` receives the parsed
+    <DRIShareConfig> (or <Network>...) Element, mutates it in place
+    (typically one .text change on one node), and returns nothing. The
+    element is un-redacted, so real credential values round-trip
+    untouched; _send_section_document's sentinel check still guards
+    against a mask slipping in.
 
-    `edit` may instead RETURN the complete inner document as a string,
-    built from the element it was handed. That exists for one reason:
-    some captured byte shapes are outside what ElementTree's serializer
-    can express -- the create-share node (captured 2026-08-25) carries
-    an empty open-close <ShareMaxTMSizeGB></ShareMaxTMSizeGB> pair,
-    which ElementTree can only emit as <ShareMaxTMSizeGB />. Mirroring a
-    capture byte-for-byte therefore needs string-level control of the
-    one piece being added. A returned document passes through every
-    check in _send_section_document unchanged -- confinement to the
-    section root, the sentinel refusal, the accepted-check -- so it is
-    exactly as guarded as the mutate-in-place path.
+    `edit_section` may instead RETURN the complete inner document as a
+    string, built from the element it was handed. That exists for one
+    reason: some captured byte shapes are outside what ElementTree's
+    serializer can express -- the create-share node (captured
+    2026-08-25) carries an empty open-close
+    <ShareMaxTMSizeGB></ShareMaxTMSizeGB> pair, which ElementTree can
+    only emit as <ShareMaxTMSizeGB />. Mirroring a capture byte-for-byte
+    therefore needs string-level control of the one piece being added.
+    A returned document passes through every check in
+    _send_section_document unchanged -- confinement to the section
+    root, the sentinel refusal, the accepted-check -- so it is exactly
+    as guarded as the mutate-in-place path.
 
     Same gate, confinement, accepted-check, read-back arbitration
     (`readback`) and KNOWN LIMITATION (non-atomic RMW) as set_config --
-    see there. Returns the same summary.
+    see there. Returns the same summary. `timeout` is in seconds, as
+    for get_config.
     """
     command_name = "eCmdSetConfig"
     if command_name not in _commands.VETTED_WRITES:
@@ -986,16 +1195,16 @@ def set_config_raw(host: str, esa_id: str, section: str, edit,
 
     element = get_config_element(
         host, esa_id, section, port=port, timeout=timeout)
-    replacement = edit(element)
-    if replacement is None:
+    returned_document = edit_section(element)
+    if returned_document is None:
         section_document = ElementTree.tostring(element, encoding="unicode")
-    elif isinstance(replacement, str) and replacement.strip():
-        section_document = replacement
+    elif isinstance(returned_document, str) and returned_document.strip():
+        section_document = returned_document
     else:
         raise ConfigWriteError(
             "edit must mutate the element in place (returning None) or return "
             "the complete inner document as a non-empty string; got "
-            f"{type(replacement).__name__}")
+            f"{type(returned_document).__name__}")
     return _send_section_document(host, esa_id, section, section_document,
                                   command_id, port, timeout,
                                   readback=readback)

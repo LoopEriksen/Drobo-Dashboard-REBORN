@@ -52,6 +52,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `extract_from_capture`; `fw_params.analyse` -> `analyse_command`.
     The command lines, their flags and their `--json` output are
     unchanged, as are the `port=` and `window=` parameters. (2026-10-29)
+  - `sdk/drobo_nasd/config_cmd.py`: the write path reads as its steps,
+    each a named helper; for testers who call it by keyword,
+    `set_config_raw(edit)` -> `set_config_raw(edit_section)`
+    (positional calls are unaffected). Every except clause, its order,
+    the read-back that decides an unacknowledged write, and every byte
+    sent to the Drobo are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
