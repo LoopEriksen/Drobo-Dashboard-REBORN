@@ -410,7 +410,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     _update_cache: tuple[float, dict] | None = None
     _update_lock = threading.Lock()
 
-    # injected by serve()
+    # injected by build_http_server()
     monitor = None
     photo_store = None
     token = ""
@@ -838,7 +838,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 limit = int((params.get("limit") or ["720"])[0])
             except ValueError:
                 limit = 720
-            return self._send_json({"points": self.monitor.history_dicts(
+            return self._send_json({"points": self.monitor.history_points(
                 max(1, min(limit, 20000)))})
         if path == "/api/photos/stats":
             return self._send_json(self.photo_store.stats())
@@ -2088,7 +2088,16 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
-def serve(config: dict, monitor, photo_store):
+def build_http_server(config: dict, monitor, photo_store):
+    """Build the agent's HTTP server without starting it.
+
+    The caller decides how it runs: run_agent.py serves it on the main
+    thread until Ctrl+C, while the test suites serve it on a background
+    thread and shut it down when their checks are done. The monitor,
+    photo store and token go onto the handler class because
+    http.server makes a fresh handler for every request, so a second
+    server built in the same process replaces the first one's.
+    """
     _ApiRequestHandler.monitor = monitor
     _ApiRequestHandler.photo_store = photo_store
     _ApiRequestHandler.token = config["agent"]["token"]

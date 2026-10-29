@@ -71,7 +71,7 @@ monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
 photo_store = PhotoStore(agent_config["photos"])
 photo_store.load()
 monitor.start()
-http_server = api.serve(agent_config, monitor, photo_store)
+http_server = api.build_http_server(agent_config, monitor, photo_store)
 threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.2)
 
@@ -1177,7 +1177,7 @@ netcheck.local_interfaces = lambda timeout=3.0: list(
     _INTERFACES_ON_ANOTHER_SUBNET)
 try:
     monitor.driver = _StubDriver()
-    monitor._hint_cache = None
+    monitor._network_hint_cache = None
 
     hint = monitor._network_hint()
     check("a Drobo on another subnet produces a hint", hint is not None)
@@ -1243,7 +1243,7 @@ try:
         monitor._network_hint()
     check("repeat calls inside the TTL are served from cache",
           monitor.driver.calls - calls_before == 5
-          and monitor._hint_cache is not None)
+          and monitor._network_hint_cache is not None)
     interface_probes = []
     netcheck.local_interfaces = lambda timeout=3.0: (
         interface_probes.append(1),
@@ -1257,7 +1257,7 @@ try:
     # note about network layout would be talking over it.
     netcheck.local_interfaces = (
         lambda timeout=3.0: [netcheck.Interface("10.0.0.40", 24)])
-    monitor._hint_cache = None
+    monitor._network_hint_cache = None
     check("a Drobo on OUR network produces no hint",
           monitor._network_hint() is None)
     with monitor._lock:
@@ -1273,7 +1273,7 @@ try:
     netcheck.local_interfaces = lambda timeout=3.0: list(
         _INTERFACES_ON_ANOTHER_SUBNET)
     monitor.driver = _StubDriver(host="")
-    monitor._hint_cache = None
+    monitor._network_hint_cache = None
     check("no known address for the Drobo -> no hint, not a guess",
           monitor._network_hint() is None)
 
@@ -1310,7 +1310,7 @@ try:
 finally:
     netcheck.local_interfaces = _original_local_interfaces
     monitor.driver = _original_driver
-    monitor._hint_cache = None
+    monitor._network_hint_cache = None
     monitor.network_hint = None
 
 print("\n== the live stream and /api/status describe the same document ==")
@@ -1716,13 +1716,13 @@ http_server.server_close()
 # the boot-time Task Scheduler job that docs/running-the-agent.md
 # recommends ran no monitoring at all on such a PC.
 #
-# It runs after the simulated agent is shut down because api.serve keeps
-# the monitor on the handler class: a second agent in this process
-# replaces the first one's. No Drobo is contacted. discovery.resolve is
-# replaced before the driver can call it, and each SDK call that could
-# open a socket to a device is replaced by one that records the attempt
-# and fails, so a stray call is counted by a check below rather than
-# going out onto the network.
+# It runs after the simulated agent is shut down because
+# api.build_http_server keeps the monitor on the handler class: a second
+# agent in this process replaces the first one's. No Drobo is contacted.
+# discovery.resolve is replaced before the driver can call it, and each
+# SDK call that could open a socket to a device is replaced by one that
+# records the attempt and fails, so a stray call is counted by a check
+# below rather than going out onto the network.
 print("\n== starting with no Drobo to be found ==")
 
 _NO_DROBO_AGENT_PORT = 7432
@@ -1823,8 +1823,9 @@ try:
           _no_drobo_monitor._poll_thread is not None
           and _no_drobo_monitor._poll_thread.is_alive())
 
-    _no_drobo_server = api.serve(_no_drobo_config, _no_drobo_monitor,
-                                 photo_store)
+    _no_drobo_server = api.build_http_server(_no_drobo_config,
+                                             _no_drobo_monitor,
+                                             photo_store)
     threading.Thread(target=_no_drobo_server.serve_forever,
                      daemon=True).start()
     _NO_DROBO_AUTH_HEADERS = {

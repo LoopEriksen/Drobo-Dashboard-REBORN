@@ -87,7 +87,7 @@ monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
 photo_store = PhotoStore(agent_config["photos"])
 photo_store.load()
 monitor.start()
-http_server = api.serve(agent_config, monitor, photo_store)
+http_server = api.build_http_server(agent_config, monitor, photo_store)
 threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.0)
 

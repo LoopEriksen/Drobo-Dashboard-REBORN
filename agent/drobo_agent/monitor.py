@@ -42,12 +42,21 @@ _PACK_STATUS_BASELINE = {
 }
 
 
-def _format_size(size: float) -> str:
+def _format_bytes(size_bytes: float) -> str:
+    """Render a byte count the way the capacity alert text shows it.
+
+    Decimal units (1 KB = 1000 bytes), because that is how drive and
+    Drobo capacities are sold and labelled, so the free space an alert
+    quotes matches the numbers on the box.
+    """
+    scaled_size = size_bytes
     for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
-        if abs(size) < 1000 or unit == "PB":
-            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
-        size /= 1000.0
-    return f"{size:.1f} PB"
+        if abs(scaled_size) < 1000 or unit == "PB":
+            if unit == "B":
+                return f"{int(scaled_size)} B"
+            return f"{scaled_size:.1f} {unit}"
+        scaled_size /= 1000.0
+    return f"{scaled_size:.1f} PB"
 
 
 class Monitor:
@@ -80,7 +89,7 @@ class Monitor:
         # isn't on its network". None whenever the Drobo is reachable,
         # or whenever we can't say. See _network_hint.
         self.network_hint: dict | None = None
-        self._hint_cache: tuple[str, float, dict | None] | None = None
+        self._network_hint_cache: tuple[str, float, dict | None] | None = None
 
     # -- lifecycle -----------------------------------------------------
 
@@ -249,7 +258,7 @@ class Monitor:
             return None
 
         now = time.time()
-        cached = self._hint_cache
+        cached = self._network_hint_cache
         if (cached and cached[0] == target
                 and now - cached[1] < self.NETWORK_HINT_TTL_SECONDS):
             return cached[2]
@@ -265,7 +274,7 @@ class Monitor:
 
         hint = (diagnosis.to_dict()
                 if diagnosis and not diagnosis.same_network else None)
-        self._hint_cache = (target, now, hint)
+        self._network_hint_cache = (target, now, hint)
         return hint
 
     # -- alert rules ---------------------------------------------------
@@ -440,7 +449,7 @@ class Monitor:
             pack_health = snapshot.pack_health
 
             used_fraction = snapshot.capacity.used_fraction
-            free_space_text = _format_size(snapshot.capacity.free_bytes)
+            free_space_text = _format_bytes(snapshot.capacity.free_bytes)
             # Prefer the device's OWN capacity alert levels
             # (mRedThreshold / mYellowThreshold) when the greeting
             # reports them -- we'd then be alerting on exactly the same
@@ -616,7 +625,7 @@ class Monitor:
         with self._lock:
             return [a.to_dict() for a in self.alerts.values()]
 
-    def history_dicts(self, limit: int = 720) -> list[dict]:
+    def history_points(self, limit: int = 720) -> list[dict]:
         """Trimmed history for graphing --
         just the numbers, not whole snapshots.
         """

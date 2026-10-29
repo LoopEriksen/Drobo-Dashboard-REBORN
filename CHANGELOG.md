@@ -38,6 +38,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - Private helpers that scripts of your own may reach into:
     `eventlog._command_xml` -> `_build_request_payload`. A rename only:
     every byte sent to the Drobo is unchanged. (2026-10-29)
+  - Agent names that say what they return or hold, for testers who run
+    the agent from scripts of their own: `api.serve` ->
+    `api.build_http_server` (it builds the server and leaves starting it
+    to the caller, as before); `monitor.Monitor.history_dicts` ->
+    `history_points` (its `limit` parameter, the `/api/history` route,
+    its `?limit=` query and the `points` key it answers with stay);
+    `photos.PhotoStore.ingest(data)` -> `ingest(file_bytes)` (positional
+    calls are unaffected). A rename only: every route, JSON key and
+    message is as it was. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

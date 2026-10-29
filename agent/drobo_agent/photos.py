@@ -464,18 +464,18 @@ class PhotoStore:
     # -- single-shot upload --------------------------------------------
 
     def ingest(
-        self, filename: str, data: bytes, taken_at: float | None = None
+        self, filename: str, file_bytes: bytes, taken_at: float | None = None
     ) -> dict:
         if not self.enabled:
             raise PhotoStoreError("photo backup is disabled")
         if not self._loaded:
             raise PhotoStoreError("photo store not ready")
-        if len(data) > self.max_single_upload_bytes:
+        if len(file_bytes) > self.max_single_upload_bytes:
             raise PhotoStoreError(
-                f"file is {len(data)} bytes, over the "
+                f"file is {len(file_bytes)} bytes, over the "
                 f"{self.max_single_upload_bytes // (1024 * 1024)} MB limit"
             )
-        if not data:
+        if not file_bytes:
             raise PhotoStoreError("empty file")
 
         name = safe_filename(filename)
@@ -484,7 +484,7 @@ class PhotoStore:
             raise PhotoStoreError(
                 f"file type {extension or '(none)'} is not accepted")
 
-        digest = hashlib.sha256(data).hexdigest()
+        digest = hashlib.sha256(file_bytes).hexdigest()
         taken_at = taken_at or time.time()
 
         with self._lock:
@@ -512,7 +512,7 @@ class PhotoStore:
             temporary_path = absolute + ".part"
             try:
                 with open(temporary_path, "wb") as part_file:
-                    part_file.write(data)
+                    part_file.write(file_bytes)
                     part_file.flush()
                     os.fsync(part_file.fileno())
                 os.replace(temporary_path, absolute)
@@ -537,5 +537,5 @@ class PhotoStore:
                 "status": "stored",
                 "sha256": digest,
                 "path": self._index[digest],
-                "bytes": len(data),
+                "bytes": len(file_bytes),
             }

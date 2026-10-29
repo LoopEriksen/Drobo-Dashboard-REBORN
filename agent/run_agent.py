@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     photo_store.load()
 
     monitor.start()
-    http_server = api.serve(loaded_config, monitor, photo_store)
+    http_server = api.build_http_server(loaded_config, monitor, photo_store)
 
     bind_address = loaded_config["agent"]["bind"]
     port = loaded_config["agent"]["port"]
