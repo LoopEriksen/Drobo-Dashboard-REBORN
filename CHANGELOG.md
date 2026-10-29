@@ -82,6 +82,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `describe_change` read as their steps. Private helpers and local
     names only; every check and message is as it was, and the module
     still sends nothing to the Drobo. (2026-10-29)
+  - `sdk/drobo_nasd/shares.py`: the account and share walks are
+    flat, and the access advice and link report are built by named
+    helpers. Every user-visible string, JSON key and key order is as
+    it was. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
