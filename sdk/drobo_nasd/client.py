@@ -47,18 +47,38 @@ from . import commands, envelope, framing
 
 
 class NasdError(Exception):
-    """Base class for nasd client errors."""
+    """Base class for nasd client errors.
+
+    One base so a caller can catch the client's own refusals (a
+    dangerous command, no connection) in one clause. It is not
+    everything send_command can raise: socket errors pass through as
+    OSError, an unknown command name raises KeyError (from envelope),
+    and once a request has been sent _read_response always raises
+    NotImplementedError.
+    """
 
 
 class DangerousCommandError(NasdError):
-    """Raised when asked to send a command in commands.DO_NOT_SEND."""
+    """Raised when asked to send a command in commands.DO_NOT_SEND.
+
+    Its own type, so a refusal by the safety guard can never be
+    mistaken for (or retried like) a connection problem.
+    """
 
 
 class NotConnectedError(NasdError):
-    """Raised when a state-machine method is called out of order."""
+    """Raised when a state-machine method is called out of order.
+
+    Separate from the safety refusal: this is a programming error in
+    the caller's sequence, not a command that must never be sent.
+    """
 
 
 class ConnectionState(enum.Enum):
+    """Where a NasdClient is in its one-way life: NEW -> CONNECTED ->
+    LOGGED_IN -> CLOSED. Each step checks it, so a call made out of
+    order fails before anything is sent."""
+
     NEW = "new"
     CONNECTED = "connected"
     LOGGED_IN = "logged_in"
@@ -67,6 +87,9 @@ class ConnectionState(enum.Enum):
 
 @dataclass
 class DiscoveredHost:
+    """The shape a discovery result is meant to take once discover()
+    is wired up; nothing in the project produces one yet."""
+
     host: str
     port: int = 5000
     name: str = ""
@@ -94,6 +117,9 @@ class NasdClient:
         header_factory: Optional[Callable[[int], bytes]] = None,
         timeout: float = 5.0,
     ):
+        """Record where to connect; nothing touches the network until
+        connect(). `timeout` is in seconds, for the connect and every
+        socket operation after it."""
         self.host = host
         self.port = port
         self.esa_id = esa_id
@@ -119,7 +145,8 @@ class NasdClient:
 
         eCmdAddManualDiscoveryIP / eCmdGetManualDiscoveryIPList in the
         command table confirm a manual-IP path also exists, so mDNS is
-        not the only option if Bonjour is unreliable.
+        not the only option if Bonjour is unreliable. `timeout` would
+        be in seconds.
         """
         raise NotImplementedError(
             "mDNS discovery lives in tools/drobo_probe.py; NasdClient "
@@ -129,6 +156,13 @@ class NasdClient:
     # -- step 2: connect -----------------------------------------------
 
     def connect(self) -> None:
+        """
+        Open the TCP connection.
+
+        Only from NEW: a client is one connection, used once. Refusing
+        every other state means a closed client is never silently
+        reopened, and a second connect cannot leak the first socket.
+        """
         if self.state != ConnectionState.NEW:
             raise NasdError(
                 f"connect() called from state {self.state}, "
@@ -209,10 +243,10 @@ class NasdClient:
                 "no socket -- call connect() and login() first"
             )
 
-        message = envelope.build_command(self.esa_id, command, params)
-        payload = message.encode("utf-8")
-        header = self._header_factory(len(payload))
-        self._sock.sendall(header + payload)
+        request_xml = envelope.build_command(self.esa_id, command, params)
+        request_payload = request_xml.encode("utf-8")
+        header = self._header_factory(len(request_payload))
+        self._sock.sendall(header + request_payload)
         return self._read_response()
 
     def _read_response(self) -> envelope.Envelope:
@@ -233,6 +267,9 @@ class NasdClient:
     # -- teardown ------------------------------------------------------
 
     def close(self) -> None:
+        """Close the socket, if any, and end in CLOSED. Safe to call
+        more than once: the socket is dropped even if closing it
+        raises, though the state is then left as it was."""
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -241,8 +278,12 @@ class NasdClient:
         self.state = ConnectionState.CLOSED
 
     def __enter__(self) -> "NasdClient":
+        """Connect on entry, so `with NasdClient(...)` needs no separate
+        connect(); __exit__ is what closes it."""
         self.connect()
         return self
 
     def __exit__(self, *exc_info) -> None:
+        """Close on exit; an exception from the body still
+        propagates."""
         self.close()

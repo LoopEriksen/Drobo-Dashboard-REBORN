@@ -70,6 +70,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     -> `decode_frame(buffered_bytes)` and `FrameReader.feed(data)` ->
     `feed(received_bytes)` (positional calls are unaffected).
     (2026-10-29)
+  - `sdk/drobo_nasd/client.py`: the speculative client says why its
+    request and state machine work the way they do, in docstrings and
+    local names only. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
