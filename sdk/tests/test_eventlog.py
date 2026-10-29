@@ -139,11 +139,11 @@ check("an empty parse normalizes to an empty list",
 
 print("\n== the request is the captured one, byte for byte ==")
 check("command 91 with the /uel.log path, CmdID/Params/ESAID order",
-      eventlog._command_xml("DRA123456789")
+      eventlog._build_request_payload("DRA123456789")
       == (b"<TMCmd><CmdID>91</CmdID>"
           b"<Params><Path>/uel.log</Path></Params>"
           b"<ESAID>DRA123456789</ESAID></TMCmd>\x00"),
-      eventlog._command_xml("DRA123456789"))
+      eventlog._build_request_payload("DRA123456789"))
 
 print("\n== safety ==")
 check(

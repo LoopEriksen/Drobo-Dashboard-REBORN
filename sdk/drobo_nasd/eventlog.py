@@ -82,10 +82,16 @@ class EventLogError(SysInfoError):
     -- or handed back a shape this code refuses to guess at."""
 
 
-def _command_xml(esa_id: str) -> bytes:
+def _build_request_payload(esa_id: str) -> bytes:
     """The exact request the Dashboard was captured sending: command 91
     with the /uel.log path, in the CmdID / Params / ESAID order of the
-    capture."""
+    capture.
+
+    Built to match the capture byte for byte, because the variant of 91
+    with empty params is known to make the device tear the connection
+    down; copying the Dashboard's /uel.log request is the only form
+    known to be answered.
+    """
     command_id = _commands.COMMANDS.get(COMMAND_NAME)
     if command_id is None:
         raise EventLogError(f"{COMMAND_NAME} has no confirmed command id")
@@ -216,7 +222,7 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
     """
     if _commands.is_dangerous(COMMAND_NAME):
         raise EventLogError(f"{COMMAND_NAME} is on the do-not-send list")
-    request_payload = _command_xml(esa_id)
+    request_payload = _build_request_payload(esa_id)
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)

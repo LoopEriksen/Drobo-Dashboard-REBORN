@@ -34,6 +34,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `set_share_access(share_name, username, access_code)`. A rename only:
   every check, its order, every error message and every byte sent to the
   Drobo are as they were. (2026-10-29)
+- **Readability pass: names with units, guard clauses, shallow nesting, short functions; no behaviour changes**
+  - Private helpers that scripts of your own may reach into:
+    `eventlog._command_xml` -> `_build_request_payload`. A rename only:
+    every byte sent to the Drobo is unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
