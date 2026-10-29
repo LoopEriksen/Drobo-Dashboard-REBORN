@@ -63,12 +63,24 @@ _FLOAT_RE = re.compile(r"-?\d+\.\d+")
 
 
 class EnvelopeError(ValueError):
-    """Raised for malformed or unrecognisable DRINETTM messages."""
+    """Raised for malformed or unrecognisable DRINETTM messages.
+
+    A ValueError subclass because a bad message is bad input, so a
+    caller that already handles ValueError keeps working, while one
+    that cares can catch this narrower type.
+    """
 
 
 @dataclass
 class Envelope:
-    """The parsed contents of a DRINETTM message."""
+    """The parsed contents of a DRINETTM message.
+
+    `command_raw` is kept beside command_id and command_name because
+    whether <Command> carries the numeric id or the eCmd* name is still
+    a guess (see the module docstring). Keeping exactly what the wire
+    said means a capture can settle the question without anything here
+    having thrown the evidence away.
+    """
 
     esa_id: str
     # None if the wire value didn't resolve to a known id
@@ -89,6 +101,16 @@ class Envelope:
 
 
 def _to_wire_text(value: Any) -> str:
+    """
+    The text a value is written as on the wire.
+
+    A bool becomes "1" or "0" rather than str()'s "True"/"False": the
+    protocol carries every value as text, and digits are what a reader
+    on the other end can turn back into a number (_coerce_wire_value
+    does exactly that here); "True" is not. The check is needed at all
+    because str(True) gives "True", and everything else is written as
+    its str().
+    """
     if isinstance(value, bool):
         return "1" if value else "0"
     return str(value)
@@ -113,47 +135,58 @@ def _coerce_wire_value(text: Optional[str]) -> Any:
     return text
 
 
-def _build_container(parent: ElementTree.Element, data: dict) -> None:
+def _build_container(parent: ElementTree.Element,
+                     values_by_tag: dict) -> None:
     """Recursively populate `parent` from a dict. Nested dicts become
     nested elements; lists/tuples repeat the same tag once per item
     (this is how UXMLNode-style trees typically represent repeated
     records)."""
-    for key, value in data.items():
-        if isinstance(value, dict):
-            child = ElementTree.SubElement(parent, key)
-            _build_container(child, value)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                child = ElementTree.SubElement(parent, key)
-                if isinstance(item, dict):
-                    _build_container(child, item)
-                else:
-                    child.text = _to_wire_text(item)
-        else:
-            child = ElementTree.SubElement(parent, key)
-            child.text = _to_wire_text(value)
+    for tag, value in values_by_tag.items():
+        items = value if isinstance(value, (list, tuple)) else [value]
+        for item in items:
+            _append_value(parent, tag, item)
+
+
+def _append_value(parent: ElementTree.Element, tag: str,
+                  value: Any) -> None:
+    """
+    Add one <tag> under `parent`: a nested container for a dict, text
+    for anything else.
+
+    Lists are expanded by the caller, one call per item, so a list
+    nested inside a list is written as its text rather than expanded
+    again -- exactly what _build_container has always done.
+    """
+    child = ElementTree.SubElement(parent, tag)
+    if isinstance(value, dict):
+        _build_container(child, value)
+        return
+    child.text = _to_wire_text(value)
 
 
 def _parse_container(element: ElementTree.Element) -> dict:
     """Inverse of _build_container.
     Repeated tags collapse into a list.
+
+    Leaf text is coerced to int or float where it looks like one, since
+    the wire carries every value as text (see _coerce_wire_value).
     """
-    result: dict = {}
+    values_by_tag: dict = {}
     for child in element:
         value: Any
         if len(child):
             value = _parse_container(child)
         else:
             value = _coerce_wire_value(child.text)
-        if child.tag in result:
-            existing = result[child.tag]
-            if isinstance(existing, list):
-                existing.append(value)
-            else:
-                result[child.tag] = [existing, value]
+        if child.tag not in values_by_tag:
+            values_by_tag[child.tag] = value
+            continue
+        existing = values_by_tag[child.tag]
+        if isinstance(existing, list):
+            existing.append(value)
         else:
-            result[child.tag] = value
-    return result
+            values_by_tag[child.tag] = [existing, value]
+    return values_by_tag
 
 
 def _resolve_command(
@@ -161,7 +194,13 @@ def _resolve_command(
 ) -> tuple[str, Optional[int], Optional[str]]:
     """Returns (wire_text, command_id, command_name) for a
     caller-supplied command, which may be a numeric id or an `eCmd*`
-    name."""
+    name.
+
+    A name has to be looked up to find its id, so a name missing from
+    commands.COMMANDS cannot be sent at all and is almost certainly a
+    typo: it raises KeyError. An int is already the wire form and needs
+    no lookup, so it passes through, with command_name None when the
+    table has no entry for it."""
     if isinstance(command, str):
         if command not in commands.COMMANDS:
             raise KeyError(
@@ -176,6 +215,13 @@ def _resolve_command(
 
 
 def _serialize(root: ElementTree.Element) -> str:
+    """
+    The message text: the exact declaration, a newline, then the XML.
+
+    The declaration is written by hand because protocol-map.md records
+    this exact string, and ElementTree's own declaration is a different
+    one (single quotes, with an encoding).
+    """
     body = ElementTree.tostring(root, encoding="unicode")
     return f"{_XML_DECLARATION}\n{body}"
 
@@ -183,6 +229,24 @@ def _serialize(root: ElementTree.Element) -> str:
 # ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
+
+
+def _build_request_root(esa_id: Union[str, int], command: Union[int, str],
+                        params: Optional[dict]) -> ElementTree.Element:
+    """
+    The <DRINETTM> root with ESAID, Command and (when given) Params.
+
+    Shared by build_command and build_response, so a response built for
+    a test starts exactly the way a real request does.
+    """
+    wire_text, _, _ = _resolve_command(command)
+    root = ElementTree.Element(ROOT_TAG)
+    ElementTree.SubElement(root, "ESAID").text = str(esa_id)
+    ElementTree.SubElement(root, "Command").text = wire_text
+    if params:
+        params_element = ElementTree.SubElement(root, "Params")
+        _build_container(params_element, params)
+    return root
 
 
 def build_command(
@@ -198,14 +262,7 @@ def build_command(
     guard lives in client.py, which is the layer that actually has a
     socket.
     """
-    wire_text, _, _ = _resolve_command(command)
-    root = ElementTree.Element(ROOT_TAG)
-    ElementTree.SubElement(root, "ESAID").text = str(esa_id)
-    ElementTree.SubElement(root, "Command").text = wire_text
-    if params:
-        params_element = ElementTree.SubElement(root, "Params")
-        _build_container(params_element, params)
-    return _serialize(root)
+    return _serialize(_build_request_root(esa_id, command, params))
 
 
 def build_response(
@@ -222,26 +279,12 @@ def build_response(
     tests -- real responses come from the device -- but keeping build
     and parse symmetric is what makes the round-trip test meaningful.
     """
-    wire_text, _, _ = _resolve_command(command)
-    root = ElementTree.Element(ROOT_TAG)
-    ElementTree.SubElement(root, "ESAID").text = str(esa_id)
-    ElementTree.SubElement(root, "Command").text = wire_text
-    if params:
-        params_element = ElementTree.SubElement(root, "Params")
-        _build_container(params_element, params)
+    root = _build_request_root(esa_id, command, params)
     ElementTree.SubElement(root, "Error").text = str(int(error))
     if result is not None:
-        result_element = ElementTree.SubElement(root, "Result")
-        if isinstance(result, dict):
-            _build_container(result_element, result)
-        else:
-            result_element.text = _to_wire_text(result)
+        _append_value(root, "Result", result)
     if result_details is not None:
-        details_element = ElementTree.SubElement(root, "ResultDetails")
-        if isinstance(result_details, dict):
-            _build_container(details_element, result_details)
-        else:
-            details_element.text = _to_wire_text(result_details)
+        _append_value(root, "ResultDetails", result_details)
     return _serialize(root)
 
 
@@ -253,16 +296,21 @@ def build_response(
 def parse(xml_text: str) -> Envelope:
     """Parse a DRINETTM message (request or response shape -- whichever
     elements are present come back populated, the rest stay
-    None/empty)."""
-    text = xml_text.strip()
-    if text.startswith("<?xml"):
+    None/empty).
+
+    Lenient on purpose: which child elements the device really sends is
+    mostly a guess (see the module docstring), so only the root,
+    <ESAID> and <Command> are required, and everything else is read
+    when it is there."""
+    document_text = xml_text.strip()
+    if document_text.startswith("<?xml"):
         # drop the declaration line before handing to ElementTree --
         # stdlib's parser is fine with it, but keeping this explicit
         # documents that the exact declaration text is not itself
         # meaningful to us
-        text = text.split("?>", 1)[1].strip()
+        document_text = document_text.split("?>", 1)[1].strip()
     try:
-        root = ElementTree.fromstring(text)
+        root = ElementTree.fromstring(document_text)
     except ElementTree.ParseError as exc:
         raise EnvelopeError(f"not well-formed XML: {exc}") from exc
 
@@ -276,42 +324,18 @@ def parse(xml_text: str) -> Envelope:
 
     esa_id = esa_id_element.text or ""
     command_raw = command_element.text or ""
-    command_id: Optional[int]
-    command_name: Optional[str]
-    if _INTEGER_RE.fullmatch(command_raw):
-        command_id = int(command_raw)
-        command_name = commands.ID_TO_NAME.get(command_id)
-    else:
-        command_id = commands.COMMANDS.get(command_raw)
-        command_name = (command_raw if command_raw in commands.COMMANDS
-                        else None)
+    command_id, command_name = _resolve_wire_command(command_raw)
 
     params_element = root.find("Params")
     params = (_parse_container(params_element)
               if params_element is not None else {})
 
-    error_element = root.find("Error")
-    error = (int(error_element.text)
-             if error_element is not None and error_element.text
-             else None)
+    error_code = _parse_error_code(root)
 
     # See RESULT_ACCEPTED for what the number in here means, and how
     # little of that is actually known.
-    result_element = root.find("Result")
-    result: Any = None
-    if result_element is not None:
-        result = (_parse_container(result_element)
-                  if len(result_element)
-                  else _coerce_wire_value(result_element.text))
-
-    details_element = root.find("ResultDetails")
-    result_details: Any = None
-    if details_element is not None:
-        result_details = (
-            _parse_container(details_element)
-            if len(details_element)
-            else _coerce_wire_value(details_element.text)
-        )
+    result = _parse_optional_value(root.find("Result"))
+    result_details = _parse_optional_value(root.find("ResultDetails"))
 
     return Envelope(
         esa_id=esa_id,
@@ -319,7 +343,49 @@ def parse(xml_text: str) -> Envelope:
         command_name=command_name,
         command_raw=command_raw,
         params=params,
-        error=error,
+        error=error_code,
         result=result,
         result_details=result_details,
     )
+
+
+def _resolve_wire_command(
+    command_raw: str,
+) -> tuple[Optional[int], Optional[str]]:
+    """
+    (command_id, command_name) for the text found in <Command>.
+
+    Digits are read as the numeric id and anything else as an eCmd*
+    name, because the wire form is not yet known; either part is None
+    when the table has no entry for it.
+    """
+    if _INTEGER_RE.fullmatch(command_raw):
+        command_id = int(command_raw)
+        return command_id, commands.ID_TO_NAME.get(command_id)
+    command_name = (command_raw if command_raw in commands.COMMANDS
+                    else None)
+    return commands.COMMANDS.get(command_raw), command_name
+
+
+def _parse_error_code(root: ElementTree.Element) -> Optional[int]:
+    """The integer in <Error>, or None when the element is absent or
+    empty (a request carries none)."""
+    error_element = root.find("Error")
+    return (int(error_element.text)
+            if error_element is not None and error_element.text
+            else None)
+
+
+def _parse_optional_value(element: Optional[ElementTree.Element]) -> Any:
+    """
+    A <Result> or <ResultDetails> as a value: None when absent, a dict
+    when it has children, otherwise its coerced text.
+
+    The device may put either a typed scalar or a whole tree in these,
+    so both shapes are accepted.
+    """
+    if element is None:
+        return None
+    if len(element):
+        return _parse_container(element)
+    return _coerce_wire_value(element.text)

@@ -62,6 +62,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     and why; for testers who call it by keyword, `is_safe_write(name)`
     -> `is_safe_write(command_name)`. The write-gate sets, their
     members and every refusal are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/envelope.py`: building and parsing a request read
+    as named steps. Private helpers only; every byte and every XML
+    element sent to the Drobo is unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
