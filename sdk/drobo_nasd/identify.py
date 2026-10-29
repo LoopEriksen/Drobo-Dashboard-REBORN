@@ -158,7 +158,11 @@ MAX_INTERVAL = 86_400
 
 
 class IdentifyError(Exception):
-    """Identify could not be sent, or the device refused it."""
+    """
+    Identify could not be sent, or the device refused it. Its own class
+    so a caller can report "the lights did not blink" without mistaking
+    it for a problem with the array.
+    """
 
 
 class IdentifyParameterError(IdentifyError, ValueError):
@@ -240,10 +244,10 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
     meant.
 
     Raises IdentifyError if the command is not on the approved-write
-    list, if the login is refused, or if the device answers with
-    something unexpected. A failure here is never a reason to treat the
-    array as unhealthy -- it means the lights did not blink, nothing
-    more.
+    list, if the login is refused, if the device answers with something
+    unexpected, or if it will not take the command right now. A failure
+    here is never a reason to treat the array as unhealthy -- it means
+    the lights did not blink, nothing more.
 
     DOES NOT RETRY, and `_retry` exists only so the measurement scripts
     can say so explicitly.
@@ -272,11 +276,6 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
     volume, doubling the attempts to work around a fault we cannot
     characterise is the wrong default. A caller who wants to try again
     can call again -- deliberately, and at a pace it chooses.
-
-    Raises IdentifyError if the command is not on the approved-write
-    list, if the login is refused, or if the device will not take it
-    right now. None of those is a reason to treat the array as
-    unhealthy: it means the lights did not blink, nothing more.
     """
     # Belt and braces. The guard is enforced in commands.py, but this is
     # the one code path in the project that sends a write, so it
@@ -313,11 +312,33 @@ def identify(host: str, esa_id: str, port: int = DEFAULT_PORT,
         ) from exc
 
 
+def _parse_result_code_text(reply_text: bytes) -> int | None:
+    """
+    The number in the reply's <Result>, or None when there is no reply,
+    no <Result>, or one that is not a number. None is "the device did
+    not say", which the caller keeps apart from any refusal code.
+    """
+    result_match = (
+        _RESULT_RE.search(reply_text.decode("utf-8", "replace"))
+        if reply_text else None)
+    if not result_match:
+        return None
+    try:
+        return int(result_match.group(1))
+    except ValueError:
+        return None
+
+
 def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
                timeout: float, command_id: int,
                interval: int | None = None) -> dict:
     """
-    One attempt. Connection problems propagate for the caller to retry.
+    One attempt: log in, send Identify once, read the result.
+
+    Connection problems propagate rather than being caught here,
+    because identify() turns them into an IdentifyError worded so nobody
+    mistakes a refused blink for a sick array. Nothing here retries (see
+    identify() for why).
     """
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -352,15 +373,7 @@ def _send_once(host: str, port: int, esa_id: str, request_payload: bytes,
         # Note the honest limit: matching RESULT_ACCEPTED means the
         # device raised no objection. Identify returns it and blinks
         # nothing, so this is not evidence the command did anything.
-        result_code = None
-        result_match = (
-            _RESULT_RE.search(reply_text.decode("utf-8", "replace"))
-            if reply_text else None)
-        if result_match:
-            try:
-                result_code = int(result_match.group(1))
-            except ValueError:
-                result_code = None
+        result_code = _parse_result_code_text(reply_text)
 
         return {
             "sent": True,
@@ -410,6 +423,40 @@ def _main(argv: list[str] | None = None) -> int:
 
     Exit codes: 0 sent, 1 refused, 2 bad usage.
     """
+    args = _build_parser().parse_args(argv)
+
+    # Before any network contact. A usage error should be answered
+    # instantly and locally, not after a connection attempt to storage
+    # hardware -- and certainly not reported as "could not reach the
+    # Drobo", which is what this printed until the CLI was smoke-tested.
+    requested_interval = None if args.none else args.interval
+    if not args.compare:
+        try:
+            validate_interval(requested_interval)
+        except IdentifyParameterError as exc:
+            print(exc)
+            return 2
+
+    esa_id = _fetch_esa_id(args.host)
+    if esa_id is None:
+        return 1
+
+    if args.compare:
+        return _run_compare(args.host, esa_id, args.gap)
+
+    label = f"sending interval={requested_interval!r}"
+    return 0 if _send_and_report(args.host, esa_id, requested_interval,
+                                 label) else 1
+
+
+def _build_parser():
+    """
+    The command line _main reads.
+
+    Its option strings, their dests (`gap` among them) and `prog` are a
+    CLI contract: people and docs type them, and _main reads the dests
+    by name, so none of them may be renamed in a tidy-up.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -429,65 +476,70 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--gap", type=float, default=20.0,
         help="seconds between the two halves of --compare (default 20)")
-    args = parser.parse_args(argv)
+    return parser
 
-    # Before any network contact. A usage error should be answered
-    # instantly and locally, not after a connection attempt to storage
-    # hardware -- and certainly not reported as "could not reach the
-    # Drobo", which is what this printed until the CLI was smoke-tested.
-    requested_interval = None if args.none else args.interval
-    if not args.compare:
-        try:
-            validate_interval(requested_interval)
-        except IdentifyParameterError as exc:
-            print(exc)
-            return 2
 
+def _fetch_esa_id(host: str) -> str | None:
+    """
+    The device serial from the status greeting, or None after printing
+    why there is none. Commands carry the serial, so without it there
+    is nothing to send.
+    """
     from . import esatm
     try:
         esa_id = esatm.parse_identity(
-            esatm.fetch_greeting(args.host)).get("esa_id")
+            esatm.fetch_greeting(host)).get("esa_id")
     except OSError as exc:
-        print(f"Could not reach {args.host} on the status port: {exc}")
-        return 1
+        print(f"Could not reach {host} on the status port: {exc}")
+        return None
     if not esa_id:
-        print(f"{args.host} answered but did not give a serial; "
+        print(f"{host} answered but did not give a serial; "
               "cannot send commands.")
-        return 1
+        return None
+    return esa_id
 
-    def send_and_report(interval, label):
-        print(f"\n  {label}")
-        try:
-            send_result = identify(args.host, esa_id, interval=interval)
-        except IdentifyError as exc:
-            print(f"    refused: {exc}")
-            return False
-        print(f"    sent, interval={send_result['interval']!r}"
-              + (f", device replied {send_result['reply_bytes']} bytes"
-                 if send_result["device_replied"]
-                 else ", device replied with nothing "
-                      "(normal for this command)"))
-        return True
 
-    if args.compare:
-        print("WATCH THE DROBO. Two sends, "
-              "and only the second carries an interval.")
-        any_accepted = send_and_report(
-            None, "1/2  empty <Params>  -- the old behaviour")
-        # A real gap. The device has been seen to decline a second
-        # Identify shortly after the first, and a blink that started on
-        # send 1 must be over before send 2 or the comparison proves
-        # nothing.
-        print(f"\n  ...waiting {args.gap:g}s so the two cannot be confused...")
-        time.sleep(args.gap)
-        any_accepted = send_and_report(
-            DEFAULT_INTERVAL,
-            f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or any_accepted
-        print("\n  Which one blinked? That is the measurement.")
-        return 0 if any_accepted else 1
+def _send_and_report(host: str, esa_id: str, interval: int | None,
+                     label: str) -> bool:
+    """
+    Send Identify once and print what happened, for somebody watching
+    the lights. True when the device took it.
+    """
+    print(f"\n  {label}")
+    try:
+        send_result = identify(host, esa_id, interval=interval)
+    except IdentifyError as exc:
+        print(f"    refused: {exc}")
+        return False
+    print(f"    sent, interval={send_result['interval']!r}"
+          + (f", device replied {send_result['reply_bytes']} bytes"
+             if send_result["device_replied"]
+             else ", device replied with nothing "
+                  "(normal for this command)"))
+    return True
 
-    label = f"sending interval={requested_interval!r}"
-    return 0 if send_and_report(requested_interval, label) else 1
+
+def _run_compare(host: str, esa_id: str, gap_seconds: float) -> int:
+    """
+    The --compare experiment: the empty form, a pause, then the interval
+    form, in that fixed order, so the two cannot be confused. Exit code
+    0 when either send was taken.
+    """
+    print("WATCH THE DROBO. Two sends, "
+          "and only the second carries an interval.")
+    any_accepted = _send_and_report(
+        host, esa_id, None, "1/2  empty <Params>  -- the old behaviour")
+    # A real gap. The device has been seen to decline a second
+    # Identify shortly after the first, and a blink that started on
+    # send 1 must be over before send 2 or the comparison proves
+    # nothing.
+    print(f"\n  ...waiting {gap_seconds:g}s so the two cannot be confused...")
+    time.sleep(gap_seconds)
+    any_accepted = _send_and_report(
+        host, esa_id, DEFAULT_INTERVAL,
+        f"2/2  <{INTERVAL_TAG}>{DEFAULT_INTERVAL}</...>") or any_accepted
+    print("\n  Which one blinked? That is the measurement.")
+    return 0 if any_accepted else 1
 
 
 if __name__ == "__main__":

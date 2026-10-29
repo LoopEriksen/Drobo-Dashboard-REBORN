@@ -94,6 +94,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `sdk/drobo_nasd/drobosync.py`: `parse_sync_reply` and
     `summary` read as their steps. The reads happen in the same order
     with the same skips, and their keys are unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/identify.py`: the command line reads as its
+    steps and the result parse is its own helper; a docstring that
+    contradicted the no-retry policy now matches it. The request
+    bytes, every printed line, exit code and the `--help` text are as
+    they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
