@@ -124,7 +124,7 @@ frames = [
 builders.write_pcapng(capture_path, frames)
 
 print("\n== reading a capture the tool has never seen ==")
-result = extract_commands.extract(capture_path, port=5001)
+result = extract_commands.extract_from_capture(capture_path, port=5001)
 check("the command stream is found", result["streams"] >= 1, result["streams"])
 check("all five commands are recovered despite reordered segments",
       len(result["requests"]) == 5, len(result["requests"]))
@@ -195,7 +195,8 @@ print("\n== a capture with nothing to say, said plainly ==")
 empty_path = os.path.join(temp_dir, "wrong-port.pcapng")
 builders.write_pcapng(empty_path, frames)
 # the status port
-wrong_port_result = extract_commands.extract(empty_path, port=5000)
+wrong_port_result = extract_commands.extract_from_capture(
+    empty_path, port=5000)
 check("looking at the wrong port finds no streams",
       wrong_port_result["streams"] == 0, wrong_port_result)
 check("-- and returns no commands rather than raising",
@@ -204,7 +205,7 @@ check("-- and returns no commands rather than raising",
 print("\n== classic pcap works too, not just pcapng ==")
 classic_path = os.path.join(temp_dir, "session.pcap")
 builders.write_pcap_classic(classic_path, frames)
-classic_result = extract_commands.extract(classic_path, port=5001)
+classic_result = extract_commands.extract_from_capture(classic_path, port=5001)
 check("the same five commands come out of a classic pcap",
       len(classic_result["requests"]) == 5, len(classic_result["requests"]))
 

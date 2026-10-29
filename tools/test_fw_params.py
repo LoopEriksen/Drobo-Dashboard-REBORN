@@ -117,10 +117,11 @@ check("a tag beyond the window is not attributed",
 check("-- but is found with a wide enough window",
       "FarAwayTag" in fw_params.candidates_near(strings, anchor, window=5000))
 
-print("\n== analyse() ranks by how often a tag appears near the command ==")
+print("\n== analyse_command() ranks by how often a tag appears"
+      " near the command ==")
 multi = build_rodata("ESADevice::GetPerformance", "Iops", "Once",
                      "ESASession::GetPerformance", "Iops")
-result = fw_params.analyse(multi, "eCmdGetPerformance", window=200)
+result = fw_params.analyse_command(multi, "eCmdGetPerformance", window=200)
 check("a tag near several markers outranks one seen once",
       result["candidates"] and result["candidates"][0] == "Iops",
       result["candidates"])

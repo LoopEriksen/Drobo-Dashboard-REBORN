@@ -245,7 +245,13 @@ def describe_document(root: ElementTree.Element) -> dict:
     return entry
 
 
-def extract(path: str, port: int = DEFAULT_PORT) -> dict:
+def extract_from_capture(path: str, port: int = DEFAULT_PORT) -> dict:
+    """Every request and response on one TCP port of a capture file.
+
+    Takes the capture path, not parsed packets, so a caller (and the
+    test suite) can point it at a file and get the same dict the --json
+    output prints.
+    """
     packets = nasd_dissect.read_capture(path)
     streams = nasd_dissect.collect_streams(packets, port)
     if not streams:
@@ -297,7 +303,7 @@ def main(argv=None) -> int:
         print(f"No such capture: {args.capture}")
         return 2
 
-    result = extract(args.capture, args.port)
+    result = extract_from_capture(args.capture, args.port)
     requests = result["requests"]
 
     if args.command:

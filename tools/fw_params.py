@@ -159,9 +159,13 @@ def candidates_near(strings: list[tuple[int, str]], offset: int,
     return candidates
 
 
-def analyse(blob: bytes, command_name: str,
-            window: int = DEFAULT_WINDOW_BYTES) -> dict:
-    """Candidate tag names associated with one command."""
+def analyse_command(blob: bytes, command_name: str,
+                    window: int = DEFAULT_WINDOW_BYTES) -> dict:
+    """Candidate tag names associated with one command.
+
+    Named for what it analyses: one command at a time, so a run over
+    every command is just a loop over this.
+    """
     strings = extract_strings(blob)
     markers = find_markers(strings, command_name)
     tag_hits: dict[str, int] = {}
@@ -269,7 +273,7 @@ def main(argv=None) -> int:
 
     shown_count = 0
     for command_name in commands_to_show:
-        result = analyse(blob, command_name, args.window)
+        result = analyse_command(blob, command_name, args.window)
         if len(result["candidates"]) < args.min:
             continue
         shown_count += 1

@@ -47,6 +47,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `photos.PhotoStore.ingest(data)` -> `ingest(file_bytes)` (positional
     calls are unaffected). A rename only: every route, JSON key and
     message is as it was. (2026-10-29)
+  - Capture and firmware tools name what they process, for testers who
+    import them from scripts of their own: `extract_commands.extract` ->
+    `extract_from_capture`; `fw_params.analyse` -> `analyse_command`.
+    The command lines, their flags and their `--json` output are
+    unchanged, as are the `port=` and `window=` parameters. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
