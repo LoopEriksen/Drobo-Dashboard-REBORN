@@ -99,6 +99,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     contradicted the no-retry policy now matches it. The request
     bytes, every printed line, exit code and the `--help` text are as
     they were. (2026-10-29)
+  - `sdk/drobo_nasd/esatm.py`: the status-greeting parser reads as
+    its parts (device info, drives, capacity, pack health), in the
+    same order as before. Private helpers and local names only; the
+    timeout message and every field read are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
