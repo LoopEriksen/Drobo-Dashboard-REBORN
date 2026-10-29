@@ -50,7 +50,7 @@
     in-use install out from under them.
 .EXAMPLE
     powershell windows/test-installer.ps1          # from an ELEVATED shell
-    powershell windows/test-installer.ps1 -MsiPath windows\dist\DroboDashboardReborn-1.1.0-win-x64.msi
+    powershell windows/test-installer.ps1 -MsiPath windows\dist\DroboDashboardReborn-1.2.0-win-x64.msi
     powershell windows/test-installer.ps1 -UpgradeMsiPath windows\dist\DroboDashboardReborn-<higher>-win-x64.msi
 
     -UpgradeMsiPath wants a SECOND msi numbered above the one under test. Any

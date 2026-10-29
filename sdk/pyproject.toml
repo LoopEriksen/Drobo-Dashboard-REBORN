@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drobo-nasd"
-version = "1.1.0"
+version = "1.2.0"
 description = "Talk to a Drobo NAS. The protocol, recovered from firmware and confirmed against real hardware."
 readme = "README.md"
 requires-python = ">=3.10"

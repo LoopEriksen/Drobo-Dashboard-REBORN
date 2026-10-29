@@ -20,7 +20,7 @@ Layout (run_agent.py, one folder up, starts it):
                  come from drobo_nasd.models and are re-exported here
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # The Drobo protocol lives in its own package, `drobo_nasd`, a sibling
 # of this one rather than a subpackage. That split is deliberate: the

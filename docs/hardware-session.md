@@ -37,7 +37,7 @@ sending.
 - Do this on an up-to-date `main`, after the work from 2026-09-19 to 09-21 has
   landed, so the agent is the current code. The app is whichever built copy is
   newest, so check it: **SETTINGS** > **THE DROBO** > **VERSIONS** should show
-  this app as 1.1.0. If it does not, run
+  this app as 1.2.0. If it does not, run
   `dotnet build windows\DroboDashboardReborn -c Release` first.
 - This PC on the same network as the Drobo, and the Drobo powered on with its
   lights steady.

@@ -213,9 +213,12 @@ convention.
   with a changelog. This repository has been the public one since 2026-10-08,
   published with a fresh history; release 1.0.0 came from a separate,
   code-only copy, now retired, and the export procedure and derived roadmaps
-  that fed it are gone. The people using releases are feature testers running
-  it on their own hardware and reporting back through issues; nobody else
-  edits the code.
+  that fed it are gone. The latest release is 1.1.0 (2026-10-15). **The
+  next release is 1.2.0**: every place the number is written says so, and
+  the changelog's top section is headed 1.2.0, not yet released. It waits
+  on a Windows build of the MSI and an elevated run of its lifecycle test.
+  The people using releases are feature testers running it on their own
+  hardware and reporting back through issues; nobody else edits the code.
   Anything that needs hardware this project does not have is listed with
   exact steps in [`testers-tasks.md`](testers-tasks.md).
 - **License:** GPL-3.0-or-later since 2026-10-19 (the maintainer's

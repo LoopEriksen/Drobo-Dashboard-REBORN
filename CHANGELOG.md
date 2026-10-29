@@ -4,7 +4,25 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
-## Unreleased
+## 1.2.0 -- not yet released
+
+Everything below has landed since 1.1.0.
+
+**Upgrading from 1.1.0: install 1.2.0 over it.** Both install into Program
+Files for everyone on the PC and share the same upgrade identity, so Windows
+Installer replaces 1.1.0 in place; there is nothing to remove first. Your
+settings and access token are kept: they live in your own profile, not in the
+program folder. **Still on 1.0.0? Uninstall it first,** exactly as for 1.1.0
+(why, under 1.1.0 below).
+
+**If you have scripts of your own that import the SDK, they will need
+changing.** Many public names in `drobo_nasd` and the agent are renamed to
+follow PEP 8, and no old name is kept alongside its new one, so a script
+that uses an old name stops with an `ImportError` or `AttributeError` naming
+it. The full list, old name to new, is under Changed below ("Names follow
+PEP 8 and say what they mean"). The apps themselves, the agent's routes and
+JSON keys, `config.json` and the command-line options do not change, and
+nothing sent to a Drobo does.
 
 ### Added
 - **A `.flake8` settings file at the top of the repository.** It holds the

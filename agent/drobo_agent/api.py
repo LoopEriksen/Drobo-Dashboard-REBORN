@@ -162,7 +162,7 @@ from .photos import PhotoStoreError
 #: rather than per-request.
 _BACKUP_RUNNER = backup.BackupRunner()
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 MAX_JSON_BODY_BYTES = 4 * 1024 * 1024
 MAX_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024
 

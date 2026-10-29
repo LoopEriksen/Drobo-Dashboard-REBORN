@@ -840,6 +840,23 @@ it: the same dead copy an earlier review had removed from the photo store. Two
 names in tests still read as shorthand, `tmp_dir` and `cs_category_ids`. All
 were fixed, still held to the same suites, counts and recorded bytes.
 
+## 1.2.0 is next (2026-10-29)
+
+**10-29.** The maintainer had chosen 1.2 for everything landed since 1.1.0,
+on one condition: that the PEP 8 refactor was finished first. The audit of
+10-24 confirmed it was, once the gaps it found were fixed. **The next release
+is 1.2.0**, a minor bump: every place the number is written says so, and the
+changelog's top section is headed as 1.2.0, not yet released. It opens with
+what a tester needs before installing: 1.1.0 is upgraded in place and keeps
+its settings, 1.0.0 must still be uninstalled first, and a script of a
+tester's own that imports the SDK breaks on the renamed names, whose full
+list is under Changed. Unlike 1.1.0, whose number was bumped weeks before its
+MSI was built, this release changes the binary itself, because the number is
+compiled in, so the MSI has to be built from a tree that already says 1.2.0.
+The release is therefore cut in two commits: this one, and a later one that
+dates the changelog and records the elevated lifecycle run, once the MSI has
+been built and tested on Windows.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -869,16 +886,14 @@ None of these were written down first. Each was learned.
 
 What is built, what is in progress, and what is planned is kept current in
 [`capabilities.md`](capabilities.md). The open items, in the order they are
-worth doing: publish 1.1.0, which is what puts everything above into testers'
-hands and is the only thing standing between the work and the people who would
-use it; re-run share create on hardware since the acknowledgement fix; send
-share delete to a device for the first time; send Identify at 900 while
+worth doing: build 1.2.0's MSI on Windows, run its elevated lifecycle test
+(which also runs the Check for Updates shortcut) and publish it, which is what
+puts everything since 1.1.0 into testers' hands; re-run share create on
+hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
 watching the unit; start and stop a DroboApp on hardware for the first time;
 give the remaining command-channel reads the whole-frame deadline the
 settings reads already have; one elevated install of the
 fallback scripts into the real Program Files;
-one elevated run of the installer's lifecycle test, which now runs the
-Check for Updates shortcut;
 record the original Dashboard creating and deleting a user, which user
 management now waits on; and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
 redundant pack to degrade for the status codes. The licence is no longer
