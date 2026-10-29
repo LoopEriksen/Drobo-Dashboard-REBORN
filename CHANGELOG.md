@@ -16,6 +16,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   no record shows it ever copying from a real Drobo share, and Working means
   working against the real device. Nothing the software does changes; one
   copy of a real share to an external drive moves it. (2026-10-29)
+- **The readability rules the code follows are written down.** `CLAUDE.md`
+  gains a section of its own: names that say what they hold, units
+  included; guard clauses and at most two levels of nesting; functions of
+  about 40 lines; docstrings that say why; and the names that never change
+  because something outside the code reads them (routes, JSON and config
+  keys, CLI flags, environment variables, file and registry names).
+  Nothing the software does changes. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

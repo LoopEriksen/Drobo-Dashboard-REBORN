@@ -114,6 +114,35 @@ the divider is this project's own record and is not bound by that shape.
   address. The privacy guard in `scripts/` checks every commit, but it is a
   backstop, not permission.
 
+## Readable code (decided 2026-10-29)
+
+The code is read by people checking it against a device they cannot
+replace, so it is written to be read, not only to run. PEP 8 and the pinned
+flake8 job set the layout; these set the rest.
+
+- **Names say what a thing is, units included**: `timeout_seconds`,
+  `size_bytes`, `interval_minutes`, not `t`, `n` or `buf`. A name that
+  already says what it means stays as it is.
+- **Guard clauses first.** Return or `continue` early instead of nesting
+  `if`/`else`; **two levels of nesting at most** inside a function.
+- **Functions of about 40 lines at most**, split into helpers whose names
+  say what each part does. In the SDK's write path, split rather than
+  reorder: every `except` clause, its order, and the arbitration of an
+  unacknowledged write stay exactly as they are.
+- **Docstrings say why**, not only what: the reason a thing is done this
+  way, and what went wrong when it was not.
+- **Some names never change**, because something outside the code reads
+  them: API routes, JSON keys, config keys, CLI flags and argparse dests,
+  environment variables, file names and registry names. Neither do the
+  bytes and XML sent to a Drobo or the members of the write gates. A name
+  shared between files is renamed everywhere at once, every caller
+  included.
+- **Python is snake_case.** C# is PascalCase for types, methods and
+  properties and camelCase for locals and parameters; private fields keep
+  the convention their file already uses.
+- **Generated and vendored files are left alone**, and **tests keep their
+  logic**: a rename reaches them, a restructuring does not.
+
 ## Layout
 
 ```
