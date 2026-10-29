@@ -73,6 +73,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `sdk/drobo_nasd/client.py`: the speculative client says why its
     request and state machine work the way they do, in docstrings and
     local names only. (2026-10-29)
+  - `sdk/drobo_nasd/sharewrite.py`: each share write reads as its
+    steps, and each refusal is a named check. Private helpers and local
+    names only; every check, every except clause and its order, the
+    read-back that decides an unacknowledged write, and every byte sent
+    to the Drobo are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
