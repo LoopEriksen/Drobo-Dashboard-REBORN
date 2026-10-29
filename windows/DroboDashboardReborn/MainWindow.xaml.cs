@@ -34,10 +34,11 @@ namespace DroboDashboardReborn;
 /// takes over, and polls /api/status on a timer exactly as before.
 ///
 /// DriveRow/AlertRow/ShareRow/DiscoveredDeviceRow (the row view-models) and
-/// the small JSON helpers (Str/Long/Double/Bool/Tb) live in their own files
-/// -- see DriveRow.cs, AlertRow.cs, ShareRow.cs, DiscoveredDeviceRow.cs and
-/// JsonHelpers.cs -- so this file doesn't become the one place every future
-/// tab has to fight over.
+/// the small JSON helpers (GetStringOr/GetInt64OrZero/GetDoubleOrZero/IsTrue
+/// and the FormatBytes formatter) live in their own files -- see DriveRow.cs,
+/// AlertRow.cs, ShareRow.cs, DiscoveredDeviceRow.cs and JsonHelpers.cs -- so
+/// this file doesn't become the one place every future tab has to fight
+/// over.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -659,8 +660,8 @@ public partial class MainWindow : Window
             var root = await FetchJson("/api/netcheck?host=" + Uri.EscapeDataString(host));
             if (!root.TryGetProperty("hint", out var hint) || hint.ValueKind != JsonValueKind.Object)
                 return null;  // same network, or the agent couldn't tell
-            var headline = Str(hint, "headline", "");
-            var detail = Str(hint, "detail", "");
+            var headline = GetStringOr(hint, "headline", "");
+            var detail = GetStringOr(hint, "detail", "");
             return headline.Length == 0 ? null : (headline + " " + detail).Trim();
         }
         catch
@@ -715,17 +716,17 @@ public partial class MainWindow : Window
         // reported is skipped so a Drobo found both ways gets one row.
         foreach (var d in probedManual ?? new List<JsonElement>())
         {
-            var host = Str(d, "host", "");
-            if (!devices.Any(x => string.Equals(Str(x, "host", ""), host, StringComparison.OrdinalIgnoreCase)))
+            var host = GetStringOr(d, "host", "");
+            if (!devices.Any(x => string.Equals(GetStringOr(x, "host", ""), host, StringComparison.OrdinalIgnoreCase)))
                 devices.Add(d);
         }
 
         {
             foreach (var d in devices)
             {
-                var model = Str(d, "model", "");
-                var firmware = Str(d, "firmware", "");
-                var host = Str(d, "host", "");
+                var model = GetStringOr(d, "model", "");
+                var firmware = GetStringOr(d, "firmware", "");
+                var host = GetStringOr(d, "host", "");
                 bool current = d.TryGetProperty("is_current", out var ic) && ic.ValueKind == JsonValueKind.True;
 
                 var summaryParts = new[] { model, string.IsNullOrEmpty(firmware) ? "" : "firmware " + firmware, host }
@@ -735,10 +736,10 @@ public partial class MainWindow : Window
                 {
                     Host = host,
                     Port = d.TryGetProperty("port", out var p) && p.ValueKind == JsonValueKind.Number ? p.GetInt32() : 0,
-                    Name = string.IsNullOrEmpty(Str(d, "name", "")) ? "Drobo" : Str(d, "name", "Drobo"),
+                    Name = string.IsNullOrEmpty(GetStringOr(d, "name", "")) ? "Drobo" : GetStringOr(d, "name", "Drobo"),
                     Model = model,
                     Firmware = firmware,
-                    EsaId = Str(d, "esa_id", ""),
+                    EsaId = GetStringOr(d, "esa_id", ""),
                     IsCurrent = current,
                     InUseVisibility = current ? Visibility.Visible : Visibility.Collapsed,
                     Summary = string.Join("  ·  ", summaryParts),
@@ -889,7 +890,7 @@ public partial class MainWindow : Window
         if (probe.found)
         {
             var name = probe.device.ValueKind == JsonValueKind.Object
-                ? Str(probe.device, "name", "") : "";
+                ? GetStringOr(probe.device, "name", "") : "";
             ManualAddResult.Text = $"Found {(string.IsNullOrEmpty(name) ? "a Drobo" : name)} at {host}.";
             ManualAddResult.Foreground = Ok;
         }
@@ -923,13 +924,13 @@ public partial class MainWindow : Window
             bool found = root.TryGetProperty("manual_found", out var f)
                          && f.ValueKind == JsonValueKind.True;
             if (!found)
-                return (false, default, Str(root, "manual_error", $"Nothing at {host} answered as a Drobo."));
+                return (false, default, GetStringOr(root, "manual_error", $"Nothing at {host} answered as a Drobo."));
 
             if (root.TryGetProperty("devices", out var arr) && arr.ValueKind == JsonValueKind.Array)
             {
                 foreach (var d in arr.EnumerateArray())
                 {
-                    if (string.Equals(Str(d, "host", ""), host, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(GetStringOr(d, "host", ""), host, StringComparison.OrdinalIgnoreCase))
                         return (true, d.Clone(), null);
                 }
             }
@@ -1000,13 +1001,13 @@ public partial class MainWindow : Window
         try
         {
             var root = await FetchJson("/api/update");
-            var state = Str(root, "state", "");
+            var state = GetStringOr(root, "state", "");
             PrefUpdateStatus.Text = state switch
             {
                 "disabled"  => "Switched off. The agent is contacting nothing.",
-                "current"   => $"You are on the latest version ({Str(root, "current_version", "?")}).",
-                "available" => Str(root, "reason", "An update is available."),
-                _           => Str(root, "reason", "Could not check just now."),
+                "current"   => $"You are on the latest version ({GetStringOr(root, "current_version", "?")}).",
+                "available" => GetStringOr(root, "reason", "An update is available."),
+                _           => GetStringOr(root, "reason", "Could not check just now."),
             };
         }
         catch (Exception ex)
@@ -1020,7 +1021,7 @@ public partial class MainWindow : Window
             bool configured = root.TryGetProperty("configured", out var c)
                               && c.ValueKind == JsonValueKind.True;
             PrefEmailStatus.Text = configured
-                ? Str(root, "summary", "Email alerts are configured in the agent.")
+                ? GetStringOr(root, "summary", "Email alerts are configured in the agent.")
                 : "Not configured. Add an \"email\" block to the agent's config.json to turn this on.";
             PrefEmailTestBtn.IsEnabled = configured;
         }
@@ -1045,8 +1046,8 @@ public partial class MainWindow : Window
             var body = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(body);
             PrefEmailStatus.Text = resp.IsSuccessStatusCode
-                ? Str(doc.RootElement, "message", "Sent. Check your inbox.")
-                : Str(doc.RootElement, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                ? GetStringOr(doc.RootElement, "message", "Sent. Check your inbox.")
+                : GetStringOr(doc.RootElement, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
         }
         catch (Exception ex)
         {
@@ -1398,11 +1399,11 @@ public partial class MainWindow : Window
             {
                 foreach (var x in arr.EnumerateArray())
                 {
-                    AccessShareBox.Items.Add(Str(x, "name", ""));
+                    AccessShareBox.Items.Add(GetStringOr(x, "name", ""));
                     if (x.TryGetProperty("users", out var uarr) && uarr.ValueKind == JsonValueKind.Array)
                         foreach (var u in uarr.EnumerateArray())
                         {
-                            var uname = Str(u, "name", "");
+                            var uname = GetStringOr(u, "name", "");
                             if (uname.Length > 0) users.Add(uname);
                         }
                 }
@@ -1488,10 +1489,10 @@ public partial class MainWindow : Window
         try
         {
             var (okStatus, root) = await PostJson(path, body);
-            var outcome = WriteOutcomes.Read(okStatus, root);
+            var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             ShowConfigResult(resultBox, outcome, outcome.Succeeded()
                 ? WriteMessage(root, outcome)
-                : Str(root, "error", "The Drobo did not accept that change."));
+                : GetStringOr(root, "error", "The Drobo did not accept that change."));
             // Keep the Tools card's own read-out honest after a brightness
             // change -- and after an UNSETTLED one especially, since the
             // device's own number is the only thing that can say whether it
@@ -1520,13 +1521,13 @@ public partial class MainWindow : Window
     /// </summary>
     private static string WriteMessage(JsonElement root, WriteOutcome outcome)
     {
-        var msg = Str(root, "message", "Done.");
+        var msg = GetStringOr(root, "message", "Done.");
         if (outcome == WriteOutcome.Confirmed
             && root.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True)
             msg += "  Confirmed by reading it back.";
         if (root.TryGetProperty("unchanged", out var u) && u.ValueKind == JsonValueKind.True)
             msg += "  (It was already set that way; nothing was sent.)";
-        if (Bool(root, "simulated")) msg += "  [simulated Drobo]";
+        if (IsTrue(root, "simulated")) msg += "  [simulated Drobo]";
         return msg;
     }
 
@@ -1648,7 +1649,7 @@ public partial class MainWindow : Window
         var activeKeys = new HashSet<string>();
         if (activeRoot.TryGetProperty("alerts", out var activeArr) && activeArr.ValueKind == JsonValueKind.Array)
             foreach (var a in activeArr.EnumerateArray())
-                activeKeys.Add(Str(a, "key", ""));
+                activeKeys.Add(GetStringOr(a, "key", ""));
 
         var activeList = new List<AlertRow>();
         var resolvedList = new List<AlertRow>();
@@ -1657,8 +1658,8 @@ public partial class MainWindow : Window
         {
             foreach (var a in allArr.EnumerateArray())
             {
-                var key = Str(a, "key", "");
-                var severity = Str(a, "severity", "info");
+                var key = GetStringOr(a, "key", "");
+                var severity = GetStringOr(a, "severity", "info");
                 var (chipBg, chipFg) = SeverityBrushes(severity);
                 bool isActive = activeKeys.Contains(key);
 
@@ -1667,8 +1668,8 @@ public partial class MainWindow : Window
                     Key = key,
                     Severity = severity,
                     SeverityText = severity.ToUpperInvariant(),
-                    Message = Str(a, "message", ""),
-                    Since = "since " + RelativeTime(Double(a, "first_seen")),
+                    Message = GetStringOr(a, "message", ""),
+                    Since = "since " + RelativeTime(GetDoubleOrZero(a, "first_seen")),
                     ChipBackground = chipBg,
                     SeverityBrush = chipFg,
                     Active = isActive,
@@ -1676,12 +1677,12 @@ public partial class MainWindow : Window
 
                 if (isActive)
                 {
-                    row.SortTime = Double(a, "first_seen");
+                    row.SortTime = GetDoubleOrZero(a, "first_seen");
                     activeList.Add(row);
                 }
                 else
                 {
-                    var clearedAt = Double(a, "cleared_at");
+                    var clearedAt = GetDoubleOrZero(a, "cleared_at");
                     row.ClearedText = "cleared " + RelativeTime(clearedAt);
                     row.SortTime = clearedAt;
                     resolvedList.Add(row);
@@ -1782,8 +1783,8 @@ public partial class MainWindow : Window
         // not an error -- see shares.py's access_advice for the full story.
         var advice = root.TryGetProperty("advice", out var adv) && adv.ValueKind == JsonValueKind.Object
             ? adv : default;
-        var headline = advice.ValueKind == JsonValueKind.Object ? Str(advice, "headline", "") : "";
-        _lastAdviceDetail = advice.ValueKind == JsonValueKind.Object ? Str(advice, "detail", "") : "";
+        var headline = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "headline", "") : "";
+        _lastAdviceDetail = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "detail", "") : "";
         if (string.IsNullOrEmpty(headline))
         {
             GuestAdviceBox.Visibility = Visibility.Collapsed;
@@ -1800,10 +1801,10 @@ public partial class MainWindow : Window
         // read from this one /api/shares answer, so they can never disagree,
         // and Settings never needs a network fetch of its own for this part.
         var link = root.TryGetProperty("link", out var lk) && lk.ValueKind == JsonValueKind.Object ? lk : default;
-        bool degraded = link.ValueKind == JsonValueKind.Object && Bool(link, "degraded");
+        bool degraded = link.ValueKind == JsonValueKind.Object && IsTrue(link, "degraded");
         if (degraded)
         {
-            LinkWarning.Text = Str(link, "note", "");
+            LinkWarning.Text = GetStringOr(link, "note", "");
             LinkWarningBox.Visibility = Visibility.Visible;
             SettingsLinkWarning.Text = LinkWarning.Text;
             SettingsLinkWarningBox.Visibility = Visibility.Visible;
@@ -1836,7 +1837,7 @@ public partial class MainWindow : Window
         {
             foreach (var s in arr.EnumerateArray())
             {
-                var unc = Str(s, "unc", "");
+                var unc = GetStringOr(s, "unc", "");
                 var match = active.FirstOrDefault(a =>
                     string.Equals(a.RemoteUnc.TrimEnd('\\'), unc.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
                 bool connected = !string.IsNullOrEmpty(match.RemoteUnc);
@@ -1847,7 +1848,7 @@ public partial class MainWindow : Window
                     connected = _simulatedConnections.TryGetValue(unc, out var simLetter);
                     letter = connected ? simLetter : null;
                 }
-                bool timeMachine = Bool(s, "time_machine");
+                bool timeMachine = IsTrue(s, "time_machine");
 
                 // Per-user access. Each user's "access" description is the
                 // agent's own wording (shares.py's ACCESS_LEVELS) shown
@@ -1861,12 +1862,12 @@ public partial class MainWindow : Window
                     foreach (var u in usersArr.EnumerateArray())
                     {
                         if (u.ValueKind != JsonValueKind.Object) continue;
-                        var uname = Str(u, "name", "");
+                        var uname = GetStringOr(u, "name", "");
                         if (uname.Length == 0) uname = "(unnamed)";
-                        var described = Str(u, "access", "");
+                        var described = GetStringOr(u, "access", "");
                         if (described.Length == 0)
                         {
-                            var code = Str(u, "access_code", "");
+                            var code = GetStringOr(u, "access_code", "");
                             described = code.Length == 0 ? "access unknown"
                                                          : $"code {code} (not yet mapped)";
                         }
@@ -1877,7 +1878,7 @@ public partial class MainWindow : Window
 
                 list.Add(new ShareRow
                 {
-                    Name = Str(s, "name", ""),
+                    Name = GetStringOr(s, "name", ""),
                     Unc = unc,
                     TimeMachine = timeMachine,
                     TimeMachineVisibility = timeMachine ? Visibility.Visible : Visibility.Collapsed,
@@ -2110,10 +2111,10 @@ public partial class MainWindow : Window
         try
         {
             var (okStatus, root) = await PostJson(path, body);
-            var outcome = WriteOutcomes.Read(okStatus, root);
+            var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             return (outcome, outcome.Succeeded()
                 ? WriteMessage(root, outcome)
-                : Str(root, "error", "The Drobo did not accept that."));
+                : GetStringOr(root, "error", "The Drobo did not accept that."));
         }
         catch (Exception ex)
         {
@@ -2172,8 +2173,8 @@ public partial class MainWindow : Window
             FirmwareBox.Visibility = Visibility.Collapsed;
             return;
         }
-        FirmwareHeadline.Text = Str(advisory, "headline", "");
-        FirmwareDetail.Text = Str(advisory, "detail", "");
+        FirmwareHeadline.Text = GetStringOr(advisory, "headline", "");
+        FirmwareDetail.Text = GetStringOr(advisory, "detail", "");
         FirmwareBox.Visibility = Visibility.Visible;
     }
 
@@ -2197,7 +2198,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var headline = Str(hint, "headline", "");
+        var headline = GetStringOr(hint, "headline", "");
         if (headline.Length == 0)
         {
             NetworkBox.Visibility = Visibility.Collapsed;
@@ -2205,8 +2206,8 @@ public partial class MainWindow : Window
         }
 
         NetworkHeadline.Text = headline;
-        NetworkDetail.Text = Str(hint, "detail", "");
-        NetworkCaveat.Text = Str(hint, "caveat", "");
+        NetworkDetail.Text = GetStringOr(hint, "detail", "");
+        NetworkCaveat.Text = GetStringOr(hint, "caveat", "");
         NetworkDetail.Visibility = NetworkDetail.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         NetworkCaveat.Visibility = NetworkCaveat.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         NetworkBox.Visibility = Visibility.Visible;
@@ -2298,7 +2299,7 @@ public partial class MainWindow : Window
         {
             SetPill("unreachable", Unknown, "#22262E", "#39424D");
             SettingsFirmware.Text = "Not connected to a Drobo";
-            DeviceSub.Text = Str(s, "error", "Waiting for the first reading from the agent.");
+            DeviceSub.Text = GetStringOr(s, "error", "Waiting for the first reading from the agent.");
             Footer.Text = "No reading at " + DateTime.Now.ToString("HH:mm:ss");
             _lastOverallState = "unreachable";
             ShowNetworkHint(s.TryGetProperty("network_hint", out var nh)
@@ -2306,22 +2307,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        DeviceName.Text = Str(device, "name", "Drobo");
-        SettingsFirmware.Text = $"{Str(device, "firmware", "unknown")}  ({Str(device, "model", "Drobo")})";
+        DeviceName.Text = GetStringOr(device, "name", "Drobo");
+        SettingsFirmware.Text = $"{GetStringOr(device, "firmware", "unknown")}  ({GetStringOr(device, "model", "Drobo")})";
 
         // A different driver means a different Drobo: a simulated connection
         // must never survive a switch to real hardware, or the Shares tab would
         // claim a real share is open when Windows has no session to it.
-        var source = Str(s, "source", "");
+        var source = GetStringOr(s, "source", "");
         if (!string.Equals(source, _lastSource, StringComparison.OrdinalIgnoreCase))
             _simulatedConnections.Clear();
         _lastSource = source;
 
-        DeviceSub.Text = $"{Str(device, "model", "")}  ·  firmware {Str(device, "firmware", "?")}"
-                       + $"  ·  {Str(device, "ip", "")}  ·  {Str(s, "source", "")} driver"
+        DeviceSub.Text = $"{GetStringOr(device, "model", "")}  ·  firmware {GetStringOr(device, "firmware", "?")}"
+                       + $"  ·  {GetStringOr(device, "ip", "")}  ·  {GetStringOr(s, "source", "")} driver"
                        + DeviceExtras(device);
 
-        var state = Str(s, "overall_state", "unknown");
+        var state = GetStringOr(s, "overall_state", "unknown");
         var reachable = s.TryGetProperty("reachable", out var r) && r.GetBoolean();
         state = reachable ? state : "unreachable";
         switch (state)
@@ -2357,15 +2358,15 @@ public partial class MainWindow : Window
 
         // capacity
         var cap = s.GetProperty("capacity");
-        long used = Long(cap, "used_bytes"), free = Long(cap, "free_bytes");
-        long usable = Long(cap, "usable_bytes"), raw = Long(cap, "raw_bytes");
-        long protection = Long(cap, "protection_bytes");
+        long used = GetInt64OrZero(cap, "used_bytes"), free = GetInt64OrZero(cap, "free_bytes");
+        long usable = GetInt64OrZero(cap, "usable_bytes"), raw = GetInt64OrZero(cap, "raw_bytes");
+        long protection = GetInt64OrZero(cap, "protection_bytes");
         double frac = cap.TryGetProperty("used_fraction", out var f) ? f.GetDouble() : 0;
-        CapUsed.Text = Bytes(used);
-        CapFree.Text = Bytes(free);
-        CapUsable.Text = Bytes(usable);
-        CapProt.Text = Bytes(protection);
-        CapRaw.Text = Bytes(raw);
+        CapUsed.Text = FormatBytes(used);
+        CapFree.Text = FormatBytes(free);
+        CapUsable.Text = FormatBytes(usable);
+        CapProt.Text = FormatBytes(protection);
+        CapRaw.Text = FormatBytes(raw);
 
         // The device reports its own alert levels (mRedThreshold/mYellowThreshold,
         // as fractions) in pack_health -- prefer those over the hardcoded
@@ -2388,8 +2389,8 @@ public partial class MainWindow : Window
         // rebuilding or was double-degraded -- see PackHealth's docstring in
         // models.py. Wording matches webui.py's rebuildPanel exactly, so the
         // two front-ends never say something different about the same array.
-        long doubleDegraded = packHealth.ValueKind == JsonValueKind.Object ? Long(packHealth, "double_degraded_count") : 0;
-        long relayout = packHealth.ValueKind == JsonValueKind.Object ? Long(packHealth, "relayout_count") : 0;
+        long doubleDegraded = packHealth.ValueKind == JsonValueKind.Object ? GetInt64OrZero(packHealth, "double_degraded_count") : 0;
+        long relayout = packHealth.ValueKind == JsonValueKind.Object ? GetInt64OrZero(packHealth, "relayout_count") : 0;
         if (doubleDegraded > 0)
         {
             RebuildNote.Text = $"Double-degraded count is {doubleDegraded} -- two drives were degraded at "
@@ -2423,20 +2424,20 @@ public partial class MainWindow : Window
                 });
                 continue;
             }
-            var st = Str(d, "state", "unknown");
+            var st = GetStringOr(d, "state", "unknown");
             var brush = st switch { "ok" => Ok, "warning" => Warning, "failed" => Failed, _ => Unknown };
             double? tempC = d.TryGetProperty("temperature_c", out var t) && t.ValueKind == JsonValueKind.Number
                 ? t.GetDouble() : (double?)null;
             var tail = tempC.HasValue ? $"{st}  {tempC:0.0}°C" : st;
 
-            var model = CollapseWhitespace(Str(d, "model", "disk"));
-            var serial = Str(d, "serial", "");
+            var model = CollapseWhitespace(GetStringOr(d, "model", "disk"));
+            var serial = GetStringOr(d, "serial", "");
             var modelSerial = string.IsNullOrEmpty(serial) ? model : $"{model}  ·  {serial}";
 
             // Noisy extras only when they matter -- a healthy drive shows
             // neither of these, so the array reads clean at a glance and a
             // sick one stands out instead of "0 errors" cluttering every row.
-            long errorCount = Long(d, "error_count");
+            long errorCount = GetInt64OrZero(d, "error_count");
             long ssdLife = d.TryGetProperty("ssd_life_remaining", out var sl) && sl.ValueKind == JsonValueKind.Number
                 ? sl.GetInt64() : 100;
             var flagParts = new List<string>();
@@ -2448,8 +2449,8 @@ public partial class MainWindow : Window
             {
                 BayLabel = "Bay " + bay,
                 ModelSerial = modelSerial,
-                Firmware = Str(d, "firmware_rev", ""),
-                Size = Bytes(Long(d, "capacity_bytes")),
+                Firmware = GetStringOr(d, "firmware_rev", ""),
+                Size = FormatBytes(GetInt64OrZero(d, "capacity_bytes")),
                 StateText = tail,
                 StateBrush = brush,
                 Stripe = brush,
@@ -2485,7 +2486,7 @@ public partial class MainWindow : Window
     /// so checking read/write/iops directly for presence would be exactly
     /// the falsy-zero trap this app avoids elsewhere (see SeverityRank's
     /// comment above). Absent "performance" is treated the same as
-    /// measured=false: Bool() already returns false for a missing property,
+    /// measured=false: IsTrue() already returns false for a missing property,
     /// which is the right default here.
     /// </summary>
     /// <summary>
@@ -2518,14 +2519,14 @@ public partial class MainWindow : Window
 
         var cap = s.TryGetProperty("capacity", out var c) && c.ValueKind == JsonValueKind.Object
             ? c : default;
-        long usable = cap.ValueKind == JsonValueKind.Object ? Long(cap, "usable_bytes") : 0;
-        string packHolds = usable > 0 ? "pack holds " + Bytes(usable) : "";
+        long usable = cap.ValueKind == JsonValueKind.Object ? GetInt64OrZero(cap, "usable_bytes") : 0;
+        string packHolds = usable > 0 ? "pack holds " + FormatBytes(usable) : "";
 
         int i = 0;
         foreach (var v in vols.EnumerateArray())
         {
-            long lun = Long(v, "lun");
-            string name = Str(v, "name", "");
+            long lun = GetInt64OrZero(v, "lun");
+            string name = GetStringOr(v, "name", "");
             if (string.IsNullOrWhiteSpace(name))
                 name = "Volume " + (lun + 1);   // the device's own name, or none invented
 
@@ -2534,21 +2535,21 @@ public partial class MainWindow : Window
             // not the same as one that reported none, and 0 is falsy.
             if (v.TryGetProperty("partition_count", out var pc) && pc.ValueKind == JsonValueKind.Number)
                 bits.Add(pc.GetInt64() == 1 ? "1 partition" : pc.GetInt64() + " partitions");
-            string id = Str(v, "unique_id", "");
+            string id = GetStringOr(v, "unique_id", "");
             if (!string.IsNullOrEmpty(id)) bits.Add("id " + id);
 
-            long ceiling = Long(v, "max_size_bytes");
+            long ceiling = GetInt64OrZero(v, "max_size_bytes");
             _volumes.Add(new VolumeRow
             {
                 Name = name,
                 Detail = string.Join("  ·  ", bits),
-                Ceiling = ceiling > 0 ? "can grow to " + Bytes(ceiling) : "",
+                Ceiling = ceiling > 0 ? "can grow to " + FormatBytes(ceiling) : "",
                 PackHolds = ceiling > 0 ? packHolds : "",
             });
             i++;
         }
 
-        long maxVols = Long(s, "max_volumes");
+        long maxVols = GetInt64OrZero(s, "max_volumes");
         var intro = i == 1
             ? "Your Drobo presents its storage as a single volume"
             : $"Your Drobo presents its storage as {i} volumes";
@@ -2569,7 +2570,7 @@ public partial class MainWindow : Window
     {
         var perf = s.TryGetProperty("performance", out var pf) && pf.ValueKind == JsonValueKind.Object
             ? pf : default;
-        bool measured = perf.ValueKind == JsonValueKind.Object && Bool(perf, "measured");
+        bool measured = perf.ValueKind == JsonValueKind.Object && IsTrue(perf, "measured");
 
         if (!measured)
         {
@@ -2583,8 +2584,9 @@ public partial class MainWindow : Window
         // A failed fetch keeps the last figures, and the command port can stop
         // answering for half an hour -- so past one missed refresh, say how old
         // they are, as DeviceExtras does for the temperature. measured_at is
-        // absent from an older agent; Double() then gives 0 and no age shows.
-        double measuredAt = Double(perf, "measured_at");
+        // absent from an older agent; GetDoubleOrZero() then gives 0 and no age
+        // shows.
+        double measuredAt = GetDoubleOrZero(perf, "measured_at");
         bool stale = measuredAt > 0
                      && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - measuredAt > PerfStaleSeconds;
         PerfAge.Text = stale
@@ -2592,9 +2594,9 @@ public partial class MainWindow : Window
             : "";
         PerfAge.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
 
-        long readMb = Long(perf, "read_mb_per_s");
-        long writeMb = Long(perf, "write_mb_per_s");
-        long iops = Long(perf, "iops");
+        long readMb = GetInt64OrZero(perf, "read_mb_per_s");
+        long writeMb = GetInt64OrZero(perf, "write_mb_per_s");
+        long iops = GetInt64OrZero(perf, "iops");
         bool allZero = readMb == 0 && writeMb == 0 && iops == 0;
 
         PerfUnknown.Visibility = Visibility.Collapsed;
@@ -2639,16 +2641,16 @@ public partial class MainWindow : Window
         // The device's own words about a problem, verbatim -- empty on a
         // healthy unit, so the line only appears when there is something to say.
         var notes = new List<string>();
-        var batteryNote = battery.ValueKind == JsonValueKind.Object ? Str(battery, "note", "") : "";
+        var batteryNote = battery.ValueKind == JsonValueKind.Object ? GetStringOr(battery, "note", "") : "";
         if (batteryNote.Length > 0) notes.Add(batteryNote);
-        var powerNote = power.ValueKind == JsonValueKind.Object ? Str(power, "note", "") : "";
+        var powerNote = power.ValueKind == JsonValueKind.Object ? GetStringOr(power, "note", "") : "";
         if (powerNote.Length > 0) notes.Add(powerNote);
         HardwareHealthNote.Text = string.Join(Environment.NewLine, notes);
         HardwareHealthNote.Visibility = notes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private static string HealthState(JsonElement el) =>
-        el.ValueKind == JsonValueKind.Object ? Str(el, "state", "unknown") : "unknown";
+        el.ValueKind == JsonValueKind.Object ? GetStringOr(el, "state", "unknown") : "unknown";
 
     /// <summary>One health pill: the state word in the same colours the drive
     /// bays and the header pill use for it. An unrecognised state is still
@@ -2710,7 +2712,7 @@ public partial class MainWindow : Window
                 // for exactly this case -- no live Drobo connection yet, or the
                 // command port refused/timed out (502/503). Show that instead
                 // of a bare HTTP status code.
-                SettingsError.Text = Str(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                SettingsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
                 SettingsError.Visibility = Visibility.Visible;
                 return;
             }
@@ -2733,23 +2735,23 @@ public partial class MainWindow : Window
             var ip = net.TryGetProperty("IPConfig", out var ipEl) && ipEl.ValueKind == JsonValueKind.Object ? ipEl : default;
             var jumbo = net.TryGetProperty("JumboFramesConfig", out var jEl) && jEl.ValueKind == JsonValueKind.Object ? jEl : default;
 
-            SettingsDeviceName.Text = DashIfEmpty(Str(net, "NasName", ""));
-            SettingsWorkgroup.Text = DashIfEmpty(Str(net, "NasWorkgroup", ""));
-            SettingsIp.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? Str(ip, "IP", "") : "");
-            SettingsSubnet.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? Str(ip, "Subnet", "") : "");
-            SettingsGateway.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? Str(ip, "Gateway", "") : "");
+            SettingsDeviceName.Text = DashIfEmpty(GetStringOr(net, "NasName", ""));
+            SettingsWorkgroup.Text = DashIfEmpty(GetStringOr(net, "NasWorkgroup", ""));
+            SettingsIp.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "IP", "") : "");
+            SettingsSubnet.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "Subnet", "") : "");
+            SettingsGateway.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "Gateway", "") : "");
 
             var dns = ip.ValueKind == JsonValueKind.Object
-                ? string.Join(", ", new[] { Str(ip, "DNS1", ""), Str(ip, "DNS2", "") }.Where(v => !string.IsNullOrEmpty(v)))
+                ? string.Join(", ", new[] { GetStringOr(ip, "DNS1", ""), GetStringOr(ip, "DNS2", "") }.Where(v => !string.IsNullOrEmpty(v)))
                 : "";
             SettingsDns.Text = DashIfEmpty(dns);
 
-            var mtu = jumbo.ValueKind == JsonValueKind.Object ? Str(jumbo, "MTUSize", "") : "";
-            bool jumboOn = jumbo.ValueKind == JsonValueKind.Object && Str(jumbo, "Enabled", "0") == "1";
+            var mtu = jumbo.ValueKind == JsonValueKind.Object ? GetStringOr(jumbo, "MTUSize", "") : "";
+            bool jumboOn = jumbo.ValueKind == JsonValueKind.Object && GetStringOr(jumbo, "Enabled", "0") == "1";
             SettingsJumbo.Text = string.IsNullOrEmpty(mtu) ? "—" : $"{(jumboOn ? "On" : "Off")}  ·  MTU {mtu}";
 
-            var speed = Str(net, "PortSpeed", "");
-            var duplex = Str(net, "PortDuplex", "");
+            var speed = GetStringOr(net, "PortSpeed", "");
+            var duplex = GetStringOr(net, "PortDuplex", "");
             SettingsPort.Text = string.IsNullOrEmpty(speed) ? "—"
                 : $"{speed} Mbit/s" + (string.IsNullOrEmpty(duplex) ? "" : $", {duplex} duplex");
 
@@ -2879,8 +2881,8 @@ public partial class MainWindow : Window
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var agentVersion = Str(root, "version", "?");
-            var uptime = Long(root, "uptime_seconds");
+            var agentVersion = GetStringOr(root, "version", "?");
+            var uptime = GetInt64OrZero(root, "uptime_seconds");
             ToolsAgentVersion.Text = $"Agent v{agentVersion}  ·  up {FormatUptime(uptime)}";
         }
         catch (Exception ex)
@@ -3283,8 +3285,8 @@ public partial class MainWindow : Window
             BackupCheckBtn.IsEnabled = true;
 
             bool ok = root.TryGetProperty("ok", out var o) && o.ValueKind == JsonValueKind.True;
-            var summary = Str(root, "summary", "");
-            var error = Str(root, "error", "");
+            var summary = GetStringOr(root, "summary", "");
+            var error = GetStringOr(root, "error", "");
             BackupStatus.Text = (ok ? "Finished. " : "Finished with problems. ")
                                 + summary + (error.Length > 0 ? "  " + error : "");
         }
@@ -3337,12 +3339,12 @@ public partial class MainWindow : Window
             if (root.TryGetProperty("dimming", out var d) && d.ValueKind == JsonValueKind.Number)
             {
                 DimmingValue.Text = d.GetInt32().ToString();
-                DimmingNote.Text = Str(root, "scale_note", "");
+                DimmingNote.Text = GetStringOr(root, "scale_note", "");
             }
             else
             {
                 DimmingValue.Text = "—";
-                DimmingNote.Text = Str(root, "error",
+                DimmingNote.Text = GetStringOr(root, "error",
                     "The Drobo didn't report a brightness this time. It sometimes "
                     + "stops answering this command for a while; try again shortly.");
             }
@@ -3455,14 +3457,14 @@ public partial class MainWindow : Window
                 // for both failure cases it can hit here -- no live Drobo
                 // connection yet (503), or the device refused/didn't answer
                 // the command (502). Show that instead of a bare status code.
-                ShowIdentifyResult(Str(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}."),
+                ShowIdentifyResult(GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}."),
                     ok: false, simulated: false);
                 return;
             }
 
-            // Bool(), not a truthy/falsy read -- "simulated" is a real boolean
+            // IsTrue(), not a truthy/falsy read -- "simulated" is a real boolean
             // from the agent and false is exactly as meaningful as true here.
-            ShowIdentifyResult(Str(root, "message", "Sent."), ok: true, simulated: Bool(root, "simulated"));
+            ShowIdentifyResult(GetStringOr(root, "message", "Sent."), ok: true, simulated: IsTrue(root, "simulated"));
         }
         catch (Exception ex)
         {
@@ -3522,7 +3524,7 @@ public partial class MainWindow : Window
                 // connected (502, {"error": ..., "apps": []}). Either way,
                 // show the agent's own reason and clear the list rather than
                 // leaving a stale one on screen looking current.
-                DroboAppsError.Text = Str(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                DroboAppsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
                 DroboAppsError.Visibility = Visibility.Visible;
                 _droboApps.Clear();
                 DroboAppsSdk.Text = "";
@@ -3554,12 +3556,12 @@ public partial class MainWindow : Window
     /// "running" and "has_web_ui" are already the plain booleans a person
     /// would say out loud -- the agent flips the device's own inverted
     /// "Stopped" field before this ever sees it (see droboapps.py's
-    /// parse_droboapps) -- so this reads them straight with Bool(), no
+    /// parse_droboapps) -- so this reads them straight with IsTrue(), no
     /// re-inverting and no falsy-default shortcuts.
     /// </summary>
     private void RenderDroboApps(JsonElement root)
     {
-        var sdk = Str(root, "sdk_version", "");
+        var sdk = GetStringOr(root, "sdk_version", "");
         DroboAppsSdk.Text = string.IsNullOrEmpty(sdk) ? "" : $"SDK {sdk}";
 
         var list = new List<DroboAppRow>();
@@ -3567,14 +3569,14 @@ public partial class MainWindow : Window
         {
             foreach (var a in arr.EnumerateArray())
             {
-                bool running = Bool(a, "running");
-                bool hasWebUi = Bool(a, "has_web_ui");
-                var status = Str(a, "status", "");
+                bool running = IsTrue(a, "running");
+                bool hasWebUi = IsTrue(a, "has_web_ui");
+                var status = GetStringOr(a, "status", "");
                 list.Add(new DroboAppRow
                 {
-                    Name = Str(a, "name", ""),
-                    Version = Str(a, "version", ""),
-                    Description = Str(a, "description", ""),
+                    Name = GetStringOr(a, "name", ""),
+                    Version = GetStringOr(a, "version", ""),
+                    Description = GetStringOr(a, "description", ""),
                     Status = status,
                     StatusVisibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible,
                     Running = running,
@@ -3620,8 +3622,8 @@ public partial class MainWindow : Window
                 new { name = row.Name, action = verb });
             if (okStatus && root.TryGetProperty("ok", out var okv) && okv.GetBoolean())
             {
-                var msg = Str(root, "message", "Done.");
-                if (Bool(root, "simulated")) msg += "  [simulated Drobo]";
+                var msg = GetStringOr(root, "message", "Done.");
+                if (IsTrue(root, "simulated")) msg += "  [simulated Drobo]";
                 ShowConfigResult(DroboAppsActionResult, true, msg);
                 // "apps" is omitted when the agent's post-action re-read
                 // failed; its message already says "accepted, unconfirmed"
@@ -3633,7 +3635,7 @@ public partial class MainWindow : Window
             else
             {
                 ShowConfigResult(DroboAppsActionResult, false,
-                    Str(root, "error", "The Drobo did not accept that."));
+                    GetStringOr(root, "error", "The Drobo did not accept that."));
             }
         }
         catch (Exception ex)
@@ -3706,13 +3708,13 @@ public partial class MainWindow : Window
                 // Those get a neutral LOG chip and no separate time, NOT an
                 // "INFO from 1970": the verbatim device line is the message,
                 // so whatever timestamp the device wrote is still on screen.
-                var severity = Str(ev, "severity", "info");
+                var severity = GetStringOr(ev, "severity", "info");
                 var (chipBg, chipFg) = SeverityBrushes(severity);
 
                 // The numeric timestamp, rendered in THIS PC's local time --
                 // never ts_iso, which is both local to wherever the agent runs
                 // and a false 1970 date for an undecoded ts of 0.
-                double ts = Double(ev, "ts");
+                double ts = GetDoubleOrZero(ev, "ts");
                 var when = ts > 0
                     ? DateTimeOffset.FromUnixTimeMilliseconds((long)(ts * 1000))
                         .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
@@ -3722,7 +3724,7 @@ public partial class MainWindow : Window
                 {
                     SeverityText = severity.Length == 0 ? "LOG" : severity.ToUpperInvariant(),
                     When = when,
-                    Message = Str(ev, "message", ""),
+                    Message = GetStringOr(ev, "message", ""),
                     ChipBackground = chipBg,
                     SeverityBrush = chipFg,
                 });

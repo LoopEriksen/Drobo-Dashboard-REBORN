@@ -46,11 +46,11 @@ public static class WriteOutcomes
     /// reading that cannot mislead: it costs a re-read, where a wrong success
     /// tells the user a change is on their Drobo when it may not be.
     /// </summary>
-    public static WriteOutcome Read(bool okStatus, JsonElement root)
+    public static WriteOutcome FromAgentAnswer(bool isSuccessStatus, JsonElement answer)
     {
-        var succeeded = okStatus
-            && root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
-        var claimed = JsonHelpers.Str(root, "outcome", "") switch
+        var succeeded = isSuccessStatus
+            && answer.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
+        var claimed = JsonHelpers.GetStringOr(answer, "outcome", "") switch
         {
             "verified" => WriteOutcome.Confirmed,
             "verified_unacknowledged" => WriteOutcome.ConfirmedUnacknowledged,

@@ -12,17 +12,17 @@ namespace DroboDashboardReborn;
 /// </summary>
 internal static class JsonHelpers
 {
-    public static string Str(JsonElement el, string name, string fallback) =>
+    public static string GetStringOr(JsonElement el, string name, string fallback) =>
         el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? (v.GetString() ?? fallback) : fallback;
 
-    public static long Long(JsonElement el, string name) =>
+    public static long GetInt64OrZero(JsonElement el, string name) =>
         el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : 0;
 
-    public static double Double(JsonElement el, string name) =>
+    public static double GetDoubleOrZero(JsonElement el, string name) =>
         el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
 
-    public static bool Bool(JsonElement el, string name) =>
+    public static bool IsTrue(JsonElement el, string name) =>
         el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
 
     /// <summary>Auto-scaling byte formatter -- B/KB/MB/GB/TB/PB, same thresholds
@@ -31,9 +31,9 @@ internal static class JsonHelpers
     /// reads as "zero free space" on a near-full array when it's anything but.
     /// Zero bytes is a real reading here, not a missing one, so it prints as
     /// "0 B" rather than an em dash.</summary>
-    public static string Bytes(long bytes)
+    public static string FormatBytes(long sizeBytes)
     {
-        double n = bytes;
+        double n = sizeBytes;
         string[] units = { "B", "KB", "MB", "GB", "TB", "PB" };
         int i = 0;
         while (Math.Abs(n) >= 1000 && i < units.Length - 1) { n /= 1000; i++; }

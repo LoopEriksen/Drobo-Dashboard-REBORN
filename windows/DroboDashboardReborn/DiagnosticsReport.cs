@@ -63,20 +63,20 @@ internal static class DiagnosticsReport
         if (root.TryGetProperty("network_hint", out var hint) && hint.ValueKind == JsonValueKind.Object)
         {
             sb.AppendLine("WHY THE DROBO COULD NOT BE REACHED");
-            sb.AppendLine("  " + Str(hint, "headline", ""));
-            sb.AppendLine("  " + Str(hint, "detail", ""));
-            var caveat = Str(hint, "caveat", "");
+            sb.AppendLine("  " + GetStringOr(hint, "headline", ""));
+            sb.AppendLine("  " + GetStringOr(hint, "detail", ""));
+            var caveat = GetStringOr(hint, "caveat", "");
             if (caveat.Length > 0) sb.AppendLine("  " + caveat);
             sb.AppendLine();
         }
 
         sb.AppendLine("DEVICE");
-        AppendField(sb, "Name", Str(device, "name", "Drobo"));
-        AppendField(sb, "Model", Str(device, "model", ""));
-        AppendField(sb, "Firmware", Str(device, "firmware", "?"));
-        AppendField(sb, "Address", Str(device, "ip", ""));
-        AppendField(sb, "Status", Str(root, "overall_state", "unknown") + (reachable ? "" : "  (unreachable)"));
-        AppendField(sb, "Uptime", FormatUptime(Long(device, "uptime_seconds")));
+        AppendField(sb, "Name", GetStringOr(device, "name", "Drobo"));
+        AppendField(sb, "Model", GetStringOr(device, "model", ""));
+        AppendField(sb, "Firmware", GetStringOr(device, "firmware", "?"));
+        AppendField(sb, "Address", GetStringOr(device, "ip", ""));
+        AppendField(sb, "Status", GetStringOr(root, "overall_state", "unknown") + (reachable ? "" : "  (unreachable)"));
+        AppendField(sb, "Uptime", FormatUptime(GetInt64OrZero(device, "uptime_seconds")));
         // Sits with the version it is about. Only present for the builds Drobo
         // withdrew, and worth carrying into a support thread: anyone reading
         // this report otherwise has to know the 5N's release history to spot it.
@@ -84,7 +84,7 @@ internal static class DiagnosticsReport
             && fw.ValueKind == JsonValueKind.Object
             && fw.TryGetProperty("notable", out var n) && n.ValueKind == JsonValueKind.True)
         {
-            AppendField(sb, "Firmware note", Str(fw, "headline", ""));
+            AppendField(sb, "Firmware note", GetStringOr(fw, "headline", ""));
         }
         sb.AppendLine();
 
@@ -92,11 +92,11 @@ internal static class DiagnosticsReport
         {
             sb.AppendLine("CAPACITY");
             double frac = cap.TryGetProperty("used_fraction", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDouble() : 0;
-            AppendField(sb, "Used", $"{Bytes(Long(cap, "used_bytes"))}  ({frac * 100:0.0}%)");
-            AppendField(sb, "Free", Bytes(Long(cap, "free_bytes")));
-            AppendField(sb, "Usable", Bytes(Long(cap, "usable_bytes")));
-            AppendField(sb, "Protection", Bytes(Long(cap, "protection_bytes")));
-            AppendField(sb, "Raw", Bytes(Long(cap, "raw_bytes")));
+            AppendField(sb, "Used", $"{FormatBytes(GetInt64OrZero(cap, "used_bytes"))}  ({frac * 100:0.0}%)");
+            AppendField(sb, "Free", FormatBytes(GetInt64OrZero(cap, "free_bytes")));
+            AppendField(sb, "Usable", FormatBytes(GetInt64OrZero(cap, "usable_bytes")));
+            AppendField(sb, "Protection", FormatBytes(GetInt64OrZero(cap, "protection_bytes")));
+            AppendField(sb, "Raw", FormatBytes(GetInt64OrZero(cap, "raw_bytes")));
             sb.AppendLine();
         }
 
@@ -113,9 +113,9 @@ internal static class DiagnosticsReport
                     continue;
                 }
 
-                var state = Str(d, "state", "unknown");
-                var model = Str(d, "model", "disk");
-                var serial = Str(d, "serial", "");
+                var state = GetStringOr(d, "state", "unknown");
+                var model = GetStringOr(d, "model", "disk");
+                var serial = GetStringOr(d, "serial", "");
                 double? tempC = d.TryGetProperty("temperature_c", out var t) && t.ValueKind == JsonValueKind.Number
                     ? t.GetDouble() : (double?)null;
                 var tail = tempC.HasValue ? $"{tempC:0.0}C" : "";
@@ -129,16 +129,16 @@ internal static class DiagnosticsReport
         {
             sb.AppendLine("RECENT EVENTS");
             foreach (var e in events.EnumerateArray())
-                sb.AppendLine($"  {Str(e, "ts_iso", "?"),-20} {Str(e, "severity", "info"),-8} {Str(e, "message", "")}");
+                sb.AppendLine($"  {GetStringOr(e, "ts_iso", "?"),-20} {GetStringOr(e, "severity", "info"),-8} {GetStringOr(e, "message", "")}");
             sb.AppendLine();
         }
 
         if (root.TryGetProperty("performance", out var perf) && perf.ValueKind == JsonValueKind.Object)
         {
             sb.AppendLine("PERFORMANCE");
-            AppendField(sb, "Read", Long(perf, "read_mb_per_s") + " MB/s");
-            AppendField(sb, "Write", Long(perf, "write_mb_per_s") + " MB/s");
-            AppendField(sb, "IOPS", Long(perf, "iops").ToString());
+            AppendField(sb, "Read", GetInt64OrZero(perf, "read_mb_per_s") + " MB/s");
+            AppendField(sb, "Write", GetInt64OrZero(perf, "write_mb_per_s") + " MB/s");
+            AppendField(sb, "IOPS", GetInt64OrZero(perf, "iops").ToString());
             // When the Drobo sent these: a failed fetch keeps the last figures,
             // so they can be much older than the report.
             if (perf.TryGetProperty("measured_at", out var measuredAt) && measuredAt.ValueKind == JsonValueKind.Number)
