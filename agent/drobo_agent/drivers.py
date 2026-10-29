@@ -499,18 +499,19 @@ class MockDriver(DroboDriver):
         return {"verified": True,
                 "acknowledged": self._write_fault != WRITE_FAULT_HANGS_UP}
 
-    def set_dimming(self, value: int) -> dict:
+    def set_dimming(self, brightness: int) -> dict:
         from drobo_nasd.droboapps import _DIMMING_MIN, _DIMMING_MAX
-        if (isinstance(value, bool) or not isinstance(value, int)
-                or not (_DIMMING_MIN <= value <= _DIMMING_MAX)):
+        if (isinstance(brightness, bool) or not isinstance(brightness, int)
+                or not (_DIMMING_MIN <= brightness <= _DIMMING_MAX)):
             raise ValueError(
                 f"brightness must be a whole number "
                 f"{_DIMMING_MIN}-{_DIMMING_MAX}")
         with self._lock:
             self._refuse_if_injected()
-            self._dimming = value
-            self._record_event(SEVERITY_INFO,
-                               f"LED brightness set to {value} (mock driver)")
+            self._dimming = brightness
+            self._record_event(
+                SEVERITY_INFO,
+                f"LED brightness set to {brightness} (mock driver)")
             return self._write_ending()
 
     def set_spindown(self, delay) -> dict:
@@ -580,7 +581,8 @@ class MockDriver(DroboDriver):
                 SEVERITY_INFO,
                 f"DroboApp {app_name!r}: {action} (mock driver)")
 
-    def set_share_access(self, share: str, user: str, access: str) -> dict:
+    def set_share_access(self, share_name: str, username: str,
+                         access_code: str) -> dict:
         """One user's access on one share, on the per-instance share
         config. Same rules as sharewrite: code must be 0, a CONFIRMED
         code, or one already on the device; the share must resolve
@@ -599,32 +601,33 @@ class MockDriver(DroboDriver):
                 for user_node in (user_element
                                   if isinstance(user_element, list)
                                   else [user_element]):
-                    access_code = str(
+                    stored_code = str(
                         user_node.get("ShareUserAccess", "")).strip()
-                    if access_code:
-                        allowed_codes.add(access_code)
-            if access not in allowed_codes:
+                    if stored_code:
+                        allowed_codes.add(stored_code)
+            if access_code not in allowed_codes:
                 raise ValueError(
-                    f"access code {access!r} is neither confirmed nor on "
-                    f"this device (allowed: {sorted(allowed_codes)}); "
+                    f"access code {access_code!r} is neither confirmed nor "
+                    f"on this device (allowed: {sorted(allowed_codes)}); "
                     f"refusing to invent a code")
             exact_matches = [
                 share_node for share_node in shares
-                if (share_node.get("ShareName") or "").strip() == share]
+                if (share_node.get("ShareName") or "").strip() == share_name]
             case_folded_matches = [
                 share_node for share_node in shares
                 if (share_node.get("ShareName") or "").strip().lower()
-                == share.lower()]
+                == share_name.lower()]
             if len(exact_matches) == 1:
                 target_share = exact_matches[0]
             elif len(case_folded_matches) == 1:
                 target_share = case_folded_matches[0]
             elif not case_folded_matches:
-                raise ValueError(f"no share named {share!r} on this device")
+                raise ValueError(
+                    f"no share named {share_name!r} on this device")
             else:
                 raise ValueError(
-                    f"{len(case_folded_matches)} shares fold to {share!r}; "
-                    f"ambiguous -- refusing")
+                    f"{len(case_folded_matches)} shares fold to "
+                    f"{share_name!r}; ambiguous -- refusing")
             # A share created by create_share holds ShareUsers None --
             # the dict rendering of the empty <ShareUsers/> element a
             # real device stores for a share nobody can reach yet. `or
@@ -638,20 +641,21 @@ class MockDriver(DroboDriver):
             matching_users = [
                 user_node for user_node in users
                 if (user_node.get("ShareUsername") or "").strip().lower()
-                == user.lower()]
+                == username.lower()]
             if len(matching_users) > 1:
                 raise ValueError(
-                    f"{len(matching_users)} user rows fold to {user!r} "
-                    f"on {share!r}; ambiguous -- refusing")
+                    f"{len(matching_users)} user rows fold to {username!r} "
+                    f"on {share_name!r}; ambiguous -- refusing")
             # Last point at which nothing has changed yet -- where an
             # injected refusal has to happen for it to leave the device
             # untouched.
             self._refuse_if_injected()
             if matching_users:
-                matching_users[0]["ShareUserAccess"] = access
+                matching_users[0]["ShareUserAccess"] = access_code
             else:
                 users.append(
-                    {"ShareUsername": user, "ShareUserAccess": access})
+                    {"ShareUsername": username,
+                     "ShareUserAccess": access_code})
             share_users_node["ShareUser"] = (users[0] if len(users) == 1
                                              else users)
             target_share["ShareUsers"] = share_users_node
@@ -660,7 +664,8 @@ class MockDriver(DroboDriver):
                 + 1)
             self._record_event(
                 SEVERITY_INFO,
-                f"{user!r} on {share!r} set to access {access} (mock driver)")
+                f"{username!r} on {share_name!r} set to access "
+                f"{access_code} (mock driver)")
             return self._write_ending()
 
     def create_share(self, name: str) -> dict:

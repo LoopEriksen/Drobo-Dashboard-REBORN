@@ -447,7 +447,8 @@ def _derive_volume_name(share_config: ElementTree.Element) -> str:
         f"explicitly -- this will not guess.")
 
 
-def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
+def create_share(host: str, esa_id: str, share_name: str,
+                 volume: str | None = None,
                  port: int = config_cmd.DEFAULT_PORT, timeout: float = 10.0,
                  verify: bool = True) -> dict:
     """
@@ -460,7 +461,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     The new share starts with an empty <ShareUsers/> -- no access for
     anyone until set_share_user_access grants it.
 
-    `name` is validated exactly as given: it must fit
+    `share_name` is validated exactly as given: it must fit
     _SHARE_NAME_PATTERN, and a name with surrounding whitespace is
     refused rather than silently renamed -- every stored-name comparison
     in this module strips, so a name that does not survive a strip could
@@ -495,16 +496,16 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     unreachable device, or for a write the read-back shows did not
     apply.
     """
-    name = name or ""
-    if name != name.strip():
+    share_name = share_name or ""
+    if share_name != share_name.strip():
         raise ShareEditError(
-            f"invalid share name {name!r}: surrounding whitespace is refused "
-            f"rather than silently stripped -- every stored-name comparison "
-            f"in this module strips, so such a name could never be verified "
-            f"after writing.")
-    if not _SHARE_NAME_PATTERN.match(name):
+            f"invalid share name {share_name!r}: surrounding whitespace is "
+            f"refused rather than silently stripped -- every stored-name "
+            f"comparison in this module strips, so such a name could never "
+            f"be verified after writing.")
+    if not _SHARE_NAME_PATTERN.match(share_name):
         raise ShareEditError(
-            f"invalid share name {name!r}: must be {_SHARE_NAME_RULE}. "
+            f"invalid share name {share_name!r}: must be {_SHARE_NAME_RULE}. "
             f"This rule is deliberately narrower than the device may allow.")
     volume = (volume or "").strip() or None
     if volume is not None and any(ch in volume for ch in "&<>"):
@@ -517,7 +518,8 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     def edit(share_config: ElementTree.Element) -> str:
         names_before = [(e.text or "").strip()
                         for e in share_config.iter("ShareName")]
-        clashing_names = [n for n in names_before if n.lower() == name.lower()]
+        clashing_names = [n for n in names_before
+                          if n.lower() == share_name.lower()]
         if clashing_names:
             raise ShareEditError(
                 f"a share named {clashing_names[0]!r} already exists on this "
@@ -541,7 +543,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
                 "close tag to insert before -- an empty or missing <Shares> "
                 "container is a shape no capture has shown a share appended "
                 "to. Refusing rather than guessing where the node goes.")
-        new_share_node = _NEW_SHARE_NODE.format(name=name,
+        new_share_node = _NEW_SHARE_NODE.format(name=share_name,
                                                 volume=chosen_volume)
         document_to_send = document.replace("</Shares>",
                                             new_share_node + "</Shares>")
@@ -552,7 +554,7 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         names_after = [(e.text or "").strip()
                        for e in ElementTree.fromstring(
                            document_to_send).iter("ShareName")]
-        if names_after != names_before + [name]:
+        if names_after != names_before + [share_name]:
             raise ShareEditError(
                 "the spliced document does not read back as the existing "
                 "shares plus the new one -- refusing. This should be "
@@ -560,7 +562,8 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
         return document_to_send
 
     def _now_listed() -> bool:
-        return name in _read_back_share_names(host, esa_id, port, timeout)
+        return share_name in _read_back_share_names(host, esa_id, port,
+                                                    timeout)
 
     # MEASURED 2026-08-25/26: this is the write the device took and then
     # hung up on without answering. `readback` is what stops that being
@@ -572,11 +575,11 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
                                            readback=_now_listed)
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         raise ShareWriteOutcomeUnknownError(
-            f"the write creating share {name!r} WAS sent, but neither the "
-            "device's acknowledgement nor a read-back could settle whether it "
-            f"applied ({exc}). The share MAY now exist. Re-read the share "
-            "config before deciding anything -- and do NOT simply "
-            "retry the create.") from exc
+            f"the write creating share {share_name!r} WAS sent, but "
+            "neither the device's acknowledgement nor a read-back could "
+            f"settle whether it applied ({exc}). The share MAY now exist. "
+            "Re-read the share config before deciding anything -- "
+            "and do NOT simply retry the create.") from exc
 
     # Stop here without a fresh read in two cases: config_cmd already
     # settled this write by reading the device back (its verdict IS the
@@ -593,20 +596,20 @@ def create_share(host: str, esa_id: str, name: str, volume: str | None = None,
     except (OSError, config_cmd.ConfigError) as exc:
         result["verified"] = None
         raise ShareWriteOutcomeUnknownError(
-            f"the device ACCEPTED the write creating share {name!r}, but the "
-            f"read-back to confirm it could not be completed "
+            f"the device ACCEPTED the write creating share {share_name!r}, "
+            f"but the read-back to confirm it could not be completed "
             f"({type(exc).__name__}: {exc}). The share was most likely "
             f"created. Re-read the share config before deciding anything -- "
             f"and do NOT simply retry the write.") from exc
-    result["verified"] = name in listed_names
+    result["verified"] = share_name in listed_names
     if not result["verified"]:
         raise ShareEditError(
-            f"the device accepted the write but share {name!r} does not read "
-            f"back as present. Received, not applied.")
+            f"the device accepted the write but share {share_name!r} does "
+            f"not read back as present. Received, not applied.")
     return result
 
 
-def delete_share(host: str, esa_id: str, name: str,
+def delete_share(host: str, esa_id: str, share_name: str,
                  port: int = config_cmd.DEFAULT_PORT, timeout: float = 10.0,
                  verify: bool = True) -> dict:
     """
@@ -639,14 +642,14 @@ def delete_share(host: str, esa_id: str, name: str,
     unreachable device, or for a delete the read-back shows did not
     happen.
     """
-    name = (name or "").strip()
-    if not name:
+    share_name = (share_name or "").strip()
+    if not share_name:
         raise ShareEditError("no share name given")
 
     resolved_target: dict[str, str] = {}
 
     def edit(share_config: ElementTree.Element) -> None:
-        target_share = _resolve_share(share_config, name)
+        target_share = _resolve_share(share_config, share_name)
         actual_name = _child_text(target_share, "ShareName")
         resolved_target["name"] = actual_name
 
@@ -697,11 +700,11 @@ def delete_share(host: str, esa_id: str, name: str,
                                            readback=_now_gone)
     except config_cmd.ConfigWriteOutcomeUnknownError as exc:
         raise ShareWriteOutcomeUnknownError(
-            f"the delete of share {name!r} WAS sent, but neither the device's "
-            "acknowledgement nor a read-back could settle whether it applied "
-            f"({exc}). The share MAY already be gone -- and with it whatever "
-            "it held. Re-read the share config before deciding anything -- "
-            "and do NOT simply retry the delete.") from exc
+            f"the delete of share {share_name!r} WAS sent, but neither the "
+            "device's acknowledgement nor a read-back could settle whether "
+            f"it applied ({exc}). The share MAY already be gone -- and with "
+            "it whatever it held. Re-read the share config before deciding "
+            "anything -- and do NOT simply retry the delete.") from exc
 
     target_name = resolved_target["name"]
     # Stop here without a fresh read in two cases: config_cmd already

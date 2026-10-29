@@ -23,6 +23,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   because something outside the code reads them (routes, JSON and config
   keys, CLI flags, environment variables, file and registry names).
   Nothing the software does changes. (2026-10-29)
+- **Write-path parameters name the thing they set.** For testers who call
+  the SDK or the simulated driver from their own scripts by keyword, these
+  parameter names changed (positional calls are unaffected):
+  `droboapps.set_dimming(value)` -> `set_dimming(brightness)`;
+  `sharewrite.create_share(name)` -> `create_share(share_name)`;
+  `sharewrite.delete_share(name)` -> `delete_share(share_name)`;
+  `MockDriver.set_dimming(value)` -> `set_dimming(brightness)`;
+  `MockDriver.set_share_access(share, user, access)` ->
+  `set_share_access(share_name, username, access_code)`. A rename only:
+  every check, its order, every error message and every byte sent to the
+  Drobo are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

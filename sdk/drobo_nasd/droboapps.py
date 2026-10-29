@@ -386,8 +386,9 @@ def _make_general_block_builder(field_name=None, new_value=None, *,
     return build_section_document
 
 
-def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
-                timeout: float = 8.0, verify: bool = True) -> dict:
+def set_dimming(host: str, esa_id: str, brightness: int,
+                port: int = DEFAULT_PORT, timeout: float = 8.0,
+                verify: bool = True) -> dict:
     """
     Set the front-panel LED brightness. The first configuration WRITE
     this project sends -- and it is a genuine read-modify-write, not a
@@ -442,12 +443,13 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     # how the project gates its one other write path (identify.py).
     from .config_cmd import set_config
 
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(brightness, bool) or not isinstance(brightness, int):
         raise DimmingWriteError(
-            f"brightness must be a whole number, not {type(value).__name__}")
-    if not (_DIMMING_MIN <= value <= _DIMMING_MAX):
+            f"brightness must be a whole number, "
+            f"not {type(brightness).__name__}")
+    if not (_DIMMING_MIN <= brightness <= _DIMMING_MAX):
         raise DimmingWriteError(
-            f"brightness {value} is outside the "
+            f"brightness {brightness} is outside the "
             f"{_DIMMING_MIN}-{_DIMMING_MAX} sanity "
             f"band; the scale is unconfirmed, so a value beyond it is far "
             f"more likely a mistake than an intention")
@@ -458,10 +460,11 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     # create, 2026-08-25/26), so the arbiter is passed whatever `verify`
     # says -- see config_cmd._send_section_document.
     def _reads_back() -> bool:
-        return get_dimming(host, esa_id, port=port, timeout=timeout) == value
+        return get_dimming(host, esa_id, port=port,
+                           timeout=timeout) == brightness
 
     result = set_config(host, esa_id, "general",
-                        _make_general_block_builder("Dim", value),
+                        _make_general_block_builder("Dim", brightness),
                         port=port, timeout=timeout, readback=_reads_back)
 
     # Stop here without a fresh read in two cases: config_cmd already
@@ -474,12 +477,12 @@ def set_dimming(host: str, esa_id: str, value: int, port: int = DEFAULT_PORT,
     # Confirm the write actually took, not merely that it was accepted.
     read_back = get_dimming(host, esa_id, port=port, timeout=timeout)
     result["read_back"] = read_back
-    result["verified"] = read_back == value
-    if read_back != value:
+    result["verified"] = read_back == brightness
+    if read_back != brightness:
         raise DimmingWriteError(
             f"the device accepted the write but brightness reads back as "
-            f"{read_back!r}, not {value}. The command was received and not "
-            f"applied -- nothing here can be relied on as changed.")
+            f"{read_back!r}, not {brightness}. The command was received "
+            f"and not applied -- nothing here can be relied on as changed.")
     return result
 
 
