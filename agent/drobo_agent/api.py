@@ -317,11 +317,16 @@ def _identify_message(interval, simulated: bool = False) -> str:
     here, and the way to stop it is offered regardless -- which is
     useful whichever reading turns out to be right.
 
-    Known to be inaccurate, recorded 2026-09-26 and left for a separate
-    decision: the blink reply says the lights "should be blinking now"
-    and that the original Dashboard "used this value". With the default
-    of 15, this project's own guess, the second claim is untrue, and the
-    first has never been observed on this unit.
+    The reply names the value sent and the value the original Dashboard
+    sent, because they differ. Until 2026-10-29 it said the original
+    Dashboard "used this value", which was untrue for the default: the
+    one captured press (2026-07-25) carried IdentifyInterval 900, and
+    DEFAULT_INTERVAL is 15, this project's own guess, kept until 900 has
+    been sent while someone watches the unit (see identify.py).
+
+    Still unobserved, recorded 2026-09-26 and left for a separate
+    decision: the reply says the lights "should be blinking now", which
+    nobody has seen happen on this unit.
     """
     device_label = "Simulated Drobo" if simulated else "The Drobo"
     if interval == nasd_identify.STOP_INTERVAL:
@@ -330,9 +335,10 @@ def _identify_message(interval, simulated: bool = False) -> str:
         return ("Sent with no interval -- the control case. If the lights "
                 "stay still now but blink when an interval is sent, that "
                 "settles what the parameter does.")
-    return (f"Sent. {device_label}'s lights should be blinking now. "
-            f"The original Dashboard used this value and blinked for 15 "
-            f"minutes, so use Stop when you have found the box.")
+    return (f"Sent with interval {interval}. {device_label}'s lights "
+            f"should be blinking now. The original Dashboard sent 900, "
+            f"and its own warning says the lights blink for 15 minutes, "
+            f"so use Stop when you have found the box.")
 
 
 def _app_action_message(name: str, action: str, read_back: dict | None,

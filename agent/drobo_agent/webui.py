@@ -313,8 +313,9 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
              for 15 minutes and the same button stops them, so there is a Stop
              here now. -->
         <span class="quiet" id="identifyMsg">Makes the Drobo blink its front lights, so you
-          can tell which box is which. The original Dashboard blinked for 15
-          minutes -- press Stop once you have found it.</span>
+          can tell which box is which. The original Dashboard's own warning
+          says they blink for 15 minutes -- press Stop once you have found
+          it.</span>
       </div>
       <div class="toolrow" style="margin-top:.6rem">
         <button type="button" id="appsBtn" class="btn btn-quiet">Show installed software</button>

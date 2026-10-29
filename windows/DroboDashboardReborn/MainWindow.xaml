@@ -1360,7 +1360,7 @@
                                          for 15 minutes and the same button stops them — so it is a
                                          mode, and a mode needs a way out. Hence the Stop button. -->
                                     <TextBlock TextWrapping="Wrap" FontSize="13" Margin="0,0,0,10"
-                                               Text="Blinks the Drobo's front lights so you can tell which box is which. The original Dashboard blinked for 15 minutes, so press Stop once you have found it. Nothing else on the device changes."/>
+                                               Text="Blinks the Drobo's front lights so you can tell which box is which. The original Dashboard's own warning says they blink for 15 minutes, so press Stop once you have found it. Nothing else on the device changes."/>
                                     <StackPanel Orientation="Horizontal">
                                         <Button x:Name="IdentifyBtn" Content="Identify" Style="{StaticResource PrimaryButton}"
                                                 Padding="14,5" Click="IdentifyBtn_Click"/>

@@ -17,6 +17,18 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   working against the real device. Nothing the software does changes; one
   copy of a real share to an external drive moves it. (2026-10-29)
 
+### Fixed
+- **Identify no longer credits the original Dashboard with this app's
+  value.** After a blink, the agent's reply, which both the Windows app and
+  the browser dashboard show, said the original Dashboard "used this
+  value". The value is 15 by default, this project's own guess; the
+  original Dashboard's one captured press (2026-07-25) sent 900. The reply
+  now says which interval was sent and that the original Dashboard sent
+  900, and the help text beside the button in both apps says the 15
+  minutes comes from the original Dashboard's own warning. The default
+  stays 15 and nothing sent to the Drobo changes; it moves to 900 only if
+  900 is seen to blink the lights. (2026-10-29)
+
 ## 1.2.0 -- not yet released
 
 Everything below has landed since 1.1.0.

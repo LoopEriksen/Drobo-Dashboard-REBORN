@@ -122,6 +122,14 @@ try:
     check("the driver actually received it",
           driver._identify_last_interval == identify.DEFAULT_INTERVAL,
           driver._identify_last_interval)
+    # The reply credited the original Dashboard with the value just
+    # sent until 2026-10-29. It sent 900; the default is 15.
+    message = reply.get("message", "")
+    check("the reply does not credit the original Dashboard with 15",
+          "used this value" not in message
+          and "sent 900" in message
+          and f"interval {identify.DEFAULT_INTERVAL}." in message,
+          message)
 
     status, reply = post("/api/identify?interval=45")
     check("a chosen interval is accepted", status == 200, (status, reply))

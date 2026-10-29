@@ -880,6 +880,22 @@ from one, let alone a whole array. That is the same test that moved
 DroboApp start and stop down on 09-26: no record of it reaching a device.
 One copy of a real share to an external drive, from the Tools tab, moves it.
 
+## Identify stops crediting the original with 15 (2026-10-29)
+
+**10-29.** The agent's reply to a blink, which the Windows app and the
+browser dashboard both show, said the original Dashboard "used this value"
+and blinked for 15 minutes. The value was whatever had just been sent, 15 by
+default, and the one captured press of the original's Blink Lights
+(2026-07-25) carried `IdentifyInterval` 900. The wrong claim had been on the
+record since 09-26 as a separate decision; the maintainer asked for the
+wording to be fixed and the default kept. The reply now names the interval it
+sent and says the original Dashboard sent 900, and the 15 minutes, there and
+in both apps' help text, is attributed to the original Dashboard's own
+warning, which is where it comes from. The default stays at 15, and the bytes
+sent are unchanged: 900 is sent only once someone is watching the unit, and
+the default moves only if the lights blink. The reply's "should be blinking
+now", which nobody has seen on this unit, is left for its own decision.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
