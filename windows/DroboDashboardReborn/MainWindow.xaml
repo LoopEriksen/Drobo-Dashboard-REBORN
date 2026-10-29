@@ -706,7 +706,7 @@
                                 <StackPanel>
                                     <TextBlock Text="CAPACITY" Style="{StaticResource Label}" Margin="0,0,0,6"/>
                                     <!-- Filled proportionally via Grid star-columns (set in
-                                         Render), not a pixel Width read off ActualWidth — the
+                                         RenderStatus), not a pixel Width read off ActualWidth — the
                                          landing page means this can render for the first time
                                          while its own Grid.Row is still Collapsed, when
                                          ActualWidth would just be zero. Star-sizing is resolved

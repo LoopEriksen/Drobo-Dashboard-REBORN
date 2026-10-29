@@ -110,8 +110,8 @@ public partial class MainWindow : Window
     // because it's ever expected to be missing afterwards.
     private TrayIconManager? _tray;
 
-    // Device name + overall health as of the last successful Render(), kept
-    // around so Refresh() can hand the tray icon a tooltip/badge update
+    // Device name + overall health as of the last successful RenderStatus(), kept
+    // around so RefreshStatus() can hand the tray icon a tooltip/badge update
     // without re-fetching anything -- it already has this from the same
     // /api/status response.
     private string _lastDeviceName = "Drobo";
@@ -178,7 +178,7 @@ public partial class MainWindow : Window
         DroboAppsList.ItemsSource = _droboApps;
         EventLogList.ItemsSource = _eventLog;
 
-        _timer.Tick += async (_, _) => await Refresh();
+        _timer.Tick += async (_, _) => await RefreshStatus();
 
         TryAutoFillFromAgentConfig();
 
@@ -1162,7 +1162,7 @@ public partial class MainWindow : Window
     private async Task ConnectAndShowDashboard(DiscoveredDeviceRow? device = null)
     {
         _timer.Stop();
-        var (ok, error) = await Refresh();
+        var (ok, error) = await RefreshStatus();
         if (ok)
         {
             _timer.Start();
@@ -1264,7 +1264,7 @@ public partial class MainWindow : Window
     // Status polling (unchanged behaviour, just returns whether it worked)
     // ---------------------------------------------------------------
 
-    private async Task<(bool ok, string? error)> Refresh()
+    private async Task<(bool ok, string? error)> RefreshStatus()
     {
         // Which Drobo this poll belongs to. If the user leaves for the picker
         // while we are awaiting, everything below is about a device they are
@@ -1292,7 +1292,7 @@ public partial class MainWindow : Window
             // the instant it connected. That is precisely the interruption
             // AlertNotifier rule 2 exists to prevent.
             if (generation != _generation) return (false, null);
-            Render(JsonDocument.Parse(json).RootElement);
+            RenderStatus(JsonDocument.Parse(json).RootElement);
         }
         catch (Exception ex)
         {
@@ -1677,14 +1677,14 @@ public partial class MainWindow : Window
 
                 if (isActive)
                 {
-                    row.SortTime = GetDoubleOrZero(a, "first_seen");
+                    row.SortTimeUnixSeconds = GetDoubleOrZero(a, "first_seen");
                     activeList.Add(row);
                 }
                 else
                 {
                     var clearedAt = GetDoubleOrZero(a, "cleared_at");
                     row.ClearedText = "cleared " + RelativeTime(clearedAt);
-                    row.SortTime = clearedAt;
+                    row.SortTimeUnixSeconds = clearedAt;
                     resolvedList.Add(row);
                 }
             }
@@ -1727,7 +1727,7 @@ public partial class MainWindow : Window
         {
             int rx = SeverityRank.TryGetValue(x.Severity, out var vx) ? vx : int.MaxValue;
             int ry = SeverityRank.TryGetValue(y.Severity, out var vy) ? vy : int.MaxValue;
-            return rx != ry ? rx.CompareTo(ry) : y.SortTime.CompareTo(x.SortTime);
+            return rx != ry ? rx.CompareTo(ry) : y.SortTimeUnixSeconds.CompareTo(x.SortTimeUnixSeconds);
         });
     }
 
@@ -1880,7 +1880,7 @@ public partial class MainWindow : Window
                 {
                     Name = GetStringOr(s, "name", ""),
                     Unc = unc,
-                    TimeMachine = timeMachine,
+                    IsTimeMachine = timeMachine,
                     TimeMachineVisibility = timeMachine ? Visibility.Visible : Visibility.Collapsed,
                     IsConnected = connected,
                     DriveLetter = letter,
@@ -2256,7 +2256,7 @@ public partial class MainWindow : Window
         return sb.ToString();
     }
 
-    private void Render(JsonElement s)
+    private void RenderStatus(JsonElement s)
     {
         // NOT every /api/status payload is a reading, and this method used to
         // assume otherwise. Two ways that went wrong, both found by review on
@@ -2350,7 +2350,7 @@ public partial class MainWindow : Window
         ShowFirmwareAdvisory(s.TryGetProperty("firmware_advisory", out var fw)
                              && fw.ValueKind == JsonValueKind.Object ? fw : default);
 
-        // Remembered for the tray icon's tooltip/badge -- see Refresh(),
+        // Remembered for the tray icon's tooltip/badge -- see RefreshStatus(),
         // which hands these to TrayIconManager.UpdateStatus once alerts for
         // this same tick are in too.
         _lastDeviceName = DeviceName.Text;

@@ -14,7 +14,7 @@ public partial class DiagnosticsChoiceDialog : Window
     public enum Choice { Cancelled, Clipboard, File }
 
     public Choice Result { get; private set; } = Choice.Cancelled;
-    public bool RememberChoice => Remember.IsChecked == true;
+    public bool RememberChoice => RememberCheck.IsChecked == true;
 
     public DiagnosticsChoiceDialog()
     {

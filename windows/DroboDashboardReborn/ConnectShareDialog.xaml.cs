@@ -54,7 +54,7 @@ public partial class ConnectShareDialog : Window
         _simulatedSignIn = simulatedSignIn;
 
         Header.Text = "Connect to " + shareName;
-        Sub.Text = uncPath;
+        SubtitleText.Text = uncPath;
 
         // Free letters only, Z downward. "Mount or not" is the checkbox now,
         // so the list no longer carries a "(none)" entry pretending to be a
@@ -92,7 +92,7 @@ public partial class ConnectShareDialog : Window
         if (savedUser is not null)
         {
             if (savedUser.Length > 0) UsernameBox.Text = savedUser;
-            Remember.IsChecked = true;
+            RememberCheck.IsChecked = true;
             RememberNote.Text = savedUser.Length > 0
                 ? $"A login for {_host} is already saved on this PC, as {savedUser}. "
                   + "Leave the password blank to use it, or type one to replace it."
@@ -105,8 +105,8 @@ public partial class ConnectShareDialog : Window
         {
             // Nothing to key a credential to. Say so rather than showing a
             // box that would quietly do nothing.
-            Remember.IsEnabled = false;
-            Remember.IsChecked = false;
+            RememberCheck.IsEnabled = false;
+            RememberCheck.IsChecked = false;
             RememberNote.Text = "This share is not a \\\\server\\share path, so there is no "
                               + "server name to save a login against.";
             RememberNote.Visibility = Visibility.Visible;
@@ -114,8 +114,8 @@ public partial class ConnectShareDialog : Window
 
         if (_simulatedSignIn is not null)
         {
-            Remember.IsEnabled = false;
-            Remember.IsChecked = false;
+            RememberCheck.IsEnabled = false;
+            RememberCheck.IsChecked = false;
             ForgetLink.Visibility = Visibility.Collapsed;
             RememberNote.Text = "This is the simulated Drobo. The simulator checks the login and "
                               + "nothing is saved to Windows. Its account is user admin, password admin.";
@@ -143,7 +143,7 @@ public partial class ConnectShareDialog : Window
             RememberNote.Text = $"The saved login for {_host} has been removed from this PC.";
             RememberNote.Visibility = Visibility.Visible;
             ForgetLink.Visibility = Visibility.Collapsed;
-            Remember.IsChecked = false;
+            RememberCheck.IsChecked = false;
             PasswordInput.Clear();
         }
         else
@@ -200,7 +200,7 @@ public partial class ConnectShareDialog : Window
         {
             driveLetter = letter;
         }
-        bool remember = Remember.IsChecked == true;
+        bool remember = RememberCheck.IsChecked == true;
 
         SetBusy(true);
         try

@@ -34,18 +34,18 @@ public partial class DeleteShareDialog : Window
     public WriteOutcome ResultOutcome { get; private set; } = WriteOutcome.Confirmed;
 
     /// <param name="shareName">The share to delete, exactly as the device lists it.</param>
-    /// <param name="delete">POSTs /api/shares/delete with the typed confirmation
+    /// <param name="postDelete">POSTs /api/shares/delete with the typed confirmation
     /// and returns (outcome, message) -- message is the agent's own wording
     /// whichever way it went.</param>
     public DeleteShareDialog(string shareName,
-        Func<string, Task<(WriteOutcome outcome, string message)>> delete)
+        Func<string, Task<(WriteOutcome outcome, string message)>> postDelete)
     {
         InitializeComponent();
         _shareName = shareName;
-        _delete = delete;
+        _delete = postDelete;
 
         Header.Text = "Delete " + shareName;
-        Sub.Text = "This tells the Drobo to remove the share itself, not just this app's view of it.";
+        SubtitleText.Text = "This tells the Drobo to remove the share itself, not just this app's view of it.";
         WarningText.Text = "Deleting " + shareName + " is expected to destroy everything stored "
             + "in it. It cannot be undone from this app.";
         ConfirmHint.Text = "Delete stays off until the box reads exactly " + shareName

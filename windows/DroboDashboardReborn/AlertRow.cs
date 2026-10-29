@@ -26,7 +26,7 @@ public sealed class AlertRow
 
     /// <summary>first_seen for an active alert, cleared_at for a resolved one.
     /// Not shown anywhere -- only used to sort newest-first within a severity band.</summary>
-    public double SortTime { get; set; }
+    public double SortTimeUnixSeconds { get; set; }
 
     public Brush ChipBackground { get; set; } = Brushes.Transparent;
     public Brush SeverityBrush { get; set; } = Brushes.Gray;

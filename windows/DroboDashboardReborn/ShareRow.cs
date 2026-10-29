@@ -15,7 +15,7 @@ public sealed class ShareRow
 {
     public string Name { get; set; } = "";
     public string Unc { get; set; } = "";
-    public bool TimeMachine { get; set; }
+    public bool IsTimeMachine { get; set; }
     public Visibility TimeMachineVisibility { get; set; } = Visibility.Collapsed;
 
     public bool IsConnected { get; set; }

@@ -15,7 +15,7 @@ public sealed class DriveRow
 
     /// <summary>"ACME DISK-3000A  ·  serial" -- model with internal whitespace
     /// runs collapsed (the agent's model strings have padding baked in) and
-    /// serial appended, built once in MainWindow.Render so the row stays a
+    /// serial appended, built once in MainWindow.RenderStatus so the row stays a
     /// plain binding.</summary>
     public string ModelSerial { get; set; } = "";
 

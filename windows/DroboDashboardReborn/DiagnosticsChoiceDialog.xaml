@@ -43,7 +43,7 @@
                        Text="Either way, this includes your drive serial numbers -- check where it ends up before sharing it anywhere public."/>
         </Border>
 
-        <CheckBox x:Name="Remember" Content="Remember my choice" Foreground="#E6EBF0" Margin="0,0,0,4"/>
+        <CheckBox x:Name="RememberCheck" Content="Remember my choice" Foreground="#E6EBF0" Margin="0,0,0,4"/>
         <TextBlock Style="{StaticResource Label}" TextWrapping="Wrap" Margin="0,0,0,16"
                    Text="You can change this later from the Tools tab."/>
 
