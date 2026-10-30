@@ -118,23 +118,148 @@ NOT_TESTED: dict[str, str] = {
 }
 
 
-def main(argv=None) -> int:
+# nasd's status channel, where the unprompted greeting arrives.
+STATUS_PORT = 5000
+# How long to wait for that greeting.
+GREETING_TIMEOUT_SECONDS = 8
+# Per command, covering the connect and each read.
+COMMAND_TIMEOUT_SECONDS = 6.0
+# A breather between commands, because the command port tires.
+PAUSE_BETWEEN_COMMANDS_SECONDS = 0.5
+# This many timeouts in a row stop the sweep.
+MAX_CONSECUTIVE_TIMEOUTS = 3
+
+
+def _parse_arguments(argv) -> argparse.Namespace:
+    """Read the command line (the module docstring is the --help)."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("host", nargs="?", default="")
     parser.add_argument("--out", default="")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def _host_from_agent_config():
+    """The Drobo address in agent/config.json, or "" if it has none."""
+    try:
+        agent_config = json.load(open(
+            os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
+            encoding="utf-8"))
+        return agent_config["drobo"].get("host", "")
+    except (OSError, KeyError, ValueError):
+        return ""
+
+
+def _fetch_identity(host: str) -> dict | None:
+    """The identity in `host`'s status greeting, or None (said why).
+
+    The command login carries the serial, so the sweep cannot start
+    without this.
+    """
+    try:
+        return esatm.parse_identity(
+            esatm.fetch_greeting(host, STATUS_PORT,
+                                 timeout=GREETING_TIMEOUT_SECONDS))
+    except OSError as exc:
+        print(f"Could not reach the Drobo at {host}: {exc}")
+        return None
+
+
+def _print_record_line(record: dict) -> None:
+    """Print one command's outcome under its "[n/N] name" line."""
+    status = record["status"]
+    detail_suffix = ""
+    if status == "answered":
+        detail_suffix = f", {len(record.get('tags', []))} fields"
+        if record.get("escaped_document"):
+            detail_suffix += "  [escaped inner document]"
+    if record.get("detail"):
+        detail_suffix += f"  ({str(record['detail'])[:60]})"
+    print(f"    -> {status}{detail_suffix}", flush=True)
+
+
+def _sweep(host: str, esa_id: str) -> list[dict]:
+    """Send REMAINDER one fresh login at a time, and return the records.
+
+    nasd_sweep.send_one_command does the login, the empty-parameter
+    request and the redaction, so the bytes are the first sweep's.
+    MAX_CONSECUTIVE_TIMEOUTS in a row stop it, because the command port
+    is known to tire.
+    """
+    results = []
+    consecutive_timeouts = 0
+    for position, command_name in enumerate(REMAINDER, 1):
+        command_id = commands.COMMANDS[command_name]
+        print(f"[{position}/{len(REMAINDER)}] {command_name} "
+              f"(id {command_id}) ...", flush=True)
+        record = nasd_sweep.send_one_command(
+            host, nasd_sweep.DEFAULT_COMMAND_PORT, esa_id, command_id,
+            COMMAND_TIMEOUT_SECONDS)
+        record["name"], record["cmd_id"] = command_name, command_id
+        results.append(record)
+        _print_record_line(record)
+
+        if record["status"] == "timeout":
+            consecutive_timeouts += 1
+        else:
+            consecutive_timeouts = 0
+        if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+            print("\n!! three consecutive timeouts -- stopping. "
+                  "The device may be tiring; not sending the rest.")
+            break
+        time.sleep(PAUSE_BETWEEN_COMMANDS_SECONDS)
+    return results
+
+
+def _verify_still_healthy(host: str) -> None:
+    """Say whether the status greeting still arrives after the sweep."""
+    print("\nVerifying the device is still healthy ...")
+    try:
+        esatm.parse_identity(
+            esatm.fetch_greeting(host, STATUS_PORT,
+                                 timeout=GREETING_TIMEOUT_SECONDS))
+        print("  status port OK -- greeting still arriving.")
+    except OSError as exc:
+        print(f"  !! status port did not answer: {exc}")
+
+
+def _print_summary(results: list[dict]) -> None:
+    """Count the records by status, then list what stays untested.
+
+    The untested list is printed every time so the gap is never
+    something a reader has to work out.
+    """
+    print("\n== summary ==")
+    for status_name in ("answered", "empty", "refused", "timeout"):
+        status_count = sum(1 for record in results
+                           if record["status"] == status_name)
+        if status_count:
+            print(f"  {status_name:9} {status_count}")
+
+    print("\n== still untested, deliberately ==")
+    for command_name, reason in NOT_TESTED.items():
+        print(f"  {command_name:24} {reason}")
+
+
+def _write_report(report_path: str, host: str, results: list[dict]) -> None:
+    """Write the (already redacted) records as JSON, and say where."""
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump({"host": host, "results": results}, report_file, indent=1)
+    print(f"\nRedacted report: {report_path}")
+    print("(outside the repo -- not meant to be committed)")
+
+
+def main(argv=None) -> int:
+    """Check the list, read the serial, sweep, check health, report.
+
+    The module docstring says why each of the seven is safe to send.
+    """
+    args = _parse_arguments(argv)
 
     host = args.host
     if not host:
-        try:
-            agent_config = json.load(open(
-                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
-                encoding="utf-8"))
-            host = agent_config["drobo"].get("host", "")
-        except (OSError, KeyError, ValueError):
-            pass
+        host = _host_from_agent_config()
     if not host or host == "auto":
         print("No Drobo address. Pass one, e.g.  "
               "py tools/sweep_remainder.py 10.0.0.5")
@@ -146,11 +271,8 @@ def main(argv=None) -> int:
     print(f"Safety check passed: {len(REMAINDER)} commands, "
           "none of them refused.\n")
 
-    try:
-        identity = esatm.parse_identity(
-            esatm.fetch_greeting(host, 5000, timeout=8))
-    except OSError as exc:
-        print(f"Could not reach the Drobo at {host}: {exc}")
+    identity = _fetch_identity(host)
+    if identity is None:
         return 1
     esa_id = identity.get("esa_id") or ""
     if not esa_id:
@@ -159,60 +281,13 @@ def main(argv=None) -> int:
     print(f"Talking to {identity.get('name')} ({identity.get('model')}), "
           f"firmware {identity.get('firmware')}\n")
 
-    results = []
-    consecutive_timeouts = 0
-    for i, command_name in enumerate(REMAINDER, 1):
-        command_id = commands.COMMANDS[command_name]
-        print(f"[{i}/{len(REMAINDER)}] {command_name} (id {command_id}) ...",
-              flush=True)
-        record = nasd_sweep.send_one_command(
-            host, nasd_sweep.DEFAULT_COMMAND_PORT, esa_id, command_id, 6.0)
-        record["name"], record["cmd_id"] = command_name, command_id
-        results.append(record)
-
-        status = record["status"]
-        detail_suffix = ""
-        if status == "answered":
-            detail_suffix = f", {len(record.get('tags', []))} fields"
-            if record.get("escaped_document"):
-                detail_suffix += "  [escaped inner document]"
-        if record.get("detail"):
-            detail_suffix += f"  ({str(record['detail'])[:60]})"
-        print(f"    -> {status}{detail_suffix}", flush=True)
-
-        if status == "timeout":
-            consecutive_timeouts += 1
-            if consecutive_timeouts >= 3:
-                print("\n!! three consecutive timeouts -- stopping. "
-                      "The device may be tiring; not sending the rest.")
-                break
-        else:
-            consecutive_timeouts = 0
-        time.sleep(0.5)
-
-    print("\nVerifying the device is still healthy ...")
-    try:
-        esatm.parse_identity(esatm.fetch_greeting(host, 5000, timeout=8))
-        print("  status port OK -- greeting still arriving.")
-    except OSError as exc:
-        print(f"  !! status port did not answer: {exc}")
-
-    print("\n== summary ==")
-    for status_name in ("answered", "empty", "refused", "timeout"):
-        count = sum(1 for record in results if record["status"] == status_name)
-        if count:
-            print(f"  {status_name:9} {count}")
-
-    print("\n== still untested, deliberately ==")
-    for command_name, reason in NOT_TESTED.items():
-        print(f"  {command_name:24} {reason}")
+    results = _sweep(host, esa_id)
+    _verify_still_healthy(host)
+    _print_summary(results)
 
     report_path = args.out or os.path.join(
         tempfile.gettempdir(), "drobo-sweep-remainder.json")
-    with open(report_path, "w", encoding="utf-8") as report_file:
-        json.dump({"host": host, "results": results}, report_file, indent=1)
-    print(f"\nRedacted report: {report_path}")
-    print("(outside the repo -- not meant to be committed)")
+    _write_report(report_path, host, results)
     return 0
 
 

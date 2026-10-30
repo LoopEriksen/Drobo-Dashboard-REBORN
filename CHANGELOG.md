@@ -240,6 +240,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     waits are named with their units. The commands sent, their order,
     the health checks between them, the console output, the report and
     the exit codes are as they were. (2026-10-29)
+  - `tools/sweep_remainder.py`: `main` reads as its steps, and its
+    timeouts and pauses are named in seconds. The safety check, the
+    commands sent and their order, the console output, the report and
+    the exit codes are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
