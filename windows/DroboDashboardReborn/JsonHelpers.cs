@@ -12,18 +12,39 @@ namespace DroboDashboardReborn;
 /// </summary>
 internal static class JsonHelpers
 {
-    public static string GetStringOr(JsonElement el, string name, string fallback) =>
-        el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
-            ? (v.GetString() ?? fallback) : fallback;
+    // Every getter below falls back silently -- to the caller's fallback,
+    // 0 or false -- when the key is missing or holds another kind of
+    // value. That keeps an older or newer agent's reply from throwing
+    // mid-render, but it also means 0 and false cannot tell "the agent
+    // said zero" from "the agent said nothing": the falsy-zero trap.
+    // Call sites where that difference matters do not lean on a zero:
+    // a volume's partition count checks TryGetProperty itself, and the
+    // performance card goes by the agent's "measured" flag (IsTrue)
+    // before it reads any counter.
 
-    public static long GetInt64OrZero(JsonElement el, string name) =>
-        el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : 0;
+    /// <summary>The string at <paramref name="name"/>, or
+    /// <paramref name="fallback"/> when it is missing, null or not a
+    /// string.</summary>
+    public static string GetStringOr(JsonElement element, string name, string fallback) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? (value.GetString() ?? fallback) : fallback;
 
-    public static double GetDoubleOrZero(JsonElement el, string name) =>
-        el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+    /// <summary>The integer at <paramref name="name"/>, or 0 when it is
+    /// missing or not a number -- see the note above on why 0 cannot mean
+    /// "absent" to a caller that needs to know.</summary>
+    public static long GetInt64OrZero(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt64() : 0;
 
-    public static bool IsTrue(JsonElement el, string name) =>
-        el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+    /// <summary>The number at <paramref name="name"/>, or 0 when it is
+    /// missing or not a number (the same falsy-zero caveat).</summary>
+    public static double GetDoubleOrZero(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
+
+    /// <summary>True only for a JSON <c>true</c>. A missing key, null, or
+    /// a truthy-looking string or number is false, so a flag the agent
+    /// did not send never switches anything on.</summary>
+    public static bool IsTrue(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
 
     /// <summary>Auto-scaling byte formatter -- B/KB/MB/GB/TB/PB, same thresholds
     /// and rounding as webui.py's own `bytes()`. The old version always divided
@@ -33,13 +54,13 @@ internal static class JsonHelpers
     /// "0 B" rather than an em dash.</summary>
     public static string FormatBytes(long sizeBytes)
     {
-        double n = sizeBytes;
+        double scaledValue = sizeBytes;
         string[] units = { "B", "KB", "MB", "GB", "TB", "PB" };
-        int i = 0;
-        while (Math.Abs(n) >= 1000 && i < units.Length - 1) { n /= 1000; i++; }
-        string text = i == 0
-            ? n.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
-            : n.ToString(Math.Abs(n) < 10 ? "0.00" : "0.0", System.Globalization.CultureInfo.InvariantCulture);
-        return $"{text} {units[i]}";
+        int unitIndex = 0;
+        while (Math.Abs(scaledValue) >= 1000 && unitIndex < units.Length - 1) { scaledValue /= 1000; unitIndex++; }
+        string text = unitIndex == 0
+            ? scaledValue.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+            : scaledValue.ToString(Math.Abs(scaledValue) < 10 ? "0.00" : "0.0", System.Globalization.CultureInfo.InvariantCulture);
+        return $"{text} {units[unitIndex]}";
     }
 }
