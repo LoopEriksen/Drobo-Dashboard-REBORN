@@ -21,8 +21,14 @@ namespace DroboDashboardReborn;
 /// </summary>
 public partial class DeleteShareDialog : Window
 {
+    /// <summary>The share's name exactly as the device lists it: the string
+    /// the typed confirmation must equal.</summary>
     private readonly string _shareName;
-    private readonly Func<string, Task<(WriteOutcome outcome, string message)>> _delete;
+
+    /// <summary>MainWindow's callback that POSTs /api/shares/delete with the
+    /// typed name; kept as a delegate so this dialog never builds a request
+    /// itself.</summary>
+    private readonly Func<string, Task<(WriteOutcome outcome, string message)>> _postDelete;
 
     /// <summary>The agent's message, verbatim (read-back suffix included).
     /// Only meaningful when ShowDialog returned true.</summary>
@@ -42,7 +48,7 @@ public partial class DeleteShareDialog : Window
     {
         InitializeComponent();
         _shareName = shareName;
-        _delete = postDelete;
+        _postDelete = postDelete;
 
         Header.Text = "Delete " + shareName;
         SubtitleText.Text = "This tells the Drobo to remove the share itself, not just this app's view of it.";
@@ -54,24 +60,32 @@ public partial class DeleteShareDialog : Window
         Loaded += (_, _) => ConfirmBox.Focus();
     }
 
+    /// <summary>Re-decides the Delete button on every keystroke, and clears
+    /// an earlier error because it was about a different attempt.</summary>
     private void ConfirmBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         ErrorText.Visibility = Visibility.Collapsed;
-        DeleteBtn.IsEnabled = Matches();
+        DeleteBtn.IsEnabled = TypedNameMatchesShare();
     }
 
     /// <summary>Ordinal, case-sensitive -- the same comparison the agent's
     /// confirm_name check is pinned to.</summary>
-    private bool Matches() => string.Equals(ConfirmBox.Text, _shareName, StringComparison.Ordinal);
+    private bool TypedNameMatchesShare() => string.Equals(ConfirmBox.Text, _shareName, StringComparison.Ordinal);
 
+    /// <summary>
+    /// Sends exactly one delete request for the typed name. Only a plain
+    /// refusal (Failed) keeps the dialog open; any other outcome closes it,
+    /// because an unsettled delete may already have removed the share and
+    /// must not be sent again. Nothing here retries.
+    /// </summary>
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        if (!Matches()) return;
+        if (!TypedNameMatchesShare()) return;
 
         SetBusy(true);
         try
         {
-            var (outcome, message) = await _delete(ConfirmBox.Text);
+            var (outcome, message) = await _postDelete(ConfirmBox.Text);
             if (outcome == WriteOutcome.Failed)
             {
                 ShowError(message);
@@ -88,23 +102,30 @@ public partial class DeleteShareDialog : Window
         }
     }
 
+    /// <summary>Locks the buttons and the name box while the request is in
+    /// flight, so the confirmation cannot change under a running delete.</summary>
     private void SetBusy(bool busy)
     {
         // Leaving busy re-checks the match rather than flatly re-enabling
         // Delete, so the button's state always comes from the typed name.
-        DeleteBtn.IsEnabled = !busy && Matches();
+        DeleteBtn.IsEnabled = !busy && TypedNameMatchesShare();
         CancelBtn.IsEnabled = !busy;
         ConfirmBox.IsEnabled = !busy;
         DeleteBtn.Content = busy ? "Deleting…" : "Delete share";
         if (busy) ErrorText.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>Shows the agent's refusal inline, so the user can read it
+    /// next to the name they typed.</summary>
     private void ShowError(string message)
     {
         ErrorText.Text = message;
         ErrorText.Visibility = Visibility.Visible;
     }
 
+    /// <summary>Closes with DialogResult false. Reachable only when no delete
+    /// is in flight and none went through (a refused one leaves nothing to
+    /// report), so the caller shows no result and does not refresh.</summary>
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = false;

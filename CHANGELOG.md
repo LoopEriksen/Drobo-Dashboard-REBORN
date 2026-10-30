@@ -280,6 +280,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     pointers are named as pointers, and zeroing and freeing them are
     their own helpers, called in the same order. Every message and the
     Windows API calls are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/DeleteShareDialog.xaml.cs`: the
+    delete callback and the typed-name check are named for what they
+    do. The route, its `confirm_name` key, the comparison and every
+    string the dialog shows are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
