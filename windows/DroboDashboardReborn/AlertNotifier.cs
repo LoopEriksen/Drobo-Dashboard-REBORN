@@ -40,11 +40,19 @@ internal sealed class AlertNotifier
 {
     /// <summary>What was active last time we looked. Populated silently on the
     /// first pass, which is what implements rule 2.</summary>
-    private readonly HashSet<string> _known = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _knownActiveKeys = new(StringComparer.Ordinal);
 
-    private bool _seeded;
+    /// <summary>Whether the silent first pass (rule 2) has happened yet.
+    /// False after construction and after <see cref="Reset"/>, so the next
+    /// pass only learns what is already active instead of announcing it.</summary>
+    private bool _hasSeeded;
 
-    /// <summary>One alert worth telling somebody about.</summary>
+    /// <summary>
+    /// One alert worth telling somebody about. It carries the Category it
+    /// was matched to as well as the Key, so the caller can show or group
+    /// the notice without running <see cref="CategoryFor"/> a second time
+    /// and possibly disagreeing with the decision made here.
+    /// </summary>
     internal readonly record struct Notice(string Key, string Category, string Severity, string Message);
 
     /// <summary>
@@ -117,38 +125,39 @@ internal sealed class AlertNotifier
         bool masterEnabled,
         IReadOnlyDictionary<string, bool> enabled)
     {
-        var current = new HashSet<string>(StringComparer.Ordinal);
+        var currentKeys = new HashSet<string>(StringComparer.Ordinal);
         var notices = new List<Notice>();
 
         foreach (var alert in active)
         {
             if (string.IsNullOrEmpty(alert.Key)) continue;
-            current.Add(alert.Key);
+            currentKeys.Add(alert.Key);
 
             // Rule 3 / rule 4 in one line: already-known stays silent, and a
-            // key absent from _known is either brand new or has cleared and
-            // returned, which are both worth saying.
-            if (_known.Contains(alert.Key)) continue;
+            // key absent from _knownActiveKeys is either brand new or has
+            // cleared and returned, which are both worth saying.
+            if (_knownActiveKeys.Contains(alert.Key)) continue;
 
             var category = CategoryFor(alert.Key);
             if (category.Length == 0) continue;              // unrecognised -> silent
             if (!masterEnabled) continue;
-            if (!enabled.TryGetValue(category, out var on) || !on) continue;
+            if (!enabled.TryGetValue(category, out var isCategoryOn) || !isCategoryOn) continue;
 
             notices.Add(new Notice(alert.Key, category, alert.Severity, alert.Message));
         }
 
         // Replace wholesale rather than union: an alert that cleared drops out
-        // of _known here, which is exactly what lets rule 4 fire if it returns.
-        _known.Clear();
-        foreach (var key in current) _known.Add(key);
+        // of _knownActiveKeys here, which is exactly what lets rule 4 fire if
+        // it returns.
+        _knownActiveKeys.Clear();
+        foreach (var key in currentKeys) _knownActiveKeys.Add(key);
 
-        if (!_seeded)
+        if (!_hasSeeded)
         {
-            // Rule 2. Everything above was computed so `_known` is now correct,
-            // then thrown away -- the first pass after connecting is for
-            // learning what is already true, not for announcing it.
-            _seeded = true;
+            // Rule 2. Everything above was computed so `_knownActiveKeys` is
+            // now correct, then thrown away -- the first pass after connecting
+            // is for learning what is already true, not for announcing it.
+            _hasSeeded = true;
             return Array.Empty<Notice>();
         }
 
@@ -164,11 +173,11 @@ internal sealed class AlertNotifier
     /// </summary>
     internal void Reset()
     {
-        _known.Clear();
-        _seeded = false;
+        _knownActiveKeys.Clear();
+        _hasSeeded = false;
     }
 
     /// <summary>Default settings: every category off. A fresh install is silent.</summary>
     internal static Dictionary<string, bool> DefaultEnabled() =>
-        Categories.ToDictionary(c => c.Id, _ => false, StringComparer.Ordinal);
+        Categories.ToDictionary(category => category.Id, _ => false, StringComparer.Ordinal);
 }

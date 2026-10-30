@@ -260,6 +260,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     builder and the renderer are split into named steps, and sizes are
     named in pixels. Both icons it draws come out byte-identical; the
     committed `.ico` files were not regenerated. (2026-10-29)
+  - `windows/DroboDashboardReborn/AlertNotifier.cs`: the remembered
+    alert keys and the first-pass flag are named for what they hold.
+    Private names only; every category id, key prefix and the rules
+    that decide which alerts notify are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
