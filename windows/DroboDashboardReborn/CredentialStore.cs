@@ -53,6 +53,13 @@ internal static class CredentialStore
     // Win32 declarations (advapi32.dll)
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// Win32's CREDENTIALW, field for field and in the same order. Sequential
+    /// layout is what makes the marshaller lay it out the way advapi32 reads
+    /// it, and the Unicode charset matches the W entry points used below.
+    /// The field names are Windows' own, so the struct can be checked against
+    /// the documentation line by line.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct CREDENTIAL
     {
@@ -85,7 +92,15 @@ internal static class CredentialStore
     /// silently truncated password would be far worse than a refusal.</summary>
     private const int MaxBlobBytes = 512;
 
+    /// <summary>What CredDelete reports when there was no saved login. Forget
+    /// treats it as success: the login is gone either way.</summary>
     private const int ERROR_NOT_FOUND = 1168;
+
+    // The Credential Manager entry points. SetLastError = true on the three
+    // that can fail, so Marshal.GetLastWin32Error reads their own error code
+    // (Save reports CredWrite's, Forget tests CredDelete's). CredFree
+    // releases what CredRead allocated; Windows requires it rather than any
+    // other free.
 
     [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -119,12 +134,12 @@ internal static class CredentialStore
     public static string? HostOf(string uncPath)
     {
         if (string.IsNullOrWhiteSpace(uncPath)) return null;
-        var p = uncPath.Replace('/', '\\').TrimStart();
-        if (!p.StartsWith(@"\\", StringComparison.Ordinal)) return null;
-        var rest = p.Substring(2);
-        if (rest.Length == 0) return null;
-        var slash = rest.IndexOf('\\');
-        var host = slash < 0 ? rest : rest.Substring(0, slash);
+        var normalizedPath = uncPath.Replace('/', '\\').TrimStart();
+        if (!normalizedPath.StartsWith(@"\\", StringComparison.Ordinal)) return null;
+        var afterPrefix = normalizedPath.Substring(2);
+        if (afterPrefix.Length == 0) return null;
+        var firstBackslashIndex = afterPrefix.IndexOf('\\');
+        var host = firstBackslashIndex < 0 ? afterPrefix : afterPrefix.Substring(0, firstBackslashIndex);
         return host.Length == 0 ? null : host;
     }
 
@@ -154,51 +169,65 @@ internal static class CredentialStore
                  + "The share is connected for this session; the login was not saved.";
         }
 
-        IntPtr blob = IntPtr.Zero, target = IntPtr.Zero, user = IntPtr.Zero, comment = IntPtr.Zero;
+        IntPtr blobPointer = IntPtr.Zero, targetPointer = IntPtr.Zero,
+               userNamePointer = IntPtr.Zero, commentPointer = IntPtr.Zero;
         try
         {
             // AllocCoTaskMem(0) is legal but returns a pointer we would then
             // describe as zero-length; Windows accepts an empty blob for an
             // account with no password, so keep one byte to point at.
-            blob = Marshal.AllocCoTaskMem(Math.Max(passwordBytes.Length, 1));
-            Marshal.Copy(passwordBytes, 0, blob, passwordBytes.Length);
+            blobPointer = Marshal.AllocCoTaskMem(Math.Max(passwordBytes.Length, 1));
+            Marshal.Copy(passwordBytes, 0, blobPointer, passwordBytes.Length);
 
-            target = Marshal.StringToCoTaskMemUni(host);
-            user = Marshal.StringToCoTaskMemUni(userName);
-            comment = Marshal.StringToCoTaskMemUni("Saved by Drobo Dashboard REBORN");
+            targetPointer = Marshal.StringToCoTaskMemUni(host);
+            userNamePointer = Marshal.StringToCoTaskMemUni(userName);
+            commentPointer = Marshal.StringToCoTaskMemUni("Saved by Drobo Dashboard REBORN");
 
-            var cred = new CREDENTIAL
+            var credential = new CREDENTIAL
             {
                 Type = CRED_TYPE_DOMAIN_PASSWORD,
-                TargetName = target,
-                UserName = user,
-                Comment = comment,
-                CredentialBlob = blob,
+                TargetName = targetPointer,
+                UserName = userNamePointer,
+                Comment = commentPointer,
+                CredentialBlob = blobPointer,
                 CredentialBlobSize = passwordBytes.Length,
                 Persist = CRED_PERSIST_LOCAL_MACHINE,
             };
 
-            if (CredWrite(ref cred, 0)) return null;
+            if (CredWrite(ref credential, 0)) return null;
 
-            var err = Marshal.GetLastWin32Error();
-            return $"Windows would not save the login (error {err}). "
+            var win32Error = Marshal.GetLastWin32Error();
+            return $"Windows would not save the login (error {win32Error}). "
                  + "The share is connected for this session.";
         }
         finally
         {
-            // Zero the unmanaged copy before releasing it. Freed heap memory
-            // is not cleared by the allocator, and this block held a
-            // plaintext password.
-            if (blob != IntPtr.Zero)
-            {
-                for (int i = 0; i < Math.Max(passwordBytes.Length, 1); i++) Marshal.WriteByte(blob, i, 0);
-                Marshal.FreeCoTaskMem(blob);
-            }
-            if (target != IntPtr.Zero) Marshal.FreeCoTaskMem(target);
-            if (user != IntPtr.Zero) Marshal.FreeCoTaskMem(user);
-            if (comment != IntPtr.Zero) Marshal.FreeCoTaskMem(comment);
+            ZeroAndFreeBlob(blobPointer, Math.Max(passwordBytes.Length, 1));
+            FreeIfAllocated(targetPointer);
+            FreeIfAllocated(userNamePointer);
+            FreeIfAllocated(commentPointer);
             Array.Clear(passwordBytes, 0, passwordBytes.Length);
         }
+    }
+
+    /// <summary>
+    /// Zeroes the unmanaged copy of the password, then releases it. Freed
+    /// heap memory is not cleared by the allocator, and this block held a
+    /// plaintext password. Does nothing for a pointer that was never
+    /// allocated.
+    /// </summary>
+    private static void ZeroAndFreeBlob(IntPtr blobPointer, int byteCount)
+    {
+        if (blobPointer == IntPtr.Zero) return;
+        for (int byteIndex = 0; byteIndex < byteCount; byteIndex++) Marshal.WriteByte(blobPointer, byteIndex, 0);
+        Marshal.FreeCoTaskMem(blobPointer);
+    }
+
+    /// <summary>Releases a string Save copied to unmanaged memory, if it got
+    /// that far before something threw.</summary>
+    private static void FreeIfAllocated(IntPtr pointer)
+    {
+        if (pointer != IntPtr.Zero) Marshal.FreeCoTaskMem(pointer);
     }
 
     /// <summary>
@@ -208,17 +237,17 @@ internal static class CredentialStore
     public static string? SavedUserName(string host)
     {
         if (string.IsNullOrWhiteSpace(host)) return null;
-        if (!CredRead(host, CRED_TYPE_DOMAIN_PASSWORD, 0, out IntPtr handle)) return null;
+        if (!CredRead(host, CRED_TYPE_DOMAIN_PASSWORD, 0, out IntPtr credentialPointer)) return null;
         try
         {
-            var cred = Marshal.PtrToStructure<CREDENTIAL>(handle);
-            return cred.UserName == IntPtr.Zero
+            var credential = Marshal.PtrToStructure<CREDENTIAL>(credentialPointer);
+            return credential.UserName == IntPtr.Zero
                 ? string.Empty
-                : Marshal.PtrToStringUni(cred.UserName) ?? string.Empty;
+                : Marshal.PtrToStringUni(credential.UserName) ?? string.Empty;
         }
         finally
         {
-            CredFree(handle);
+            CredFree(credentialPointer);
         }
     }
 
