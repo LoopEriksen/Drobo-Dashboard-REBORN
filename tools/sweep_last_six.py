@@ -88,17 +88,136 @@ ORDER: list[tuple[str, str]] = [
 ]
 
 
+# nasd's status channel, where the unprompted greeting arrives.
+STATUS_PORT = 5000
+# How long to wait for that greeting before calling the device gone.
+GREETING_TIMEOUT_SECONDS = 8
+# A breather between commands, on a command port already known to tire.
+PAUSE_BETWEEN_COMMANDS_SECONDS = 1.0
+
+
 def check_status_port(host: str) -> tuple[bool, str]:
-    """Is the device still greeting on the status port?"""
+    """Is the device still greeting on the status port?
+
+    Asked before the first command and after every one, so trouble is
+    noticed at the command that caused it. Returns (True, device name)
+    or (False, the error).
+    """
     try:
         identity = esatm.parse_identity(
-            esatm.fetch_greeting(host, 5000, timeout=8))
+            esatm.fetch_greeting(host, STATUS_PORT,
+                                 timeout=GREETING_TIMEOUT_SECONDS))
         return True, identity.get("name", "?")
     except OSError as exc:
         return False, str(exc)
 
 
+def _host_from_agent_config():
+    """The Drobo address in agent/config.json, or "" if it has none."""
+    try:
+        return json.load(open(
+            os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
+            encoding="utf-8"))["drobo"]["host"]
+    except (OSError, KeyError, ValueError):
+        return ""
+
+
+def _read_esa_id(host) -> str:
+    """The serial from `host`'s status greeting, or "" if unreadable.
+
+    The command channel's login carries the serial, so it is read once
+    at startup and shared by every command.
+    """
+    if not host:
+        return ""
+    try:
+        return esatm.parse_identity(
+            esatm.fetch_greeting(host, STATUS_PORT,
+                                 timeout=GREETING_TIMEOUT_SECONDS)
+        ).get("esa_id", "")
+    except OSError:
+        return ""
+
+
+def _detail_suffix(record: dict) -> str:
+    """What follows the status on a command's result line."""
+    detail_suffix = ""
+    if record["status"] == "answered":
+        detail_suffix = f", {len(record.get('tags', []))} fields"
+        if record.get("escaped_document"):
+            detail_suffix += " [escaped document]"
+    if record.get("detail"):
+        detail_suffix += f" ({str(record['detail'])[:50]})"
+    return detail_suffix
+
+
+def _send_and_print(host: str, command_name: str, command_id: int,
+                    timeout_seconds: float) -> dict:
+    """Send one command through nasd_sweep and print how it went.
+
+    nasd_sweep.send_one_command does the login, the empty-parameter
+    request and the redaction, so this script adds nothing to the
+    bytes that go out.
+    """
+    started_at = time.monotonic()
+    record = nasd_sweep.send_one_command(host,
+                                         nasd_sweep.DEFAULT_COMMAND_PORT,
+                                         _startup_esa_id,
+                                         command_id, timeout_seconds)
+    elapsed_seconds = time.monotonic() - started_at
+    record["name"], record["cmd_id"] = command_name, command_id
+    print(f"        -> {record['status']}{_detail_suffix(record)}   "
+          f"[{elapsed_seconds:.1f}s]")
+    return record
+
+
+def _device_still_greeting(host: str) -> bool:
+    """Check the status port after a command, and say what it showed."""
+    is_healthy, device_name_or_error = check_status_port(host)
+    print(
+        "        device after: "
+        f"{'OK' if is_healthy else 'NOT ANSWERING -- ' + device_name_or_error}"
+        "\n")
+    if not is_healthy:
+        print("!! The device stopped greeting. Stopping here rather than "
+              "sending anything else.")
+    return is_healthy
+
+
+def _send_in_order(host: str, timeout_seconds: float) -> list[dict]:
+    """Send the six in ORDER, stopping the moment the device goes quiet.
+
+    The guard is asked again for each command even though none of the
+    six is in DO_NOT_SEND: this is the one script that deliberately
+    sends things previously held back, so it re-checks rather than
+    trusting the list.
+    """
+    results = []
+    for position, (command_name, reason) in enumerate(ORDER, 1):
+        command_id = commands.COMMANDS[command_name]
+        is_blocked_by_guard = commands.is_dangerous(command_name)
+        print(f"[{position}/{len(ORDER)}] {command_name} (id {command_id})")
+        print(f"        {reason}")
+        if is_blocked_by_guard:
+            print("        REFUSED by the guard -- skipping.\n")
+            results.append({"name": command_name,
+                            "status": "refused-by-guard"})
+            continue
+
+        results.append(_send_and_print(host, command_name, command_id,
+                                       timeout_seconds))
+        if not _device_still_greeting(host):
+            break
+        time.sleep(PAUSE_BETWEEN_COMMANDS_SECONDS)
+    return results
+
+
 def main(argv=None) -> int:
+    """Check the device, send the six one at a time, write a report.
+
+    Reads the serial from _startup_esa_id, which the __main__ block
+    sets before calling this.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("host", nargs="?", default="")
     parser.add_argument("--timeout", type=float, default=6.0)
@@ -106,67 +225,18 @@ def main(argv=None) -> int:
 
     host = args.host
     if not host:
-        try:
-            host = json.load(open(
-                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
-                encoding="utf-8"))["drobo"]["host"]
-        except (OSError, KeyError, ValueError):
-            pass
+        host = _host_from_agent_config()
     if not host or host == "auto":
         print("No Drobo address.")
         return 1
 
-    is_healthy, device_or_error = check_status_port(host)
+    is_healthy, device_name_or_error = check_status_port(host)
     if not is_healthy:
-        print(f"Drobo not reachable before we start: {device_or_error}")
+        print(f"Drobo not reachable before we start: {device_name_or_error}")
         return 1
-    print(f"Starting against {device_or_error}. Status port healthy.\n")
+    print(f"Starting against {device_name_or_error}. Status port healthy.\n")
 
-    results = []
-    for i, (command_name, reason) in enumerate(ORDER, 1):
-        command_id = commands.COMMANDS[command_name]
-        is_refused = commands.is_dangerous(command_name)
-        print(f"[{i}/{len(ORDER)}] {command_name} (id {command_id})")
-        print(f"        {reason}")
-        if is_refused:
-            # Should be impossible -- none of the six is in DO_NOT_SEND
-            # -- but this is the one script that deliberately sends
-            # things previously held back, so it re-checks rather than
-            # trusting the list.
-            print("        REFUSED by the guard -- skipping.\n")
-            results.append({"name": command_name,
-                            "status": "refused-by-guard"})
-            continue
-
-        started_at = time.monotonic()
-        record = nasd_sweep.send_one_command(host,
-                                             nasd_sweep.DEFAULT_COMMAND_PORT,
-                                             _startup_esa_id,
-                                             command_id, args.timeout)
-        elapsed = time.monotonic() - started_at
-        record["name"], record["cmd_id"] = command_name, command_id
-        results.append(record)
-
-        detail_suffix = ""
-        if record["status"] == "answered":
-            detail_suffix = f", {len(record.get('tags', []))} fields"
-            if record.get("escaped_document"):
-                detail_suffix += " [escaped document]"
-        if record.get("detail"):
-            detail_suffix += f" ({str(record['detail'])[:50]})"
-        print(f"        -> {record['status']}{detail_suffix}   "
-              f"[{elapsed:.1f}s]")
-
-        is_healthy, device_or_error = check_status_port(host)
-        print(
-            "        device after: "
-            f"{'OK' if is_healthy else 'NOT ANSWERING -- ' + device_or_error}"
-            "\n")
-        if not is_healthy:
-            print("!! The device stopped greeting. Stopping here rather than "
-                  "sending anything else.")
-            break
-        time.sleep(1.0)
+    results = _send_in_order(host, args.timeout)
 
     print("== summary ==")
     for record in results:
@@ -186,18 +256,6 @@ if __name__ == "__main__":
                      if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
                      else "")
     if not _startup_host:
-        try:
-            _startup_host = json.load(open(
-                os.path.join(_TOOLS_DIR, "..", "agent", "config.json"),
-                encoding="utf-8"))["drobo"]["host"]
-        except (OSError, KeyError, ValueError):
-            _startup_host = ""
-    _startup_esa_id = ""
-    if _startup_host:
-        try:
-            _startup_esa_id = esatm.parse_identity(
-                esatm.fetch_greeting(_startup_host, 5000, timeout=8)
-            ).get("esa_id", "")
-        except OSError:
-            pass
+        _startup_host = _host_from_agent_config()
+    _startup_esa_id = _read_esa_id(_startup_host)
     raise SystemExit(main())

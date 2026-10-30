@@ -236,6 +236,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     relayed bytes, both capture files and their JSONL keys, the console
     output, the exit codes and the command line are as they were.
     (2026-10-29)
+  - `tools/sweep_last_six.py`: one helper per step, and the port and
+    waits are named with their units. The commands sent, their order,
+    the health checks between them, the console output, the report and
+    the exit codes are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
