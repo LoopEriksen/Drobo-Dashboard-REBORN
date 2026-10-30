@@ -213,6 +213,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     named as bytes. The listing, the `--validate` report, the exit
     codes, the `--min` and `--window` flags, the `window=` keyword and
     the returned keys are as they were. (2026-10-29)
+  - `tools/dashboard_strings.py`: one function per report, and the
+    credential regexes are named for what they match (same patterns
+    and flags). Every report prints the same lines and returns the
+    same exit code, and the command line is unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
