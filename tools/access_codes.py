@@ -61,44 +61,70 @@ from drobo_nasd import config_cmd, esatm  # noqa: E402
 SNAPSHOT_DIR = os.path.join(tempfile.gettempdir(), "drobo-access-codes")
 
 
+# nasd's status channel, where the greeting with the serial arrives.
+STATUS_PORT = 5000
+# Used for the greeting and the config read alike.
+DEVICE_TIMEOUT_SECONDS = 8
+# The USER column's width in the printed table.
+USER_COLUMN_WIDTH = 16
+
+
+def _as_list(value) -> list:
+    """`value` as a list: the config parser gives one child bare."""
+    return value if isinstance(value, list) else [value]
+
+
 def read_share_access_codes(host: str) -> dict:
-    """{"share\\tuser": code} straight from the device. Read-only."""
+    """{"share\\tuser": code} straight from the device. Read-only.
+
+    Keyed by share and user joined with a tab because that is the
+    snapshot format the "before" file stores and "after" compares
+    against, one entry per user on each share.
+    """
     identity = esatm.parse_identity(
-        esatm.fetch_greeting(host, 5000, timeout=8))
+        esatm.fetch_greeting(host, STATUS_PORT,
+                             timeout=DEVICE_TIMEOUT_SECONDS))
     esa_id = identity.get("esa_id") or ""
     if not esa_id:
         raise SystemExit("the Drobo did not report a serial; cannot log in")
 
-    device_config = config_cmd.get_config(host, esa_id, "shares", timeout=8)
+    device_config = config_cmd.get_config(host, esa_id, "shares",
+                                          timeout=DEVICE_TIMEOUT_SECONDS)
     share_config = ((device_config.get("DRINASConfig") or {})
                     .get("DRIShareConfig") or {})
-    raw_shares = (share_config.get("Shares") or {}).get("Share") or []
-    shares = raw_shares if isinstance(raw_shares, list) else [raw_shares]
+    shares = _as_list((share_config.get("Shares") or {}).get("Share") or [])
 
-    codes = {}
+    codes_by_share_user = {}
     for share in shares:
-        name = (share.get("ShareName") or "").strip()
-        users = (share.get("ShareUsers") or {}).get("ShareUser") or []
-        users = users if isinstance(users, list) else [users]
-        for share_user in users:
+        share_name = (share.get("ShareName") or "").strip()
+        share_users = _as_list(
+            (share.get("ShareUsers") or {}).get("ShareUser") or [])
+        for share_user in share_users:
             user_name = (share_user.get("ShareUsername") or "").strip()
-            codes[f"{name}\t{user_name}"] = str(
+            codes_by_share_user[f"{share_name}\t{user_name}"] = str(
                 share_user.get("ShareUserAccess", "")).strip()
-    return codes
+    return codes_by_share_user
 
 
 def print_access_codes(codes: dict) -> None:
+    """Print the codes as a SHARE / USER / CODE table, sorted by key.
+
+    The share column is as wide as the longest share name, so the
+    codes line up for comparing by eye.
+    """
     if not codes:
         print("  (no shares reported)")
         return
-    width = max(len(k.split("\t")[0]) for k in codes)
-    print(f"  {'SHARE'.ljust(width)}  {'USER'.ljust(16)}  CODE")
+    width = max(len(key.split("\t")[0]) for key in codes)
+    print(f"  {'SHARE'.ljust(width)}  {'USER'.ljust(USER_COLUMN_WIDTH)}  CODE")
     for key in sorted(codes):
         share, user = key.split("\t")
-        print(f"  {share.ljust(width)}  {user.ljust(16)}  {codes[key]}")
+        print(f"  {share.ljust(width)}  {user.ljust(USER_COLUMN_WIDTH)}  "
+              f"{codes[key]}")
 
 
-def main(argv=None) -> int:
+def _parse_arguments(argv) -> argparse.Namespace:
+    """Read the command line (the module docstring is the --help)."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -109,17 +135,92 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--host", default="",
         help="Drobo address (default: from agent/config.json)")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def _host_from_agent_config():
+    """The Drobo address in agent/config.json, or "" if it has none."""
+    config_path = os.path.join(_AGENT_DIR, "config.json")
+    try:
+        with open(config_path, encoding="utf-8") as config_file:
+            return json.load(config_file)["drobo"].get("host", "")
+    except (OSError, KeyError, ValueError):
+        return ""
+
+
+def _save_before(snapshot_path: str, codes: dict) -> int:
+    """Store the codes as the "before" snapshot; say what to do next."""
+    with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
+        json.dump(codes, snapshot_file, indent=1)
+    print("\nSaved. Access codes right now:\n")
+    print_access_codes(codes)
+    print("\nNow, in Drobo Dashboard 3.5.0:")
+    print("  1. Open the share you want to test.")
+    print("  2. Set a user's permission to something you can name")
+    print("     -- 'Read only', 'Read/Write', or 'No access'.")
+    print("  3. Apply it, and note down which word you chose.")
+    print("\nThen run:  py tools/access_codes.py after")
+    return 0
+
+
+def _print_changes(changed: list[tuple]) -> None:
+    """Say, for each changed share/user, what it was and what it is now.
+
+    This is the measurement itself: the word chosen in Dashboard
+    against the number the device now stores.
+    """
+    print("\nWhat changed:\n")
+    for key, before, after in changed:
+        share, user = key.split("\t")
+        if before is None:
+            print(f"  {user} was ADDED to {share} with code {after}")
+        elif after is None:
+            print(f"  {user} was REMOVED from {share} (had code {before})")
+        else:
+            print(f"  {user} on {share}:  code {before}  ->  {after}")
+
+    print("\nSo the permission you chose in Dashboard is stored as the code")
+    print("above. Note which word you picked -- the mapping belongs in")
+    print("sdk/drobo_nasd/shares.py, so the app can stop showing raw numbers.")
+
+
+def _compare_with_before(snapshot_path: str, codes: dict) -> int:
+    """Compare the codes now with the "before" snapshot, and say how."""
+    if not os.path.exists(snapshot_path):
+        print("No 'before' snapshot. Run:  py tools/access_codes.py before")
+        return 1
+    with open(snapshot_path, encoding="utf-8") as snapshot_file:
+        before_codes = json.load(snapshot_file)
+
+    changed = [(key, before_codes.get(key), codes.get(key))
+               for key in sorted(set(before_codes) | set(codes))
+               if before_codes.get(key) != codes.get(key)]
+
+    if not changed:
+        print("\nNothing changed. Did the change get applied in Dashboard?")
+        print("Current codes:\n")
+        print_access_codes(codes)
+        return 0
+
+    _print_changes(changed)
+    return 0
+
+
+def main(argv=None) -> int:
+    """Read the codes, then show them, save them, or compare them.
+
+    Only reads from the device; the change being measured is made in
+    Drobo Dashboard between "before" and "after".
+    """
+    args = _parse_arguments(argv)
 
     host = args.host
     if not host:
-        config_path = os.path.join(_AGENT_DIR, "config.json")
-        try:
-            with open(config_path, encoding="utf-8") as config_file:
-                host = json.load(config_file)["drobo"].get("host", "")
-        except (OSError, KeyError, ValueError):
-            pass
+        host = _host_from_agent_config()
     if not host or host == "auto":
+        # print() returns None, so this exits 0, unlike every other
+        # failure here; left as it was, since this pass changes no
+        # behaviour.
         return int(bool(print("No Drobo address. Pass --host <address>.")))
 
     try:
@@ -138,49 +239,9 @@ def main(argv=None) -> int:
         return 0
 
     if args.step == "before":
-        with open(snapshot_path, "w", encoding="utf-8") as snapshot_file:
-            json.dump(codes, snapshot_file, indent=1)
-        print("\nSaved. Access codes right now:\n")
-        print_access_codes(codes)
-        print("\nNow, in Drobo Dashboard 3.5.0:")
-        print("  1. Open the share you want to test.")
-        print("  2. Set a user's permission to something you can name")
-        print("     -- 'Read only', 'Read/Write', or 'No access'.")
-        print("  3. Apply it, and note down which word you chose.")
-        print("\nThen run:  py tools/access_codes.py after")
-        return 0
+        return _save_before(snapshot_path, codes)
 
-    # after
-    if not os.path.exists(snapshot_path):
-        print("No 'before' snapshot. Run:  py tools/access_codes.py before")
-        return 1
-    with open(snapshot_path, encoding="utf-8") as snapshot_file:
-        before_codes = json.load(snapshot_file)
-
-    changed = [(k, before_codes.get(k), codes.get(k))
-               for k in sorted(set(before_codes) | set(codes))
-               if before_codes.get(k) != codes.get(k)]
-
-    if not changed:
-        print("\nNothing changed. Did the change get applied in Dashboard?")
-        print("Current codes:\n")
-        print_access_codes(codes)
-        return 0
-
-    print("\nWhat changed:\n")
-    for key, before, after in changed:
-        share, user = key.split("\t")
-        if before is None:
-            print(f"  {user} was ADDED to {share} with code {after}")
-        elif after is None:
-            print(f"  {user} was REMOVED from {share} (had code {before})")
-        else:
-            print(f"  {user} on {share}:  code {before}  ->  {after}")
-
-    print("\nSo the permission you chose in Dashboard is stored as the code")
-    print("above. Note which word you picked -- the mapping belongs in")
-    print("sdk/drobo_nasd/shares.py, so the app can stop showing raw numbers.")
-    return 0
+    return _compare_with_before(snapshot_path, codes)
 
 
 if __name__ == "__main__":

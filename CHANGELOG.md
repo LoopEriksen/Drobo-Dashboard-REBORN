@@ -244,6 +244,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     timeouts and pauses are named in seconds. The safety check, the
     commands sent and their order, the console output, the report and
     the exit codes are as they were. (2026-10-29)
+  - `tools/access_codes.py`: one function per step, and the snapshot's
+    `share<TAB>user` key is explained. The reads from the device, the
+    `before.json` snapshot and its keys, the console output, the exit
+    codes and the command line are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
