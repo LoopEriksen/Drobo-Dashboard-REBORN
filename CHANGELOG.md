@@ -293,6 +293,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/DiscoveredDeviceRow.cs`: each
     picker-row property says what it holds and where it comes from. Doc
     comments only; no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/DriveRow.cs`: each bay-row property
+    says what it shows and what an empty bay gets. Doc comments only;
+    no property is renamed. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
