@@ -27,24 +27,37 @@ namespace DroboDashboardReborn;
 /// </summary>
 public partial class ConnectShareDialog : Window
 {
+    /// <summary>The share this dialog connects, e.g. \\10.0.0.5\Documents.</summary>
     private readonly string _uncPath;
+
+    /// <summary>The agent's guest-logon explanation for this device, kept to
+    /// add to an access-denied message from Windows. Null when the agent has
+    /// none.</summary>
     private readonly string? _guestAdviceDetail;
 
     /// <summary>The server the credential is keyed to: one Drobo, not one
     /// share. Null when the path is not a UNC path, in which case saving is
     /// simply not offered rather than half-working.</summary>
-    private readonly string? _host;
+    private readonly string? _credentialHost;
 
+    /// <summary>Set when the agent runs the simulator: the login is checked by
+    /// the simulated Drobo instead of Windows. Null for real hardware.</summary>
+    private readonly Func<string?, string, string, Task<int>>? _simulatedSignIn;
+
+    /// <summary>
+    /// Builds the dialog for one share: the free drive letters, what is
+    /// already saved for this Drobo, and the simulator's own note. The
+    /// simulator note is applied last on purpose: it overrides whatever the
+    /// saved-login step showed, since nothing is saved for a made-up address.
+    /// </summary>
     /// <param name="shareName">Shown in the dialog header.</param>
     /// <param name="uncPath">The share to connect to, e.g. \\10.0.0.5\Documents.</param>
     /// <param name="suggestedDriveLetter">Pre-selected in the drive-letter list; null if
     /// none are free.</param>
     /// <param name="guestAdviceDetail">The agent's explanation of the guest-logon
     /// problem for this device, reused if Windows comes back with access denied.</param>
-    /// <summary>Set when the agent runs the simulator: the login is checked by
-    /// the simulated Drobo instead of Windows. Null for real hardware.</summary>
-    private readonly Func<string?, string, string, Task<int>>? _simulatedSignIn;
-
+    /// <param name="simulatedSignIn">The simulator's login check, or null for
+    /// real hardware.</param>
     public ConnectShareDialog(string shareName, string uncPath, string? suggestedDriveLetter, string? guestAdviceDetail,
                               Func<string?, string, string, Task<int>>? simulatedSignIn = null)
     {
@@ -56,14 +69,36 @@ public partial class ConnectShareDialog : Window
         Header.Text = "Connect to " + shareName;
         SubtitleText.Text = uncPath;
 
-        // Free letters only, Z downward. "Mount or not" is the checkbox now,
-        // so the list no longer carries a "(none)" entry pretending to be a
-        // letter. It stays disabled until the user opts into mounting.
-        var used = new HashSet<char>(
+        FillFreeDriveLetters(suggestedDriveLetter);
+
+        // A login already saved for this Drobo: prefill the username, say so,
+        // and offer a way out. Windows never returns the password, so the
+        // password box stays empty -- and an empty box with a saved login is
+        // meaningful, see Connect_Click.
+        _credentialHost = CredentialStore.HostOf(uncPath);
+        ShowSavedLoginState();
+
+        if (_simulatedSignIn is not null) ShowSimulatorNote();
+
+        Loaded += (_, _) =>
+        {
+            if (UsernameBox.Text.Length > 0) PasswordInput.Focus();
+            else UsernameBox.Focus();
+        };
+    }
+
+    /// <summary>
+    /// Free letters only, Z downward. "Mount or not" is the checkbox now,
+    /// so the list no longer carries a "(none)" entry pretending to be a
+    /// letter. It stays disabled until the user opts into mounting.
+    /// </summary>
+    private void FillFreeDriveLetters(string? suggestedDriveLetter)
+    {
+        var usedDriveLetters = new HashSet<char>(
             DriveInfo.GetDrives().Select(d => char.ToUpperInvariant(d.Name[0])));
-        for (char c = 'Z'; c >= 'D'; c--)
-            if (!used.Contains(c))
-                DriveLetterBox.Items.Add(c + ":");
+        for (char driveLetter = 'Z'; driveLetter >= 'D'; driveLetter--)
+            if (!usedDriveLetters.Contains(driveLetter))
+                DriveLetterBox.Items.Add(driveLetter + ":");
 
         if (DriveLetterBox.Items.Count == 0)
         {
@@ -71,37 +106,40 @@ public partial class ConnectShareDialog : Window
             // of offering an empty list.
             MountCheck.IsEnabled = false;
             MountCheck.Content = "Mount as a drive (no free drive letters on this PC)";
-        }
-        else
-        {
-            DriveLetterBox.SelectedItem = !string.IsNullOrEmpty(suggestedDriveLetter)
-                && DriveLetterBox.Items.Contains(suggestedDriveLetter)
-                    ? suggestedDriveLetter
-                    : DriveLetterBox.Items[0];
+            return;
         }
 
-        // A login already saved for this Drobo: prefill the username, say so,
-        // and offer a way out. Windows never returns the password, so the
-        // password box stays empty -- and an empty box with a saved login is
-        // meaningful, see Connect_Click.
-        _host = CredentialStore.HostOf(uncPath);
+        DriveLetterBox.SelectedItem = !string.IsNullOrEmpty(suggestedDriveLetter)
+            && DriveLetterBox.Items.Contains(suggestedDriveLetter)
+                ? suggestedDriveLetter
+                : DriveLetterBox.Items[0];
+    }
+
+    /// <summary>
+    /// Shows what Credential Manager already holds for this Drobo, or why
+    /// saving is not offered when the path names no server.
+    /// </summary>
+    private void ShowSavedLoginState()
+    {
         // Never consult Credential Manager for the simulator: its address is
         // made up, and could match a real machine that has a real saved login.
-        var savedUser = _host is null || _simulatedSignIn is not null
-            ? null : CredentialStore.SavedUserName(_host);
+        var savedUser = _credentialHost is null || _simulatedSignIn is not null
+            ? null : CredentialStore.SavedUserName(_credentialHost);
         if (savedUser is not null)
         {
             if (savedUser.Length > 0) UsernameBox.Text = savedUser;
             RememberCheck.IsChecked = true;
             RememberNote.Text = savedUser.Length > 0
-                ? $"A login for {_host} is already saved on this PC, as {savedUser}. "
+                ? $"A login for {_credentialHost} is already saved on this PC, as {savedUser}. "
                   + "Leave the password blank to use it, or type one to replace it."
-                : $"A login for {_host} is already saved on this PC. "
+                : $"A login for {_credentialHost} is already saved on this PC. "
                   + "Leave the password blank to use it, or type one to replace it.";
             RememberNote.Visibility = Visibility.Visible;
             ForgetLink.Visibility = Visibility.Visible;
+            return;
         }
-        else if (_host is null)
+
+        if (_credentialHost is null)
         {
             // Nothing to key a credential to. Say so rather than showing a
             // box that would quietly do nothing.
@@ -111,22 +149,20 @@ public partial class ConnectShareDialog : Window
                               + "server name to save a login against.";
             RememberNote.Visibility = Visibility.Visible;
         }
+    }
 
-        if (_simulatedSignIn is not null)
-        {
-            RememberCheck.IsEnabled = false;
-            RememberCheck.IsChecked = false;
-            ForgetLink.Visibility = Visibility.Collapsed;
-            RememberNote.Text = "This is the simulated Drobo. The simulator checks the login and "
-                              + "nothing is saved to Windows. Its account is user admin, password admin.";
-            RememberNote.Visibility = Visibility.Visible;
-        }
-
-        Loaded += (_, _) =>
-        {
-            if (UsernameBox.Text.Length > 0) PasswordInput.Focus();
-            else UsernameBox.Focus();
-        };
+    /// <summary>
+    /// The simulator checks the login itself and nothing is saved to
+    /// Windows, so the save box is switched off and its account is named.
+    /// </summary>
+    private void ShowSimulatorNote()
+    {
+        RememberCheck.IsEnabled = false;
+        RememberCheck.IsChecked = false;
+        ForgetLink.Visibility = Visibility.Collapsed;
+        RememberNote.Text = "This is the simulated Drobo. The simulator checks the login and "
+                          + "nothing is saved to Windows. Its account is user admin, password admin.";
+        RememberNote.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -137,10 +173,10 @@ public partial class ConnectShareDialog : Window
     /// </summary>
     private void Forget_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (_host is null) return;
-        if (CredentialStore.Forget(_host))
+        if (_credentialHost is null) return;
+        if (CredentialStore.Forget(_credentialHost))
         {
-            RememberNote.Text = $"The saved login for {_host} has been removed from this PC.";
+            RememberNote.Text = $"The saved login for {_credentialHost} has been removed from this PC.";
             RememberNote.Visibility = Visibility.Visible;
             ForgetLink.Visibility = Visibility.Collapsed;
             RememberCheck.IsChecked = false;
@@ -164,6 +200,11 @@ public partial class ConnectShareDialog : Window
         DriveLetterBox.IsEnabled = MountCheck.IsChecked == true;
     }
 
+    /// <summary>
+    /// Checks the fields, connects, and closes with DialogResult true only
+    /// once the share is connected and any requested save has worked. One
+    /// attempt per click: the buttons are disabled while it runs.
+    /// </summary>
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         var username = UsernameBox.Text.Trim();
@@ -182,8 +223,8 @@ public partial class ConnectShareDialog : Window
         // takes. Typing a password instead replaces the saved one below.
         var usingSavedLogin = password.Length == 0
                               && _simulatedSignIn is null
-                              && _host is not null
-                              && CredentialStore.HasSavedLogin(_host);
+                              && _credentialHost is not null
+                              && CredentialStore.HasSavedLogin(_credentialHost);
 
         if (password.Length == 0 && !usingSavedLogin)
         {
@@ -191,60 +232,26 @@ public partial class ConnectShareDialog : Window
             return;
         }
 
-        // A drive letter only if the user asked to mount. Unchecked, the
-        // login opens a session with no local name -- Explorer and the in-app
-        // browser can both use the UNC path once Windows holds that session.
-        string? driveLetter = null;
-        if (MountCheck.IsChecked == true && DriveLetterBox.SelectedItem is string letter
-            && letter.Length == 2 && letter[1] == ':')
-        {
-            driveLetter = letter;
-        }
-        bool remember = RememberCheck.IsChecked == true;
+        string? driveLetter = SelectedDriveLetterOrNull();
+        bool rememberLogin = RememberCheck.IsChecked == true;
 
         SetBusy(true);
         try
         {
-            // Off the UI thread: WNetAddConnection2 is a blocking network call and
-            // can take several seconds against a slow or unreachable device.
-            //
-            // CONNECT_UPDATE_PROFILE still rides along when a drive letter is
-            // being mapped and the user asked to remember: that is what makes
-            // the DRIVE come back at sign-in, which is a separate thing from
-            // the credential being stored.
-            int code = _simulatedSignIn is not null
-                ? await _simulatedSignIn(driveLetter, username, password)
-                : await Task.Run(
-                    () => usingSavedLogin
-                        ? SmbConnections.Connect(_uncPath, driveLetter, null, null, remember)
-                        : SmbConnections.Connect(_uncPath, driveLetter, username, password, remember));
+            int win32ErrorCode = await ConnectAsync(driveLetter, username, password, usingSavedLogin, rememberLogin);
 
-            if (code == 0)
+            if (win32ErrorCode != 0)
             {
-                // Only after the credential is known to WORK. Saving a
-                // password that was just rejected would leave the user with a
-                // stored login that fails every time and no clue why.
-                if (remember && !usingSavedLogin && _host is not null && _simulatedSignIn is null)
-                {
-                    var problem = CredentialStore.Save(_host, username, password);
-                    if (problem is not null)
-                    {
-                        // The share IS connected; only the saving failed. Say
-                        // exactly that and stay open, rather than reporting a
-                        // failure that did not happen.
-                        ShowError(problem);
-                        SavedWithoutStoring = true;
-                        return;
-                    }
-                }
-
-                DialogResult = true;
-                Close();
+                // The guest-logon advice describes Windows refusing a real Drobo;
+                // it would be wrong about a simulated access-denied.
+                ShowError(SmbConnections.DescribeError(win32ErrorCode, _simulatedSignIn is null ? _guestAdviceDetail : null));
                 return;
             }
-            // The guest-logon advice describes Windows refusing a real Drobo;
-            // it would be wrong about a simulated access-denied.
-            ShowError(SmbConnections.DescribeError(code, _simulatedSignIn is null ? _guestAdviceDetail : null));
+
+            if (!SaveLoginIfAsked(rememberLogin, usingSavedLogin, username, password)) return;
+
+            DialogResult = true;
+            Close();
         }
         finally
         {
@@ -252,11 +259,72 @@ public partial class ConnectShareDialog : Window
         }
     }
 
+    /// <summary>
+    /// A drive letter only if the user asked to mount. Unchecked, the
+    /// login opens a session with no local name -- Explorer and the in-app
+    /// browser can both use the UNC path once Windows holds that session.
+    /// </summary>
+    private string? SelectedDriveLetterOrNull()
+    {
+        if (MountCheck.IsChecked == true && DriveLetterBox.SelectedItem is string letter
+            && letter.Length == 2 && letter[1] == ':')
+        {
+            return letter;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Makes the connection and returns its Win32 code (0 is success).
+    ///
+    /// Off the UI thread: WNetAddConnection2 is a blocking network call and
+    /// can take several seconds against a slow or unreachable device.
+    ///
+    /// CONNECT_UPDATE_PROFILE still rides along when a drive letter is
+    /// being mapped and the user asked to remember: that is what makes
+    /// the DRIVE come back at sign-in, which is a separate thing from
+    /// the credential being stored.
+    /// </summary>
+    private Task<int> ConnectAsync(string? driveLetter, string username, string password,
+                                   bool usingSavedLogin, bool rememberLogin)
+    {
+        if (_simulatedSignIn is not null) return _simulatedSignIn(driveLetter, username, password);
+        return Task.Run(
+            () => usingSavedLogin
+                ? SmbConnections.Connect(_uncPath, driveLetter, null, null, rememberLogin)
+                : SmbConnections.Connect(_uncPath, driveLetter, username, password, rememberLogin));
+    }
+
+    /// <summary>
+    /// Saves the login to Credential Manager when the user asked for that
+    /// and typed a password for a real Drobo. Returns false, after showing
+    /// why, only when saving was asked for and failed.
+    ///
+    /// Only called after the credential is known to WORK. Saving a
+    /// password that was just rejected would leave the user with a
+    /// stored login that fails every time and no clue why.
+    /// </summary>
+    private bool SaveLoginIfAsked(bool rememberLogin, bool usingSavedLogin, string username, string password)
+    {
+        if (!rememberLogin || usingSavedLogin || _credentialHost is null || _simulatedSignIn is not null) return true;
+
+        var saveFailureMessage = CredentialStore.Save(_credentialHost, username, password);
+        if (saveFailureMessage is null) return true;
+
+        // The share IS connected; only the saving failed. Say exactly that
+        // and stay open, rather than reporting a failure that did not happen.
+        ShowError(saveFailureMessage);
+        ConnectedButLoginNotSaved = true;
+        return false;
+    }
+
     /// <summary>True when the share connected but the login could not be
     /// saved. The dialog stays open showing why; the caller can still treat
     /// the share as connected.</summary>
-    public bool SavedWithoutStoring { get; private set; }
+    public bool ConnectedButLoginNotSaved { get; private set; }
 
+    /// <summary>Disables both buttons while a connection is in progress, so a
+    /// second click cannot start a second attempt, and hides the last error.</summary>
     private void SetBusy(bool busy)
     {
         ConnectBtn.IsEnabled = !busy;
@@ -265,12 +333,16 @@ public partial class ConnectShareDialog : Window
         if (busy) ErrorText.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>Shows a message in the dialog itself rather than a message
+    /// box, so the typed username and the chosen options stay in view.</summary>
     private void ShowError(string message)
     {
         ErrorText.Text = message;
         ErrorText.Visibility = Visibility.Visible;
     }
 
+    /// <summary>Closes with DialogResult false: the caller then skips its
+    /// share refresh.</summary>
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = false;
