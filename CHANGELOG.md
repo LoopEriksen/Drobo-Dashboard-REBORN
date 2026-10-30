@@ -192,6 +192,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     helpers and local names only; the printed output, the `-o` JSON
     report and its keys, and the command line are as they were.
     (2026-10-29)
+  - `tools/extract_commands.py`: one helper per printed section and per
+    scan; for testers who import it, `DEFAULT_PORT` ->
+    `DEFAULT_COMMAND_PORT` (still 5001). The printed report, the
+    `--json` file, the exit codes, the command line and the `port=`
+    keyword are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

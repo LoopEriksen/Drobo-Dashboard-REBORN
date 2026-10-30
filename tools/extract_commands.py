@@ -73,7 +73,7 @@ _ID_TO_NAME = {v: k for k, v in COMMANDS.items()}
 
 #: The command channel. Status (5000) carries no commands worth
 #: extracting -- the device just pushes its greeting there.
-DEFAULT_PORT = 5001
+DEFAULT_COMMAND_PORT = 5001
 
 #: Same idea as config_cmd._CREDENTIAL_NAME_RE: match the FIELD
 #: NAME, not the value, so a password is redacted whatever it
@@ -85,7 +85,19 @@ _REDACTION_PLACEHOLDER = "[redacted]"
 #: text inside an element. Mistaking these for plain strings is what hid
 #: the temperature and the performance counters for weeks, so we unwrap
 #: them here too rather than printing an unreadable one-line blob.
-_LOOKS_LIKE_XML = re.compile(r"^\s*<\?xml|^\s*<[A-Za-z]")
+_LOOKS_LIKE_XML_RE = re.compile(r"^\s*<\?xml|^\s*<[A-Za-z]")
+
+#: How wide the rules between printed entries are.
+_RULE_WIDTH = 72
+
+
+def _blank_element(element: ElementTree.Element) -> None:
+    """Replace an element's text, attributes and children with the
+    redaction placeholder, so nothing under a credential survives."""
+    element.text = _REDACTION_PLACEHOLDER
+    element.attrib.clear()
+    for child in list(element):
+        element.remove(child)
 
 
 def _redact_secret_elements(element: ElementTree.Element) -> None:
@@ -94,10 +106,7 @@ def _redact_secret_elements(element: ElementTree.Element) -> None:
     """
     for child in list(element):
         if _CREDENTIAL_NAME_RE.search(child.tag):
-            child.text = _REDACTION_PLACEHOLDER
-            child.attrib.clear()
-            for grandchild in list(child):
-                child.remove(grandchild)
+            _blank_element(child)
             continue
         _redact_secret_elements(child)
 
@@ -107,20 +116,27 @@ def _indent(element: ElementTree.Element, level: int = 0) -> None:
     stable across versions.
     """
     newline_indent = "\n" + "  " * level
-    if len(element):
-        if not (element.text or "").strip():
-            element.text = newline_indent + "  "
-        for child in element:
-            _indent(child, level + 1)
-            if not (child.tail or "").strip():
-                child.tail = newline_indent + "  "
-        if not (element[-1].tail or "").strip():
-            element[-1].tail = newline_indent
-    elif level and not (element.tail or "").strip():
-        element.tail = newline_indent
+    if not len(element):
+        if level and not (element.tail or "").strip():
+            element.tail = newline_indent
+        return
+    if not (element.text or "").strip():
+        element.text = newline_indent + "  "
+    for child in element:
+        _indent(child, level + 1)
+        if not (child.tail or "").strip():
+            child.tail = newline_indent + "  "
+    if not (element[-1].tail or "").strip():
+        element[-1].tail = newline_indent
 
 
 def _pretty_xml(element: ElementTree.Element) -> str:
+    """`element` as indented text.
+
+    Indented with the hand-rolled _indent rather than
+    ElementTree.indent, so the printed parameters look the same on
+    every Python version and two captures can be diffed.
+    """
     _indent(element)
     return ElementTree.tostring(element, encoding="unicode").strip()
 
@@ -129,15 +145,18 @@ def unwrap_escaped(text: str) -> str | None:
     """
     If `text` is itself an XML document (this firmware nests them as
     escaped text), return it pretty-printed. Otherwise None.
+
+    The nested document is redacted like the outer one, because a
+    credential can sit inside it just as easily.
     """
-    if not text or not _LOOKS_LIKE_XML.match(text):
+    if not text or not _LOOKS_LIKE_XML_RE.match(text):
         return None
     try:
-        inner = ElementTree.fromstring(text)
+        inner_root = ElementTree.fromstring(text)
     except ElementTree.ParseError:
         return None
-    _redact_secret_elements(inner)
-    return _pretty_xml(inner)
+    _redact_secret_elements(inner_root)
+    return _pretty_xml(inner_root)
 
 
 #: The XML root of a command, and of a reply. NOT "DRINETTM" -- that is
@@ -147,6 +166,37 @@ def unwrap_escaped(text: str) -> str | None:
 #: perfectly good frames, which is what caught it. Confirmed against a
 #: real Drobo Dashboard 3.5.0 session, 2026-08-05.
 _DOCUMENT_ROOT_TAGS = (b"TMCmd", b"Result")
+
+
+def _documents_with_root(stream_bytes: bytes, root_tag: bytes) -> list[dict]:
+    """Every parseable document in `stream_bytes` that opens with
+    `root_tag`, in stream order.
+
+    A stretch that does not parse is skipped rather than ending the
+    scan, because one damaged frame should not hide the rest.
+    """
+    documents: list[dict] = []
+    opening = b"<" + root_tag
+    closing = b"</" + root_tag + b">"
+    search_from = 0
+    while True:
+        start = stream_bytes.find(opening, search_from)
+        if start < 0:
+            break
+        end = stream_bytes.find(closing, start)
+        if end < 0:
+            break
+        end += len(closing)
+        raw_document = stream_bytes[start:end]
+        search_from = end
+        try:
+            root = ElementTree.fromstring(
+                raw_document.decode("utf-8", "replace"))
+        except ElementTree.ParseError:
+            continue
+        documents.append({"offset": start, "root": root,
+                          "raw": raw_document})
+    return documents
 
 
 def find_xml_documents(stream_bytes: bytes) -> list[dict]:
@@ -162,36 +212,53 @@ def find_xml_documents(stream_bytes: bytes) -> list[dict]:
     """
     documents: list[dict] = []
     for root_tag in _DOCUMENT_ROOT_TAGS:
-        opening = b"<" + root_tag
-        closing = b"</" + root_tag + b">"
-        search_from = 0
-        while True:
-            start = stream_bytes.find(opening, search_from)
-            if start < 0:
-                break
-            end = stream_bytes.find(closing, start)
-            if end < 0:
-                break
-            end += len(closing)
-            raw_document = stream_bytes[start:end]
-            search_from = end
-            try:
-                root = ElementTree.fromstring(
-                    raw_document.decode("utf-8", "replace"))
-            except ElementTree.ParseError:
-                continue
-            documents.append({"offset": start, "root": root,
-                              "raw": raw_document})
+        documents.extend(_documents_with_root(stream_bytes, root_tag))
     documents.sort(key=lambda document: document["offset"])
     return documents
 
 
 def _first_child_text(root: ElementTree.Element, *tag_names: str) -> str:
+    """The stripped text of the first of `tag_names` that `root` has
+    with text, or "".
+
+    Several spellings are accepted because firmware versions (and this
+    tool's own early guesses) name the same element differently, and
+    tolerating each costs nothing.
+    """
     for name in tag_names:
-        node = root.find(name)
-        if node is not None and node.text:
-            return node.text.strip()
+        child = root.find(name)
+        if child is not None and child.text:
+            return child.text.strip()
     return ""
+
+
+def _command_identity(command_text: str) -> tuple[int | None, str]:
+    """(command id, command name) for the text of a <CmdID>, which may
+    hold either the number or the name."""
+    if command_text.isdigit():
+        command_id = int(command_text)
+        return command_id, _ID_TO_NAME.get(command_id, "")
+    return COMMANDS.get(command_text), command_text
+
+
+def _describe_params(
+        params_element: ElementTree.Element) -> tuple[str, list[dict]]:
+    """The redacted, pretty-printed <Params>, and every escaped
+    document nested inside it.
+
+    It works on a copy, so redacting never alters the parsed
+    document a caller still holds.
+    """
+    params_copy = ElementTree.fromstring(ElementTree.tostring(params_element))
+    _redact_secret_elements(params_copy)
+    params_xml = _pretty_xml(params_copy)
+    escaped_documents = []
+    for params_node in params_copy.iter():
+        unwrapped = unwrap_escaped((params_node.text or "").strip())
+        if unwrapped:
+            escaped_documents.append(
+                {"under": params_node.tag, "xml": unwrapped})
+    return params_xml, escaped_documents
 
 
 def describe_document(root: ElementTree.Element) -> dict:
@@ -210,42 +277,53 @@ def describe_document(root: ElementTree.Element) -> dict:
     """
     command_text = _first_child_text(root, "CmdID", "cmdid", "Command",
                                      "command")
-    command_name = ""
-    command_id = None
-    if command_text.isdigit():
-        command_id = int(command_text)
-        command_name = _ID_TO_NAME.get(command_id, "")
-    else:
-        command_name = command_text
-        command_id = COMMANDS.get(command_text)
+    command_id, command_name = _command_identity(command_text)
 
-    params = root.find("Params")
-    if params is None:
-        params = root.find("params")
+    params_element = root.find("Params")
+    if params_element is None:
+        params_element = root.find("params")
 
-    entry: dict = {
+    command_entry: dict = {
         "command_id": command_id,
         "command": command_name or command_text or "(none)",
-        "has_params": params is not None and (
-            len(params) > 0 or bool((params.text or "").strip())),
+        "has_params": params_element is not None and (
+            len(params_element) > 0
+            or bool((params_element.text or "").strip())),
         "params_xml": "",
         "escaped_documents": [],
         "result": _first_child_text(root, "Result", "result"),
     }
 
-    if params is not None:
-        params_copy = ElementTree.fromstring(ElementTree.tostring(params))
-        _redact_secret_elements(params_copy)
-        entry["params_xml"] = _pretty_xml(params_copy)
-        for node in params_copy.iter():
-            unwrapped = unwrap_escaped((node.text or "").strip())
-            if unwrapped:
-                entry["escaped_documents"].append(
-                    {"under": node.tag, "xml": unwrapped})
-    return entry
+    if params_element is not None:
+        (command_entry["params_xml"],
+         command_entry["escaped_documents"]) = _describe_params(
+             params_element)
+    return command_entry
 
 
-def extract_from_capture(path: str, port: int = DEFAULT_PORT) -> dict:
+def _entries_for_direction(stream: dict, direction: str) -> list[dict]:
+    """Describe every document in one direction of a stream, each
+    labelled with the endpoints it travelled between."""
+    stream_bytes = nasd_dissect.reassemble(stream[direction])
+    if not stream_bytes:
+        return []
+    client_address = stream.get("client") or ("?", 0)
+    server_address = stream.get("server") or ("?", 0)
+    client_text = f"{client_address[0]}:{client_address[1]}"
+    server_text = f"{server_address[0]}:{server_address[1]}"
+    entries = []
+    for document in find_xml_documents(stream_bytes):
+        document_entry = describe_document(document["root"])
+        document_entry["stream"] = (
+            f"{client_text} -> {server_text}"
+            if direction == "to_server"
+            else f"{server_text} -> {client_text}")
+        entries.append(document_entry)
+    return entries
+
+
+def extract_from_capture(path: str,
+                         port: int = DEFAULT_COMMAND_PORT) -> dict:
     """Every request and response on one TCP port of a capture file.
 
     Takes the capture path, not parsed packets, so a caller (and the
@@ -260,44 +338,128 @@ def extract_from_capture(path: str, port: int = DEFAULT_PORT) -> dict:
     requests: list[dict] = []
     responses: list[dict] = []
     for stream in streams.values():
-        client = stream.get("client") or ("?", 0)
-        server = stream.get("server") or ("?", 0)
-        for direction in ("to_server", "to_client"):
-            stream_bytes = nasd_dissect.reassemble(stream[direction])
-            if not stream_bytes:
-                continue
-            # A request carries a Command the client chose; a reply
-            # carries a Result. Classified on CONTENT rather than on
-            # which side of the socket it came from, so a capture whose
-            # directions were guessed the wrong way round still reads
-            # correctly.
-            for document in find_xml_documents(stream_bytes):
-                entry = describe_document(document["root"])
-                entry["stream"] = (
-                    f"{client[0]}:{client[1]} -> {server[0]}:{server[1]}"
-                    if direction == "to_server"
-                    else f"{server[0]}:{server[1]} -> "
-                         f"{client[0]}:{client[1]}")
-                (responses if entry["result"] and entry["command"] == "(none)"
-                 else requests).append(entry)
+        stream_entries = (_entries_for_direction(stream, "to_server")
+                          + _entries_for_direction(stream, "to_client"))
+        # A request carries a Command the client chose; a reply carries
+        # a Result. Classified on CONTENT rather than on which side of
+        # the socket it came from, so a capture whose directions were
+        # guessed the wrong way round still reads correctly.
+        for document_entry in stream_entries:
+            (responses if document_entry["result"]
+             and document_entry["command"] == "(none)"
+             else requests).append(document_entry)
     return {"port": port, "requests": requests, "responses": responses,
             "streams": len(streams)}
 
 
-def main(argv=None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
+    """The command line."""
     parser = argparse.ArgumentParser(
         description="List every command the original Drobo Dashboard "
                     "sent, with parameters.")
     parser.add_argument("capture", help="a .pcap or .pcapng file")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
-                        help=f"TCP port to read (default {DEFAULT_PORT}, "
+    parser.add_argument("--port", type=int, default=DEFAULT_COMMAND_PORT,
+                        help=f"TCP port to read "
+                             f"(default {DEFAULT_COMMAND_PORT}, "
                              f"the command channel)")
     parser.add_argument("--command", default="",
                         help="show only this command (name or id), "
                              "e.g. eCmdSetDimming")
     parser.add_argument("--json", default="",
                         help="also write the full result to this file")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _print_no_streams_help() -> None:
+    """Why a capture can have nothing on the port, since both usual
+    causes are fixed by recording again rather than by this tool."""
+    print("\n  Nothing on that port. Two usual reasons:")
+    print("    - the capture was taken on the status port (5000); "
+          "commands are on 5001")
+    print("    - the Dashboard was already connected before recording "
+          "started, so the")
+    print("      commands you wanted went past before the capture began")
+
+
+def _print_command_counts(all_requests: list[dict]) -> None:
+    """How often each command was sent, across the whole capture (not
+    only the --command filter), most frequent first."""
+    command_counts = Counter(request["command"]
+                             for request in all_requests)
+    print("\n  Commands seen, most frequent first:")
+    for command_name, count in command_counts.most_common():
+        command_id = next((request["command_id"]
+                           for request in all_requests
+                           if request["command"] == command_name), None)
+        print(f"    {count:4d}  {command_name}"
+              + (f"  (id {command_id})" if command_id is not None else ""))
+
+
+def _print_command_entry(command_entry: dict) -> None:
+    """One command under a heading: its redacted parameters and any
+    escaped documents nested inside them."""
+    print("\n" + "-" * _RULE_WIDTH)
+    entry_heading = command_entry["command"]
+    if command_entry["command_id"] is not None:
+        entry_heading += f"  (id {command_entry['command_id']})"
+    print(entry_heading)
+    print("-" * _RULE_WIDTH)
+    if not command_entry["has_params"]:
+        print("  <Params> empty -- same as what we already send.")
+        return
+    for line in command_entry["params_xml"].splitlines():
+        print("  " + line)
+    for escaped_document in command_entry["escaped_documents"]:
+        print(f"\n  ...and nested inside <{escaped_document['under']}>, "
+              f"an escaped document:")
+        for line in escaped_document["xml"].splitlines():
+            print("    " + line)
+
+
+def _requests_matching(requests: list[dict],
+                       wanted_command: str) -> list[dict]:
+    """The requests whose command name or id is `wanted_command`, so
+    --command accepts either."""
+    return [request for request in requests
+            if request["command"] == wanted_command
+            or str(request["command_id"]) == wanted_command]
+
+
+def _print_shown_requests(requests: list[dict]) -> None:
+    """How many of the shown requests carried parameters, then each
+    one in full.
+
+    The point of the whole tool: which commands were sent WITH
+    parameters. Those are the ones whose <Params> we could never
+    recover from firmware.
+    """
+    with_params = [request for request in requests if request["has_params"]]
+    print(f"\n  {len(with_params)} of {len(requests)} "
+          f"shown carried parameters.")
+    for command_entry in requests:
+        _print_command_entry(command_entry)
+
+
+def _print_closing_caveat() -> None:
+    """The reminder that a capture is evidence for one case only,
+    printed last so it is the thing left on screen."""
+    print("\n" + "=" * _RULE_WIDTH)
+    print("Remember: this is what ONE Dashboard sent to ONE device "
+          "on ONE day.")
+    print("Record it in your protocol notes as CONFIRMED "
+          "for the case captured,")
+    print("and not as a general specification. "
+          "Do not commit the capture file.")
+
+
+def main(argv=None) -> int:
+    """Print the commands in one capture, optionally filtered to one
+    command and written to a JSON file.
+
+    Returns 2 when the capture does not exist, 1 when it holds no
+    matching commands, and 0 otherwise.
+    """
+    args = _build_parser().parse_args(argv)
 
     if not os.path.exists(args.capture):
         print(f"No such capture: {args.capture}")
@@ -307,22 +469,14 @@ def main(argv=None) -> int:
     requests = result["requests"]
 
     if args.command:
-        wanted = args.command.strip()
-        requests = [request for request in requests
-                    if request["command"] == wanted
-                    or str(request["command_id"]) == wanted]
+        requests = _requests_matching(requests, args.command.strip())
 
     print(f"\n{os.path.basename(args.capture)} -- TCP {result['port']}, "
           f"{result['streams']} stream(s), "
           f"{len(result['requests'])} command(s) sent")
 
     if not result["streams"]:
-        print("\n  Nothing on that port. Two usual reasons:")
-        print("    - the capture was taken on the status port (5000); "
-              "commands are on 5001")
-        print("    - the Dashboard was already connected before recording "
-              "started, so the")
-        print("      commands you wanted went past before the capture began")
+        _print_no_streams_help()
         return 1
 
     if not requests:
@@ -331,48 +485,9 @@ def main(argv=None) -> int:
               "the stream carried no <DRINETTM> documents.")
         return 1
 
-    command_counts = Counter(request["command"]
-                             for request in result["requests"])
-    print("\n  Commands seen, most frequent first:")
-    for command_name, count in command_counts.most_common():
-        command_id = next((request["command_id"]
-                           for request in result["requests"]
-                           if request["command"] == command_name), None)
-        print(f"    {count:4d}  {command_name}"
-              + (f"  (id {command_id})" if command_id is not None else ""))
-
-    # The point of the whole tool: which commands were sent WITH
-    # parameters. Those are the ones whose <Params> we could never
-    # recover from firmware.
-    with_params = [request for request in requests if request["has_params"]]
-    print(f"\n  {len(with_params)} of {len(requests)} "
-          f"shown carried parameters.")
-
-    for entry in requests:
-        print("\n" + "-" * 72)
-        header = entry["command"]
-        if entry["command_id"] is not None:
-            header += f"  (id {entry['command_id']})"
-        print(header)
-        print("-" * 72)
-        if not entry["has_params"]:
-            print("  <Params> empty -- same as what we already send.")
-            continue
-        for line in entry["params_xml"].splitlines():
-            print("  " + line)
-        for escaped_document in entry["escaped_documents"]:
-            print(f"\n  ...and nested inside <{escaped_document['under']}>, "
-                  f"an escaped document:")
-            for line in escaped_document["xml"].splitlines():
-                print("    " + line)
-
-    print("\n" + "=" * 72)
-    print("Remember: this is what ONE Dashboard sent to ONE device "
-          "on ONE day.")
-    print("Record it in your protocol notes as CONFIRMED "
-          "for the case captured,")
-    print("and not as a general specification. "
-          "Do not commit the capture file.")
+    _print_command_counts(result["requests"])
+    _print_shown_requests(requests)
+    _print_closing_caveat()
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as json_file:
