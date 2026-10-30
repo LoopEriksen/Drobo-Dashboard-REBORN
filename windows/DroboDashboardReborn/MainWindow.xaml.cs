@@ -199,11 +199,11 @@ public partial class MainWindow : Window
         // a blank rectangle, which looks worse than no splash at all.
         ContentRendered += (_, _) =>
         {
-            App.Splash?.Done();
+            App.Splash?.Dismiss();
             App.Splash = null;
         };
 
-        App.Splash?.Report("Looking for your Drobo on the network...");
+        App.Splash?.ReportStatus("Looking for your Drobo on the network...");
         _ = StartupSearchOrPrompt();
 
         // Tools tab: the app's own version doesn't depend on being connected

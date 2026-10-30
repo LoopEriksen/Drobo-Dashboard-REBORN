@@ -27,25 +27,28 @@ public partial class SplashWindow : Window
     /// </summary>
     public static readonly TimeSpan MaxLifetime = TimeSpan.FromSeconds(10);
 
-    private readonly DispatcherTimer _safety;
-    private bool _closed;
+    private readonly DispatcherTimer _safetyTimer;
+    private bool _isClosed;
 
+    /// <summary>Starts the safety timer as soon as the window exists, so the
+    /// splash cannot outlive <see cref="MaxLifetime"/> however the rest of
+    /// startup goes.</summary>
     public SplashWindow()
     {
         InitializeComponent();
 
-        _safety = new DispatcherTimer { Interval = MaxLifetime };
-        _safety.Tick += (_, _) => Done();
-        _safety.Start();
+        _safetyTimer = new DispatcherTimer { Interval = MaxLifetime };
+        _safetyTimer.Tick += (_, _) => Dismiss();
+        _safetyTimer.Start();
     }
 
     /// <summary>Update the line of text under the logo. Safe from any thread.</summary>
-    public void Report(string status)
+    public void ReportStatus(string status)
     {
-        if (_closed) return;
+        if (_isClosed) return;
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(() => Report(status));
+            Dispatcher.Invoke(() => ReportStatus(status));
             return;
         }
         StatusText.Text = status;
@@ -56,11 +59,11 @@ public partial class SplashWindow : Window
     /// may call this, and whichever gets there first should win without the
     /// other throwing.
     /// </summary>
-    public void Done()
+    public void Dismiss()
     {
-        if (_closed) return;
-        _closed = true;
-        _safety.Stop();
+        if (_isClosed) return;
+        _isClosed = true;
+        _safetyTimer.Stop();
         try
         {
             Close();
