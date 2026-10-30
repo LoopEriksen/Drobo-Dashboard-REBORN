@@ -42,8 +42,8 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     the agent from scripts of their own: `api.serve` ->
     `api.build_http_server` (it builds the server and leaves starting it
     to the caller, as before); `monitor.Monitor.history_dicts` ->
-    `history_points` (its `limit` parameter, the `/api/history` route,
-    its `?limit=` query and the `points` key it answers with stay);
+    `history_points` (the `/api/history` route, its `?limit=` query
+    and the `points` key it answers with stay);
     `photos.PhotoStore.ingest(data)` -> `ingest(file_bytes)` (positional
     calls are unaffected). A rename only: every route, JSON key and
     message is as it was. (2026-10-29)
@@ -145,6 +145,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `agent/drobo_agent/models.py`: `Alert.active` and `Alert.to_dict`
     say why "active" is derived from `cleared_at` and added to the JSON
     by hand. Docstrings only; no code changed. (2026-10-29)
+  - `agent/drobo_agent/monitor.py`: each alert rule is its own function,
+    called in the same order, and the fire/resend/clear loop is its own
+    step; for testers who call it by keyword,
+    `Monitor.history_points(limit)` -> `history_points(max_points)`
+    (positional calls, the `/api/history` route and its `?limit=` query
+    are unaffected). Every alert key, message and the order
+    notifications go out in are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
