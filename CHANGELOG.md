@@ -203,6 +203,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `FINGERPRINT_PROBES`. Every sub-command prints the same lines,
     sends the same bytes and writes the same report, and the command
     line and `--help` are unchanged. (2026-10-29)
+  - `tools/fwtool.py`: the JFFS2 rebuild reads as its steps; for testers
+    who import it, `Section`'s fields `offset`, `size`, `build` and
+    `kind` -> `absolute_offset`, `size_bytes`, `build_number` and
+    `payload_format`. Every sub-command prints the same lines and
+    writes the same files, and the command line and `--help` are
+    unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
