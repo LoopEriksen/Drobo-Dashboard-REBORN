@@ -1150,14 +1150,14 @@ public partial class MainWindow : Window
         PrefEmailStatus.Text = "Sending a test email...";
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/emailalerts/test");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/emailalerts/test");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(body);
-            PrefEmailStatus.Text = resp.IsSuccessStatusCode
+            PrefEmailStatus.Text = response.IsSuccessStatusCode
                 ? GetStringOr(doc.RootElement, "message", "Sent. Check your inbox.")
-                : GetStringOr(doc.RootElement, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                : GetStringOr(doc.RootElement, "error", $"The agent returned HTTP {(int)response.StatusCode}.");
         }
         catch (Exception ex)
         {
@@ -1397,19 +1397,19 @@ public partial class MainWindow : Window
         int generation = _generation;
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
 
-            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 var msg = "Token rejected. Check the token from the agent's config.json.";
                 ShowAgentUnreachable(msg);
                 return (false, msg);
             }
-            resp.EnsureSuccessStatusCode();
+            response.EnsureSuccessStatusCode();
 
-            var json = await resp.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync();
             // The user may have gone back to the picker while that was in the
             // air. Rendering now would repaint a dashboard they have left, and
             // -- worse -- would re-seed AlertNotifier with the OLD Drobo's
@@ -1720,13 +1720,13 @@ public partial class MainWindow : Window
     /// human-readable reason in the error body and that is what we show.</summary>
     private async Task<(bool ok, JsonElement root)> PostJson(string path, object body)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
-        req.Headers.Add("X-Agent-Token", Token.Password);
-        req.Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
-        using var resp = await _agentHttpClient.SendAsync(req);
-        var json = await resp.Content.ReadAsStringAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
+        request.Headers.Add("X-Agent-Token", Token.Password);
+        request.Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
+        using var response = await _agentHttpClient.SendAsync(request);
+        var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-        return (resp.IsSuccessStatusCode, doc.RootElement.Clone());
+        return (response.IsSuccessStatusCode, doc.RootElement.Clone());
     }
 
     /// <summary>GET a route and return its parsed body. Unlike PostJson this
@@ -1736,11 +1736,11 @@ public partial class MainWindow : Window
     /// DroboApps) build their own request instead.</summary>
     private async Task<JsonElement> FetchJson(string path)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
-        req.Headers.Add("X-Agent-Token", Token.Password);
-        using var resp = await _agentHttpClient.SendAsync(req);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
+        request.Headers.Add("X-Agent-Token", Token.Password);
+        using var response = await _agentHttpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone(); // survives past `doc`'s disposal
     }
@@ -1803,47 +1803,19 @@ public partial class MainWindow : Window
     /// </summary>
     private void RenderAlerts(JsonElement activeRoot, JsonElement allRoot)
     {
-        var activeKeys = new HashSet<string>();
-        if (activeRoot.TryGetProperty("alerts", out var activeArr) && activeArr.ValueKind == JsonValueKind.Array)
-            foreach (var a in activeArr.EnumerateArray())
-                activeKeys.Add(GetStringOr(a, "key", ""));
+        var activeKeys = CollectAlertKeys(activeRoot);
 
         var activeList = new List<AlertRow>();
         var resolvedList = new List<AlertRow>();
 
-        if (allRoot.TryGetProperty("alerts", out var allArr) && allArr.ValueKind == JsonValueKind.Array)
+        if (allRoot.TryGetProperty("alerts", out var allAlerts) && allAlerts.ValueKind == JsonValueKind.Array)
         {
-            foreach (var a in allArr.EnumerateArray())
+            foreach (var alert in allAlerts.EnumerateArray())
             {
-                var key = GetStringOr(a, "key", "");
-                var severity = GetStringOr(a, "severity", "info");
-                var (chipBg, chipFg) = SeverityBrushes(severity);
-                bool isActive = activeKeys.Contains(key);
-
-                var row = new AlertRow
-                {
-                    Key = key,
-                    Severity = severity,
-                    SeverityText = severity.ToUpperInvariant(),
-                    Message = GetStringOr(a, "message", ""),
-                    Since = "since " + FormatRelativeTime(GetDoubleOrZero(a, "first_seen")),
-                    ChipBackground = chipBg,
-                    SeverityBrush = chipFg,
-                    Active = isActive,
-                };
-
-                if (isActive)
-                {
-                    row.SortTimeUnixSeconds = GetDoubleOrZero(a, "first_seen");
-                    activeList.Add(row);
-                }
-                else
-                {
-                    var clearedAt = GetDoubleOrZero(a, "cleared_at");
-                    row.ClearedText = "cleared " + FormatRelativeTime(clearedAt);
-                    row.SortTimeUnixSeconds = clearedAt;
-                    resolvedList.Add(row);
-                }
+                bool isActive = activeKeys.Contains(GetStringOr(alert, "key", ""));
+                var row = BuildAlertRow(alert, isActive);
+                if (isActive) activeList.Add(row);
+                else resolvedList.Add(row);
             }
         }
 
@@ -1866,6 +1838,48 @@ public partial class MainWindow : Window
         ResolvedAlertsEmpty.Visibility = resolvedList.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         UpdateAlertsTabIndicator(activeList);
+    }
+
+    /// <summary>The "key" of every alert in one /api/alerts answer.</summary>
+    private static HashSet<string> CollectAlertKeys(JsonElement alertsRoot)
+    {
+        var keys = new HashSet<string>();
+        if (!alertsRoot.TryGetProperty("alerts", out var alerts) || alerts.ValueKind != JsonValueKind.Array)
+            return keys;
+        foreach (var alert in alerts.EnumerateArray())
+            keys.Add(GetStringOr(alert, "key", ""));
+        return keys;
+    }
+
+    /// <summary>One alert's row. An active alert sorts by when it was first
+    /// seen; a resolved one by when it cleared, and says so.</summary>
+    private static AlertRow BuildAlertRow(JsonElement alert, bool isActive)
+    {
+        var key = GetStringOr(alert, "key", "");
+        var severity = GetStringOr(alert, "severity", "info");
+        var (chipBg, chipFg) = SeverityBrushes(severity);
+
+        var row = new AlertRow
+        {
+            Key = key,
+            Severity = severity,
+            SeverityText = severity.ToUpperInvariant(),
+            Message = GetStringOr(alert, "message", ""),
+            Since = "since " + FormatRelativeTime(GetDoubleOrZero(alert, "first_seen")),
+            ChipBackground = chipBg,
+            SeverityBrush = chipFg,
+            Active = isActive,
+        };
+
+        if (isActive)
+        {
+            row.SortTimeUnixSeconds = GetDoubleOrZero(alert, "first_seen");
+            return row;
+        }
+        var clearedAt = GetDoubleOrZero(alert, "cleared_at");
+        row.ClearedText = "cleared " + FormatRelativeTime(clearedAt);
+        row.SortTimeUnixSeconds = clearedAt;
+        return row;
     }
 
     private static (Brush bg, Brush fg) SeverityBrushes(string severity) => severity switch
@@ -1918,12 +1932,12 @@ public partial class MainWindow : Window
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/shares");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            resp.EnsureSuccessStatusCode();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/shares");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
 
-            var json = await resp.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync();
             RenderShares(JsonDocument.Parse(json).RootElement);
         }
         catch
@@ -1947,126 +1961,163 @@ public partial class MainWindow : Window
     {
         SharesError.Visibility = Visibility.Collapsed;
 
-        // Guest-logon advice: a calm explanation of a Windows policy change,
-        // not an error -- see shares.py's access_advice for the full story.
-        var advice = root.TryGetProperty("advice", out var adv) && adv.ValueKind == JsonValueKind.Object
-            ? adv : default;
-        var headline = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "headline", "") : "";
-        _lastGuestAdviceDetail = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "detail", "") : "";
-        if (string.IsNullOrEmpty(headline))
-        {
-            GuestAdviceBox.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            GuestAdviceHeadline.Text = headline;
-            GuestAdviceDetail.Text = _lastGuestAdviceDetail;
-            GuestAdviceBox.Visibility = Visibility.Visible;
-        }
-
-        // Link-speed warning: the Drobo's own report of a slow network link.
-        // Mirrored onto the Settings tab's copy of the same box too -- both
-        // read from this one /api/shares answer, so they can never disagree,
-        // and Settings never needs a network fetch of its own for this part.
-        var link = root.TryGetProperty("link", out var lk) && lk.ValueKind == JsonValueKind.Object ? lk : default;
-        bool degraded = link.ValueKind == JsonValueKind.Object && IsTrue(link, "degraded");
-        if (degraded)
-        {
-            LinkWarning.Text = GetStringOr(link, "note", "");
-            LinkWarningBox.Visibility = Visibility.Visible;
-            SettingsLinkWarning.Text = LinkWarning.Text;
-            SettingsLinkWarningBox.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            LinkWarningBox.Visibility = Visibility.Collapsed;
-            SettingsLinkWarningBox.Visibility = Visibility.Collapsed;
-        }
+        var advice = RenderGuestAdvice(root);
+        RenderLinkWarning(root);
 
         // Rows: one per share, with the live Windows connection state merged
         // in. Windows knows this, not the agent -- it's entirely local to
         // this PC, so it's read fresh here rather than trusted from the API.
-        var active = SmbConnections.GetActiveConnections();
+        var windowsConnections = SmbConnections.GetActiveConnections();
 
         // Only false when the agent positively knows the Drobo has no user
         // accounts. Absent or unknown leaves it true -- see ShareRow.CanSignIn
         // for why a control greyed out on a guess is worse than one that fails
         // with a reason.
-        bool canSignIn = advice.ValueKind != JsonValueKind.Object
-                         || !advice.TryGetProperty("can_sign_in", out var csi)
-                         || csi.ValueKind != JsonValueKind.False;
+        bool canSignIn = CanSignInFrom(advice);
         string? blockedReason = canSignIn ? null
             : "This Drobo has no user accounts, so there is no name to sign in "
               + "with. Create one in Drobo Dashboard and give it access to the "
               + "share, then connect with it here.";
 
-        var list = new List<ShareRow>();
-        if (root.TryGetProperty("shares", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        var rows = new List<ShareRow>();
+        if (root.TryGetProperty("shares", out var sharesArray) && sharesArray.ValueKind == JsonValueKind.Array)
         {
-            foreach (var s in arr.EnumerateArray())
-            {
-                var unc = GetStringOr(s, "unc", "");
-                var match = active.FirstOrDefault(a =>
-                    string.Equals(a.RemoteUnc.TrimEnd('\\'), unc.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
-                bool connected = !string.IsNullOrEmpty(match.RemoteUnc);
-                string? letter = connected && !string.IsNullOrEmpty(match.LocalDeviceName) ? match.LocalDeviceName : null;
-                if (IsSimulator)
-                {
-                    // Windows' own list is meaningless for a simulated share.
-                    connected = _simulatedConnections.TryGetValue(unc, out var simLetter);
-                    letter = connected ? simLetter : null;
-                }
-                bool timeMachine = IsTrue(s, "time_machine");
-
-                // Per-user access. Each user's "access" description is the
-                // agent's own wording (shares.py's ACCESS_LEVELS) shown
-                // verbatim -- it hedges honestly about the codes nobody has
-                // confirmed, and that hedging must reach the user intact.
-                // The fallback below only covers a record that arrived with
-                // a code but no description at all.
-                var userBits = new List<string>();
-                if (s.TryGetProperty("users", out var usersArr) && usersArr.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var u in usersArr.EnumerateArray())
-                    {
-                        if (u.ValueKind != JsonValueKind.Object) continue;
-                        var uname = GetStringOr(u, "name", "");
-                        if (uname.Length == 0) uname = "(unnamed)";
-                        var described = GetStringOr(u, "access", "");
-                        if (described.Length == 0)
-                        {
-                            var code = GetStringOr(u, "access_code", "");
-                            described = code.Length == 0 ? "access unknown"
-                                                         : $"code {code} (not yet mapped)";
-                        }
-                        userBits.Add($"{uname}: {described}");
-                    }
-                }
-                var usersText = userBits.Count == 0 ? "" : "Access: " + string.Join("  ·  ", userBits);
-
-                list.Add(new ShareRow
-                {
-                    Name = GetStringOr(s, "name", ""),
-                    Unc = unc,
-                    IsTimeMachine = timeMachine,
-                    TimeMachineVisibility = timeMachine ? Visibility.Visible : Visibility.Collapsed,
-                    IsConnected = connected,
-                    DriveLetter = letter,
-                    ConnectionText = (connected
-                        ? (letter != null ? $"Connected as {letter}" : "Connected (no drive letter)")
-                        : "Not connected")
-                        + (IsSimulator && connected ? "  ·  simulated" : ""),
-                    CanSignIn = canSignIn,
-                    SignInBlockedReason = blockedReason,
-                    UsersText = usersText,
-                    UsersVisibility = usersText.Length == 0 ? Visibility.Collapsed : Visibility.Visible,
-                });
-            }
+            foreach (var share in sharesArray.EnumerateArray())
+                rows.Add(BuildShareRow(share, windowsConnections, canSignIn, blockedReason));
         }
 
         _shares.Clear();
-        foreach (var row in list) _shares.Add(row);
-        SharesEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var row in rows) _shares.Add(row);
+        SharesEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Guest-logon advice: a calm explanation of a Windows policy change, not
+    /// an error -- see shares.py's access_advice for the full story. Its
+    /// detail is also kept in <c>_lastGuestAdviceDetail</c> for the
+    /// Connect-as dialog. Returns the advice object (default when absent),
+    /// which also says whether signing in can work at all.
+    /// </summary>
+    private JsonElement RenderGuestAdvice(JsonElement root)
+    {
+        var advice = root.TryGetProperty("advice", out var adviceElement) && adviceElement.ValueKind == JsonValueKind.Object
+            ? adviceElement : default;
+        var headline = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "headline", "") : "";
+        _lastGuestAdviceDetail = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "detail", "") : "";
+        if (string.IsNullOrEmpty(headline))
+        {
+            GuestAdviceBox.Visibility = Visibility.Collapsed;
+            return advice;
+        }
+        GuestAdviceHeadline.Text = headline;
+        GuestAdviceDetail.Text = _lastGuestAdviceDetail;
+        GuestAdviceBox.Visibility = Visibility.Visible;
+        return advice;
+    }
+
+    /// <summary>
+    /// Link-speed warning: the Drobo's own report of a slow network link.
+    /// Mirrored onto the Settings tab's copy of the same box too -- both
+    /// read from this one /api/shares answer, so they can never disagree,
+    /// and Settings never needs a network fetch of its own for this part.
+    /// </summary>
+    private void RenderLinkWarning(JsonElement root)
+    {
+        var link = root.TryGetProperty("link", out var linkElement) && linkElement.ValueKind == JsonValueKind.Object ? linkElement : default;
+        bool degraded = link.ValueKind == JsonValueKind.Object && IsTrue(link, "degraded");
+        if (!degraded)
+        {
+            LinkWarningBox.Visibility = Visibility.Collapsed;
+            SettingsLinkWarningBox.Visibility = Visibility.Collapsed;
+            return;
+        }
+        LinkWarning.Text = GetStringOr(link, "note", "");
+        LinkWarningBox.Visibility = Visibility.Visible;
+        SettingsLinkWarning.Text = LinkWarning.Text;
+        SettingsLinkWarningBox.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>False only for an explicit <c>"can_sign_in": false</c> in the
+    /// advice; a missing advice object or key leaves it true.</summary>
+    private static bool CanSignInFrom(JsonElement advice) =>
+        advice.ValueKind != JsonValueKind.Object
+        || !advice.TryGetProperty("can_sign_in", out var canSignInElement)
+        || canSignInElement.ValueKind != JsonValueKind.False;
+
+    /// <summary>One share's row, with its connection state from Windows (or,
+    /// for the simulator, from <c>_simulatedConnections</c>) and its per-user
+    /// access line.</summary>
+    private ShareRow BuildShareRow(JsonElement share, List<SmbConnections.ActiveConnection> windowsConnections,
+                                   bool canSignIn, string? blockedReason)
+    {
+        var unc = GetStringOr(share, "unc", "");
+        var match = windowsConnections.FirstOrDefault(connection =>
+            string.Equals(connection.RemoteUnc.TrimEnd('\\'), unc.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+        bool connected = !string.IsNullOrEmpty(match.RemoteUnc);
+        string? driveLetter = connected && !string.IsNullOrEmpty(match.LocalDeviceName) ? match.LocalDeviceName : null;
+        if (IsSimulator)
+        {
+            // Windows' own list is meaningless for a simulated share.
+            connected = _simulatedConnections.TryGetValue(unc, out var simLetter);
+            driveLetter = connected ? simLetter : null;
+        }
+        bool timeMachine = IsTrue(share, "time_machine");
+        var usersText = DescribeUserAccess(share);
+
+        return new ShareRow
+        {
+            Name = GetStringOr(share, "name", ""),
+            Unc = unc,
+            IsTimeMachine = timeMachine,
+            TimeMachineVisibility = timeMachine ? Visibility.Visible : Visibility.Collapsed,
+            IsConnected = connected,
+            DriveLetter = driveLetter,
+            ConnectionText = (connected
+                ? (driveLetter != null ? $"Connected as {driveLetter}" : "Connected (no drive letter)")
+                : "Not connected")
+                + (IsSimulator && connected ? "  ·  simulated" : ""),
+            CanSignIn = canSignIn,
+            SignInBlockedReason = blockedReason,
+            UsersText = usersText,
+            UsersVisibility = usersText.Length == 0 ? Visibility.Collapsed : Visibility.Visible,
+        };
+    }
+
+    /// <summary>
+    /// Per-user access. Each user's "access" description is the agent's own
+    /// wording (shares.py's ACCESS_LEVELS) shown verbatim -- it hedges
+    /// honestly about the codes nobody has confirmed, and that hedging must
+    /// reach the user intact. The fallback below only covers a record that
+    /// arrived with a code but no description at all. Empty when the share
+    /// lists no users.
+    /// </summary>
+    private static string DescribeUserAccess(JsonElement share)
+    {
+        var userAccessParts = new List<string>();
+        if (share.TryGetProperty("users", out var usersArray) && usersArray.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var user in usersArray.EnumerateArray())
+            {
+                if (user.ValueKind != JsonValueKind.Object) continue;
+                userAccessParts.Add(DescribeOneUserAccess(user));
+            }
+        }
+        return userAccessParts.Count == 0 ? "" : "Access: " + string.Join("  ·  ", userAccessParts);
+    }
+
+    /// <summary>"name: access" for one user record.</summary>
+    private static string DescribeOneUserAccess(JsonElement user)
+    {
+        var userName = GetStringOr(user, "name", "");
+        if (userName.Length == 0) userName = "(unnamed)";
+        var described = GetStringOr(user, "access", "");
+        if (described.Length == 0)
+        {
+            var code = GetStringOr(user, "access_code", "");
+            described = code.Length == 0 ? "access unknown"
+                                         : $"code {code} (not yet mapped)";
+        }
+        return $"{userName}: {described}";
     }
 
     /// <summary>
@@ -2080,17 +2131,20 @@ public partial class MainWindow : Window
         if (e.ClickCount != 2) return;
         // A double-click that landed ON a button must not ALSO open the share
         // -- the button's own click already fired. Only act for the row body.
-        if (e.OriginalSource is DependencyObject d && FindAncestorButton(d) != null) return;
+        if (e.OriginalSource is DependencyObject source && FindAncestorButton(source) != null) return;
         e.Handled = true;
         ShareOpen_Click(sender, e);
     }
 
-    private static System.Windows.Controls.Button? FindAncestorButton(DependencyObject d)
+    /// <summary>The nearest Button at or above <paramref name="element"/> in the
+    /// visual tree, or null -- how a row's double-click tells "on a button"
+    /// from "on the row".</summary>
+    private static System.Windows.Controls.Button? FindAncestorButton(DependencyObject element)
     {
-        while (d != null)
+        while (element != null)
         {
-            if (d is System.Windows.Controls.Button b) return b;
-            d = System.Windows.Media.VisualTreeHelper.GetParent(d);
+            if (element is System.Windows.Controls.Button button) return button;
+            element = System.Windows.Media.VisualTreeHelper.GetParent(element);
         }
         return null;
     }
@@ -2173,8 +2227,8 @@ public partial class MainWindow : Window
                 var (ok, root) = await PostJson("/api/mock/sign-in",
                     new { share = row.Name, username, password });
                 if (!ok) return ERROR_UNEXP_NET_ERR;
-                int code = root.TryGetProperty("win32_error", out var we) && we.TryGetInt32(out var c)
-                    ? c : ERROR_UNEXP_NET_ERR;
+                int code = root.TryGetProperty("win32_error", out var win32ErrorElement) && win32ErrorElement.TryGetInt32(out var win32Error)
+                    ? win32Error : ERROR_UNEXP_NET_ERR;
                 if (code == 0) _simulatedConnections[row.Unc] = driveLetter;
                 return code;
             }
@@ -2299,8 +2353,8 @@ public partial class MainWindow : Window
 
     /// <summary>The agent's model strings carry runs of internal padding
     /// (e.g. "ACME      DISK-3000A") -- collapse them to single spaces for display.</summary>
-    private static string CollapseWhitespace(string s) =>
-        string.Join(" ", s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    private static string CollapseWhitespace(string text) =>
+        string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>Turns a unix-seconds timestamp into "4m ago"-style text.</summary>
     private static string FormatRelativeTime(double unixSeconds)
@@ -2403,35 +2457,42 @@ public partial class MainWindow : Window
     /// </summary>
     private static string FormatDeviceExtras(JsonElement device)
     {
-        var sb = new System.Text.StringBuilder();
+        var extras = new System.Text.StringBuilder();
+        AppendTemperature(extras, device);
 
-        if (device.TryGetProperty("temperature_c", out var t)
-            && t.ValueKind == JsonValueKind.Number)
+        if (device.TryGetProperty("uptime_seconds", out var uptimeElement)
+            && uptimeElement.ValueKind == JsonValueKind.Number)
         {
-            sb.Append($"  ·  {t.GetInt32()} °C");
-            if (device.TryGetProperty("temperature_at", out var at)
-                && at.ValueKind == JsonValueKind.Number)
-            {
-                var age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (long)at.GetDouble();
-                sb.Append(age < 90 ? " (just now)"
-                        : age < 3600 ? $" ({age / 60}m ago)"
-                        : $" ({age / 3600}h ago)");
-            }
+            var uptimeSeconds = uptimeElement.GetInt64();
+            var days = uptimeSeconds / 86400;
+            var hours = (uptimeSeconds % 86400) / 3600;
+            extras.Append("  ·  up ");
+            extras.Append(days > 0 ? $"{days} day{(days == 1 ? "" : "s")}{(hours > 0 ? $" {hours}h" : "")}"
+                    : hours > 0 ? $"{hours}h"
+                    : $"{Math.Max(1, uptimeSeconds / 60)}m");
         }
 
-        if (device.TryGetProperty("uptime_seconds", out var u)
-            && u.ValueKind == JsonValueKind.Number)
-        {
-            var sec = u.GetInt64();
-            var d = sec / 86400;
-            var h = (sec % 86400) / 3600;
-            sb.Append("  ·  up ");
-            sb.Append(d > 0 ? $"{d} day{(d == 1 ? "" : "s")}{(h > 0 ? $" {h}h" : "")}"
-                    : h > 0 ? $"{h}h"
-                    : $"{Math.Max(1, sec / 60)}m");
-        }
+        return extras.ToString();
+    }
 
-        return sb.ToString();
+    /// <summary>The chassis temperature, followed by its age whenever the agent
+    /// says when it was read -- see FormatDeviceExtras for why the age is
+    /// shown.</summary>
+    private static void AppendTemperature(System.Text.StringBuilder extras, JsonElement device)
+    {
+        if (!device.TryGetProperty("temperature_c", out var temperatureElement)
+            || temperatureElement.ValueKind != JsonValueKind.Number)
+            return;
+
+        extras.Append($"  ·  {temperatureElement.GetInt32()} °C");
+        if (!device.TryGetProperty("temperature_at", out var measuredAtElement)
+            || measuredAtElement.ValueKind != JsonValueKind.Number)
+            return;
+
+        var ageSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (long)measuredAtElement.GetDouble();
+        extras.Append(ageSeconds < 90 ? " (just now)"
+                : ageSeconds < 3600 ? $" ({ageSeconds / 60}m ago)"
+                : $" ({ageSeconds / 3600}h ago)");
     }
 
     /// <summary>
@@ -2440,7 +2501,7 @@ public partial class MainWindow : Window
     /// footer) and leaves the last real figures on screen -- the comment at
     /// the top of the method says why.
     /// </summary>
-    private void RenderStatus(JsonElement s)
+    private void RenderStatus(JsonElement status)
     {
         // NOT every /api/status payload is a reading, and this method used to
         // assume otherwise. Two ways that went wrong, both found by review on
@@ -2468,46 +2529,81 @@ public partial class MainWindow : Window
         // unreachable poll DOES carry all three keys, filled with a default
         // Snapshot's zeros. Case 2 above is precisely that payload, so a
         // presence check alone would let it through and repaint the panels.
-        bool reachableNow = s.TryGetProperty("reachable", out var rr)
-                            && rr.ValueKind == JsonValueKind.True;
+        bool reachableNow = status.TryGetProperty("reachable", out var reachableElement)
+                            && reachableElement.ValueKind == JsonValueKind.True;
         // `device` is fetched on its own line rather than inside the && chain:
         // short-circuiting would leave it definitely-unassigned for the code
         // after the guard, which the compiler rightly refuses.
-        bool hasDevice = s.TryGetProperty("device", out var device)
+        bool hasDevice = status.TryGetProperty("device", out var device)
                          && device.ValueKind == JsonValueKind.Object;
         bool hasReading = reachableNow && hasDevice
-                          && s.TryGetProperty("capacity", out _)
-                          && s.TryGetProperty("drives", out _);
+                          && status.TryGetProperty("capacity", out _)
+                          && status.TryGetProperty("drives", out _);
 
         if (!hasReading)
         {
-            SetOverallStatePill("unreachable", UnknownBrush, "#22262E", "#39424D");
-            SettingsFirmware.Text = "Not connected to a Drobo";
-            DeviceSub.Text = GetStringOr(s, "error", "Waiting for the first reading from the agent.");
-            Footer.Text = "No reading at " + DateTime.Now.ToString("HH:mm:ss");
-            _lastOverallState = "unreachable";
-            ShowNetworkHint(s.TryGetProperty("network_hint", out var nh)
-                            && nh.ValueKind == JsonValueKind.Object ? nh : default);
+            RenderNoReading(status);
             return;
         }
 
+        RenderDeviceHeader(status, device);
+        RenderOverallState(status);
+
+        var packHealth = ReadPackHealth(status);
+        RenderCapacity(status, packHealth);
+        RenderRebuildNotice(packHealth);
+        RenderDriveBays(status);
+
+        RenderPerformance(status);
+        RenderHardwareHealth(status);
+        RenderVolumes(status);
+
+        Footer.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss") + "  ·  polling every 10s";
+    }
+
+    /// <summary>A payload with no reading in it: the state is updated (pill,
+    /// subtitle, footer, network banner) and every figure below is left as the
+    /// last real reading painted it.</summary>
+    private void RenderNoReading(JsonElement status)
+    {
+        SetOverallStatePill("unreachable", UnknownBrush, "#22262E", "#39424D");
+        SettingsFirmware.Text = "Not connected to a Drobo";
+        DeviceSub.Text = GetStringOr(status, "error", "Waiting for the first reading from the agent.");
+        Footer.Text = "No reading at " + DateTime.Now.ToString("HH:mm:ss");
+        _lastOverallState = "unreachable";
+        ShowNetworkHint(status.TryGetProperty("network_hint", out var networkHintElement)
+                        && networkHintElement.ValueKind == JsonValueKind.Object ? networkHintElement : default);
+    }
+
+    /// <summary>The device name, the firmware line on the Settings tab, and the
+    /// subtitle under the name. Also notices a change of driver, because a
+    /// simulated connection must never survive a switch to real
+    /// hardware.</summary>
+    private void RenderDeviceHeader(JsonElement status, JsonElement device)
+    {
         DeviceName.Text = GetStringOr(device, "name", "Drobo");
         SettingsFirmware.Text = $"{GetStringOr(device, "firmware", "unknown")}  ({GetStringOr(device, "model", "Drobo")})";
 
         // A different driver means a different Drobo: a simulated connection
         // must never survive a switch to real hardware, or the Shares tab would
         // claim a real share is open when Windows has no session to it.
-        var source = GetStringOr(s, "source", "");
+        var source = GetStringOr(status, "source", "");
         if (!string.Equals(source, _lastDriverName, StringComparison.OrdinalIgnoreCase))
             _simulatedConnections.Clear();
         _lastDriverName = source;
 
         DeviceSub.Text = $"{GetStringOr(device, "model", "")}  ·  firmware {GetStringOr(device, "firmware", "?")}"
-                       + $"  ·  {GetStringOr(device, "ip", "")}  ·  {GetStringOr(s, "source", "")} driver"
+                       + $"  ·  {GetStringOr(device, "ip", "")}  ·  {GetStringOr(status, "source", "")} driver"
                        + FormatDeviceExtras(device);
+    }
 
-        var state = GetStringOr(s, "overall_state", "unknown");
-        var reachable = s.TryGetProperty("reachable", out var r) && r.GetBoolean();
+    /// <summary>The overall-state pill, the network and firmware banners, and
+    /// the name and state remembered for the tray icon. Runs after
+    /// RenderDeviceHeader, whose device name it remembers.</summary>
+    private void RenderOverallState(JsonElement status)
+    {
+        var state = GetStringOr(status, "overall_state", "unknown");
+        var reachable = status.TryGetProperty("reachable", out var reachableValue) && reachableValue.GetBoolean();
         state = reachable ? state : "unreachable";
         switch (state)
         {
@@ -2525,54 +2621,77 @@ public partial class MainWindow : Window
         // that is fine. network_hint is null unless the device is unreachable
         // AND the mismatch actually explains it, so its presence is the whole
         // test; see monitor._network_hint.
-        ShowNetworkHint(s.TryGetProperty("network_hint", out var hint)
-                        && hint.ValueKind == JsonValueKind.Object ? hint : default);
+        ShowNetworkHint(status.TryGetProperty("network_hint", out var networkHintElement)
+                        && networkHintElement.ValueKind == JsonValueKind.Object ? networkHintElement : default);
 
         // A standing note about the running firmware, for the two builds Drobo
         // withdrew. `notable` is the agent's single decision -- this window
         // never has to know which versions those are.
-        ShowFirmwareAdvisory(s.TryGetProperty("firmware_advisory", out var fw)
-                             && fw.ValueKind == JsonValueKind.Object ? fw : default);
+        ShowFirmwareAdvisory(status.TryGetProperty("firmware_advisory", out var firmwareAdvisoryElement)
+                             && firmwareAdvisoryElement.ValueKind == JsonValueKind.Object ? firmwareAdvisoryElement : default);
 
         // Remembered for the tray icon's tooltip/badge -- see RefreshStatus(),
         // which hands these to TrayIconManager.UpdateStatus once alerts for
         // this same tick are in too.
         _lastDeviceName = DeviceName.Text;
         _lastOverallState = state;
+    }
 
-        // capacity
-        var cap = s.GetProperty("capacity");
-        long used = GetInt64OrZero(cap, "used_bytes"), free = GetInt64OrZero(cap, "free_bytes");
-        long usable = GetInt64OrZero(cap, "usable_bytes"), raw = GetInt64OrZero(cap, "raw_bytes");
-        long protection = GetInt64OrZero(cap, "protection_bytes");
-        double frac = cap.TryGetProperty("used_fraction", out var f) ? f.GetDouble() : 0;
-        CapUsed.Text = FormatBytes(used);
-        CapFree.Text = FormatBytes(free);
-        CapUsable.Text = FormatBytes(usable);
-        CapProt.Text = FormatBytes(protection);
-        CapRaw.Text = FormatBytes(raw);
+    /// <summary>The fill levels at which the capacity bar turns red and amber,
+    /// used only when the device has not reported its own (see
+    /// RenderCapacity).</summary>
+    private const double DefaultRedThresholdFraction = 0.95;
+    private const double DefaultYellowThresholdFraction = 0.85;
+
+    /// <summary>The status payload's pack_health object, or default when it
+    /// is absent.</summary>
+    private static JsonElement ReadPackHealth(JsonElement status) =>
+        status.TryGetProperty("pack_health", out var packHealthElement) && packHealthElement.ValueKind == JsonValueKind.Object
+            ? packHealthElement : default;
+
+    /// <summary>The CAPACITY card: the five figures and the bar, coloured by
+    /// the device's own thresholds when it has sent them.</summary>
+    private void RenderCapacity(JsonElement status, JsonElement packHealth)
+    {
+        var capacity = status.GetProperty("capacity");
+        long usedBytes = GetInt64OrZero(capacity, "used_bytes"), freeBytes = GetInt64OrZero(capacity, "free_bytes");
+        long usableBytes = GetInt64OrZero(capacity, "usable_bytes"), rawBytes = GetInt64OrZero(capacity, "raw_bytes");
+        long protectionBytes = GetInt64OrZero(capacity, "protection_bytes");
+        double usedFraction = capacity.TryGetProperty("used_fraction", out var usedFractionElement) ? usedFractionElement.GetDouble() : 0;
+        CapUsed.Text = FormatBytes(usedBytes);
+        CapFree.Text = FormatBytes(freeBytes);
+        CapUsable.Text = FormatBytes(usableBytes);
+        CapProt.Text = FormatBytes(protectionBytes);
+        CapRaw.Text = FormatBytes(rawBytes);
 
         // The device reports its own alert levels (mRedThreshold/mYellowThreshold,
         // as fractions) in pack_health -- prefer those over the hardcoded
         // defaults whenever it has actually told us, same rule monitor.py's
         // own evaluation follows server-side.
-        var packHealth = s.TryGetProperty("pack_health", out var ph) && ph.ValueKind == JsonValueKind.Object
-            ? ph : default;
-        double redThreshold = packHealth.ValueKind == JsonValueKind.Object
-            && packHealth.TryGetProperty("red_threshold_fraction", out var rt) && rt.ValueKind == JsonValueKind.Number
-            ? rt.GetDouble() : 0.95;
-        double yellowThreshold = packHealth.ValueKind == JsonValueKind.Object
-            && packHealth.TryGetProperty("yellow_threshold_fraction", out var yt) && yt.ValueKind == JsonValueKind.Number
-            ? yt.GetDouble() : 0.85;
-        CapBar.Background = frac >= redThreshold ? FailedBrush : frac >= yellowThreshold ? WarningBrush : AccentBrush;
-        double filled = Math.Max(0, Math.Min(1.0, frac));
+        double redThreshold = ReadThresholdFraction(packHealth, "red_threshold_fraction", DefaultRedThresholdFraction);
+        double yellowThreshold = ReadThresholdFraction(packHealth, "yellow_threshold_fraction", DefaultYellowThresholdFraction);
+        CapBar.Background = usedFraction >= redThreshold ? FailedBrush : usedFraction >= yellowThreshold ? WarningBrush : AccentBrush;
+        double filled = Math.Max(0, Math.Min(1.0, usedFraction));
         CapBarFillCol.Width = new GridLength(filled, GridUnitType.Star);
         CapBarRestCol.Width = new GridLength(1 - filled, GridUnitType.Star);
+    }
 
-        // Calm by default: this notice only appears when the pack is actually
-        // rebuilding or was double-degraded -- see PackHealth's docstring in
-        // models.py. Wording matches webui.py's rebuildPanel exactly, so the
-        // two front-ends never say something different about the same array.
+    /// <summary>One of pack_health's threshold fractions, or
+    /// <paramref name="defaultFraction"/> when the device did not send it as a
+    /// number.</summary>
+    private static double ReadThresholdFraction(JsonElement packHealth, string key, double defaultFraction) =>
+        packHealth.ValueKind == JsonValueKind.Object
+        && packHealth.TryGetProperty(key, out var thresholdElement) && thresholdElement.ValueKind == JsonValueKind.Number
+            ? thresholdElement.GetDouble() : defaultFraction;
+
+    /// <summary>
+    /// Calm by default: this notice only appears when the pack is actually
+    /// rebuilding or was double-degraded -- see PackHealth's docstring in
+    /// models.py. Wording matches webui.py's rebuildPanel exactly, so the
+    /// two front-ends never say something different about the same array.
+    /// </summary>
+    private void RenderRebuildNotice(JsonElement packHealth)
+    {
         long doubleDegraded = packHealth.ValueKind == JsonValueKind.Object ? GetInt64OrZero(packHealth, "double_degraded_count") : 0;
         long relayout = packHealth.ValueKind == JsonValueKind.Object ? GetInt64OrZero(packHealth, "relayout_count") : 0;
         if (doubleDegraded > 0)
@@ -2590,70 +2709,74 @@ public partial class MainWindow : Window
         {
             RebuildBox.Visibility = Visibility.Collapsed;
         }
+    }
 
-        // drive bays -- one dense line per bay; the 5N has exactly five bays
-        // and the agent reports exactly five (esatm._trim_phantom_slots
-        // already strips a phantom sixth), so this never needs to page.
+    /// <summary>
+    /// The drive bays -- one dense line per bay; the 5N has exactly five bays
+    /// and the agent reports exactly five (esatm._trim_phantom_slots already
+    /// strips a phantom sixth), so this never needs to page.
+    /// </summary>
+    private void RenderDriveBays(JsonElement status)
+    {
         _bays.Clear();
-        foreach (var d in s.GetProperty("drives").EnumerateArray())
+        foreach (var drive in status.GetProperty("drives").EnumerateArray())
         {
-            bool present = d.TryGetProperty("present", out var p) && p.GetBoolean();
-            int bay = d.TryGetProperty("bay", out var b) ? b.GetInt32() : 0;
-            if (!present)
-            {
-                _bays.Add(new DriveRow
-                {
-                    BayLabel = "Bay " + bay, ModelSerial = "empty bay", Firmware = "",
-                    Size = "", StateText = "empty", StateBrush = MutedBrush, Stripe = BrushFromHex("#39424D"),
-                });
-                continue;
-            }
-            var st = GetStringOr(d, "state", "unknown");
-            var brush = st switch { "ok" => OkBrush, "warning" => WarningBrush, "failed" => FailedBrush, _ => UnknownBrush };
-            double? tempC = d.TryGetProperty("temperature_c", out var t) && t.ValueKind == JsonValueKind.Number
-                ? t.GetDouble() : (double?)null;
-            var tail = tempC.HasValue ? $"{st}  {tempC:0.0}°C" : st;
-
-            var model = CollapseWhitespace(GetStringOr(d, "model", "disk"));
-            var serial = GetStringOr(d, "serial", "");
-            var modelSerial = string.IsNullOrEmpty(serial) ? model : $"{model}  ·  {serial}";
-
-            // Noisy extras only when they matter -- a healthy drive shows
-            // neither of these, so the array reads clean at a glance and a
-            // sick one stands out instead of "0 errors" cluttering every row.
-            long errorCount = GetInt64OrZero(d, "error_count");
-            long ssdLife = d.TryGetProperty("ssd_life_remaining", out var sl) && sl.ValueKind == JsonValueKind.Number
-                ? sl.GetInt64() : 100;
-            var flagParts = new List<string>();
-            if (errorCount > 0) flagParts.Add($"{errorCount} error{(errorCount == 1 ? "" : "s")}");
-            if (ssdLife < 100) flagParts.Add($"life {ssdLife}%");
-            var flags = string.Join("  ·  ", flagParts);
-
-            _bays.Add(new DriveRow
-            {
-                BayLabel = "Bay " + bay,
-                ModelSerial = modelSerial,
-                Firmware = GetStringOr(d, "firmware_rev", ""),
-                Size = FormatBytes(GetInt64OrZero(d, "capacity_bytes")),
-                StateText = tail,
-                StateBrush = brush,
-                Stripe = brush,
-                Flags = flags,
-                // Amber for both -- a nonzero error count and reduced SSD life
-                // are both "worth a look", not "this drive has failed" (a real
-                // failure is StateText/StateBrush's job, from the drive's own
-                // reported state). Matches the web dashboard, which colours
-                // both the same var(--warn) amber.
-                FlagsBrush = WarningBrush,
-                FlagsVisibility = flagParts.Count == 0 ? Visibility.Collapsed : Visibility.Visible,
-            });
+            bool present = drive.TryGetProperty("present", out var presentElement) && presentElement.GetBoolean();
+            int bay = drive.TryGetProperty("bay", out var bayElement) ? bayElement.GetInt32() : 0;
+            _bays.Add(present ? BuildDriveRow(drive, bay) : BuildEmptyBayRow(bay));
         }
+    }
 
-        RenderPerformance(s);
-        RenderHardwareHealth(s);
-        RenderVolumes(s);
+    private static DriveRow BuildEmptyBayRow(int bay) => new()
+    {
+        BayLabel = "Bay " + bay, ModelSerial = "empty bay", Firmware = "",
+        Size = "", StateText = "empty", StateBrush = MutedBrush, Stripe = BrushFromHex("#39424D"),
+    };
 
-        Footer.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss") + "  ·  polling every 10s";
+    /// <summary>One occupied bay: model and serial, state (with temperature
+    /// when the drive reports one), size, and the error-count and SSD-life
+    /// flags only when they are worth a look.</summary>
+    private static DriveRow BuildDriveRow(JsonElement drive, int bay)
+    {
+        var driveState = GetStringOr(drive, "state", "unknown");
+        var brush = driveState switch { "ok" => OkBrush, "warning" => WarningBrush, "failed" => FailedBrush, _ => UnknownBrush };
+        double? temperatureC = drive.TryGetProperty("temperature_c", out var temperatureElement) && temperatureElement.ValueKind == JsonValueKind.Number
+            ? temperatureElement.GetDouble() : (double?)null;
+        var stateWithTemperature = temperatureC.HasValue ? $"{driveState}  {temperatureC:0.0}°C" : driveState;
+
+        var model = CollapseWhitespace(GetStringOr(drive, "model", "disk"));
+        var serial = GetStringOr(drive, "serial", "");
+        var modelSerial = string.IsNullOrEmpty(serial) ? model : $"{model}  ·  {serial}";
+
+        // Noisy extras only when they matter -- a healthy drive shows
+        // neither of these, so the array reads clean at a glance and a
+        // sick one stands out instead of "0 errors" cluttering every row.
+        long errorCount = GetInt64OrZero(drive, "error_count");
+        long ssdLifePercent = drive.TryGetProperty("ssd_life_remaining", out var ssdLifeElement) && ssdLifeElement.ValueKind == JsonValueKind.Number
+            ? ssdLifeElement.GetInt64() : 100;
+        var flagParts = new List<string>();
+        if (errorCount > 0) flagParts.Add($"{errorCount} error{(errorCount == 1 ? "" : "s")}");
+        if (ssdLifePercent < 100) flagParts.Add($"life {ssdLifePercent}%");
+        var flags = string.Join("  ·  ", flagParts);
+
+        return new DriveRow
+        {
+            BayLabel = "Bay " + bay,
+            ModelSerial = modelSerial,
+            Firmware = GetStringOr(drive, "firmware_rev", ""),
+            Size = FormatBytes(GetInt64OrZero(drive, "capacity_bytes")),
+            StateText = stateWithTemperature,
+            StateBrush = brush,
+            Stripe = brush,
+            Flags = flags,
+            // Amber for both -- a nonzero error count and reduced SSD life
+            // are both "worth a look", not "this drive has failed" (a real
+            // failure is StateText/StateBrush's job, from the drive's own
+            // reported state). Matches the web dashboard, which colours
+            // both the same var(--warn) amber.
+            FlagsBrush = WarningBrush,
+            FlagsVisibility = flagParts.Count == 0 ? Visibility.Collapsed : Visibility.Visible,
+        };
     }
 
     /// <summary>
@@ -2672,60 +2795,74 @@ public partial class MainWindow : Window
     /// capacity is rendered directly beneath it, always together.
     /// </para>
     /// </summary>
-    private void RenderVolumes(JsonElement s)
+    private void RenderVolumes(JsonElement status)
     {
         _volumes.Clear();
 
-        if (!s.TryGetProperty("volumes", out var vols) || vols.ValueKind != JsonValueKind.Array
-            || vols.GetArrayLength() == 0)
+        if (!status.TryGetProperty("volumes", out var volumes) || volumes.ValueKind != JsonValueKind.Array
+            || volumes.GetArrayLength() == 0)
         {
             // No volumes reported. Say nothing rather than showing an empty card.
             VolumesCard.Visibility = Visibility.Collapsed;
             return;
         }
 
-        var cap = s.TryGetProperty("capacity", out var c) && c.ValueKind == JsonValueKind.Object
-            ? c : default;
-        long usable = cap.ValueKind == JsonValueKind.Object ? GetInt64OrZero(cap, "usable_bytes") : 0;
-        string packHolds = usable > 0 ? "pack holds " + FormatBytes(usable) : "";
+        var capacity = status.TryGetProperty("capacity", out var capacityElement) && capacityElement.ValueKind == JsonValueKind.Object
+            ? capacityElement : default;
+        long usableBytes = capacity.ValueKind == JsonValueKind.Object ? GetInt64OrZero(capacity, "usable_bytes") : 0;
+        string packHolds = usableBytes > 0 ? "pack holds " + FormatBytes(usableBytes) : "";
 
-        int i = 0;
-        foreach (var v in vols.EnumerateArray())
+        int volumeCount = 0;
+        foreach (var volume in volumes.EnumerateArray())
         {
-            long lun = GetInt64OrZero(v, "lun");
-            string name = GetStringOr(v, "name", "");
-            if (string.IsNullOrWhiteSpace(name))
-                name = "Volume " + (lun + 1);   // the device's own name, or none invented
-
-            var bits = new List<string>();
-            // Explicit presence check: a volume reporting zero partitions is
-            // not the same as one that reported none, and 0 is falsy.
-            if (v.TryGetProperty("partition_count", out var pc) && pc.ValueKind == JsonValueKind.Number)
-                bits.Add(pc.GetInt64() == 1 ? "1 partition" : pc.GetInt64() + " partitions");
-            string id = GetStringOr(v, "unique_id", "");
-            if (!string.IsNullOrEmpty(id)) bits.Add("id " + id);
-
-            long ceiling = GetInt64OrZero(v, "max_size_bytes");
-            _volumes.Add(new VolumeRow
-            {
-                Name = name,
-                Detail = string.Join("  ·  ", bits),
-                Ceiling = ceiling > 0 ? "can grow to " + FormatBytes(ceiling) : "",
-                PackHolds = ceiling > 0 ? packHolds : "",
-            });
-            i++;
+            _volumes.Add(BuildVolumeRow(volume, packHolds));
+            volumeCount++;
         }
 
-        long maxVols = GetInt64OrZero(s, "max_volumes");
-        var intro = i == 1
+        VolumesIntro.Text = BuildVolumesIntro(volumeCount, GetInt64OrZero(status, "max_volumes"));
+        VolumesCard.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>One volume's row. The "can grow to" ceiling and the pack's real
+    /// capacity are set together or not at all -- see VolumeRow for why one
+    /// must never be shown without the other.</summary>
+    private static VolumeRow BuildVolumeRow(JsonElement volume, string packHolds)
+    {
+        long lun = GetInt64OrZero(volume, "lun");
+        string name = GetStringOr(volume, "name", "");
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Volume " + (lun + 1);   // the device's own name, or none invented
+
+        var detailParts = new List<string>();
+        // Explicit presence check: a volume reporting zero partitions is
+        // not the same as one that reported none, and 0 is falsy.
+        if (volume.TryGetProperty("partition_count", out var partitionCountElement) && partitionCountElement.ValueKind == JsonValueKind.Number)
+            detailParts.Add(partitionCountElement.GetInt64() == 1 ? "1 partition" : partitionCountElement.GetInt64() + " partitions");
+        string uniqueId = GetStringOr(volume, "unique_id", "");
+        if (!string.IsNullOrEmpty(uniqueId)) detailParts.Add("id " + uniqueId);
+
+        long ceilingBytes = GetInt64OrZero(volume, "max_size_bytes");
+        return new VolumeRow
+        {
+            Name = name,
+            Detail = string.Join("  ·  ", detailParts),
+            Ceiling = ceilingBytes > 0 ? "can grow to " + FormatBytes(ceilingBytes) : "",
+            PackHolds = ceilingBytes > 0 ? packHolds : "",
+        };
+    }
+
+    /// <summary>The sentence above the volume list: how many volumes, out of
+    /// how many the device could hold (when it says), and what a volume
+    /// is.</summary>
+    private static string BuildVolumesIntro(int volumeCount, long maxVolumeCount)
+    {
+        var intro = volumeCount == 1
             ? "Your Drobo presents its storage as a single volume"
-            : $"Your Drobo presents its storage as {i} volumes";
-        if (maxVols > 0) intro += $", out of {maxVols} it could hold";
+            : $"Your Drobo presents its storage as {volumeCount} volumes";
+        if (maxVolumeCount > 0) intro += $", out of {maxVolumeCount} it could hold";
         intro += ". A volume is what appears in Windows as a drive letter; it grows "
                + "as you add drives rather than being a fixed slice.";
-        VolumesIntro.Text = intro;
-
-        VolumesCard.Visibility = Visibility.Visible;
+        return intro;
     }
 
     /// <summary>Older than this, the figures carry their age: the agent's
@@ -2750,10 +2887,10 @@ public partial class MainWindow : Window
     /// measured=false: IsTrue() already returns false for a missing property,
     /// which is the right default here.
     /// </summary>
-    private void RenderPerformance(JsonElement s)
+    private void RenderPerformance(JsonElement status)
     {
-        var perf = s.TryGetProperty("performance", out var pf) && pf.ValueKind == JsonValueKind.Object
-            ? pf : default;
+        var perf = status.TryGetProperty("performance", out var performanceElement) && performanceElement.ValueKind == JsonValueKind.Object
+            ? performanceElement : default;
         bool measured = perf.ValueKind == JsonValueKind.Object && IsTrue(perf, "measured");
 
         if (!measured)
@@ -2778,18 +2915,18 @@ public partial class MainWindow : Window
             : "";
         PerfAge.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
 
-        long readMb = GetInt64OrZero(perf, "read_mb_per_s");
-        long writeMb = GetInt64OrZero(perf, "write_mb_per_s");
+        long readMegabytesPerSecond = GetInt64OrZero(perf, "read_mb_per_s");
+        long writeMegabytesPerSecond = GetInt64OrZero(perf, "write_mb_per_s");
         long iops = GetInt64OrZero(perf, "iops");
-        bool allZero = readMb == 0 && writeMb == 0 && iops == 0;
+        bool allZero = readMegabytesPerSecond == 0 && writeMegabytesPerSecond == 0 && iops == 0;
 
         PerfUnknown.Visibility = Visibility.Collapsed;
         PerfIdle.Visibility = allZero ? Visibility.Visible : Visibility.Collapsed;
         PerfActive.Visibility = allZero ? Visibility.Collapsed : Visibility.Visible;
         if (!allZero)
         {
-            PerfRead.Text = $"{readMb} MB/s";
-            PerfWrite.Text = $"{writeMb} MB/s";
+            PerfRead.Text = $"{readMegabytesPerSecond} MB/s";
+            PerfWrite.Text = $"{writeMegabytesPerSecond} MB/s";
             PerfIops.Text = iops.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
@@ -2803,20 +2940,20 @@ public partial class MainWindow : Window
     /// figures (charge, RPM) simply stay blank when absent -- never a guess,
     /// never a crash.
     /// </summary>
-    private void RenderHardwareHealth(JsonElement s)
+    private void RenderHardwareHealth(JsonElement status)
     {
-        var battery = s.TryGetProperty("battery", out var b) && b.ValueKind == JsonValueKind.Object ? b : default;
-        var power = s.TryGetProperty("power", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
-        var fan = s.TryGetProperty("fan", out var fn) && fn.ValueKind == JsonValueKind.Object ? fn : default;
+        var battery = status.TryGetProperty("battery", out var batteryElement) && batteryElement.ValueKind == JsonValueKind.Object ? batteryElement : default;
+        var power = status.TryGetProperty("power", out var powerElement) && powerElement.ValueKind == JsonValueKind.Object ? powerElement : default;
+        var fan = status.TryGetProperty("fan", out var fanElement) && fanElement.ValueKind == JsonValueKind.Object ? fanElement : default;
 
         SetHealthPill(BatteryPill, BatteryPillText, ReadHealthState(battery));
         SetHealthPill(PsuPill, PsuPillText, ReadHealthState(power));
         SetHealthPill(FanPill, FanPillText, ReadHealthState(fan));
 
         BatteryDetail.Text = battery.ValueKind == JsonValueKind.Object
-                             && battery.TryGetProperty("charge_pct", out var ch)
-                             && ch.ValueKind == JsonValueKind.Number
-            ? $"{ch.GetDouble():0.#}% charge" : "";
+                             && battery.TryGetProperty("charge_pct", out var chargeElement)
+                             && chargeElement.ValueKind == JsonValueKind.Number
+            ? $"{chargeElement.GetDouble():0.#}% charge" : "";
         FanDetail.Text = fan.ValueKind == JsonValueKind.Object
                          && fan.TryGetProperty("rpm", out var rpm)
                          && rpm.ValueKind == JsonValueKind.Number
@@ -2833,8 +2970,10 @@ public partial class MainWindow : Window
         HardwareHealthNote.Visibility = notes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private static string ReadHealthState(JsonElement el) =>
-        el.ValueKind == JsonValueKind.Object ? GetStringOr(el, "state", "unknown") : "unknown";
+    /// <summary>A battery/power/fan object's "state", or "unknown" when the
+    /// object or its state is missing.</summary>
+    private static string ReadHealthState(JsonElement element) =>
+        element.ValueKind == JsonValueKind.Object ? GetStringOr(element, "state", "unknown") : "unknown";
 
     /// <summary>One health pill: the state word in the same colours the drive
     /// bays and the header pill use for it. An unrecognised state is still
@@ -2885,20 +3024,20 @@ public partial class MainWindow : Window
         SettingsError.Visibility = Visibility.Collapsed;
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboconfig?section=network");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            var json = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboconfig?section=network");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (!resp.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
                 // The agent already writes a plain-English reason into "error"
                 // for exactly this case -- no live Drobo connection yet, or the
                 // command port refused/timed out (502/503). Show that instead
                 // of a bare HTTP status code.
-                SettingsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                SettingsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)response.StatusCode}.");
                 SettingsError.Visibility = Visibility.Visible;
                 return;
             }
@@ -3066,10 +3205,10 @@ public partial class MainWindow : Window
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/ping");
-            using var resp = await _agentHttpClient.SendAsync(req);
-            resp.EnsureSuccessStatusCode();
-            var json = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/ping");
+            using var response = await _agentHttpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var agentVersion = GetStringOr(root, "version", "?");
@@ -3084,15 +3223,15 @@ public partial class MainWindow : Window
 
     /// <summary>"3 days 4h", "5h 12m" or "7m": the two largest units only,
     /// because an uptime is read at a glance.</summary>
-    private static string FormatUptime(long sec)
+    private static string FormatUptime(long uptimeSeconds)
     {
-        if (sec <= 0) return "just started";
-        var d = sec / 86400;
-        var h = (sec % 86400) / 3600;
-        var m = (sec % 3600) / 60;
-        if (d > 0) return $"{d} day{(d == 1 ? "" : "s")}" + (h > 0 ? $" {h}h" : "");
-        if (h > 0) return $"{h}h" + (m > 0 ? $" {m}m" : "");
-        return $"{Math.Max(1, m)}m";
+        if (uptimeSeconds <= 0) return "just started";
+        var days = uptimeSeconds / 86400;
+        var hours = (uptimeSeconds % 86400) / 3600;
+        var minutes = (uptimeSeconds % 3600) / 60;
+        if (days > 0) return $"{days} day{(days == 1 ? "" : "s")}" + (hours > 0 ? $" {hours}h" : "");
+        if (hours > 0) return $"{hours}h" + (minutes > 0 ? $" {minutes}m" : "");
+        return $"{Math.Max(1, minutes)}m";
     }
 
     private void OpenWebDashboard_Click(object sender, RoutedEventArgs e)
@@ -3152,11 +3291,11 @@ public partial class MainWindow : Window
 
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            resp.EnsureSuccessStatusCode();
-            var json = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
 
             if (pref == DroboSettings.DiagnosticsPreference.File)
                 SaveDiagnosticsToFile(json);
@@ -3498,13 +3637,13 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task<JsonElement> PostSerializedJson(string path, string body)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path)
+        using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path)
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
         };
-        req.Headers.Add("X-Agent-Token", Token.Password);
-        using var resp = await _agentHttpClient.SendAsync(req);
-        var json = await resp.Content.ReadAsStringAsync();
+        request.Headers.Add("X-Agent-Token", Token.Password);
+        using var response = await _agentHttpClient.SendAsync(request);
+        var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
     }
@@ -3665,20 +3804,20 @@ public partial class MainWindow : Window
             // click could then race on. HttpMethod.Post + SendAsync is what
             // actually goes out on the wire as POST; there is no GetAsync
             // anywhere on this path.
-            using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/identify" + query);
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            var json = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/identify" + query);
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (!resp.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
                 // The agent already writes a plain-English reason into "error"
                 // for both failure cases it can hit here -- no live Drobo
                 // connection yet (503), or the device refused/didn't answer
                 // the command (502). Show that instead of a bare status code.
-                ShowIdentifyResult(GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}."),
+                ShowIdentifyResult(GetStringOr(root, "error", $"The agent returned HTTP {(int)response.StatusCode}."),
                     ok: false, simulated: false);
                 return;
             }
@@ -3730,14 +3869,14 @@ public partial class MainWindow : Window
         DroboAppsActionResult.Visibility = Visibility.Collapsed;
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboapps");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
-            var json = await resp.Content.ReadAsStringAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboapps");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (!resp.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
                 // Covers both failure shapes the agent can return here: no
                 // live Drobo connection yet (503, plain {"error": ...}, no
@@ -3745,7 +3884,7 @@ public partial class MainWindow : Window
                 // connected (502, {"error": ..., "apps": []}). Either way,
                 // show the agent's own reason and clear the list rather than
                 // leaving a stale one on screen looking current.
-                DroboAppsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)resp.StatusCode}.");
+                DroboAppsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)response.StatusCode}.");
                 DroboAppsError.Visibility = Visibility.Visible;
                 _droboApps.Clear();
                 DroboAppsSdk.Text = "";
