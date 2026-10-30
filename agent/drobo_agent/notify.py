@@ -21,16 +21,31 @@ from .models import SEVERITY_CRITICAL, SEVERITY_WARNING
 
 
 class Notifier:
+    """
+    One way of telling the user something. A single method, because the
+    agent does not care how delivery happens: Monitor calls send() and
+    every backend -- console, ntfy, email, a future APNs -- is just
+    another subclass.
+    """
+
     name = "base"
 
     def send(self, title: str, message: str, severity: str) -> None:
+        """Deliver one alert. Each backend overrides this."""
         raise NotImplementedError
 
 
 class ConsoleNotifier(Notifier):
+    """
+    Print the alert to the agent's own output. Always available, needs
+    no configuration, and is what build() falls back to, so an alert is
+    never silently dropped just because nothing else was set up.
+    """
+
     name = "console"
 
     def send(self, title: str, message: str, severity: str) -> None:
+        """One line per alert, marked "!!" critical or " !" warning."""
         marker = {SEVERITY_CRITICAL: "!!",
                   SEVERITY_WARNING: " !"}.get(severity, "  ")
         print(f"[alert]{marker} {title}: {message}", flush=True)
@@ -48,11 +63,24 @@ class NtfyNotifier(Notifier):
     _TAGS_BY_SEVERITY = {SEVERITY_CRITICAL: "rotating_light",
                          SEVERITY_WARNING: "warning"}
 
+    #: Bounded so an ntfy server that has gone away cannot hold up the
+    #: poll cycle the alert is sent from.
+    TIMEOUT_SECONDS = 10
+
     def __init__(self, server: str, topic: str):
+        """
+        An empty server means the public ntfy.sh, the one the phone app
+        subscribes to out of the box, so a topic alone is a working
+        configuration.
+        """
         self.server = (server or "https://ntfy.sh").rstrip("/")
         self.topic = topic
 
     def send(self, title: str, message: str, severity: str) -> None:
+        """
+        POST the message to the topic, with severity mapped to ntfy's
+        priority and tags. A failure is printed, not raised.
+        """
         if not self.topic:
             return
         request = urllib.request.Request(
@@ -66,7 +94,8 @@ class NtfyNotifier(Notifier):
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(
+                    request, timeout=self.TIMEOUT_SECONDS) as response:
                 response.read()
         except (urllib.error.URLError, OSError) as exc:
             # Never let a failed notification take the agent down -- the
@@ -118,6 +147,11 @@ class EmailNotifier(Notifier):
         self.use_tls = use_tls
 
     def send(self, title: str, message: str, severity: str) -> None:
+        """
+        Mail the alert to every recipient. Raises RuntimeError on any
+        failure, naming the server and the error type only (see the
+        class docstring for why never the error's text).
+        """
         # Imported here rather than at module scope so that a config
         # with no email backend never even loads smtplib -- which is
         # also what makes the "contacts nothing when off" test provable
@@ -136,21 +170,10 @@ class EmailNotifier(Notifier):
             f"Severity: {severity}\n")
 
         try:
-            if self.use_tls:
-                with smtplib.SMTP(
-                        self.host, self.port,
-                        timeout=self.TIMEOUT_SECONDS) as smtp:
-                    smtp.starttls()
-                    if self.username:
-                        smtp.login(self.username, self._password)
-                    smtp.send_message(mail)
-            else:
-                with smtplib.SMTP(
-                        self.host, self.port,
-                        timeout=self.TIMEOUT_SECONDS) as smtp:
-                    if self.username:
-                        smtp.login(self.username, self._password)
-                    smtp.send_message(mail)
+            with smtplib.SMTP(
+                    self.host, self.port,
+                    timeout=self.TIMEOUT_SECONDS) as smtp:
+                self._log_in_and_send(smtp, mail)
         except Exception as exc:
             # Deliberately NOT str(exc): a rejected SMTP login commonly
             # echoes the credentials back in the server's response, and
@@ -159,14 +182,33 @@ class EmailNotifier(Notifier):
                 f"could not send mail via {self.host}:{self.port} "
                 f"({type(exc).__name__})") from None
 
+    def _log_in_and_send(self, smtp, mail) -> None:
+        """
+        On an open SMTP connection: STARTTLS when use_tls is set, log in
+        when there is a username, then send. use_tls means STARTTLS on
+        the plain connection; there is no implicit-TLS (port 465) mode.
+        """
+        if self.use_tls:
+            smtp.starttls()
+        if self.username:
+            smtp.login(self.username, self._password)
+        smtp.send_message(mail)
+
 
 class NotifierGroup(Notifier):
+    """
+    Every configured backend, sent to as one. Each member's failure is
+    caught and printed on its own, so a broken mail server cannot stop
+    the ntfy push (or the console line) for the same alert.
+    """
+
     name = "group"
 
     def __init__(self, members: list[Notifier]):
         self.members = members
 
     def send(self, title: str, message: str, severity: str) -> None:
+        """Send to each member; one failing never stops the rest."""
         for member in self.members:
             try:
                 member.send(title, message, severity)
@@ -177,48 +219,74 @@ class NotifierGroup(Notifier):
 
 
 def build(notify_config: dict) -> Notifier:
+    """
+    The notifier the agent sends every alert through, from the "notify"
+    block of config.json.
+
+    A backend that is switched on but not configured well enough to send
+    is reported and skipped, and an unknown name is reported and
+    ignored. If that leaves nothing, the console is used, so an alert
+    always goes somewhere the user can find it.
+    """
     members: list[Notifier] = []
     for backend in notify_config.get("backends", ["console"]):
         if backend == "console":
-            members.append(ConsoleNotifier())
+            member = ConsoleNotifier()
         elif backend == "ntfy":
-            ntfy_config = notify_config.get("ntfy", {})
-            if not ntfy_config.get("topic"):
-                print("[notify] ntfy is enabled but "
-                      "no topic is set -- skipping", flush=True)
-                continue
-            members.append(NtfyNotifier(ntfy_config.get("server", ""),
-                                        ntfy_config["topic"]))
+            member = _build_ntfy(notify_config)
         elif backend == "email":
-            email_config = notify_config.get("email", {})
-            # Every one of these is required, and a partial
-            # configuration is reported rather than half-used: an alert
-            # that silently fails to send is worse than one that was
-            # never configured, because you believe you are covered.
-            missing = [k for k in ("host", "to") if not email_config.get(k)]
-            if missing:
-                print(f"[notify] email is enabled but {', '.join(missing)} "
-                      f"{'is' if len(missing) == 1 else 'are'} "
-                      f"not set -- skipping",
-                      flush=True)
-                continue
-            recipients = email_config["to"]
-            if isinstance(recipients, str):
-                recipients = [
-                    address.strip() for address in recipients.split(",")
-                    if address.strip()]
-            members.append(EmailNotifier(
-                host=email_config["host"],
-                port=int(email_config.get("port", 587)),
-                username=email_config.get("username", ""),
-                password=email_config.get("password", ""),
-                sender=email_config.get("from", ""),
-                recipients=recipients,
-                use_tls=bool(email_config.get("use_tls", True)),
-            ))
+            member = _build_email(notify_config)
         else:
             print(f"[notify] unknown backend {backend!r} -- ignoring",
                   flush=True)
+            continue
+        if member is not None:
+            members.append(member)
     if not members:
         members.append(ConsoleNotifier())
     return NotifierGroup(members)
+
+
+def _build_ntfy(notify_config: dict) -> Notifier | None:
+    """The ntfy backend, or None (reported) when it has no topic."""
+    ntfy_config = notify_config.get("ntfy", {})
+    if not ntfy_config.get("topic"):
+        print("[notify] ntfy is enabled but "
+              "no topic is set -- skipping", flush=True)
+        return None
+    return NtfyNotifier(ntfy_config.get("server", ""),
+                        ntfy_config["topic"])
+
+
+def _build_email(notify_config: dict) -> Notifier | None:
+    """
+    The email backend, or None (reported) when a required setting is
+    missing. "to" may be a list or one comma-separated string.
+    """
+    email_config = notify_config.get("email", {})
+    # Every one of these is required, and a partial configuration is
+    # reported rather than half-used: an alert that silently fails to
+    # send is worse than one that was never configured, because you
+    # believe you are covered.
+    missing_keys = [key for key in ("host", "to")
+                    if not email_config.get(key)]
+    if missing_keys:
+        print(f"[notify] email is enabled but {', '.join(missing_keys)} "
+              f"{'is' if len(missing_keys) == 1 else 'are'} "
+              f"not set -- skipping",
+              flush=True)
+        return None
+    recipients = email_config["to"]
+    if isinstance(recipients, str):
+        recipients = [
+            address.strip() for address in recipients.split(",")
+            if address.strip()]
+    return EmailNotifier(
+        host=email_config["host"],
+        port=int(email_config.get("port", 587)),
+        username=email_config.get("username", ""),
+        password=email_config.get("password", ""),
+        sender=email_config.get("from", ""),
+        recipients=recipients,
+        use_tls=bool(email_config.get("use_tls", True)),
+    )

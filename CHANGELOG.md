@@ -156,6 +156,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     the docstrings say why the merge is deep and the save atomic. Both
     error messages, their order, the first-run token and every config
     key are as they were. (2026-10-29)
+  - `agent/drobo_agent/notify.py`: one builder per notification backend
+    and one SMTP path, with STARTTLS, login and send in the same order
+    as before. Every skip message, timeout and config key is as it was.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
