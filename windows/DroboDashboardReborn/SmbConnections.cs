@@ -46,6 +46,8 @@ internal static class SmbConnections
         public string? lpProvider;
     }
 
+    // Win32 values from winnetwk.h: disk shares only (not printers), and
+    // only the connections that exist right now.
     private const int RESOURCETYPE_DISK = 0x00000001;
     private const int RESOURCE_CONNECTED = 0x00000001;
 
@@ -82,15 +84,27 @@ internal static class SmbConnections
     private static extern int WNetEnumResource(
         IntPtr hEnum, ref int lpcCount, IntPtr lpBuffer, ref int lpBufferSize);
 
-    private const int NO_ERROR = 0;
+    private const int NO_ERROR = 0;   // winerror.h: success
+
+    /// <summary>
+    /// The buffer WNetEnumResource fills, in bytes. 64KB comfortably holds
+    /// the handful of shares a home NAS offers plus whatever else Windows
+    /// has mapped. If there were ever more than that, WNetEnumResource
+    /// returns an error and we simply stop -- a partial list beats crashing
+    /// the Shares tab over an edge case this app will never actually see on
+    /// a home network.
+    /// </summary>
+    private const int EnumBufferSizeBytes = 65536;
 
     // ---------------------------------------------------------------
     // Reading Windows' current connections
     // ---------------------------------------------------------------
 
-    /// <summary>One currently-active Windows connection to a network share. LocalName
-    /// is null when the share is connected without consuming a drive letter.</summary>
-    public readonly record struct ActiveConnection(string RemoteUnc, string? LocalName);
+    /// <summary>One currently-active Windows connection to a network share.
+    /// LocalDeviceName is the drive letter it is mapped to (Win32's
+    /// lpLocalName, e.g. "Z:"), or null when the share is connected without
+    /// consuming one.</summary>
+    public readonly record struct ActiveConnection(string RemoteUnc, string? LocalDeviceName);
 
     /// <summary>
     /// Every network share Windows currently has open, drive-lettered or
@@ -106,35 +120,7 @@ internal static class SmbConnections
 
         try
         {
-            // 64KB comfortably holds the handful of shares a home NAS offers plus
-            // whatever else Windows has mapped. If there were ever more than that,
-            // WNetEnumResource returns an error and we simply stop -- a partial
-            // list beats crashing the Shares tab over an edge case this app will
-            // never actually see on a home network.
-            const int bufferSize = 65536;
-            var buffer = Marshal.AllocHGlobal(bufferSize);
-            try
-            {
-                while (true)
-                {
-                    int count = -1;
-                    int size = bufferSize;
-                    int rc = WNetEnumResource(handle, ref count, buffer, ref size);
-                    if (rc != NO_ERROR) break; // NO_ERROR is the only "keep going" result
-
-                    int itemSize = Marshal.SizeOf<NETRESOURCE>();
-                    for (int i = 0; i < count; i++)
-                    {
-                        var res = Marshal.PtrToStructure<NETRESOURCE>(buffer + i * itemSize);
-                        if (!string.IsNullOrEmpty(res.lpRemoteName))
-                            results.Add(new ActiveConnection(res.lpRemoteName!, res.lpLocalName));
-                    }
-                }
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
+            ReadAllConnections(handle, results);
         }
         finally
         {
@@ -143,16 +129,56 @@ internal static class SmbConnections
         return results;
     }
 
+    /// <summary>Drains an open enumeration into <paramref name="results"/>,
+    /// one buffer-full at a time, freeing the buffer whatever happens. The
+    /// caller owns, and closes, <paramref name="enumHandle"/>.</summary>
+    private static void ReadAllConnections(IntPtr enumHandle, List<ActiveConnection> results)
+    {
+        var buffer = Marshal.AllocHGlobal(EnumBufferSizeBytes);
+        try
+        {
+            while (ReadOneBatch(enumHandle, buffer, results))
+            {
+                // Each pass appends one batch; ReadOneBatch says when to stop.
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    /// <summary>One WNetEnumResource call: appends every entry that names a
+    /// share and returns true, or returns false once the call reports
+    /// anything but NO_ERROR (the end of the list included) -- NO_ERROR is
+    /// the only "keep going" result.</summary>
+    private static bool ReadOneBatch(IntPtr enumHandle, IntPtr buffer, List<ActiveConnection> results)
+    {
+        int entryCount = -1;
+        int bufferSizeBytes = EnumBufferSizeBytes;
+        int resultCode = WNetEnumResource(enumHandle, ref entryCount, buffer, ref bufferSizeBytes);
+        if (resultCode != NO_ERROR) return false;
+
+        int entrySizeBytes = Marshal.SizeOf<NETRESOURCE>();
+        for (int entryIndex = 0; entryIndex < entryCount; entryIndex++)
+        {
+            var resource = Marshal.PtrToStructure<NETRESOURCE>(buffer + entryIndex * entrySizeBytes);
+            if (!string.IsNullOrEmpty(resource.lpRemoteName))
+                results.Add(new ActiveConnection(resource.lpRemoteName!, resource.lpLocalName));
+        }
+        return true;
+    }
+
     /// <summary>The first unused drive letter from Z down to D, or null if none are
     /// free. D upward is skipped to stay clear of A/B (floppy-era conventions some
     /// software still assumes) and C (the system drive).</summary>
     public static string? NextFreeDriveLetter()
     {
-        var used = new HashSet<char>(
-            DriveInfo.GetDrives().Select(d => char.ToUpperInvariant(d.Name[0])));
-        for (char c = 'Z'; c >= 'D'; c--)
-            if (!used.Contains(c))
-                return c + ":";
+        var usedLetters = new HashSet<char>(
+            DriveInfo.GetDrives().Select(drive => char.ToUpperInvariant(drive.Name[0])));
+        for (char letter = 'Z'; letter >= 'D'; letter--)
+            if (!usedLetters.Contains(letter))
+                return letter + ":";
         return null;
     }
 
@@ -178,16 +204,16 @@ internal static class SmbConnections
     /// Returns 0 on success, or a Win32 error code -- pass that to
     /// <see cref="DescribeError"/> to turn it into plain English.
     /// </summary>
-    public static int Connect(string uncPath, string? driveLetter, string? username, string? password, bool remember)
+    public static int Connect(string uncPath, string? driveLetter, string? username, string? password, bool rememberConnection)
     {
-        var nr = new NETRESOURCE
+        var netResource = new NETRESOURCE
         {
             dwType = RESOURCETYPE_DISK,
             lpRemoteName = uncPath,
             lpLocalName = string.IsNullOrWhiteSpace(driveLetter) ? null : driveLetter,
         };
-        int flags = remember ? CONNECT_UPDATE_PROFILE : 0;
-        return WNetAddConnection2(ref nr, password, username, flags);
+        int connectFlags = rememberConnection ? CONNECT_UPDATE_PROFILE : 0;
+        return WNetAddConnection2(ref netResource, password, username, connectFlags);
     }
 
     /// <summary>Disconnects a drive letter ("Z:") or a UNC-only session (pass the UNC
@@ -199,6 +225,9 @@ internal static class SmbConnections
     // Error codes -> plain English
     // ---------------------------------------------------------------
 
+    // The Win32 codes (winerror.h) that DescribeError maps to a sentence of
+    // its own: the ones Connect and Disconnect are known to return against a
+    // Drobo. Anything else gets Windows' own wording plus the number.
     public const int ERROR_ACCESS_DENIED = 5;
     public const int ERROR_BAD_NETPATH = 53;
     public const int ERROR_ALREADY_ASSIGNED = 85;
@@ -213,9 +242,9 @@ internal static class SmbConnections
     /// (shares.py's access_advice.detail) -- reused here because
     /// ERROR_ACCESS_DENIED is usually that same guest-logon story.
     /// </summary>
-    public static string DescribeError(int code, string? guestAdvice)
+    public static string DescribeError(int win32ErrorCode, string? guestAdvice)
     {
-        switch (code)
+        switch (win32ErrorCode)
         {
             case NO_ERROR:
                 return "";
@@ -241,7 +270,7 @@ internal static class SmbConnections
             case ERROR_ALREADY_ASSIGNED:
                 return "That drive letter is already in use for something else. Pick a different one.";
             default:
-                return $"Windows reported an error connecting: {new Win32Exception(code).Message} (code {code}).";
+                return $"Windows reported an error connecting: {new Win32Exception(win32ErrorCode).Message} (code {win32ErrorCode}).";
         }
     }
 }

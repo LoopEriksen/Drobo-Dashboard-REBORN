@@ -1841,7 +1841,7 @@ public partial class MainWindow : Window
                 var match = active.FirstOrDefault(a =>
                     string.Equals(a.RemoteUnc.TrimEnd('\\'), unc.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
                 bool connected = !string.IsNullOrEmpty(match.RemoteUnc);
-                string? letter = connected && !string.IsNullOrEmpty(match.LocalName) ? match.LocalName : null;
+                string? letter = connected && !string.IsNullOrEmpty(match.LocalDeviceName) ? match.LocalDeviceName : null;
                 if (IsSimulator)
                 {
                     // Windows' own list is meaningless for a simulated share.
