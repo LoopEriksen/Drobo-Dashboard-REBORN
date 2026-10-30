@@ -103,6 +103,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     its parts (device info, drives, capacity, pack health), in the
     same order as before. Private helpers and local names only; the
     timeout message and every field read are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/sysinfo.py`: one login helper and one
+    result-element reader replace two copies of each. The same frames
+    go out in the same order, the same errors are raised in the same
+    order, and the socket still closes however the call ends.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

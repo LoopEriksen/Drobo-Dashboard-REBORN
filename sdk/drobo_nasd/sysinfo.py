@@ -15,7 +15,7 @@ in that document. The chassis temperature comes from a *command*,
 
 The second mistake was subtler. Early probes of `eCmdGetSysInfo` looked
 like they succeeded about one time in six, which pointed at the RSA
-challenge- response that gates the privileged commands. They were
+challenge-response that gates the privileged commands. They were
 actually succeeding far more often than that; the replies were simply
 being read wrongly.
 
@@ -36,8 +36,10 @@ Read-only. Sends one command, which is a query.
 
 from __future__ import annotations
 
+import contextlib
 import html
 import socket
+from collections.abc import Iterator
 from xml.etree import ElementTree
 
 from . import commands as _commands
@@ -61,8 +63,11 @@ PLAUSIBLE_TEMPERATURE_RANGE_C = (1, 95)
 
 
 class SysInfoError(ConfigError):
-    """The device would not, or could not,
-    report its system information.
+    """
+    The device would not, or could not, report its system information.
+
+    A ConfigError underneath, so a caller that already handles the
+    command channel's own failures handles this one too.
     """
 
 
@@ -106,8 +111,14 @@ def _inner_document(
 
 def _child_int_or_none(element: ElementTree.Element | None,
                        tag: str) -> int | None:
-    """A missing field and a field we can't read both mean 'no answer',
+    """
+    A missing field and a field we can't read both mean 'no answer',
     not 0.
+
+    The twin of esatm._child_int_or_none, for the same reason: a
+    reading that never arrived must not look like a real 0 (a 0 C
+    chassis, an idle array). This one also accepts a None element,
+    because the inner document can be missing altogether.
     """
     if element is None:
         return None
@@ -122,8 +133,8 @@ def _child_int_or_none(element: ElementTree.Element | None,
 
 def parse_sysinfo(payload: bytes) -> dict:
     """
-    Turn an eCmdGetSysInfo result
-    into {'temperature_c', 'uptime_seconds'}.
+    Turn an eCmdGetSysInfo result into {'temperature_c',
+    'uptime_seconds'}.
 
     Separate from the socket work so it is testable with no device
     present. Either value may be None -- the device answering but
@@ -132,6 +143,35 @@ def parse_sysinfo(payload: bytes) -> dict:
     trimmed_payload = payload.rstrip(b"\x00").rstrip()
     if not trimmed_payload:
         return {"temperature_c": None, "uptime_seconds": None}
+    sysinfo_element = _result_element(trimmed_payload, "SysInfo")
+
+    temperature_c = _child_int_or_none(sysinfo_element, "Temperature")
+    if temperature_c is not None and not (
+            PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temperature_c
+            <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
+        # Report nothing rather than something wrong. A bogus reading on
+        # a dashboard is worse than a blank one.
+        temperature_c = None
+
+    uptime_seconds = _child_int_or_none(sysinfo_element, "UpTime")
+    if uptime_seconds is not None and uptime_seconds < 0:
+        uptime_seconds = None
+
+    return {"temperature_c": temperature_c, "uptime_seconds": uptime_seconds}
+
+
+def _result_element(trimmed_payload: bytes,
+                    tag: str) -> ElementTree.Element | None:
+    """
+    The `tag` element of a result's inner document, or the inner
+    document itself when it has no `tag` child, or None when there is
+    no inner document at all.
+
+    eCmdGetSysInfo and eCmdGetPerformance wrap their answer the same
+    way, so both parsers read it through here. The device nests the
+    named element inside <ResultDetails>; this tolerates it being
+    either the root of the inner document or a child of it.
+    """
     try:
         root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
@@ -142,29 +182,12 @@ def parse_sysinfo(payload: bytes) -> dict:
         raise SysInfoError("result carried no <ResultDetails>")
 
     inner_document = _inner_document(details)
-    # The device nests <SysInfo> inside <ResultDetails>; tolerate it
-    # being either the root of the inner document or a child of it.
-    sysinfo_element = inner_document
-    if inner_document is not None and inner_document.tag != "SysInfo":
-        # `is not None`, never `or`: an Element with no children is
-        # falsy, so `or` would quietly fall back to the parent.
-        nested_sysinfo = inner_document.find("SysInfo")
-        sysinfo_element = (nested_sysinfo if nested_sysinfo is not None
-                           else inner_document)
-
-    temperature_c = _child_int_or_none(sysinfo_element, "Temperature")
-    if temperature_c is not None and not (
-            PLAUSIBLE_TEMPERATURE_RANGE_C[0] <= temperature_c
-            <= PLAUSIBLE_TEMPERATURE_RANGE_C[1]):
-        # Report nothing rather than something wrong. A bogus reading on
-        # a dashboard is worse than a blank one.
-        temperature_c = None
-
-    uptime = _child_int_or_none(sysinfo_element, "UpTime")
-    if uptime is not None and uptime < 0:
-        uptime = None
-
-    return {"temperature_c": temperature_c, "uptime_seconds": uptime}
+    if inner_document is None or inner_document.tag == tag:
+        return inner_document
+    # `is not None`, never `or`: an Element with no children is falsy,
+    # so `or` would quietly fall back to the parent.
+    nested_element = inner_document.find(tag)
+    return nested_element if nested_element is not None else inner_document
 
 
 def parse_performance(payload: bytes) -> dict:
@@ -211,40 +234,33 @@ def parse_performance(payload: bytes) -> dict:
     if not trimmed_payload:
         return {"read_mb_per_s": None, "write_mb_per_s": None,
                 "iops": None, "tier_iops": None}
-    try:
-        root = ElementTree.fromstring(trimmed_payload)
-    except ElementTree.ParseError as exc:
-        raise SysInfoError(f"malformed result XML: {exc}") from exc
+    performance_element = _result_element(trimmed_payload, "Performance")
 
-    details = root.find("ResultDetails")
-    if details is None:
-        raise SysInfoError("result carried no <ResultDetails>")
-
-    inner_document = _inner_document(details)
-    performance_element = inner_document
-    if inner_document is not None and inner_document.tag != "Performance":
-        nested_performance = inner_document.find("Performance")
-        performance_element = (nested_performance
-                               if nested_performance is not None
-                               else inner_document)
-
-    def non_negative(tag: str) -> int | None:
+    def non_negative_counter(tag: str) -> int | None:
+        """
+        The counter `tag`, or None when it is absent or negative: a
+        negative rate is meaningless, so report nothing rather than
+        nonsense.
+        """
         value = _child_int_or_none(performance_element, tag)
-        # A negative rate is meaningless;
-        # report nothing rather than nonsense.
         return None if value is None or value < 0 else value
 
     return {
-        "read_mb_per_s": non_negative("ReadThroughout"),
-        "write_mb_per_s": non_negative("WriteThroughout"),
-        "iops": non_negative("Iops"),
-        "tier_iops": non_negative("TierIOps"),
+        "read_mb_per_s": non_negative_counter("ReadThroughout"),
+        "write_mb_per_s": non_negative_counter("WriteThroughout"),
+        "iops": non_negative_counter("Iops"),
+        "tier_iops": non_negative_counter("TierIOps"),
     }
 
 
 def _command_frame(command_name: str, esa_id: str) -> bytes:
-    """Build one command frame,
-    resolving the id by NAME and refusing writes.
+    """
+    Build one command frame, resolving the id by NAME and refusing
+    writes.
+
+    By name, so a typo or an id this project never confirmed cannot
+    reach the device as a number; the do-not-send check comes first so
+    a write is refused even if someone passes one here.
     """
     if command_name in _commands.DO_NOT_SEND:
         raise SysInfoError(f"{command_name} is on the do-not-send list")
@@ -258,8 +274,12 @@ def _command_frame(command_name: str, esa_id: str) -> bytes:
 
 
 def _send_and_read_result(sock, command_name: str, esa_id: str) -> bytes:
-    """Send one command on an already-logged-in socket
-    and return its body.
+    """
+    Send one command on an already-logged-in socket and return its
+    body.
+
+    An empty body is raised as an error rather than handed on, so "the
+    device said nothing" is never mistaken for a reading.
     """
     sock.sendall(_command_frame(command_name, esa_id))
     frame_type, body = _read_frame(sock)
@@ -272,6 +292,33 @@ def _send_and_read_result(sock, command_name: str, esa_id: str) -> bytes:
     return body
 
 
+@contextlib.contextmanager
+def _logged_in_connection(
+        host: str, esa_id: str, port: int, timeout: float,
+        error_type: type[ConfigError] = SysInfoError,
+) -> Iterator[socket.socket]:
+    """
+    A command-channel socket with the plain login already accepted,
+    closed when the block ends however it ends.
+
+    Every read-only query on port 5001 starts the same way: connect,
+    send the login frame, read one reply and check it is a login OK.
+    Writing that out once keeps the frames each caller sends in the
+    same order. `error_type` is the error a refused login raises, so
+    each module keeps reporting it as its own.
+    """
+    sock = socket.create_connection((host, port), timeout=timeout)
+    sock.settimeout(timeout)
+    try:
+        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
+        frame_type, _ = _read_frame(sock)
+        if frame_type != TYPE_LOGIN_OK:
+            raise error_type(f"login refused (type 0x{frame_type:02x})")
+        yield sock
+    finally:
+        sock.close()
+
+
 def get_sysinfo(host: str, esa_id: str, port: int = DEFAULT_PORT,
                 timeout: float = 8.0) -> dict:
     """
@@ -280,26 +327,22 @@ def get_sysinfo(host: str, esa_id: str, port: int = DEFAULT_PORT,
     Raises SysInfoError on anything unexpected. Callers should treat a
     failure as "unavailable right now" and carry on monitoring -- never
     as a fault.
+
+    The agent itself polls through get_sysinfo_and_performance; this is
+    the one-command form, for a caller that wants only these two
+    readings.
     """
-    sock = socket.create_connection((host, port), timeout=timeout)
-    sock.settimeout(timeout)
-    try:
-        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        frame_type, _ = _read_frame(sock)
-        if frame_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
+    with _logged_in_connection(host, esa_id, port, timeout) as sock:
         return parse_sysinfo(
             _send_and_read_result(sock, "eCmdGetSysInfo", esa_id))
-    finally:
-        sock.close()
 
 
 def get_sysinfo_and_performance(host: str, esa_id: str,
                                 port: int = DEFAULT_PORT,
                                 timeout: float = 8.0) -> dict:
     """
-    Both readings over ONE connection:
-    temperature, uptime and throughput.
+    Both readings over ONE connection: temperature, uptime and
+    throughput.
 
     Deliberately not two calls. This device gets tired: after roughly
     ninety command-port connections in an hour it stopped answering
@@ -313,14 +356,7 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
     then errors, since temperature is the one with an alert rule
     attached to it.
     """
-    sock = socket.create_connection((host, port), timeout=timeout)
-    sock.settimeout(timeout)
-    try:
-        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        frame_type, _ = _read_frame(sock)
-        if frame_type != TYPE_LOGIN_OK:
-            raise SysInfoError(f"login refused (type 0x{frame_type:02x})")
-
+    with _logged_in_connection(host, esa_id, port, timeout) as sock:
         readings = dict(parse_sysinfo(
             _send_and_read_result(sock, "eCmdGetSysInfo", esa_id)))
         readings["performance"] = None
@@ -330,5 +366,3 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
         except (SysInfoError, OSError):
             pass  # keep the temperature we already have
         return readings
-    finally:
-        sock.close()
