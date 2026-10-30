@@ -137,6 +137,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `discovery_sweep`, every JSON key and message, the simulator's
     random draws and their order, and every call into the SDK are as
     they were. (2026-10-29)
+  - `agent/drobo_agent/api.py`: the routes read as a table, each
+    answered by a named method, and the long handlers read as their
+    steps; the bare numbers are named constants. Every route, JSON key,
+    header, message and status is as it was, and the config-write
+    path's order of refusals is unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
