@@ -38,6 +38,14 @@ EXIT_COULD_NOT_RUN = 3
 
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    Run updates.main() and pass its exit status on, turning anything
+    that stops it from running into EXIT_COULD_NOT_RUN rather than the
+    1 Python would give a crash, which means "an update is available".
+
+    The import is inside the try so that a missing or broken
+    drobo_agent package is reported the same way.
+    """
     try:
         from drobo_agent import updates
         return updates.main(argv)

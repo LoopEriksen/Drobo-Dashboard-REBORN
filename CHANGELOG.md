@@ -183,6 +183,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     why `--once` connects by itself and why shutdown runs on its own
     thread. The flags, `--help` text, banner lines and shutdown order
     are as they were. (2026-10-29)
+  - `agent/check_updates.py`: `main()` says why any failure to run
+    becomes exit status 3 rather than Python's 1. Docstring only; no
+    code changed. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
