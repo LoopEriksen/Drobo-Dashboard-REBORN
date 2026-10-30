@@ -160,6 +160,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     and one SMTP path, with STARTTLS, login and send in the same order
     as before. Every skip message, timeout and config key is as it was.
     (2026-10-29)
+  - `agent/drobo_agent/backup.py`: the destination refusals and the copy
+    are named steps; for testers whose scripts read it, `BackupJob.plan`
+    -> `backup_plan`, which no longer shadows the module's `plan()`
+    function. Every refusal, its wording and order, the robocopy command
+    and the JSON keys are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

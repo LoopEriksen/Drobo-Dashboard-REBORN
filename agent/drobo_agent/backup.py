@@ -97,6 +97,15 @@ def interpret_exit_code(exit_code: int) -> tuple[bool, str]:
 
 @dataclass
 class BackupPlan:
+    """
+    What a backup would do, worked out before anything is copied.
+
+    Refusals and warnings are kept apart because they ask for different
+    things: a refusal means this must not run at all, whatever the user
+    says; a warning is something they must be told before they agree,
+    and then it is their call.
+    """
+
     source: str
     destination: str
     mirror: bool = False
@@ -108,9 +117,15 @@ class BackupPlan:
 
     @property
     def allowed(self) -> bool:
+        """True when nothing refuses it; warnings never block."""
         return not self.refusals
 
     def to_dict(self) -> dict:
+        """
+        The plan as the API returns it, with the robocopy command as
+        one string a person can read (and run by hand) rather than a
+        list.
+        """
         return {
             "source": self.source,
             "destination": self.destination,
@@ -131,10 +146,10 @@ def _normalised_path(path: str) -> str:
     return os.path.normcase(os.path.abspath(path)).rstrip("\\/")
 
 
-def _is_within(child: str, parent: str) -> bool:
-    """True if `child` is `parent` or sits inside it."""
-    normalised_child, normalised_parent = (_normalised_path(child),
-                                           _normalised_path(parent))
+def _is_within(child_path: str, parent_path: str) -> bool:
+    """True if `child_path` is `parent_path` or sits inside it."""
+    normalised_child, normalised_parent = (_normalised_path(child_path),
+                                           _normalised_path(parent_path))
     return (normalised_child == normalised_parent
             or normalised_child.startswith(normalised_parent + os.sep))
 
@@ -158,7 +173,20 @@ def check_destination(source: str, destination: str) -> list[str]:
 
     normalised_source, normalised_destination = (
         _normalised_path(source), _normalised_path(destination))
+    problems.extend(
+        _overlap_problems(normalised_source, normalised_destination))
+    problems.extend(_drive_root_problems(normalised_destination))
+    return problems
 
+
+def _overlap_problems(
+    normalised_source: str, normalised_destination: str
+) -> list[str]:
+    """
+    Refusals for a source and destination that are the same folder, or
+    one inside the other. Both paths come from _normalised_path.
+    """
+    problems: list[str] = []
     if normalised_source == normalised_destination:
         problems.append("The source and the destination are the same folder.")
 
@@ -179,9 +207,17 @@ def check_destination(source: str, destination: str) -> list[str]:
             "The source is inside the destination. Backing up into a "
             "parent of the folder you are backing up is almost never "
             "what anyone means.")
+    return problems
 
-    # A drive root is where people accidentally point things, and
-    # mirroring onto C:\ would try to delete Windows.
+
+def _drive_root_problems(normalised_destination: str) -> list[str]:
+    """
+    A refusal for a destination that is a whole drive.
+
+    A drive root is where people accidentally point things, and
+    mirroring onto C:\\ would try to delete Windows.
+    """
+    problems: list[str] = []
     drive, path_after_drive = os.path.splitdrive(normalised_destination)
     if drive and path_after_drive in ("", os.sep):
         problems.append(
@@ -264,7 +300,7 @@ SERIALIZED_TAIL_LINES = 12
 class BackupJob:
     """A running (or finished) backup, pollable while it goes."""
 
-    plan: BackupPlan
+    backup_plan: BackupPlan
     started_at: float
     finished_at: float | None = None
     exit_code: int | None = None
@@ -276,14 +312,23 @@ class BackupJob:
 
     @property
     def running(self) -> bool:
+        """
+        True until the copy thread records an end time, which it does
+        however the copy ended (see BackupRunner._run).
+        """
         return self.finished_at is None
 
     def to_dict(self) -> dict:
+        """
+        The job as the API returns it. Only the last
+        SERIALIZED_TAIL_LINES lines of output are sent: a progress view
+        needs the latest lines, not the whole kept tail.
+        """
         return {
             "running": self.running,
-            "source": self.plan.source,
-            "destination": self.plan.destination,
-            "mirror": self.plan.mirror,
+            "source": self.backup_plan.source,
+            "destination": self.backup_plan.destination,
+            "mirror": self.backup_plan.mirror,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "exit_code": self.exit_code,
@@ -314,6 +359,10 @@ class BackupRunner:
 
     @property
     def job(self) -> BackupJob | None:
+        """
+        The current or most recent backup, or None if none has been
+        started. Read under the lock the copy thread writes under.
+        """
         with self._lock:
             return self._job
 
@@ -336,7 +385,7 @@ class BackupRunner:
             if not backup_plan.allowed:
                 raise BackupError(" ".join(backup_plan.refusals))
 
-            job = BackupJob(plan=backup_plan, started_at=time.time())
+            job = BackupJob(backup_plan=backup_plan, started_at=time.time())
             self._job = job
 
         self._thread = threading.Thread(
@@ -345,22 +394,17 @@ class BackupRunner:
         return job
 
     def _run(self, job: BackupJob) -> None:
+        """
+        The copy thread: run robocopy and record how it went.
+
+        Every way out records an end time (the finally), so a job never
+        reads as running forever. A robocopy that ran and reported
+        problems is a result, not an exception -- interpret_exit_code
+        says what it means; only a copy that could not start lands in
+        the except clauses.
+        """
         try:
-            os.makedirs(job.plan.destination, exist_ok=True)
-            robocopy_process = subprocess.Popen(
-                job.plan.command, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", bufsize=1)
-            assert robocopy_process.stdout is not None
-            for line in robocopy_process.stdout:
-                line = line.rstrip()
-                if not line:
-                    continue
-                with self._lock:
-                    job.tail.append(line)
-                    if len(job.tail) > self.MAX_TAIL_LINES:
-                        del job.tail[: len(job.tail) - self.MAX_TAIL_LINES]
-            exit_code = robocopy_process.wait()
+            exit_code = self._run_robocopy(job)
             ok, summary = interpret_exit_code(exit_code)
             with self._lock:
                 job.exit_code, job.ok, job.summary = exit_code, ok, summary
@@ -378,3 +422,32 @@ class BackupRunner:
         finally:
             with self._lock:
                 job.finished_at = time.time()
+
+    def _run_robocopy(self, job: BackupJob) -> int:
+        """
+        Create the destination, run the job's robocopy command keeping
+        its output in job.tail as it goes, and return robocopy's exit
+        code.
+        """
+        os.makedirs(job.backup_plan.destination, exist_ok=True)
+        robocopy_process = subprocess.Popen(
+            job.backup_plan.command, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1)
+        assert robocopy_process.stdout is not None
+        for line in robocopy_process.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            self._keep_output_line(job, line)
+        return robocopy_process.wait()
+
+    def _keep_output_line(self, job: BackupJob, line: str) -> None:
+        """
+        Add one line of robocopy output to job.tail, dropping the
+        oldest beyond MAX_TAIL_LINES so a long copy stays bounded.
+        """
+        with self._lock:
+            job.tail.append(line)
+            if len(job.tail) > self.MAX_TAIL_LINES:
+                del job.tail[: len(job.tail) - self.MAX_TAIL_LINES]
