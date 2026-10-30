@@ -264,6 +264,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     alert keys and the first-pass flag are named for what they hold.
     Private names only; every category id, key prefix and the rules
     that decide which alerts notify are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/AlertRow.cs`: each alert-row property
+    says what it is for. Doc comments only; no property is renamed.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
