@@ -91,6 +91,14 @@ DEFAULTS: dict = {
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
+    """
+    `base` with `override` laid over it, recursively, as a new dict.
+
+    Deep rather than dict.update, so a config.json that sets only one
+    key of a block (say "alerts": {"resend_seconds": 60}) keeps the
+    defaults for every other key in that block instead of losing them.
+    `base` is copied first, so DEFAULTS is never modified.
+    """
     merged = copy.deepcopy(base)
     for key, value in (override or {}).items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -100,44 +108,59 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+def _read_config_file(path: str) -> dict:
+    """
+    The config file's own contents, or {} when there is no file yet.
+
+    Raises SystemExit, with where and what, for a file that is not
+    valid JSON or not UTF-8: it is a file the user probably just
+    edited by hand, and a stack trace from json's internals would not
+    tell them which.
+    """
+    if not os.path.exists(path):
+        return {}
+    # utf-8-SIG, not utf-8: it reads plain UTF-8 unchanged and also
+    # tolerates a leading byte-order mark. Windows Notepad and
+    # PowerShell's `Set-Content -Encoding utf8` both write that mark,
+    # so anyone editing this file by hand on Windows produces a config
+    # the plain reader rejected with a raw JSONDecodeError traceback and
+    # no hint of the cause. Hit for real on 2026-08-07 by exactly that
+    # route.
+    with open(path, "r", encoding="utf-8-sig") as config_file:
+        try:
+            return json.load(config_file)
+        except json.JSONDecodeError as exc:
+            # A config file the user probably just edited. Say where and
+            # what, rather than unwinding a stack from json's internals.
+            raise SystemExit(
+                f"[config] {path} is not valid JSON: {exc.msg} "
+                f"(line {exc.lineno}, column {exc.colno}).\n"
+                f"[config] Nothing was changed. Fix the file, "
+                f"or delete it to start again from defaults."
+            ) from None
+        except UnicodeDecodeError:
+            # Not UTF-8 at all -- usually UTF-16, which Windows
+            # PowerShell 5.1's `>` and Out-File write by default, as
+            # does Notepad's "UTF-16 LE". Said plainly for the same
+            # reason as above, and so the update check stops (exit 3)
+            # instead of reading an empty config.
+            raise SystemExit(
+                f"[config] {path} is not UTF-8 text. Save it as UTF-8 "
+                f"and try again.\n"
+                f"[config] Nothing was changed."
+            ) from None
+
+
 def load(path: str) -> dict:
     """Read config from disk,
     filling in anything missing from DEFAULTS.
+
+    Also the first-run step: a config with no access token gets one,
+    written straight back to `path`, so the token is stable across
+    restarts and the apps only have to be given it once.
     """
-    on_disk: dict = {}
-    if os.path.exists(path):
-        # utf-8-SIG, not utf-8: it reads plain UTF-8 unchanged and also
-        # tolerates a leading byte-order mark. Windows Notepad and
-        # PowerShell's `Set-Content -Encoding utf8` both write that
-        # mark, so anyone editing this file by hand on Windows produces
-        # a config the plain reader rejected with a raw JSONDecodeError
-        # traceback and no hint of the cause. Hit for real on 2026-08-07
-        # by exactly that route.
-        with open(path, "r", encoding="utf-8-sig") as config_file:
-            try:
-                on_disk = json.load(config_file)
-            except json.JSONDecodeError as exc:
-                # A config file the user probably just edited. Say where
-                # and what, rather than unwinding a stack from json's
-                # internals.
-                raise SystemExit(
-                    f"[config] {path} is not valid JSON: {exc.msg} "
-                    f"(line {exc.lineno}, column {exc.colno}).\n"
-                    f"[config] Nothing was changed. Fix the file, "
-                    f"or delete it to start again from defaults."
-                ) from None
-            except UnicodeDecodeError:
-                # Not UTF-8 at all -- usually UTF-16, which Windows
-                # PowerShell 5.1's `>` and Out-File write by default, as
-                # does Notepad's "UTF-16 LE". Said plainly for the same
-                # reason as above, and so the update check stops (exit
-                # 3) instead of reading an empty config.
-                raise SystemExit(
-                    f"[config] {path} is not UTF-8 text. Save it as UTF-8 "
-                    f"and try again.\n"
-                    f"[config] Nothing was changed."
-                ) from None
-    merged_config = _deep_merge(DEFAULTS, on_disk)
+    on_disk_config = _read_config_file(path)
+    merged_config = _deep_merge(DEFAULTS, on_disk_config)
 
     # Generate an access token on first run and write it back, so the
     # value is stable across restarts and the apps can be configured
@@ -151,9 +174,17 @@ def load(path: str) -> dict:
 
 
 def save(path: str, config_data: dict) -> None:
-    parent = os.path.dirname(os.path.abspath(path))
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    """
+    Write the config to `path`, creating its folder if need be.
+
+    Written to a temporary file and then moved into place with
+    os.replace, which is atomic: a crash or a full disk mid-write
+    leaves the old config intact rather than a half-written one, and
+    this file holds the access token every app depends on.
+    """
+    parent_dir = os.path.dirname(os.path.abspath(path))
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     temporary_path = path + ".tmp"
     with open(temporary_path, "w", encoding="utf-8") as config_file:
         json.dump(config_data, config_file, indent=2)

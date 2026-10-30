@@ -152,6 +152,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     (positional calls, the `/api/history` route and its `?limit=` query
     are unaffected). Every alert key, message and the order
     notifications go out in are as they were. (2026-10-29)
+  - `agent/drobo_agent/config.py`: reading the file is its own step, and
+    the docstrings say why the merge is deep and the save atomic. Both
+    error messages, their order, the first-run token and every config
+    key are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
