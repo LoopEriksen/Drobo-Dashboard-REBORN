@@ -47,6 +47,21 @@ namespace DroboDashboardReborn;
 /// </summary>
 internal sealed class TrayIconManager : IDisposable
 {
+    /// <summary>NotifyIcon.Text throws if longer than this (a native shell
+    /// limit), so the tooltip is cut to it.</summary>
+    private const int MaxTooltipLength = 127;
+
+    /// <summary>The shell truncates a balloon's text past about 255
+    /// characters. A message longer than MaxBalloonTextLength is cut to
+    /// TruncatedBalloonTextLength plus "..." here instead, so the cut lands
+    /// where this code chose rather than wherever the shell's fell.</summary>
+    private const int MaxBalloonTextLength = 240;
+    private const int TruncatedBalloonTextLength = 237;
+
+    /// <summary>How long a balloon is asked to stay up. Windows treats it as
+    /// a hint and applies its own accessibility timing.</summary>
+    private const int BalloonTimeoutMilliseconds = 10_000;
+
     private readonly Window _window;
     private readonly System.Windows.Forms.NotifyIcon _notifyIcon;
     private readonly Icon _normalIcon;
@@ -58,6 +73,10 @@ internal sealed class TrayIconManager : IDisposable
     private bool _exitRequested;
     private bool _disposed;
 
+    /// <summary>Puts the icon in the tray straight away, for the whole life
+    /// of the app, and hooks the window's Closing so close-to-tray can be
+    /// honoured -- the hook is the only way to tell the X apart from the
+    /// tray menu's Exit.</summary>
     public TrayIconManager(Window window)
     {
         _window = window;
@@ -95,9 +114,9 @@ internal sealed class TrayIconManager : IDisposable
     private static Icon LoadEmbeddedIcon(string relativePath)
     {
         var uri = new Uri("pack://application:,,,/" + relativePath, UriKind.Absolute);
-        var info = System.Windows.Application.GetResourceStream(uri)
+        var resourceInfo = System.Windows.Application.GetResourceStream(uri)
             ?? throw new InvalidOperationException($"Missing embedded icon resource: {relativePath}");
-        using var stream = info.Stream;
+        using var stream = resourceInfo.Stream;
         return new Icon(stream);
     }
 
@@ -119,11 +138,11 @@ internal sealed class TrayIconManager : IDisposable
             _ => "Unknown",
         };
 
-        // NotifyIcon.Text throws if longer than 127 chars (a native shell
-        // limit) -- device names are short in practice, but truncate rather
-        // than let a long one crash the next poll tick.
+        // NotifyIcon.Text throws if longer than MaxTooltipLength (a native
+        // shell limit) -- device names are short in practice, but truncate
+        // rather than let a long one crash the next poll tick.
         var tooltip = $"{deviceName} — {stateText}";
-        if (tooltip.Length > 127) tooltip = tooltip[..127];
+        if (tooltip.Length > MaxTooltipLength) tooltip = tooltip[..MaxTooltipLength];
         _notifyIcon.Text = tooltip;
         _notifyIcon.Icon = hasCriticalAlert ? _alertIcon : _normalIcon;
     }
@@ -146,7 +165,7 @@ internal sealed class TrayIconManager : IDisposable
     {
         if (_disposed || string.IsNullOrWhiteSpace(message)) return;
 
-        var icon = severity switch
+        var balloonIcon = severity switch
         {
             "critical" => System.Windows.Forms.ToolTipIcon.Error,
             "warning" => System.Windows.Forms.ToolTipIcon.Warning,
@@ -161,11 +180,13 @@ internal sealed class TrayIconManager : IDisposable
 
         // The shell truncates past ~255 chars; trimming here means the cut
         // lands somewhere we chose rather than mid-word wherever it fell.
-        var text = message.Length > 240 ? message[..237] + "..." : message;
+        var text = message.Length > MaxBalloonTextLength
+            ? message[..TruncatedBalloonTextLength] + "..."
+            : message;
 
         try
         {
-            _notifyIcon.ShowBalloonTip(10_000, title, text, icon);
+            _notifyIcon.ShowBalloonTip(BalloonTimeoutMilliseconds, title, text, balloonIcon);
         }
         catch (Exception)
         {
@@ -175,6 +196,9 @@ internal sealed class TrayIconManager : IDisposable
         }
     }
 
+    /// <summary>Brings the window back from the tray or the taskbar. A
+    /// minimised window is restored after Show and before Activate,
+    /// because Show and Activate alone leave it minimised.</summary>
     private void ShowWindow()
     {
         _window.Show();
@@ -183,12 +207,18 @@ internal sealed class TrayIconManager : IDisposable
         _window.Activate();
     }
 
+    /// <summary>The tray menu's Exit: marks the close as a real one first,
+    /// so Window_Closing lets it through even with close-to-tray on.</summary>
     private void ExitApp()
     {
         _exitRequested = true;
         _window.Close();
     }
 
+    /// <summary>Turns the window's X into "hide to the tray", but only when
+    /// the user switched close-to-tray on and the close did not come from
+    /// the tray menu's Exit. The setting is read fresh each time, so a
+    /// change on the Settings tab applies to the very next close.</summary>
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
         if (_exitRequested) return; // a real exit was requested -- let it happen
@@ -198,6 +228,8 @@ internal sealed class TrayIconManager : IDisposable
         _window.Hide();
     }
 
+    /// <summary>Removes the icon from the tray and releases both icons, in the
+    /// order the comment below explains. A second call does nothing.</summary>
     public void Dispose()
     {
         if (_disposed) return;
