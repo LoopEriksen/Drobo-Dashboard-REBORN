@@ -179,6 +179,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     called "verified". Every message, exit status and the order of the
     checks are as they were, and nothing is downloaded or installed.
     (2026-10-29)
+  - `agent/run_agent.py`: `main()` reads as its start-up steps, and says
+    why `--once` connects by itself and why shutdown runs on its own
+    thread. The flags, `--help` text, banner lines and shutdown order
+    are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
