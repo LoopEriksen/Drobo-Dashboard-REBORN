@@ -165,6 +165,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     -> `backup_plan`, which no longer shadows the module's `plan()`
     function. Every refusal, its wording and order, the robocopy command
     and the JSON keys are as they were. (2026-10-29)
+  - `agent/drobo_agent/photos.py`: the upload steps the single-shot and
+    chunked paths share are named helpers, and the limits are named with
+    their units. Private helpers and local names only; every check,
+    refusal message, its order, the lock and every JSON key are as they
+    were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
