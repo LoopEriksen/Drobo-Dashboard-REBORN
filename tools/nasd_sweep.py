@@ -136,6 +136,12 @@ DEFAULT_STATUS_PORT = 5000
 # 5001, confirmed in config_cmd.py
 DEFAULT_COMMAND_PORT = config_cmd.DEFAULT_PORT
 
+# This many timeouts in a row stop the sweep: back-to-back silence is
+# read as the device being unhappy, not something to push through.
+MAX_CONSECUTIVE_TIMEOUTS = 3
+# How long main waits for the status greeting that carries the serial.
+GREETING_TIMEOUT_SECONDS = 8.0
+
 # ---------------------------------------------------------------------------
 # THE allowlist. See the module docstring for what is excluded and why.
 # Do not add to this list without redoing the same-level safety review.
@@ -229,22 +235,27 @@ def _unwrap_escaped(
     text = (element.text or "").strip()
     if not text or not text.startswith("<"):
         return None
-    body = text
-    if body.startswith("<?xml"):
-        end = body.find("?>")
-        if end != -1:
-            body = body[end + 2:].strip()
+    inner_document = text
+    if inner_document.startswith("<?xml"):
+        declaration_end = inner_document.find("?>")
+        if declaration_end != -1:
+            inner_document = inner_document[declaration_end + 2:].strip()
     try:
-        return ElementTree.fromstring(body)
+        return ElementTree.fromstring(inner_document)
     except ElementTree.ParseError:
         return None
 
 
 def _collect_tags(element: ElementTree.Element) -> set[str]:
+    """Every element tag in this tree, inner documents included.
+
+    An escaped inner document is walked as if it were ordinary
+    children, because the first sweep did not and so counted
+    eCmdGetSysInfo's whole reply as zero fields. Its tags are prefixed
+    with the outer tag, and "<tag>/[escaped]" marks that the reply
+    needed unwrapping, so the report shows where it happened.
+    """
     tags = {element.tag}
-    # Descend into an escaped inner document as if it were ordinary
-    # children, marking it so the report shows the reply needed
-    # unwrapping.
     inner = _unwrap_escaped(element)
     if inner is not None:
         tags.add(f"{element.tag}/[escaped]")
@@ -292,6 +303,70 @@ def _redact_and_summarize(body: bytes) -> dict:
     }
 
 
+def _log_in(sock: socket.socket, esa_id: str) -> dict | None:
+    """Send the plain login on `sock`; None if nasd accepted it.
+
+    Otherwise the failed record itself, in the same shape
+    send_one_command returns, so the caller can hand it straight back.
+    """
+    try:
+        sock.sendall(config_cmd._build_frame(
+            config_cmd.TYPE_LOGIN, config_cmd._login_payload(esa_id)))
+        frame_type, _ = config_cmd._read_frame(sock)
+    except (TimeoutError, socket.timeout):
+        return {"status": "timeout", "phase": "login"}
+    except (config_cmd.ConfigError, OSError) as exc:
+        return {"status": "refused", "phase": "login", "detail": str(exc)}
+
+    if frame_type != config_cmd.TYPE_LOGIN_OK:
+        return {"status": "refused", "phase": "login",
+                "detail": f"unexpected type 0x{frame_type:02x}"}
+    return None
+
+
+def _exchange_command(sock: socket.socket, esa_id: str, command_id: int
+                      ) -> tuple[dict | None, int, bytes]:
+    """Send one command with empty <Params></Params> and read one frame.
+
+    Returns (failed record, 0, b"") when the send or the read fails,
+    otherwise (None, frame type, body). The parameters are always
+    empty, because this tool never guesses what a command needs.
+    """
+    request_payload = (
+        f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
+        f"<Params></Params></TMCmd>").encode() + b"\x00"
+    try:
+        sock.sendall(config_cmd._build_frame(config_cmd.TYPE_COMMAND,
+                                             request_payload))
+        frame_type, body = config_cmd._read_frame(sock)
+    except (TimeoutError, socket.timeout):
+        return {"status": "timeout", "phase": "command"}, 0, b""
+    except (config_cmd.ConfigError, OSError) as exc:
+        return ({"status": "refused", "phase": "command",
+                 "detail": str(exc)}, 0, b"")
+    return None, frame_type, body
+
+
+def _record_reply(frame_type: int, body: bytes,
+                  elapsed_seconds: float) -> dict:
+    """Turn one command's reply frame into its (redacted) record.
+
+    Every answered body goes through _redact_and_summarize, so nothing
+    leaves this function holding an unredacted secret.
+    """
+    if frame_type != config_cmd.TYPE_RESULT:
+        return {"status": "refused", "phase": "command",
+                "detail": f"unexpected type 0x{frame_type:02x}",
+                "elapsed_s": elapsed_seconds}
+    if not body or not body.rstrip(b"\x00").strip():
+        return {"status": "empty", "elapsed_s": elapsed_seconds}
+
+    summary = _redact_and_summarize(body)
+    summary["status"] = "answered"
+    summary["elapsed_s"] = elapsed_seconds
+    return summary
+
+
 def send_one_command(host: str, port: int, esa_id: str, command_id: int,
                      timeout: float) -> dict:
     """
@@ -299,6 +374,10 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
     <Params></Params>, read exactly one response. Never reuses a socket
     across commands -- that is deliberate, so one command's misbehavior
     can never leak state into the next.
+
+    `timeout` is in seconds and covers the connect and each read. The
+    record's "elapsed_s" runs from before the connect to the end of
+    the reply.
     """
     started_at = time.monotonic()
     try:
@@ -308,44 +387,17 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
 
     sock.settimeout(timeout)
     try:
-        try:
-            sock.sendall(config_cmd._build_frame(
-                config_cmd.TYPE_LOGIN, config_cmd._login_payload(esa_id)))
-            frame_type, _ = config_cmd._read_frame(sock)
-        except (TimeoutError, socket.timeout):
-            return {"status": "timeout", "phase": "login"}
-        except (config_cmd.ConfigError, OSError) as exc:
-            return {"status": "refused", "phase": "login", "detail": str(exc)}
+        login_failure = _log_in(sock, esa_id)
+        if login_failure is not None:
+            return login_failure
 
-        if frame_type != config_cmd.TYPE_LOGIN_OK:
-            return {"status": "refused", "phase": "login",
-                    "detail": f"unexpected type 0x{frame_type:02x}"}
+        command_failure, frame_type, body = _exchange_command(
+            sock, esa_id, command_id)
+        if command_failure is not None:
+            return command_failure
 
-        request_payload = (
-            f"<TMCmd><CmdID>{command_id}</CmdID><ESAID>{esa_id}</ESAID>"
-            f"<Params></Params></TMCmd>").encode() + b"\x00"
-        try:
-            sock.sendall(config_cmd._build_frame(config_cmd.TYPE_COMMAND,
-                                                 request_payload))
-            frame_type, body = config_cmd._read_frame(sock)
-        except (TimeoutError, socket.timeout):
-            return {"status": "timeout", "phase": "command"}
-        except (config_cmd.ConfigError, OSError) as exc:
-            return {"status": "refused", "phase": "command",
-                    "detail": str(exc)}
-
-        elapsed = time.monotonic() - started_at
-        if frame_type != config_cmd.TYPE_RESULT:
-            return {"status": "refused", "phase": "command",
-                    "detail": f"unexpected type 0x{frame_type:02x}",
-                    "elapsed_s": elapsed}
-        if not body or not body.rstrip(b"\x00").strip():
-            return {"status": "empty", "elapsed_s": elapsed}
-
-        summary = _redact_and_summarize(body)
-        summary["status"] = "answered"
-        summary["elapsed_s"] = elapsed
-        return summary
+        elapsed_seconds = time.monotonic() - started_at
+        return _record_reply(frame_type, body, elapsed_seconds)
     finally:
         sock.close()
 
@@ -353,43 +405,58 @@ def send_one_command(host: str, port: int, esa_id: str, command_id: int,
 # ---------------------------------------------------------------------------
 # The sweep itself.
 # ---------------------------------------------------------------------------
+def _print_record_line(record: dict) -> None:
+    """Print one command's outcome under its "[n/N] name" line.
+
+    An escaped inner document is called out, because those are the
+    replies the first sweep could not see into.
+    """
+    status = record["status"]
+    tag_count = len(record.get("tags", []))
+    detail_suffix = f", {tag_count} fields" if status == "answered" else ""
+    if record.get("escaped_document"):
+        detail_suffix += ("  [escaped inner document -- "
+                          "invisible to the first sweep]")
+    print(f"    -> {status}{detail_suffix}", flush=True)
+
+
 def run_sweep(host: str, esa_id: str, *, port: int = DEFAULT_COMMAND_PORT,
               timeout: float = 6.0, pause: float = 0.4,
               names: list[str] = ALLOWLIST) -> dict:
+    """Send every command in `names` (one fresh login each), and record.
+
+    A `pause` between commands so the sweep does not hammer the device,
+    and MAX_CONSECUTIVE_TIMEOUTS in a row stop it, since back-to-back
+    silence may mean the device is unhappy. `timeout` and `pause` are
+    in seconds; `names` defaults to ALLOWLIST, checked at import.
+    """
     results = []
     consecutive_timeouts = 0
     aborted = False
 
-    for i, command_name in enumerate(names):
+    for position, command_name in enumerate(names):
         # allowlist is pre-validated; always present
         command_id = commands.COMMANDS[command_name]
-        print(f"[{i + 1}/{len(names)}] {command_name} (id {command_id}) ...",
-              flush=True)
+        print(f"[{position + 1}/{len(names)}] {command_name} "
+              f"(id {command_id}) ...", flush=True)
         record = send_one_command(host, port, esa_id, command_id, timeout)
         record["name"] = command_name
         record["cmd_id"] = command_id
         results.append(record)
+        _print_record_line(record)
 
-        status = record["status"]
-        tag_count = len(record.get("tags", []))
-        detail_suffix = f", {tag_count} fields" if status == "answered" else ""
-        if record.get("escaped_document"):
-            detail_suffix += ("  [escaped inner document -- "
-                              "invisible to the first sweep]")
-        print(f"    -> {status}{detail_suffix}", flush=True)
-
-        if status == "timeout":
+        if record["status"] == "timeout":
             consecutive_timeouts += 1
-            if consecutive_timeouts >= 3:
-                print("\n!! three consecutive timeouts -- stopping the sweep. "
-                      "The device may be unhappy; not sending the rest.",
-                      flush=True)
-                aborted = True
-                break
         else:
             consecutive_timeouts = 0
+        if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+            print("\n!! three consecutive timeouts -- stopping the sweep. "
+                  "The device may be unhappy; not sending the rest.",
+                  flush=True)
+            aborted = True
+            break
 
-        if i < len(names) - 1:
+        if position < len(names) - 1:
             time.sleep(pause)
 
     return {"results": results, "aborted": aborted, "sent": len(results),
@@ -415,7 +482,8 @@ def verify_device_healthy(host: str, port: int = DEFAULT_STATUS_PORT,
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def main(argv: list[str] | None = None) -> int:
+def _parse_arguments(argv: list[str] | None) -> argparse.Namespace:
+    """Read the command line (the module docstring is the --help)."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -430,21 +498,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--out", default=None,
                         help="where to write the redacted JSON report "
                         "(default: a scratch path OUTSIDE the repo)")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
-    out_path = args.out
-    if out_path is None:
-        scratch_dir = os.path.join(
-            os.path.expanduser("~"), ".nasd_sweep_scratch")
-        out_path = (
-            os.path.join(scratch_dir, "sweep-raw.json")
-            if os.path.isdir(scratch_dir)
-            else os.path.join(os.path.expanduser("~"), "sweep-raw.json"))
 
-    print(f"Fetching identity from {args.host}:{args.status_port} "
+def _default_report_path() -> str:
+    """Where the report goes when -o is not given.
+
+    In ~/.nasd_sweep_scratch if that folder exists, else the home
+    folder: either way outside the repository, so the report is never
+    committed by accident.
+    """
+    scratch_dir = os.path.join(
+        os.path.expanduser("~"), ".nasd_sweep_scratch")
+    return (
+        os.path.join(scratch_dir, "sweep-raw.json")
+        if os.path.isdir(scratch_dir)
+        else os.path.join(os.path.expanduser("~"), "sweep-raw.json"))
+
+
+def _fetch_esa_id(host: str, status_port: int) -> str:
+    """Read the device serial from the status greeting (no login).
+
+    The command channel's login carries the serial, so the sweep cannot
+    start without it; an empty one aborts rather than log in blind.
+    """
+    print(f"Fetching identity from {host}:{status_port} "
           "(no login needed) ...")
     greeting = esatm.fetch_greeting(
-        args.host, port=args.status_port, timeout=8.0)
+        host, port=status_port, timeout=GREETING_TIMEOUT_SECONDS)
     identity = esatm.parse_identity(greeting)
     esa_id = identity.get("esa_id", "")
     if not esa_id:
@@ -452,6 +533,48 @@ def main(argv: list[str] | None = None) -> int:
             "could not read mESAID from the status greeting; aborting")
     print(f"Got esa_id (len {len(esa_id)}). "
           "Not printing it -- treat it as sensitive.")
+    return esa_id
+
+
+def _print_summary(sweep: dict) -> None:
+    """Count the records by status, and say if the sweep was cut short.
+
+    All four statuses are printed, zeros included, so two runs line up.
+    """
+    status_counts: dict[str, int] = {}
+    for record in sweep["results"]:
+        status_counts[record["status"]] = (
+            status_counts.get(record["status"], 0) + 1)
+    print("\n== summary ==")
+    for status in ("answered", "empty", "refused", "timeout"):
+        print(f"  {status:10s} {status_counts.get(status, 0)}")
+    if sweep["aborted"]:
+        print(f"  sweep ABORTED after {sweep['sent']} of "
+              f"{sweep['planned']} commands")
+
+
+def _write_report(report_path: str, report: dict) -> None:
+    """Write the redacted report as JSON and say where it went."""
+    os.makedirs(os.path.dirname(report_path), exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2)
+    print(f"\nRedacted report written to {report_path}")
+    print("(outside the repo -- this file is not meant to be committed)")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Read the serial, sweep the allowlist, check health, write report.
+
+    The health check runs after the sweep whatever happened, because a
+    device that stopped greeting is the one thing a sweep must report.
+    """
+    args = _parse_arguments(argv)
+
+    report_path = args.out
+    if report_path is None:
+        report_path = _default_report_path()
+
+    esa_id = _fetch_esa_id(args.host, args.status_port)
 
     print(f"\nSending {len(ALLOWLIST)} allow-listed commands to "
           f"{args.host}:{args.command_port}, one fresh login each, "
@@ -466,16 +589,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{'OK -- greeting received' if health['healthy'] else 'PROBLEM'} "
           f"({health['detail']})")
 
-    status_counts: dict[str, int] = {}
-    for record in sweep["results"]:
-        status_counts[record["status"]] = (
-            status_counts.get(record["status"], 0) + 1)
-    print("\n== summary ==")
-    for status in ("answered", "empty", "refused", "timeout"):
-        print(f"  {status:10s} {status_counts.get(status, 0)}")
-    if sweep["aborted"]:
-        print(f"  sweep ABORTED after {sweep['sent']} of "
-              f"{sweep['planned']} commands")
+    _print_summary(sweep)
 
     report = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -485,11 +599,7 @@ def main(argv: list[str] | None = None) -> int:
         "sweep": sweep,
         "post_sweep_health": health,
     }
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as report_file:
-        json.dump(report, report_file, indent=2)
-    print(f"\nRedacted report written to {out_path}")
-    print("(outside the repo -- this file is not meant to be committed)")
+    _write_report(report_path, report)
     return 0
 
 

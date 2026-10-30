@@ -225,6 +225,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     calls are unaffected). The bytes sent, the order of attempts, the
     console output, the JSON report and the command line are as they
     were. (2026-10-29)
+  - `tools/nasd_sweep.py`: the login, the command and the reply are each
+    their own helper. Every except clause and its order, the bytes sent,
+    every record and its keys (`elapsed_s` included), the console output,
+    the report and the command line are as they were, and the keyword
+    parameters other tools pass keep their names. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
