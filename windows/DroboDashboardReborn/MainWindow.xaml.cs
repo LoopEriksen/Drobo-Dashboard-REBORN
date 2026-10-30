@@ -169,6 +169,16 @@ public partial class MainWindow : Window
     private static readonly Brush AccentBrush   = BrushFromHex("#2C7BC4");
     private static readonly Brush MutedBrush    = BrushFromHex("#6B7683");
 
+    /// <summary>
+    /// Builds the window in an order that matters. Sizing runs before the
+    /// window is first shown, so it opens at its computed size rather than
+    /// jumping. The saved settings are loaded with <c>_settingsLoaded</c>
+    /// still false, because setting a checkbox from the file fires the same
+    /// Changed handler a click does, and those handlers must not re-save the
+    /// value or start a second search on top of StartupSearchOrPrompt. The
+    /// splash closes on ContentRendered, the first moment there is something
+    /// painted behind it.
+    /// </summary>
     public MainWindow()
     {
         InitializeComponent();
@@ -243,6 +253,17 @@ public partial class MainWindow : Window
     private static readonly IntPtr HWND_NOTOPMOST = new(-2);
     private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
 
+    private const int WM_WINDOWPOSCHANGING = 0x0046;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WINDOWPOS
+    {
+        public IntPtr hwnd, hwndInsertAfter;
+        public int x, y, cx, cy;
+        public uint flags;
+    }
+
     /// <summary>
     /// Actively push this window out of the always-on-top band, and keep
     /// pushing whenever it is shown or activated.
@@ -263,17 +284,6 @@ public partial class MainWindow : Window
     /// would be its own version of the same rudeness.
     /// </para>
     /// </remarks>
-    private const int WM_WINDOWPOSCHANGING = 0x0046;
-    private static readonly IntPtr HWND_TOPMOST = new(-1);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WINDOWPOS
-    {
-        public IntPtr hwnd, hwndInsertAfter;
-        public int x, y, cx, cy;
-        public uint flags;
-    }
-
     private void RefuseToBePinnedOnTop()
     {
         Topmost = false;
@@ -685,6 +695,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Shows or hides the "Searching..." state. Refresh is disabled
+    /// while a search runs so a second click cannot start a parallel
+    /// one.</summary>
     private void SetSearching(bool searching)
     {
         SearchingPanel.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
@@ -693,6 +706,9 @@ public partial class MainWindow : Window
         if (searching) DiscoverErrorBox.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>Shows why the search failed, and empties the picker: rows
+    /// from an earlier search would otherwise sit under the error looking
+    /// current.</summary>
     private void ShowDiscoverError(string message)
     {
         DiscoverErrorText.Text = message;
@@ -1279,6 +1295,21 @@ public partial class MainWindow : Window
     // Status polling (unchanged behaviour, just returns whether it worked)
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// One status tick: /api/status, then alerts and shares. Returns
+    /// (ok, error) rather than throwing, because ConnectAndShowDashboard
+    /// uses the first tick to decide whether to show the dashboard at all,
+    /// and shows <c>error</c> on the picker when it cannot.
+    ///
+    /// The generation is checked at each point a "Change Drobo" click can
+    /// have overtaken the request -- after the status read, in the failure
+    /// path, and before the alerts and shares fetches -- so a status reading
+    /// that lands after the user has left that Drobo is dropped rather than
+    /// painted, and a stale tick returns (false, null). Two places are not
+    /// covered: the 401 "Token rejected" branch reports at once, without a
+    /// generation check, and RefreshAlerts and RefreshShares do not check it
+    /// themselves.
+    /// </summary>
     private async Task<(bool ok, string? error)> RefreshStatus()
     {
         // Which Drobo this poll belongs to. If the user leaves for the picker
@@ -1596,6 +1627,11 @@ public partial class MainWindow : Window
         return (resp.IsSuccessStatusCode, doc.RootElement.Clone());
     }
 
+    /// <summary>GET a route and return its parsed body. Unlike PostJson this
+    /// throws on a non-2xx status: its callers each have their own fallback
+    /// text for any failure, so the agent's error body is not needed. The
+    /// reads that do show the agent's wording on a failure (Settings,
+    /// DroboApps) build their own request instead.</summary>
     private async Task<JsonElement> FetchJson(string path)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
@@ -1607,6 +1643,10 @@ public partial class MainWindow : Window
         return doc.RootElement.Clone(); // survives past `doc`'s disposal
     }
 
+    /// <summary>Fetches the active alerts and the full list (two requests,
+    /// because comparing them is how RenderAlerts tells active from
+    /// resolved). A failure leaves the last alerts on screen with a small
+    /// note, rather than blanking the tab.</summary>
     private async Task RefreshAlerts()
     {
         try
@@ -1626,16 +1666,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Builds the Alerts tab's Active/Resolved groups from the two
-    /// /api/alerts responses.
-    ///
-    /// activeRoot (plain /api/alerts) lists only what's active right now;
-    /// allRoot (?all=1) lists everything, active or since resolved. Comparing
-    /// the keys that appear in both -- rather than trusting an "active" field
-    /// name that might change -- is what tells us which of the "all" entries
-    /// have actually cleared.
-    /// </summary>
     /// <summary>
     /// Hand the currently-active alerts to <see cref="AlertNotifier"/> and show
     /// whatever it decides is worth a desktop notification.
@@ -1659,6 +1689,16 @@ public partial class MainWindow : Window
             _trayIcon.ShowAlert(notice.Severity, notice.Message);
     }
 
+    /// <summary>
+    /// Builds the Alerts tab's Active/Resolved groups from the two
+    /// /api/alerts responses.
+    ///
+    /// activeRoot (plain /api/alerts) lists only what's active right now;
+    /// allRoot (?all=1) lists everything, active or since resolved. Comparing
+    /// the keys that appear in both -- rather than trusting an "active" field
+    /// name that might change -- is what tells us which of the "all" entries
+    /// have actually cleared.
+    /// </summary>
     private void RenderAlerts(JsonElement activeRoot, JsonElement allRoot)
     {
         var activeKeys = new HashSet<string>();
@@ -1769,6 +1809,9 @@ public partial class MainWindow : Window
         AlertsTabText.FontWeight = FontWeights.Bold;
     }
 
+    /// <summary>Fetches /api/shares for the Shares tab on the status tick. A
+    /// failure keeps the rows already shown and says so, for the same reason
+    /// as RefreshAlerts.</summary>
     private async Task RefreshShares()
     {
         try
@@ -1790,6 +1833,14 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Builds the Shares tab from one /api/shares answer: the guest-logon
+    /// advice, the slow-link warning (mirrored onto the Settings tab), and
+    /// one row per share with Windows' own live connection state merged in.
+    /// The connection state is read from Windows here, never from the agent,
+    /// because only this PC knows which shares it has open; for the simulator
+    /// it comes from <c>_simulatedConnections</c> instead.
+    /// </summary>
     private void RenderShares(JsonElement root)
     {
         SharesError.Visibility = Visibility.Collapsed;
@@ -1942,6 +1993,9 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Open = browse the share's files in this app. An unconnected
+    /// share is signed in to first, because Windows would refuse the
+    /// unauthenticated read the browser would otherwise make.</summary>
     private async void ShareOpen_Click(object sender, RoutedEventArgs e)
     {
         var row = (ShareRow)((FrameworkElement)sender).DataContext;
@@ -2028,6 +2082,10 @@ public partial class MainWindow : Window
             }
         };
 
+    /// <summary>Ends Windows' session to the share (its drive letter if it has
+    /// one, else the UNC path), then refreshes the rows so the button reflects
+    /// what Windows now says. A simulated share is only forgotten
+    /// locally.</summary>
     private async void ShareDisconnect_Click(object sender, RoutedEventArgs e)
     {
         var row = (ShareRow)((FrameworkElement)sender).DataContext;
@@ -2155,6 +2213,9 @@ public partial class MainWindow : Window
         return $"{(int)span.TotalDays}d ago";
     }
 
+    /// <summary>The header's state when the AGENT could not be read (down,
+    /// or the token rejected): the neutral "unreachable" pill and the reason
+    /// under the device name. The numbers below are left as they were.</summary>
     private void ShowAgentUnreachable(string message)
     {
         SetOverallStatePill("unreachable", UnknownBrush, "#22262E", "#39424D");
@@ -2271,6 +2332,12 @@ public partial class MainWindow : Window
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Paints the header and the Status tab from one /api/status answer. A
+    /// payload with no reading in it changes only the state (pill, banners,
+    /// footer) and leaves the last real figures on screen -- the comment at
+    /// the top of the method says why.
+    /// </summary>
     private void RenderStatus(JsonElement s)
     {
         // NOT every /api/status payload is a reading, and this method used to
@@ -2488,23 +2555,6 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// RECENT ACTIVITY on the Status tab. NOT a live throughput reading --
-    /// see PerformanceInfo's docstring in models.py and parse_performance's
-    /// in sdk/drobo_nasd/sysinfo.py. The device's own counters lag ~25s in both
-    /// directions, on top of the agent only re-asking every 120s
-    /// (sysinfo_seconds), so this can read Idle while the array is genuinely
-    /// busy, and can keep showing motion for a couple of minutes after
-    /// activity actually stopped.
-    ///
-    /// "measured" is the only thing that distinguishes "never reported" from
-    /// "genuinely idle" -- the counters themselves default to 0 either way,
-    /// so checking read/write/iops directly for presence would be exactly
-    /// the falsy-zero trap this app avoids elsewhere (see SeverityRank's
-    /// comment above). Absent "performance" is treated the same as
-    /// measured=false: IsTrue() already returns false for a missing property,
-    /// which is the right default here.
-    /// </summary>
-    /// <summary>
     /// The volumes the pack is carved into — what Windows shows as drive letters.
     ///
     /// <para>
@@ -2581,6 +2631,23 @@ public partial class MainWindow : Window
     /// that shows it. Same threshold as webui.py's ACTIVITY_STALE_SECONDS.</summary>
     private const double PerfStaleSeconds = 180;
 
+    /// <summary>
+    /// RECENT ACTIVITY on the Status tab. NOT a live throughput reading --
+    /// see PerformanceInfo's docstring in models.py and parse_performance's
+    /// in sdk/drobo_nasd/sysinfo.py. The device's own counters lag ~25s in both
+    /// directions, on top of the agent only re-asking every 120s
+    /// (sysinfo_seconds), so this can read Idle while the array is genuinely
+    /// busy, and can keep showing motion for a couple of minutes after
+    /// activity actually stopped.
+    ///
+    /// "measured" is the only thing that distinguishes "never reported" from
+    /// "genuinely idle" -- the counters themselves default to 0 either way,
+    /// so checking read/write/iops directly for presence would be exactly
+    /// the falsy-zero trap this app avoids elsewhere (see SeverityRank's
+    /// comment above). Absent "performance" is treated the same as
+    /// measured=false: IsTrue() already returns false for a missing property,
+    /// which is the right default here.
+    /// </summary>
     private void RenderPerformance(JsonElement s)
     {
         var perf = s.TryGetProperty("performance", out var pf) && pf.ValueKind == JsonValueKind.Object
@@ -2685,6 +2752,8 @@ public partial class MainWindow : Window
         pill.Background = BrushFromHex(bg);
     }
 
+    /// <summary>The header's overall-state pill: the state word, its colour,
+    /// and the pill's fill and outline as hex.</summary>
     private void SetOverallStatePill(string text, Brush fg, string bg, string border)
     {
         StateText.Text = text;
@@ -2785,6 +2854,8 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>An em dash for a field the device left empty, so an empty
+    /// value reads as "not set" rather than as a layout gap.</summary>
     private static string DashIfEmpty(string s) => string.IsNullOrEmpty(s) ? "—" : s;
 
     // ---------------------------------------------------------------
@@ -2886,6 +2957,9 @@ public partial class MainWindow : Window
         if (ReferenceEquals(MainTabs.SelectedItem, TabSettings)) await RefreshPreferencePanels();
     }
 
+    /// <summary>The agent's version and uptime for the Tools tab, from
+    /// /api/ping, which needs no token -- so it still answers when the token
+    /// is wrong, and the version line can help sort that out.</summary>
     private async Task RefreshToolsInfo()
     {
         try
@@ -2906,6 +2980,8 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>"3 days 4h", "5h 12m" or "7m": the two largest units only,
+    /// because an uptime is read at a glance.</summary>
     private static string FormatUptime(long sec)
     {
         if (sec <= 0) return "just started";
@@ -3038,33 +3114,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------------------------------------------------------------
-    // Tools tab: Identify -- the first control in this app's history that
-    // reaches out and changes something on the Drobo itself, rather than
-    // just reading it
-    // ---------------------------------------------------------------
-
-    /// <summary>
-    /// POST /api/identify -- flashes the Drobo's front lights so the user can
-    /// tell which physical box is which. Deliberately a POST, never a GET: a
-    /// GET must never carry a side effect (a browser or link-prefetcher would
-    /// happily fire one), and this is the one endpoint in the whole app that
-    /// changes anything on the hardware. Sent as HttpMethod.Post via
-    /// SendAsync rather than the bare PostAsync(url, content) overload -- see
-    /// the inline comment below for why.
-    ///
-    /// Still genuinely low-stakes -- it only blinks some lights and stops on
-    /// its own -- so this doesn't dress it up as scary: no confirmation
-    /// dialog, no red styling, just the same PrimaryButton look as an
-    /// ordinary "do a thing" action elsewhere in the app. What it does get is
-    /// weight appropriate to being the only write in the app: a plain-English
-    /// line explaining the effect BEFORE the click (see the XAML, shown
-    /// unconditionally, not just on hover/tooltip), the button disabled for
-    /// the duration of the request so it can't be double-fired, and an honest
-    /// result afterwards -- the agent's own message text, never a guess, with
-    /// a SIMULATED chip whenever "simulated" comes back true so a demo blink
-    /// can never be mistaken for the real thing.
-    /// </summary>
     // ---------------------------------------------------------------
     // Backing up to an external drive
     // ---------------------------------------------------------------
@@ -3207,6 +3256,12 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Starts the backup the agent just approved. Only reachable after a
+    /// successful Check (see _backupPlanApproved), it asks once more only
+    /// when mirroring is on, because only a mirror deletes. The agent's own
+    /// refusal, if any, is shown as it worded it.
+    /// </summary>
     private async void BackupStart_Click(object sender, RoutedEventArgs e)
     {
         // Belt and braces: the button should be disabled, but a stale click
@@ -3273,6 +3328,13 @@ public partial class MainWindow : Window
         _backupPollTimer.Start();
     }
 
+    /// <summary>
+    /// One backup status read: the last few lines of robocopy's output while
+    /// it runs, the agent's summary when it ends. The timer stops on the
+    /// first answer that says the job is over -- and on a failed read too,
+    /// since a poll loop that keeps going after it has lost the agent would
+    /// only repeat the error.
+    /// </summary>
     private async Task PollBackupOnce()
     {
         try
@@ -3427,6 +3489,33 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---------------------------------------------------------------
+    // Tools tab: Identify -- the first control in this app's history that
+    // reaches out and changes something on the Drobo itself, rather than
+    // just reading it
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// POST /api/identify -- flashes the Drobo's front lights so the user can
+    /// tell which physical box is which. Deliberately a POST, never a GET: a
+    /// GET must never carry a side effect (a browser or link-prefetcher would
+    /// happily fire one), and this is the one endpoint in the whole app that
+    /// changes anything on the hardware. Sent as HttpMethod.Post via
+    /// SendAsync rather than the bare PostAsync(url, content) overload -- see
+    /// the inline comment below for why.
+    ///
+    /// Still genuinely low-stakes -- it only blinks some lights and stops on
+    /// its own -- so this doesn't dress it up as scary: no confirmation
+    /// dialog, no red styling, just the same PrimaryButton look as an
+    /// ordinary "do a thing" action elsewhere in the app. What it does get is
+    /// weight appropriate to being the only write in the app: a plain-English
+    /// line explaining the effect BEFORE the click (see the XAML, shown
+    /// unconditionally, not just on hover/tooltip), the button disabled for
+    /// the duration of the request so it can't be double-fired, and an honest
+    /// result afterwards -- the agent's own message text, never a guess, with
+    /// a SIMULATED chip whenever "simulated" comes back true so a demo blink
+    /// can never be mistaken for the real thing.
+    /// </summary>
     private async void IdentifyBtn_Click(object sender, RoutedEventArgs e) =>
         await SendIdentify(query: "", busyLabel: "Identifying…");
 

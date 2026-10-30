@@ -338,6 +338,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: fields, brushes,
     helpers and poll intervals say what they are. Every JSON key, route,
     user-visible string and XAML name is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: every doc
+    comment sits on the member it describes. Comments only.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
