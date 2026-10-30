@@ -75,45 +75,95 @@ REFERENCE_LABEL = "csproj <Version>"
 
 
 def read_repo_file(path):
+    """The text of one repo file, decoded as UTF-8 without its BOM.
+
+    utf-8-sig rather than utf-8 because Windows tools save files with a
+    byte order mark (the csproj has one today): left in, it would sit
+    in front of the first line, where a ^-anchored pattern such as the
+    Python and TOML ones could then no longer match.
+    """
     with io.open(os.path.join(REPO_ROOT, path),
                  encoding="utf-8-sig") as text_file:
         return text_file.read()
 
 
+def _read_once(path, text_by_path, unreadable_messages):
+    """Read path into text_by_path unless an earlier place already did.
+
+    Three places live in the csproj, so caching keeps every place in
+    one file reading the same text. A file that cannot be read is
+    stored as None and described in unreadable_messages instead of
+    raising, so one missing file is reported alongside every other
+    problem rather than hiding them.
+    """
+    if path in text_by_path:
+        return
+    try:
+        text_by_path[path] = read_repo_file(path)
+    except OSError as exc:
+        text_by_path[path] = None
+        unreadable_messages.append(f"{path}: {exc.strerror or exc}")
+
+
 def collect_versions():
     """{label: version-or-None},
     plus a list of files that could not be read.
+
+    None stands for "not found" whether the file was unreadable or the
+    pattern did not match; the second list says which files were
+    unreadable, so find_problems can avoid reporting them twice.
+    VERSION_PLACES is read here at call time, not captured earlier, so
+    a caller (the tests) can swap it for a seeded list.
     """
-    found, unreadable = {}, []
+    version_by_label, unreadable_messages = {}, []
     text_by_path = {}
     for label, path, pattern in VERSION_PLACES:
-        if path not in text_by_path:
-            try:
-                text_by_path[path] = read_repo_file(path)
-            except OSError as exc:
-                text_by_path[path] = None
-                unreadable.append(f"{path}: {exc.strerror or exc}")
+        _read_once(path, text_by_path, unreadable_messages)
         text = text_by_path[path]
         if text is None:
-            found[label] = None
+            version_by_label[label] = None
             continue
         match = re.search(pattern, text, re.MULTILINE)
-        found[label] = match.group(1).strip() if match else None
-    return found, unreadable
+        version_by_label[label] = match.group(1).strip() if match else None
+    return version_by_label, unreadable_messages
+
+
+def _four_part_problem(label, path, stated_version, reference_version):
+    """The problem sentence for a four-part place, or None if it agrees.
+
+    A four-part place agrees when it has exactly four fields and its
+    first three are the reference number; the fourth field is free,
+    because MSBuild and Windows use it for builds of the same release.
+    """
+    version_fields = stated_version.split(".")
+    if (len(version_fields) == 4
+            and ".".join(version_fields[:3]) == reference_version):
+        return None
+    return (f"{label} is {stated_version} in {path}; expected "
+            f"{reference_version} plus a fourth field (for example "
+            f"{reference_version}.0)")
 
 
 def find_problems():
     """Every disagreement, as plain sentences.
     Empty means the tree is consistent.
+
+    A missing reference number stops the check early: with nothing to
+    compare against, every other place would either be skipped or
+    reported as wrong, and neither says anything true.
     """
-    found, unreadable = collect_versions()
-    problems = list(unreadable)
+    version_by_label, unreadable_messages = collect_versions()
+    problems = list(unreadable_messages)
 
     for label, path, _ in VERSION_PLACES:
-        if found.get(label) is None and not any(path in m for m in unreadable):
-            problems.append(f"{label}: no version found in {path}")
+        if version_by_label.get(label) is not None:
+            continue
+        if any(path in unreadable_message
+               for unreadable_message in unreadable_messages):
+            continue
+        problems.append(f"{label}: no version found in {path}")
 
-    reference_version = found.get(REFERENCE_LABEL)
+    reference_version = version_by_label.get(REFERENCE_LABEL)
     if reference_version is None:
         problems.append(
             f"{REFERENCE_LABEL} is the number everything else is compared "
@@ -121,17 +171,14 @@ def find_problems():
         return problems
 
     for label, path, _ in VERSION_PLACES:
-        stated_version = found.get(label)
+        stated_version = version_by_label.get(label)
         if stated_version is None or label == REFERENCE_LABEL:
             continue
         if label in FOUR_PART_LABELS:
-            version_fields = stated_version.split(".")
-            if (len(version_fields) != 4
-                    or ".".join(version_fields[:3]) != reference_version):
-                problems.append(
-                    f"{label} is {stated_version} in {path}; expected "
-                    f"{reference_version} plus a fourth field (for example "
-                    f"{reference_version}.0)")
+            problem = _four_part_problem(
+                label, path, stated_version, reference_version)
+            if problem is not None:
+                problems.append(problem)
         elif stated_version != reference_version:
             problems.append(
                 f"{label} is {stated_version} in {path}; expected "
@@ -139,21 +186,33 @@ def find_problems():
     return problems
 
 
+def _print_version_table(version_by_label):
+    """Every place and the number it states, one aligned line each."""
+    label_width = max(len(label) for label, _, _ in VERSION_PLACES)
+    for label, _, _ in VERSION_PLACES:
+        stated_version = version_by_label.get(label)
+        shown_version = (stated_version if stated_version is not None
+                         else "(not found)")
+        print(f"  {label.ljust(label_width)}  {shown_version}")
+    print("")
+
+
 def main(argv=None):
+    """Print the table and the verdict; 0 when every place agrees.
+
+    Returns 1 on any disagreement. --quiet drops the table and the PASS
+    line so a hook or CI step shows output only when something is
+    wrong; the FAIL report is always printed, because a silent failure
+    would leave nobody knowing what to fix.
+    """
     argv = sys.argv[1:] if argv is None else argv
     quiet = "--quiet" in argv
 
-    found, _ = collect_versions()
+    version_by_label, _ = collect_versions()
     problems = find_problems()
 
     if not quiet:
-        label_width = max(len(label) for label, _, _ in VERSION_PLACES)
-        for label, _, _ in VERSION_PLACES:
-            stated_version = found.get(label)
-            shown_version = (stated_version if stated_version is not None
-                             else "(not found)")
-            print(f"  {label.ljust(label_width)}  {shown_version}")
-        print("")
+        _print_version_table(version_by_label)
 
     if problems:
         print("FAIL: the release version does not agree with itself.")
@@ -166,7 +225,7 @@ def main(argv=None):
         return 1
 
     if not quiet:
-        print(f"PASS: every place says {found[REFERENCE_LABEL]}.")
+        print(f"PASS: every place says {version_by_label[REFERENCE_LABEL]}.")
     return 0
 
 
