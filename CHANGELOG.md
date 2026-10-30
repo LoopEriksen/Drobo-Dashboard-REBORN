@@ -267,6 +267,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/AlertRow.cs`: each alert-row property
     says what it is for. Doc comments only; no property is renamed.
     (2026-10-29)
+  - `windows/DroboDashboardReborn/App.xaml.cs`: start-up reads as its
+    steps, reading `--agent-config` and installing the last-chance
+    error handlers in the same order as before. The flag, the message
+    and its caption are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

@@ -36,33 +36,59 @@ public partial class App : Application
     /// </summary>
     internal static string? AgentConfigOverride { get; private set; }
 
+    /// <summary>
+    /// Reads the launcher's arguments, installs the last-chance exception
+    /// handlers, then shows the splash. The splash comes last but still
+    /// before StartupUri constructs MainWindow, which is the slow part.
+    /// </summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        for (int i = 0; i < e.Args.Length - 1; i++)
+        ReadAgentConfigArgument(e.Args);
+        InstallLastChanceExceptionHandlers();
+
+        // Shown before StartupUri constructs MainWindow, so it is on screen
+        // during the expensive part rather than after it.
+        Splash = new SplashWindow();
+        Splash.Show();
+    }
+
+    /// <summary>
+    /// Sets <see cref="AgentConfigOverride"/> from the first
+    /// <c>--agent-config "path"</c> pair with a non-blank path. The last
+    /// argument is never taken as the flag, because it has no value after it.
+    /// </summary>
+    private static void ReadAgentConfigArgument(string[] args)
+    {
+        for (int argIndex = 0; argIndex < args.Length - 1; argIndex++)
         {
-            if (string.Equals(e.Args[i], "--agent-config", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(e.Args[i + 1]))
+            if (string.Equals(args[argIndex], "--agent-config", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(args[argIndex + 1]))
             {
-                AgentConfigOverride = e.Args[i + 1];
+                AgentConfigOverride = args[argIndex + 1];
                 break;
             }
         }
+    }
 
-        // Last line of defence. Twenty-odd event handlers in MainWindow are
-        // `async void` (they have to be -- that is the shape WPF gives an
-        // event handler), and an exception escaping one after its first
-        // `await` is rethrown on the dispatcher, where the default outcome is
-        // the Windows crash dialog and a dead app. The handlers catch what
-        // they expect; this catches what they did not. It reports and keeps
-        // the app alive rather than pretending nothing happened.
+    /// <summary>
+    /// Last line of defence. Twenty-odd event handlers in MainWindow are
+    /// <c>async void</c> (they have to be -- that is the shape WPF gives an
+    /// event handler), and an exception escaping one after its first
+    /// <c>await</c> is rethrown on the dispatcher, where the default outcome
+    /// is the Windows crash dialog and a dead app. The handlers catch what
+    /// they expect; this catches what they did not. It reports and keeps
+    /// the app alive rather than pretending nothing happened.
+    /// </summary>
+    private void InstallLastChanceExceptionHandlers()
+    {
         DispatcherUnhandledException += (_, args) =>
         {
-            string nl = Environment.NewLine;
+            string newLine = Environment.NewLine;
             System.Windows.MessageBox.Show(
-                "Something went wrong inside the app:" + nl + nl
-                + args.Exception.Message + nl + nl
+                "Something went wrong inside the app:" + newLine + newLine
+                + args.Exception.Message + newLine + newLine
                 + "The app will keep running. If this keeps happening, use "
                 + "\"Copy diagnostics\" on the Tools tab and report it.",
                 "Drobo Dashboard REBORN", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -71,10 +97,5 @@ public partial class App : Application
         // A faulted Task nobody awaited would otherwise surface only in the
         // finalizer, long after the cause. Observe it so it cannot escalate.
         TaskScheduler.UnobservedTaskException += (_, args) => args.SetObserved();
-
-        // Shown before StartupUri constructs MainWindow, so it is on screen
-        // during the expensive part rather than after it.
-        Splash = new SplashWindow();
-        Splash.Show();
     }
 }
