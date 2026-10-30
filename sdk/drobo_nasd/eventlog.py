@@ -43,23 +43,19 @@ Read-only. Sends one command, which fetches a log file.
 from __future__ import annotations
 
 import html
-import socket
 from xml.etree import ElementTree
 
 from . import commands as _commands
 from .config_cmd import (
     DEFAULT_PORT,
     TYPE_COMMAND,
-    TYPE_LOGIN,
-    TYPE_LOGIN_OK,
     TYPE_RESULT,
     ConfigError,
     _build_frame,
-    _login_payload,
     _read_frame,
 )
 from .models import EventLogEntry
-from .sysinfo import SysInfoError
+from .sysinfo import SysInfoError, _logged_in_connection
 
 COMMAND_NAME = "eCmdGetUserEventLog"
 
@@ -78,12 +74,19 @@ SEVERITY_NOT_DECODED = ""
 
 
 class EventLogError(SysInfoError):
-    """The device would not, or could not, hand over its user event log
-    -- or handed back a shape this code refuses to guess at."""
+    """
+    The device would not, or could not, hand over its user event log
+    -- or handed back a shape this code refuses to guess at.
+
+    A SysInfoError (and so a ConfigError) underneath, so a caller that
+    already treats the command channel's read-only queries as
+    "unavailable right now" catches this one the same way.
+    """
 
 
 def _build_request_payload(esa_id: str) -> bytes:
-    """The exact request the Dashboard was captured sending: command 91
+    """
+    The exact request the Dashboard was captured sending: command 91
     with the /uel.log path, in the CmdID / Params / ESAID order of the
     capture.
 
@@ -101,9 +104,11 @@ def _build_request_payload(esa_id: str) -> bytes:
 
 
 def _display_lines(text: str) -> list[str]:
-    """Split into display-ready lines: trailing whitespace (and the CR
-    of a CRLF file) stripped, blank lines dropped, leading indentation
-    kept in case the log uses it for continuation."""
+    """
+    Split into display-ready lines: trailing whitespace (and the CR of
+    a CRLF file) stripped, blank lines dropped, leading indentation
+    kept in case the log uses it for continuation.
+    """
     lines = []
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
@@ -151,6 +156,26 @@ def parse_event_log(payload: bytes) -> list[str]:
         # log must not take the whole fetch down.
         return _display_lines(trimmed_payload.decode("utf-8", "replace"))
 
+    details_text = _envelope_details_text(trimmed_payload)
+    if not details_text.strip():
+        return []
+
+    unescaped = html.unescape(details_text)
+    _refuse_structured_text(unescaped)
+    return _display_lines(unescaped)
+
+
+def _envelope_details_text(trimmed_payload: bytes) -> str:
+    """
+    The text inside a TMCmd envelope's <ResultDetails> ("" when there
+    is none), still entity-escaped.
+
+    Raises EventLogError for a body that does not parse, an envelope
+    with no <ResultDetails>, and one whose <ResultDetails> carries
+    child elements -- the first because it cannot be told from a
+    truncated envelope, the others because they are shapes no capture
+    has shown.
+    """
     try:
         root = ElementTree.fromstring(trimmed_payload)
     except ElementTree.ParseError as exc:
@@ -168,23 +193,29 @@ def parse_event_log(payload: bytes) -> list[str]:
             "the event-log reply carries XML child elements, a shape no "
             "capture has shown; refusing to flatten an unseen schema into "
             "lines -- capture a real reply and teach parse_event_log")
+    return details.text or ""
 
-    details_text = details.text or ""
-    if not details_text.strip():
-        return []
 
-    unescaped = html.unescape(details_text)
+def _refuse_structured_text(unescaped: str) -> None:
+    """
+    Raise EventLogError when the unescaped details text is itself a
+    well-formed XML document.
+
+    Escaped XML is how eCmdGetSysInfo encodes a structured answer on
+    this channel, so text that unescapes into a document is a schema
+    nobody has seen, not log lines. Text that merely opens with "<" but
+    does not parse is ordinary log text and passes.
+    """
     stripped_text = unescaped.strip()
-    if stripped_text.startswith("<"):
-        try:
-            ElementTree.fromstring(stripped_text)
-        except ElementTree.ParseError:
-            pass  # ordinary log text that happens to open with "<"
-        else:
-            raise EventLogError(
-                "the event-log reply unescapes into an XML document, a shape "
-                "no capture has shown; refusing to guess its schema")
-    return _display_lines(unescaped)
+    if not stripped_text.startswith("<"):
+        return
+    try:
+        ElementTree.fromstring(stripped_text)
+    except ElementTree.ParseError:
+        return  # ordinary log text that happens to open with "<"
+    raise EventLogError(
+        "the event-log reply unescapes into an XML document, a shape "
+        "no capture has shown; refusing to guess its schema")
 
 
 def entries_from_lines(lines: list[str]) -> list[EventLogEntry]:
@@ -217,20 +248,15 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
 
     Raises EventLogError on refusal, teardown, or an unparseable reply.
     A torn-down connection right after the command is the failure the
-    empty- params variant of 91 is known to cause, so it is named in the
+    empty-params variant of 91 is known to cause, so it is named in the
     error.
     """
     if _commands.is_dangerous(COMMAND_NAME):
         raise EventLogError(f"{COMMAND_NAME} is on the do-not-send list")
     request_payload = _build_request_payload(esa_id)
 
-    sock = socket.create_connection((host, port), timeout=timeout)
-    sock.settimeout(timeout)
-    try:
-        sock.sendall(_build_frame(TYPE_LOGIN, _login_payload(esa_id)))
-        frame_type, _ = _read_frame(sock)
-        if frame_type != TYPE_LOGIN_OK:
-            raise EventLogError(f"login refused (type 0x{frame_type:02x})")
+    with _logged_in_connection(host, esa_id, port, timeout,
+                               error_type=EventLogError) as sock:
         sock.sendall(_build_frame(TYPE_COMMAND, request_payload))
         try:
             frame_type, body = _read_frame(sock)
@@ -243,5 +269,3 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
         if frame_type != TYPE_RESULT:
             raise EventLogError(f"unexpected reply type 0x{frame_type:02x}")
         return entries_from_lines(parse_event_log(body))
-    finally:
-        sock.close()

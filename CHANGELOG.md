@@ -108,6 +108,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     go out in the same order, the same errors are raised in the same
     order, and the socket still closes however the call ends.
     (2026-10-29)
+  - `sdk/drobo_nasd/eventlog.py`: the reply's refusals read as named
+    steps, and the login goes through sysinfo's shared helper. Every
+    refusal, its order and message, and every byte sent to the Drobo
+    are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
