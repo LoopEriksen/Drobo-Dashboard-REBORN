@@ -204,7 +204,7 @@ public partial class MainWindow : Window
 
         var settings = DroboSettings.LoadAll();
         _rememberedDevice = settings.Remembered;
-        foreach (var m in settings.ManualDevices) _manualDevices.Add(m);
+        foreach (var manualDevice in settings.ManualDevices) _manualDevices.Add(manualDevice);
         _autoDiscoveryEnabled = settings.AutoDiscoveryEnabled;
         AutoDiscoveryCheck.IsChecked = _autoDiscoveryEnabled;
         PrefCloseToTray.IsChecked = settings.CloseToTrayEnabled;
@@ -288,62 +288,9 @@ public partial class MainWindow : Window
     {
         Topmost = false;
 
-        void Unpin()
-        {
-            Topmost = false;
-            var h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (h != IntPtr.Zero)
-                SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0,
-                             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
-        }
-
-        /// <summary>
-        /// Ask Windows to draw this window's title bar dark, so the one strip
-        /// of chrome WPF does not paint stops being a bright white band above
-        /// an otherwise dark application.
-        ///
-        /// WPF has no property for this: the title bar belongs to the desktop
-        /// window manager, not to WPF, so it has to be asked directly through
-        /// DwmSetWindowAttribute.
-        ///
-        /// The attribute NUMBER changed during Windows 10's life -- it was 19
-        /// in the 1809-era builds and became 20 from 20H1 onwards. Rather than
-        /// detect the build, both are attempted: passing an attribute a given
-        /// build does not recognise simply returns a failure code and changes
-        /// nothing, so trying the wrong one is harmless.
-        ///
-        /// Entirely cosmetic and entirely optional. Any failure is swallowed:
-        /// on a Windows version that does not support it the title bar stays
-        /// light, which is exactly how the app looked before, and is not worth
-        /// a crash or even a log line.
-        /// </summary>
-        void UseDarkTitleBar()
-        {
-            try
-            {
-                var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                if (handle == IntPtr.Zero) return;
-                int on = 1;
-                foreach (int attribute in new[] { DWMWA_USE_IMMERSIVE_DARK_MODE,
-                                                  DWMWA_USE_IMMERSIVE_DARK_MODE_PRE_20H1 })
-                {
-                    if (DwmSetWindowAttribute(handle, attribute, ref on, sizeof(int)) == 0)
-                        return;   // took effect; no need to try the older number
-                }
-            }
-            catch (DllNotFoundException)
-            {
-                // No dwmapi.dll. Not a Windows this app can theme, and not a
-                // reason to fail to start.
-            }
-            catch (EntryPointNotFoundException)
-            {
-            }
-        }
-
         SourceInitialized += (_, _) =>
         {
-            Unpin();
+            UnpinFromTopmost();
             UseDarkTitleBar();
 
             // Catch the pin at the moment it is attempted. When any process
@@ -353,35 +300,105 @@ public partial class MainWindow : Window
             // is what actually stops it; the event handlers below only fire
             // after the fact, and a capture tool can pin us without ever
             // activating or resizing the window.
-            var src = System.Windows.Interop.HwndSource.FromHwnd(
+            var hwndSource = System.Windows.Interop.HwndSource.FromHwnd(
                 new System.Windows.Interop.WindowInteropHelper(this).Handle);
-            src?.AddHook((IntPtr hwnd, int msg, IntPtr wp, IntPtr lp, ref bool handled) =>
-            {
-                if (msg == WM_WINDOWPOSCHANGING)
-                {
-                    var pos = Marshal.PtrToStructure<WINDOWPOS>(lp);
-                    if (pos.hwndInsertAfter == HWND_TOPMOST)
-                    {
-                        pos.hwndInsertAfter = HWND_NOTOPMOST;
-                        Marshal.StructureToPtr(pos, lp, false);
-                    }
-                }
-                return IntPtr.Zero;
-            });
+            hwndSource?.AddHook(RewriteTopmostInsertAfter);
         };
 
-        Activated += (_, _) => Unpin();
-        StateChanged += (_, _) => Unpin();
+        Activated += (_, _) => UnpinFromTopmost();
+        StateChanged += (_, _) => UnpinFromTopmost();
 
-        // Backstop. The hook above catches the ordinary route, but this has
-        // now bitten the maintainer twice, so it gets belt and braces: a cheap
-        // check that puts us back where we belong if anything slips through.
+        StartTopmostWatchdog();
+    }
+
+    /// <summary>Drops the window out of the topmost band without activating it
+    /// -- SWP_NOACTIVATE, so putting it back never steals focus. Does nothing
+    /// before the window has a handle.</summary>
+    private void UnpinFromTopmost()
+    {
+        Topmost = false;
+        var windowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (windowHandle != IntPtr.Zero)
+            SetWindowPos(windowHandle, HWND_NOTOPMOST, 0, 0, 0, 0,
+                         SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// The window-procedure hook behind RefuseToBePinnedOnTop: a
+    /// WM_WINDOWPOSCHANGING that would put this window into the topmost band
+    /// has its hwndInsertAfter rewritten to HWND_NOTOPMOST before Windows acts
+    /// on it. Every other message passes through untouched, and none is
+    /// marked handled.
+    /// </summary>
+    private static IntPtr RewriteTopmostInsertAfter(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != WM_WINDOWPOSCHANGING) return IntPtr.Zero;
+
+        var pos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
+        if (pos.hwndInsertAfter != HWND_TOPMOST) return IntPtr.Zero;
+
+        pos.hwndInsertAfter = HWND_NOTOPMOST;
+        Marshal.StructureToPtr(pos, lParam, false);
+        return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Ask Windows to draw this window's title bar dark, so the one strip
+    /// of chrome WPF does not paint stops being a bright white band above
+    /// an otherwise dark application.
+    ///
+    /// WPF has no property for this: the title bar belongs to the desktop
+    /// window manager, not to WPF, so it has to be asked directly through
+    /// DwmSetWindowAttribute.
+    ///
+    /// The attribute NUMBER changed during Windows 10's life -- it was 19
+    /// in the 1809-era builds and became 20 from 20H1 onwards. Rather than
+    /// detect the build, both are attempted: passing an attribute a given
+    /// build does not recognise simply returns a failure code and changes
+    /// nothing, so trying the wrong one is harmless.
+    ///
+    /// Entirely cosmetic and entirely optional. Any failure is swallowed:
+    /// on a Windows version that does not support it the title bar stays
+    /// light, which is exactly how the app looked before, and is not worth
+    /// a crash or even a log line.
+    /// </summary>
+    private void UseDarkTitleBar()
+    {
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;
+            int darkModeEnabled = 1;
+            foreach (int attribute in new[] { DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                              DWMWA_USE_IMMERSIVE_DARK_MODE_PRE_20H1 })
+            {
+                if (DwmSetWindowAttribute(handle, attribute, ref darkModeEnabled, sizeof(int)) == 0)
+                    return;   // took effect; no need to try the older number
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            // No dwmapi.dll. Not a Windows this app can theme, and not a
+            // reason to fail to start.
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Backstop. The hook above catches the ordinary route, but this has
+    /// now bitten the maintainer twice, so it gets belt and braces: a cheap
+    /// check that puts us back where we belong if anything slips through.
+    /// </summary>
+    private void StartTopmostWatchdog()
+    {
         var watchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TopmostWatchdogIntervalMilliseconds) };
         watchdog.Tick += (_, _) =>
         {
-            var h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (h != IntPtr.Zero && (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
-                Unpin();
+            var windowHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (windowHandle != IntPtr.Zero && (GetWindowLong(windowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
+                UnpinFromTopmost();
         };
         watchdog.Start();
     }
@@ -450,32 +467,44 @@ public partial class MainWindow : Window
 
         foreach (var path in CandidateConfigPaths())
         {
-            try
+            if (TryApplyAgentConfigFile(path)) return;
+        }
+    }
+
+    /// <summary>
+    /// Fills the agent URL (if blank) and token from one candidate config.json.
+    /// Returns true once a file with an "agent" block has been used, so the
+    /// search stops at the first real config; false for a missing, unreadable
+    /// or malformed file, so the next candidate gets its turn.
+    /// </summary>
+    private bool TryApplyAgentConfigFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (!doc.RootElement.TryGetProperty("agent", out var agent)) return false;
+
+            var port = agent.TryGetProperty("port", out var portElement) && portElement.TryGetInt32(out var parsedPort)
+                ? parsedPort : 7420;
+
+            if (string.IsNullOrWhiteSpace(AgentUrl.Text))
+                AgentUrl.Text = $"http://127.0.0.1:{port}";
+
+            if (agent.TryGetProperty("token", out var tokenElement) &&
+                tokenElement.ValueKind == JsonValueKind.String)
             {
-                if (!File.Exists(path)) continue;
-
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
-                if (!doc.RootElement.TryGetProperty("agent", out var agent)) continue;
-
-                var port = agent.TryGetProperty("port", out var p) && p.TryGetInt32(out var pv)
-                    ? pv : 7420;
-
-                if (string.IsNullOrWhiteSpace(AgentUrl.Text))
-                    AgentUrl.Text = $"http://127.0.0.1:{port}";
-
-                if (agent.TryGetProperty("token", out var t) &&
-                    t.ValueKind == JsonValueKind.String)
-                {
-                    var token = t.GetString();
-                    if (!string.IsNullOrEmpty(token)) Token.Password = token;
-                }
-                return;
+                var token = tokenElement.GetString();
+                if (!string.IsNullOrEmpty(token)) Token.Password = token;
             }
-            catch
-            {
-                // Unreadable or malformed config is not worth interrupting
-                // startup for -- fall through and let the next candidate try.
-            }
+            return true;
+        }
+        catch
+        {
+            // Unreadable or malformed config is not worth interrupting
+            // startup for -- fall through and let the next candidate try.
+            return false;
         }
     }
 
@@ -510,10 +539,12 @@ public partial class MainWindow : Window
             yield return Path.Combine(dir.FullName, "agent", "config.json");
     }
 
+    /// <summary>Whether <paramref name="url"/> names this machine. Only then
+    /// can a config.json found here belong to the agent it points at.</summary>
     private static bool IsLoopback(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var u) &&
-        (string.Equals(u.Host, "127.0.0.1", StringComparison.Ordinal) ||
-         string.Equals(u.Host, "localhost", StringComparison.OrdinalIgnoreCase));
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        (string.Equals(uri.Host, "127.0.0.1", StringComparison.Ordinal) ||
+         string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
 
     private static SolidColorBrush BrushFromHex(string hex) =>
         new((Color)ColorConverter.ConvertFromString(hex));
@@ -575,15 +606,7 @@ public partial class MainWindow : Window
 
         if (!_autoDiscoveryEnabled)
         {
-            LandingSub.Text = "Automatic discovery is off. Showing manually added Drobos only.";
-            DiscoverErrorBox.Visibility = Visibility.Collapsed;
-            // Still probed. Discovery being off means "don't broadcast", not
-            // "don't look" -- the addresses were typed in precisely so they
-            // could be checked directly.
-            var manualOnly = await ProbeManualDevices();
-            if (generation != _generation) return;   // superseded while probing
-            RenderDevices(null, manualOnly);
-            await MaybeAutoConnectToRememberedDevice();
+            await ShowManualDevicesOnly(generation);
             return;
         }
 
@@ -591,20 +614,20 @@ public partial class MainWindow : Window
         SetSearching(true);
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/discover");
-            req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _agentHttpClient.SendAsync(req);
+            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/discover");
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            using var response = await _agentHttpClient.SendAsync(request);
 
-            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 ShowDiscoverError("The agent rejected that token. Enter the right one below.");
                 SetConnectionSettingsExpanded(true);
                 TokenHelp.Visibility = Visibility.Visible;
                 return;
             }
-            resp.EnsureSuccessStatusCode();
+            response.EnsureSuccessStatusCode();
 
-            var json = await resp.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync();
             var discovered = JsonDocument.Parse(json).RootElement;
             var probed = await ProbeManualDevices();
             // A newer search (or a Drobo switch) started while this one was in
@@ -626,6 +649,22 @@ public partial class MainWindow : Window
             // making a running search look finished.
             if (generation == _generation) SetSearching(false);
         }
+    }
+
+    /// <summary>
+    /// The search with auto-discovery off: no /api/discover call, only the
+    /// manually added addresses. They are still probed -- discovery being
+    /// off means "don't broadcast", not "don't look", and the addresses were
+    /// typed in precisely so they could be checked directly.
+    /// </summary>
+    private async Task ShowManualDevicesOnly(int generation)
+    {
+        LandingSub.Text = "Automatic discovery is off. Showing manually added Drobos only.";
+        DiscoverErrorBox.Visibility = Visibility.Collapsed;
+        var manualOnly = await ProbeManualDevices();
+        if (generation != _generation) return;   // superseded while probing
+        RenderDevices(null, manualOnly);
+        await MaybeAutoConnectToRememberedDevice();
     }
 
     /// <summary>
@@ -735,84 +774,107 @@ public partial class MainWindow : Window
     {
         DiscoverErrorBox.Visibility = Visibility.Collapsed;
 
-        var list = new List<DiscoveredDeviceRow>();
+        var rows = new List<DiscoveredDeviceRow>();
         var manualMatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var devices = new List<JsonElement>();
-        if (discoverRoot is { } root && root.TryGetProperty("devices", out var arr) && arr.ValueKind == JsonValueKind.Array)
-            devices.AddRange(arr.EnumerateArray());
-        // Merged in as though discovered, because in every sense that matters
-        // they were: the agent connected and read the device's own greeting.
-        // Only how we knew where to look differed. Anything the browse already
-        // reported is skipped so a Drobo found both ways gets one row.
-        foreach (var d in probedManual ?? new List<JsonElement>())
-        {
-            var host = GetStringOr(d, "host", "");
-            if (!devices.Any(x => string.Equals(GetStringOr(x, "host", ""), host, StringComparison.OrdinalIgnoreCase)))
-                devices.Add(d);
-        }
-
-        {
-            foreach (var d in devices)
-            {
-                var model = GetStringOr(d, "model", "");
-                var firmware = GetStringOr(d, "firmware", "");
-                var host = GetStringOr(d, "host", "");
-                bool current = d.TryGetProperty("is_current", out var ic) && ic.ValueKind == JsonValueKind.True;
-
-                var summaryParts = new[] { model, string.IsNullOrEmpty(firmware) ? "" : "firmware " + firmware, host }
-                    .Where(s => !string.IsNullOrEmpty(s));
-
-                var row = new DiscoveredDeviceRow
-                {
-                    Host = host,
-                    Port = d.TryGetProperty("port", out var p) && p.ValueKind == JsonValueKind.Number ? p.GetInt32() : 0,
-                    Name = string.IsNullOrEmpty(GetStringOr(d, "name", "")) ? "Drobo" : GetStringOr(d, "name", "Drobo"),
-                    Model = model,
-                    Firmware = firmware,
-                    EsaId = GetStringOr(d, "esa_id", ""),
-                    IsCurrent = current,
-                    InUseVisibility = current ? Visibility.Visible : Visibility.Collapsed,
-                    Summary = string.Join("  ·  ", summaryParts),
-                };
-
-                if (!string.IsNullOrEmpty(host) &&
-                    _manualDevices.Any(m => string.Equals(m.Host, host, StringComparison.OrdinalIgnoreCase)))
-                {
-                    manualMatched.Add(host);
-                    row.BadgeText = "MANUALLY ADDED";
-                    row.BadgeVisibility = Visibility.Visible;
-                    row.BadgeBackground = BrushFromHex("#12202E");
-                    row.BadgeForeground = AccentBrush;
-                }
-
-                list.Add(row);
-            }
-        }
+        foreach (var device in MergeProbedDevices(discoverRoot, probedManual))
+            rows.Add(BuildDiscoveredRow(device, manualMatched));
 
         // Any manual address that answered nothing this pass. Still listed --
         // a Drobo that is switched off or unplugged should not disappear from
         // your own list -- but labelled for what it is.
-        foreach (var m in _manualDevices)
+        foreach (var manualDevice in _manualDevices)
         {
-            if (manualMatched.Contains(m.Host)) continue;
-            list.Add(new DiscoveredDeviceRow
-            {
-                Host = m.Host,
-                Port = m.Port,
-                Name = m.Host,
-                Summary = "Manually added" + (m.Port > 0 ? $"  ·  port {m.Port}" : "") + "  ·  didn't answer",
-                BadgeText = "NOT VERIFIED",
-                BadgeVisibility = Visibility.Visible,
-                BadgeBackground = BrushFromHex("#2E2311"),
-                BadgeForeground = WarningBrush,
-            });
+            if (manualMatched.Contains(manualDevice.Host)) continue;
+            rows.Add(BuildUnverifiedManualRow(manualDevice));
         }
 
         _devices.Clear();
-        foreach (var row in list) _devices.Add(row);
+        foreach (var row in rows) _devices.Add(row);
 
-        EmptyStateBox.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateDevicesEmptyState(rows.Count);
+    }
+
+    /// <summary>
+    /// The devices /api/discover reported, followed by any probed manual
+    /// address it did not. The probed ones are merged in as though
+    /// discovered, because in every sense that matters they were: the agent
+    /// connected and read the device's own greeting. Only how we knew where
+    /// to look differed. Anything the browse already reported is skipped so
+    /// a Drobo found both ways gets one row.
+    /// </summary>
+    private static List<JsonElement> MergeProbedDevices(JsonElement? discoverRoot, List<JsonElement>? probedManual)
+    {
+        var devices = new List<JsonElement>();
+        if (discoverRoot is { } root && root.TryGetProperty("devices", out var devicesArray) && devicesArray.ValueKind == JsonValueKind.Array)
+            devices.AddRange(devicesArray.EnumerateArray());
+        foreach (var device in probedManual ?? new List<JsonElement>())
+        {
+            var host = GetStringOr(device, "host", "");
+            if (!devices.Any(other => string.Equals(GetStringOr(other, "host", ""), host, StringComparison.OrdinalIgnoreCase)))
+                devices.Add(device);
+        }
+        return devices;
+    }
+
+    /// <summary>One picker row for a device that answered. A host that is
+    /// also in the manual list is tagged MANUALLY ADDED rather than listed
+    /// twice, and recorded in <paramref name="manualMatched"/> so it does not
+    /// get a NOT VERIFIED row as well.</summary>
+    private DiscoveredDeviceRow BuildDiscoveredRow(JsonElement device, HashSet<string> manualMatched)
+    {
+        var model = GetStringOr(device, "model", "");
+        var firmware = GetStringOr(device, "firmware", "");
+        var host = GetStringOr(device, "host", "");
+        bool current = device.TryGetProperty("is_current", out var isCurrentElement) && isCurrentElement.ValueKind == JsonValueKind.True;
+
+        var summaryParts = new[] { model, string.IsNullOrEmpty(firmware) ? "" : "firmware " + firmware, host }
+            .Where(part => !string.IsNullOrEmpty(part));
+
+        var row = new DiscoveredDeviceRow
+        {
+            Host = host,
+            Port = device.TryGetProperty("port", out var portElement) && portElement.ValueKind == JsonValueKind.Number ? portElement.GetInt32() : 0,
+            Name = string.IsNullOrEmpty(GetStringOr(device, "name", "")) ? "Drobo" : GetStringOr(device, "name", "Drobo"),
+            Model = model,
+            Firmware = firmware,
+            EsaId = GetStringOr(device, "esa_id", ""),
+            IsCurrent = current,
+            InUseVisibility = current ? Visibility.Visible : Visibility.Collapsed,
+            Summary = string.Join("  ·  ", summaryParts),
+        };
+
+        if (string.IsNullOrEmpty(host) ||
+            !_manualDevices.Any(manualDevice => string.Equals(manualDevice.Host, host, StringComparison.OrdinalIgnoreCase)))
+            return row;
+
+        manualMatched.Add(host);
+        row.BadgeText = "MANUALLY ADDED";
+        row.BadgeVisibility = Visibility.Visible;
+        row.BadgeBackground = BrushFromHex("#12202E");
+        row.BadgeForeground = AccentBrush;
+        return row;
+    }
+
+    /// <summary>A manual address that did not answer this pass: still listed,
+    /// with an honest NOT VERIFIED badge.</summary>
+    private static DiscoveredDeviceRow BuildUnverifiedManualRow(DroboSettings.ManualDevice manualDevice) => new()
+    {
+        Host = manualDevice.Host,
+        Port = manualDevice.Port,
+        Name = manualDevice.Host,
+        Summary = "Manually added" + (manualDevice.Port > 0 ? $"  ·  port {manualDevice.Port}" : "") + "  ·  didn't answer",
+        BadgeText = "NOT VERIFIED",
+        BadgeVisibility = Visibility.Visible,
+        BadgeBackground = BrushFromHex("#2E2311"),
+        BadgeForeground = WarningBrush,
+    };
+
+    /// <summary>The picker's empty state, worded for why it is empty: nothing
+    /// answered, or discovery is switched off.</summary>
+    private void UpdateDevicesEmptyState(int rowCount)
+    {
+        EmptyStateBox.Visibility = rowCount == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyStateTitle.Text = _autoDiscoveryEnabled ? "No Drobos showed up." : "Automatic discovery is off.";
         EmptyStateDetail.Text = _autoDiscoveryEnabled
             ? "Automatic discovery doesn't work on every Windows network. You can enter its address yourself instead."
@@ -893,21 +955,14 @@ public partial class MainWindow : Window
     /// </summary>
     private async void AddManualDevice_Click(object sender, RoutedEventArgs e)
     {
-        var raw = ManualHostInput.Text.Trim();
-        if (string.IsNullOrEmpty(raw)) return;
+        var typedAddress = ManualHostInput.Text.Trim();
+        if (string.IsNullOrEmpty(typedAddress)) return;
 
-        var host = raw;
-        var port = 0;
-        var colon = raw.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(raw[(colon + 1)..], out var parsedPort) && parsedPort > 0)
-        {
-            host = raw[..colon];
-            port = parsedPort;
-        }
+        var (host, port) = ParseHostAndPort(typedAddress);
         if (string.IsNullOrEmpty(host)) return;
 
         DroboSettings.AddManualDevice(host, port);
-        if (!_manualDevices.Any(m => string.Equals(m.Host, host, StringComparison.OrdinalIgnoreCase) && m.Port == port))
+        if (!_manualDevices.Any(manualDevice => string.Equals(manualDevice.Host, host, StringComparison.OrdinalIgnoreCase) && manualDevice.Port == port))
             _manualDevices.Add(new DroboSettings.ManualDevice { Host = host, Port = port });
 
         ManualHostInput.Clear();
@@ -918,20 +973,37 @@ public partial class MainWindow : Window
         ManualAddResult.Visibility = Visibility.Visible;
 
         var probe = await ProbeAddress(host);
-        if (probe.found)
-        {
-            var name = probe.device.ValueKind == JsonValueKind.Object
-                ? GetStringOr(probe.device, "name", "") : "";
-            ManualAddResult.Text = $"Found {(string.IsNullOrEmpty(name) ? "a Drobo" : name)} at {host}.";
-            ManualAddResult.Foreground = OkBrush;
-        }
-        else
-        {
-            ManualAddResult.Text = probe.error ?? $"Nothing at {host} answered as a Drobo.";
-            ManualAddResult.Foreground = WarningBrush;
-        }
+        ShowProbeResult(host, probe.found, probe.device, probe.error);
 
         await SearchForDevices();
+    }
+
+    /// <summary>Splits "host" or "host:port". A port is taken only when what
+    /// follows the last colon is a positive number, so anything else stays
+    /// part of the host (port 0 meaning "not specified").</summary>
+    private static (string host, int port) ParseHostAndPort(string typedAddress)
+    {
+        var colon = typedAddress.LastIndexOf(':');
+        if (colon > 0 && int.TryParse(typedAddress[(colon + 1)..], out var parsedPort) && parsedPort > 0)
+            return (typedAddress[..colon], parsedPort);
+        return (typedAddress, 0);
+    }
+
+    /// <summary>The line under the address box after a probe: the device's own
+    /// name in green, or the agent's reason in amber. Amber, not red: the
+    /// entry is saved either way.</summary>
+    private void ShowProbeResult(string host, bool found, JsonElement device, string? error)
+    {
+        if (found)
+        {
+            var name = device.ValueKind == JsonValueKind.Object
+                ? GetStringOr(device, "name", "") : "";
+            ManualAddResult.Text = $"Found {(string.IsNullOrEmpty(name) ? "a Drobo" : name)} at {host}.";
+            ManualAddResult.Foreground = OkBrush;
+            return;
+        }
+        ManualAddResult.Text = error ?? $"Nothing at {host} answered as a Drobo.";
+        ManualAddResult.Foreground = WarningBrush;
     }
 
     /// <summary>
@@ -943,7 +1015,7 @@ public partial class MainWindow : Window
     /// on plenty of real networks -- corporate LANs, guest SSIDs, some consumer
     /// routers -- where browsing returns nothing however long it listens.
     ///
-    /// Returns (found, name, error). Never throws: an agent that is down or too
+    /// Returns (found, device, error). Never throws: an agent that is down or too
     /// old to know this endpoint comes back as not-found with a readable reason,
     /// and the caller carries on.
     /// </summary>
@@ -952,25 +1024,32 @@ public partial class MainWindow : Window
         try
         {
             var root = await FetchJson("/api/discover?host=" + Uri.EscapeDataString(host));
-            bool found = root.TryGetProperty("manual_found", out var f)
-                         && f.ValueKind == JsonValueKind.True;
+            bool found = root.TryGetProperty("manual_found", out var foundElement)
+                         && foundElement.ValueKind == JsonValueKind.True;
             if (!found)
                 return (false, default, GetStringOr(root, "manual_error", $"Nothing at {host} answered as a Drobo."));
 
-            if (root.TryGetProperty("devices", out var arr) && arr.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var d in arr.EnumerateArray())
-                {
-                    if (string.Equals(GetStringOr(d, "host", ""), host, StringComparison.OrdinalIgnoreCase))
-                        return (true, d.Clone(), null);
-                }
-            }
-            return (true, default, null);
+            return (true, FindDeviceByHost(root, host), null);
         }
         catch (Exception ex)
         {
             return (false, default, "Could not ask the agent to check that address: " + ex.Message);
         }
+    }
+
+    /// <summary>The entry for <paramref name="host"/> in a /api/discover
+    /// answer's "devices", cloned so it outlives the document; default when
+    /// the answer does not list it.</summary>
+    private static JsonElement FindDeviceByHost(JsonElement root, string host)
+    {
+        if (!root.TryGetProperty("devices", out var devicesArray) || devicesArray.ValueKind != JsonValueKind.Array)
+            return default;
+        foreach (var device in devicesArray.EnumerateArray())
+        {
+            if (string.Equals(GetStringOr(device, "host", ""), host, StringComparison.OrdinalIgnoreCase))
+                return device.Clone();
+        }
+        return default;
     }
 
     /// <summary>
@@ -988,10 +1067,10 @@ public partial class MainWindow : Window
     private async Task<List<JsonElement>> ProbeManualDevices()
     {
         var confirmed = new List<JsonElement>();
-        foreach (var m in _manualDevices.ToList())
+        foreach (var manualDevice in _manualDevices.ToList())
         {
-            if (string.IsNullOrWhiteSpace(m.Host)) continue;
-            var (found, device, _) = await ProbeAddress(m.Host);
+            if (string.IsNullOrWhiteSpace(manualDevice.Host)) continue;
+            var (found, device, _) = await ProbeAddress(manualDevice.Host);
             if (found && device.ValueKind == JsonValueKind.Object) confirmed.Add(device);
         }
         return confirmed;
@@ -999,9 +1078,9 @@ public partial class MainWindow : Window
 
     private async void RemoveManualDevice_Click(object sender, RoutedEventArgs e)
     {
-        var m = (DroboSettings.ManualDevice)((FrameworkElement)sender).DataContext;
-        DroboSettings.RemoveManualDevice(m.Host, m.Port);
-        _manualDevices.Remove(m);
+        var manualDevice = (DroboSettings.ManualDevice)((FrameworkElement)sender).DataContext;
+        DroboSettings.RemoveManualDevice(manualDevice.Host, manualDevice.Port);
+        _manualDevices.Remove(manualDevice);
         UpdateManualDevicesEmptyState();
         await SearchForDevices();
     }
@@ -1424,34 +1503,44 @@ public partial class MainWindow : Window
     /// is actually set, and the share list is the real one.</summary>
     private async Task LoadAdvancedCurrentValues()
     {
+        await LoadBrightnessValue();
+        await LoadAccessChoices();
+    }
+
+    /// <summary>Starts the brightness slider at the device's own value. A
+    /// failed read leaves the slider's default, and the card still
+    /// works.</summary>
+    private async Task LoadBrightnessValue()
+    {
         try
         {
             var leds = await FetchJson("/api/leds");
-            if (leds.TryGetProperty("dimming", out var d) && d.ValueKind == JsonValueKind.Number)
+            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
             {
-                BrightnessSlider.Value = d.GetInt32();
+                BrightnessSlider.Value = dimmingElement.GetInt32();
             }
         }
         catch { /* leave the default; the card still works */ }
+    }
 
+    /// <summary>Fills the share-access card's share and user boxes from one
+    /// /api/shares answer. A failed read leaves the boxes as they were, and
+    /// Apply then says what is missing.</summary>
+    private async Task LoadAccessChoices()
+    {
         try
         {
-            var sh = await FetchJson("/api/shares");
+            var sharesRoot = await FetchJson("/api/shares");
             AccessShareBox.Items.Clear();
             // Distinct user names seen across every share, collected from the
             // same answer that fills the share box -- one fetch, never two.
             var users = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (sh.TryGetProperty("shares", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            if (sharesRoot.TryGetProperty("shares", out var sharesArray) && sharesArray.ValueKind == JsonValueKind.Array)
             {
-                foreach (var x in arr.EnumerateArray())
+                foreach (var share in sharesArray.EnumerateArray())
                 {
-                    AccessShareBox.Items.Add(GetStringOr(x, "name", ""));
-                    if (x.TryGetProperty("users", out var uarr) && uarr.ValueKind == JsonValueKind.Array)
-                        foreach (var u in uarr.EnumerateArray())
-                        {
-                            var uname = GetStringOr(u, "name", "");
-                            if (uname.Length > 0) users.Add(uname);
-                        }
+                    AccessShareBox.Items.Add(GetStringOr(share, "name", ""));
+                    AddUserNames(share, users);
                 }
             }
             if (AccessShareBox.Items.Count > 0) AccessShareBox.SelectedIndex = 0;
@@ -1467,6 +1556,19 @@ public partial class MainWindow : Window
             AccessUserBox.Text = "Everyone";
         }
         catch { /* the boxes stay as they were; Apply will say so */ }
+    }
+
+    /// <summary>Adds the non-empty user names one share lists to
+    /// <paramref name="users"/>.</summary>
+    private static void AddUserNames(JsonElement share, SortedSet<string> users)
+    {
+        if (!share.TryGetProperty("users", out var usersArray) || usersArray.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var user in usersArray.EnumerateArray())
+        {
+            var userName = GetStringOr(user, "name", "");
+            if (userName.Length > 0) users.Add(userName);
+        }
     }
 
     private void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
