@@ -129,6 +129,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     at a time through named helpers, taking the same decisions in the
     same order. Private helpers and local names only; every
     user-visible text is byte-identical. (2026-10-29)
+  - `agent/drobo_agent/drivers.py`: the long methods read as their
+    steps, and the bare numbers are named constants; for testers whose
+    scripts read the real driver's attributes,
+    `Drobo5NDriver.timeout` -> `timeout_seconds` and `try_sweep` ->
+    `discovery_sweep_enabled`. The config keys `timeout` and
+    `discovery_sweep`, every JSON key and message, the simulator's
+    random draws and their order, and every call into the SDK are as
+    they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
