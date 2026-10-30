@@ -60,9 +60,19 @@ class Alert:
 
     @property
     def active(self) -> bool:
+        """
+        True until the condition clears. Derived from cleared_at rather
+        than stored, so the two can never disagree.
+        """
         return self.cleared_at is None
 
     def to_dict(self) -> dict:
+        """
+        The alert as JSON-ready fields, plus "active". asdict() only
+        sees dataclass fields, and the property is computed, so it is
+        added by hand: the apps filter on it and should not have to
+        repeat the cleared_at test themselves.
+        """
         alert_dict = asdict(self)
         alert_dict["active"] = self.active
         return alert_dict

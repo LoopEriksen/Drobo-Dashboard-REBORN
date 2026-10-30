@@ -142,6 +142,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     steps; the bare numbers are named constants. Every route, JSON key,
     header, message and status is as it was, and the config-write
     path's order of refusals is unchanged. (2026-10-29)
+  - `agent/drobo_agent/models.py`: `Alert.active` and `Alert.to_dict`
+    say why "active" is derived from `cleared_at` and added to the JSON
+    by hand. Docstrings only; no code changed. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
