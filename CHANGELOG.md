@@ -197,6 +197,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `DEFAULT_COMMAND_PORT` (still 5001). The printed report, the
     `--json` file, the exit codes, the command line and the `port=`
     keyword are as they were. (2026-10-29)
+  - `tools/drobo_probe.py`: one runner per sub-command, and the
+    timeouts and sizes are named with their units; for testers who
+    import it, `SWEEP_RANGE` -> `SWEEP_PORT_RANGE` and `PROBES` ->
+    `FINGERPRINT_PROBES`. Every sub-command prints the same lines,
+    sends the same bytes and writes the same report, and the command
+    line and `--help` are unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
