@@ -321,6 +321,8 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/ShareBrowserWindow.xaml.cs`: the
     folder read and its failures get a method of their own, called at
     the same point. Every message is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/ShareRow.cs`: each plain field says
+    what it holds. Comments only; no property is renamed. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

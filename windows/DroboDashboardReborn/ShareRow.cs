@@ -13,17 +13,30 @@ namespace DroboDashboardReborn;
 /// </summary>
 public sealed class ShareRow
 {
+    /// <summary>The share's name as the Drobo reports it.</summary>
     public string Name { get; set; } = "";
+
+    /// <summary>The Windows path to the share (\\host\name), the one every
+    /// connect, open and disconnect uses. Bound in MainWindow.xaml as
+    /// <c>Unc</c>, so the name stays: a renamed binding fails silently.</summary>
     public string Unc { get; set; } = "";
+
+    /// <summary>Whether the Drobo marks this share as a Time Machine target.
+    /// The badge binds to <see cref="TimeMachineVisibility"/>, not to
+    /// this.</summary>
     public bool IsTimeMachine { get; set; }
     public Visibility TimeMachineVisibility { get; set; } = Visibility.Collapsed;
 
+    /// <summary>Whether Windows has a session to this share right now --
+    /// read from Windows, not from the agent.</summary>
     public bool IsConnected { get; set; }
 
     /// <summary>The drive letter this share is mapped to (e.g. "Z:"), or null if it's
     /// connected without one, or not connected at all.</summary>
     public string? DriveLetter { get; set; }
 
+    /// <summary>The connection line under the share's name, e.g. "Connected
+    /// as Z:".</summary>
     public string ConnectionText { get; set; } = "Not connected";
 
     /// <summary>The per-user access list from /api/shares, one line of
