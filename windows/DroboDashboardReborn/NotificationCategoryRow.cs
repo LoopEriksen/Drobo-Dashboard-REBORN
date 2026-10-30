@@ -19,7 +19,15 @@ namespace DroboDashboardReborn;
 /// </summary>
 public sealed class NotificationCategoryRow : INotifyPropertyChanged
 {
+    /// <summary>The category's key, as <see cref="AlertNotifier.Categories"/>
+    /// names it. It is also the key the switch is saved under in
+    /// settings.json's notification_categories, so changing a category's id
+    /// silently resets that switch for everyone who had set it.</summary>
     public string Id { get; init; } = "";
+
+    /// <summary>The switch's caption and the line under it, both taken from
+    /// <see cref="AlertNotifier.Categories"/> so the wording lives in one
+    /// place.</summary>
     public string Label { get; init; } = "";
     public string Description { get; init; } = "";
 
@@ -39,12 +47,15 @@ public sealed class NotificationCategoryRow : INotifyPropertyChanged
         {
             if (_masterOn == value) return;
             _masterOn = value;
-            Raise();
+            RaisePropertyChanged();
         }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void Raise([CallerMemberName] string? name = null) =>
+    /// <summary>Tells the bound checkbox that a property changed. The
+    /// property name comes from the caller, so a setter just calls this
+    /// with no argument and cannot misspell its own name.</summary>
+    private void RaisePropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
