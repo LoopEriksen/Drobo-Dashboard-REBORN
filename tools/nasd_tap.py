@@ -85,18 +85,32 @@ import time
 SIGNATURE = b"DRINASD\x00"
 HEADER_BYTES = 16
 
+# The most one recv() call takes off a socket while relaying.
+RECEIVE_CHUNK_BYTES = 65536
+# How long to wait for the real Drobo to accept the upstream connection.
+UPSTREAM_CONNECT_TIMEOUT_SECONDS = 10
+# Connections the listener queues while Dashboard opens several at once.
+LISTEN_BACKLOG = 8
+
 _print_lock = threading.Lock()
 
 
-def hexdump(data: bytes, limit: int = 160) -> list[str]:
+def hexdump(data: bytes, limit_bytes: int = 160) -> list[str]:
+    """Format up to `limit_bytes` of `data` as indented hexdump lines.
+
+    The console only shows the start of each chunk (the JSONL log keeps
+    all of it), so a longer chunk ends with a "... N more bytes" line.
+    """
     lines = []
-    for offset in range(0, min(len(data), limit), 16):
-        chunk = data[offset:offset + 16]
-        hex_part = " ".join(f"{b:02x}" for b in chunk).ljust(47)
-        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+    for offset in range(0, min(len(data), limit_bytes), 16):
+        row = data[offset:offset + 16]
+        hex_part = " ".join(f"{byte_value:02x}" for byte_value in row)
+        hex_part = hex_part.ljust(47)
+        ascii_part = "".join(chr(byte_value) if 32 <= byte_value < 127
+                             else "." for byte_value in row)
         lines.append(f"    {offset:04x}  {hex_part}  {ascii_part}")
-    if len(data) > limit:
-        lines.append(f"    ... {len(data) - limit} more bytes")
+    if len(data) > limit_bytes:
+        lines.append(f"    ... {len(data) - limit_bytes} more bytes")
     return lines
 
 
@@ -107,52 +121,81 @@ def describe_chunk(data: bytes) -> str:
     descriptive rather than asserting a structure we haven't confirmed.
     """
     if len(data) >= HEADER_BYTES and data[:8] == SIGNATURE:
-        major, minor = data[8], data[9]
+        major_version, minor_version = data[8], data[9]
         flags = struct.unpack(">H", data[10:12])[0]
-        length = struct.unpack(">I", data[12:16])[0]
-        return (f"DRINASD frame  ver={major}.{minor} flags=0x{flags:04x} "
-                f"len={length} (total {len(data)})")
+        payload_length = struct.unpack(">I", data[12:16])[0]
+        return (f"DRINASD frame  ver={major_version}.{minor_version} "
+                f"flags=0x{flags:04x} "
+                f"len={payload_length} (total {len(data)})")
     if data[:8].rstrip(b"\x00").startswith(b"DRINASD"):
         return f"DRINASD-like header, variant signature {data[:8]!r}"
-    printable = sum(1 for b in data[:64] if 32 <= b < 127)
+    printable_count = sum(1 for byte_value in data[:64]
+                          if 32 <= byte_value < 127)
     if data.lstrip()[:1] == b"<":
         return "bare XML"
-    if printable > len(data[:64]) * 0.8:
+    if printable_count > len(data[:64]) * 0.8:
         return f"mostly text: {data[:48]!r}"
     return f"binary, {len(data)} bytes"
 
 
-class Tap:
+class TrafficTap:
+    """The capture files every relay thread writes each chunk to.
+
+    One lock covers both capture files and the counters, because two
+    threads per connection record at once and a JSONL line must never
+    be interleaved with another. Only the client->server bytes are also
+    kept raw: that was the unknown direction, and the dissector wants
+    clean bytes to work from.
+    """
+
     def __init__(self, drobo_host: str, drobo_port: int, jsonl_path: str,
-                 bin_path: str):
+                 client_bytes_path: str):
+        """Open both capture files now, so a bad path fails at start."""
         self.drobo_host = drobo_host
         self.drobo_port = drobo_port
         self.jsonl_file = open(jsonl_path, "w", encoding="utf-8")
-        self.client_bytes_file = open(bin_path, "wb")
+        self.client_bytes_file = open(client_bytes_path, "wb")
         self.started_at = time.time()
         self.chunk_counts = {"c2s": 0, "s2c": 0}
         self.byte_counts = {"c2s": 0, "s2c": 0}
         self._lock = threading.Lock()
 
     def record(self, direction: str, data: bytes, connection_id: int) -> None:
-        with self._lock:
-            self.chunk_counts[direction] += 1
-            self.byte_counts[direction] += len(data)
-            self.jsonl_file.write(json.dumps({
-                "t": round(time.time() - self.started_at, 4),
-                "conn": connection_id,
-                "dir": direction,
-                "len": len(data),
-                "summary": describe_chunk(data),
-                "hex": data.hex(),
-            }) + "\n")
-            self.jsonl_file.flush()
-            # The client->server direction is the unknown one; keep a
-            # raw copy so the dissector has clean bytes to work from.
-            if direction == "c2s":
-                self.client_bytes_file.write(data)
-                self.client_bytes_file.flush()
+        """Log one relayed chunk to the files, then show it on screen.
 
+        `direction` is "c2s" (Dashboard to Drobo) or "s2c" (back).
+        """
+        with self._lock:
+            self._write_capture(direction, data, connection_id)
+        self._print_chunk(direction, data, connection_id)
+
+    def _write_capture(self, direction: str, data: bytes,
+                       connection_id: int) -> None:
+        """Count the chunk and append it to the files (lock held).
+
+        Each file is flushed at once, so a capture cut short by Ctrl+C
+        or a crash still holds everything relayed before it.
+        """
+        self.chunk_counts[direction] += 1
+        self.byte_counts[direction] += len(data)
+        self.jsonl_file.write(json.dumps({
+            "t": round(time.time() - self.started_at, 4),
+            "conn": connection_id,
+            "dir": direction,
+            "len": len(data),
+            "summary": describe_chunk(data),
+            "hex": data.hex(),
+        }) + "\n")
+        self.jsonl_file.flush()
+        # The client->server direction is the unknown one; keep a
+        # raw copy so the dissector has clean bytes to work from.
+        if direction == "c2s":
+            self.client_bytes_file.write(data)
+            self.client_bytes_file.flush()
+
+    def _print_chunk(self, direction: str, data: bytes,
+                     connection_id: int) -> None:
+        """Show one chunk on screen, whole, under the print lock."""
         arrow = "-->" if direction == "c2s" else "<--"
         direction_label = ("Dashboard --> Drobo" if direction == "c2s"
                            else "Drobo --> Dashboard")
@@ -166,58 +209,67 @@ class Tap:
             sys.stdout.flush()
 
     def close(self) -> None:
+        """Close both capture files."""
         self.jsonl_file.close()
         self.client_bytes_file.close()
 
 
+def _shutdown_quietly(sock: socket.socket) -> None:
+    """Shut both halves of `sock`, ignoring one that is already gone.
+
+    Shutting down (rather than closing) wakes the other direction's
+    blocked recv(), so both relay threads of a connection end together.
+    """
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
+def _copy_until_closed(source: socket.socket, destination: socket.socket,
+                       direction: str, tap: TrafficTap,
+                       connection_id: int) -> None:
+    """Record and forward each chunk until `source` closes its end.
+
+    A socket error is left to the caller, which ends the relay the same
+    way either way.
+    """
+    while True:
+        chunk = source.recv(RECEIVE_CHUNK_BYTES)
+        if not chunk:
+            return
+        tap.record(direction, chunk, connection_id)
+        destination.sendall(chunk)
+
+
 def relay_one_direction(source: socket.socket, destination: socket.socket,
-                        direction: str, tap: Tap,
+                        direction: str, tap: TrafficTap,
                         connection_id: int) -> None:
     """Copy bytes one way, logging as we go. Never alters the stream."""
     try:
-        while True:
-            data = source.recv(65536)
-            if not data:
-                break
-            tap.record(direction, data, connection_id)
-            destination.sendall(data)
+        _copy_until_closed(source, destination, direction, tap,
+                           connection_id)
     except OSError:
         pass
     finally:
         for sock in (source, destination):
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+            _shutdown_quietly(sock)
 
 
-def handle_connection(client: socket.socket, client_address, tap: Tap,
-                      connection_id: int) -> None:
-    with _print_lock:
-        print(f"\n=== conn{connection_id}: Dashboard connected from "
-              f"{client_address[0]}:{client_address[1]} ===")
-        print(f"    opening upstream to {tap.drobo_host}:{tap.drobo_port}")
-        sys.stdout.flush()
-    try:
-        upstream = socket.create_connection(
-            (tap.drobo_host, tap.drobo_port), timeout=10)
-    except OSError as exc:
-        with _print_lock:
-            print(f"    !! could not reach the Drobo: {exc}")
-        client.close()
-        return
-
-    upstream.settimeout(None)
-    client.settimeout(None)
-
+def _relay_both_ways(client_socket: socket.socket,
+                     upstream_socket: socket.socket, tap: TrafficTap,
+                     connection_id: int) -> None:
+    """Run one relay thread per direction and wait for both to end."""
     threads = [
         threading.Thread(
             target=relay_one_direction,
-            args=(client, upstream, "c2s", tap, connection_id),
+            args=(client_socket, upstream_socket, "c2s", tap,
+                  connection_id),
             daemon=True),
         threading.Thread(
             target=relay_one_direction,
-            args=(upstream, client, "s2c", tap, connection_id),
+            args=(upstream_socket, client_socket, "s2c", tap,
+                  connection_id),
             daemon=True),
     ]
     for thread in threads:
@@ -225,12 +277,42 @@ def handle_connection(client: socket.socket, client_address, tap: Tap,
     for thread in threads:
         thread.join()
 
+
+def handle_connection(client_socket: socket.socket, client_address,
+                      tap: TrafficTap, connection_id: int) -> None:
+    """Relay one Dashboard connection to the Drobo until either ends.
+
+    Two daemon threads over blocking sockets, with no timeout once the
+    upstream is open: a relay that buffered, re-chunked or timed out on
+    its own would change the timing or the bytes it exists to record.
+    """
+    with _print_lock:
+        print(f"\n=== conn{connection_id}: Dashboard connected from "
+              f"{client_address[0]}:{client_address[1]} ===")
+        print(f"    opening upstream to {tap.drobo_host}:{tap.drobo_port}")
+        sys.stdout.flush()
+    try:
+        upstream_socket = socket.create_connection(
+            (tap.drobo_host, tap.drobo_port),
+            timeout=UPSTREAM_CONNECT_TIMEOUT_SECONDS)
+    except OSError as exc:
+        with _print_lock:
+            print(f"    !! could not reach the Drobo: {exc}")
+        client_socket.close()
+        return
+
+    upstream_socket.settimeout(None)
+    client_socket.settimeout(None)
+
+    _relay_both_ways(client_socket, upstream_socket, tap, connection_id)
+
     with _print_lock:
         print(f"=== conn{connection_id} closed ===")
         sys.stdout.flush()
 
 
-def main(argv=None) -> int:
+def _parse_arguments(argv) -> argparse.Namespace:
+    """Read the command line (the module docstring is the --help)."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -241,31 +323,48 @@ def main(argv=None) -> int:
                         help="address to listen on (default 127.0.0.1)")
     parser.add_argument("--listen-port", type=int, default=5000)
     parser.add_argument("--outdir", default=None)
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
+
+def _capture_paths(output_dir_argument: str | None) -> tuple[str, str]:
+    """Create the capture folder and name this run's two files in it.
+
+    The default folder is docs/captures, which .gitignore keeps out of
+    the repository, because a capture can hold a password in plain
+    text.
+    """
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    output_dir = args.outdir or os.path.join(repo_root, "docs", "captures")
+    output_dir = output_dir_argument or os.path.join(repo_root, "docs",
+                                                     "captures")
     os.makedirs(output_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     jsonl_path = os.path.join(output_dir, f"nasd-tap-{timestamp}.jsonl")
-    bin_path = os.path.join(output_dir, f"nasd-tap-{timestamp}.bin")
+    client_bytes_path = os.path.join(output_dir, f"nasd-tap-{timestamp}.bin")
+    return jsonl_path, client_bytes_path
 
-    tap = Tap(args.drobo, args.drobo_port, jsonl_path, bin_path)
 
+def _open_listener(listen_host: str, listen_port: int
+                   ) -> socket.socket | None:
+    """Bind the port Dashboard connects to, or say why not (None)."""
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        listener.bind((args.listen, args.listen_port))
+        listener.bind((listen_host, listen_port))
     except OSError as exc:
-        print(f"Could not listen on {args.listen}:{args.listen_port} -- {exc}")
+        print(f"Could not listen on {listen_host}:{listen_port} -- {exc}")
         print("If the agent is running on this port, stop it first.")
-        return 1
-    listener.listen(8)
+        return None
+    listener.listen(LISTEN_BACKLOG)
+    return listener
 
+
+def _print_instructions(args: argparse.Namespace, jsonl_path: str,
+                        client_bytes_path: str) -> None:
+    """Tell the person what to do in Dashboard while the tap runs."""
     print(f"nasd tap listening on {args.listen}:{args.listen_port}")
     print(f"  forwarding to the real Drobo at {args.drobo}:{args.drobo_port}")
     print(f"  writing {os.path.basename(jsonl_path)} "
-          f"and {os.path.basename(bin_path)}")
+          f"and {os.path.basename(client_bytes_path)}")
     print()
     print("  Now: in Drobo Dashboard, add a Drobo manually by IP and enter")
     print(f"       {args.listen}")
@@ -274,13 +373,21 @@ def main(argv=None) -> int:
     print("  Ctrl+C when done.")
     print()
 
+
+def _accept_until_interrupted(listener: socket.socket,
+                              tap: TrafficTap) -> None:
+    """Hand each incoming connection to its own thread until Ctrl+C.
+
+    The listener and the capture files are closed however this ends,
+    so the files on disk are complete.
+    """
     connection_id = 0
     try:
         while True:
-            client, client_address = listener.accept()
+            client_socket, client_address = listener.accept()
             connection_id += 1
             threading.Thread(target=handle_connection,
-                             args=(client, client_address, tap,
+                             args=(client_socket, client_address, tap,
                                    connection_id),
                              daemon=True).start()
     except KeyboardInterrupt:
@@ -289,15 +396,40 @@ def main(argv=None) -> int:
         listener.close()
         tap.close()
 
+
+def _print_totals(tap: TrafficTap, jsonl_path: str,
+                  client_bytes_path: str) -> None:
+    """Sum up what was relayed; say why if Dashboard sent nothing."""
     print(f"  Dashboard -> Drobo : {tap.chunk_counts['c2s']} chunks, "
           f"{tap.byte_counts['c2s']} bytes")
     print(f"  Drobo -> Dashboard : {tap.chunk_counts['s2c']} chunks, "
           f"{tap.byte_counts['s2c']} bytes")
     print(f"\n  wrote {jsonl_path}")
-    print(f"        {bin_path}")
+    print(f"        {client_bytes_path}")
     if tap.chunk_counts["c2s"] == 0:
         print("\n  Nothing came from Dashboard -- it never connected here.")
         print("  Check that you added 127.0.0.1 as a manual Drobo address.")
+
+
+def main(argv=None) -> int:
+    """Relay Dashboard's connections to the Drobo until Ctrl+C, logging.
+
+    Returns 1 when the listening port cannot be bound (most often the
+    agent already holds it), else 0.
+    """
+    args = _parse_arguments(argv)
+    jsonl_path, client_bytes_path = _capture_paths(args.outdir)
+
+    tap = TrafficTap(args.drobo, args.drobo_port, jsonl_path,
+                     client_bytes_path)
+
+    listener = _open_listener(args.listen, args.listen_port)
+    if listener is None:
+        return 1
+
+    _print_instructions(args, jsonl_path, client_bytes_path)
+    _accept_until_interrupted(listener, tap)
+    _print_totals(tap, jsonl_path, client_bytes_path)
     return 0
 
 

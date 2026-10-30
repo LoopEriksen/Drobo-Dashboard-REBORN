@@ -230,6 +230,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     every record and its keys (`elapsed_s` included), the console output,
     the report and the command line are as they were, and the keyword
     parameters other tools pass keep their names. (2026-10-29)
+  - `tools/nasd_tap.py`: `main` reads as its steps, and the tap's file
+    writing and console printing are apart; for testers who import it,
+    `Tap` -> `TrafficTap` and its `bin_path` -> `client_bytes_path`. The
+    relayed bytes, both capture files and their JSONL keys, the console
+    output, the exit codes and the command line are as they were.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
