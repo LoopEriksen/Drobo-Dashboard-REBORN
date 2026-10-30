@@ -534,9 +534,9 @@ public partial class MainWindow : Window
         // Walk up from the executable: dist/ -> windows/ -> repo root, then
         // down into agent/. Covers running from dist, from bin/, and in place.
         var here = AppContext.BaseDirectory;
-        var dir = new DirectoryInfo(here);
-        for (var i = 0; i < 6 && dir is not null; i++, dir = dir.Parent)
-            yield return Path.Combine(dir.FullName, "agent", "config.json");
+        var directory = new DirectoryInfo(here);
+        for (var levelsUp = 0; levelsUp < 6 && directory is not null; levelsUp++, directory = directory.Parent)
+            yield return Path.Combine(directory.FullName, "agent", "config.json");
     }
 
     /// <summary>Whether <paramref name="url"/> names this machine. Only then
@@ -1128,8 +1128,8 @@ public partial class MainWindow : Window
         try
         {
             var root = await FetchJson("/api/emailalerts");
-            bool configured = root.TryGetProperty("configured", out var c)
-                              && c.ValueKind == JsonValueKind.True;
+            bool configured = root.TryGetProperty("configured", out var configuredElement)
+                              && configuredElement.ValueKind == JsonValueKind.True;
             PrefEmailStatus.Text = configured
                 ? GetStringOr(root, "summary", "Email alerts are configured in the agent.")
                 : "Not configured. Add an \"email\" block to the agent's config.json to turn this on.";
@@ -1495,8 +1495,8 @@ public partial class MainWindow : Window
         _adminUnlocked = false;
         AdvancedUnlocked.Visibility = Visibility.Collapsed;
         AdvancedLocked.Visibility = Visibility.Visible;
-        foreach (var t in new[] { BrightnessResult, SpindownResult, AccessResult })
-            t.Visibility = Visibility.Collapsed;
+        foreach (var resultBox in new[] { BrightnessResult, SpindownResult, AccessResult })
+            resultBox.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Seed the controls from the device so "Apply" starts from what
@@ -1669,14 +1669,14 @@ public partial class MainWindow : Window
     /// </summary>
     private static string BuildWriteSuccessMessage(JsonElement root, WriteOutcome outcome)
     {
-        var msg = GetStringOr(root, "message", "Done.");
+        var message = GetStringOr(root, "message", "Done.");
         if (outcome == WriteOutcome.Confirmed
-            && root.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True)
-            msg += "  Confirmed by reading it back.";
-        if (root.TryGetProperty("unchanged", out var u) && u.ValueKind == JsonValueKind.True)
-            msg += "  (It was already set that way; nothing was sent.)";
-        if (IsTrue(root, "simulated")) msg += "  [simulated Drobo]";
-        return msg;
+            && root.TryGetProperty("verified", out var verifiedElement) && verifiedElement.ValueKind == JsonValueKind.True)
+            message += "  Confirmed by reading it back.";
+        if (root.TryGetProperty("unchanged", out var unchangedElement) && unchangedElement.ValueKind == JsonValueKind.True)
+            message += "  (It was already set that way; nothing was sent.)";
+        if (IsTrue(root, "simulated")) message += "  [simulated Drobo]";
+        return message;
     }
 
     private async Task RefreshLedsReadout()
@@ -1684,8 +1684,8 @@ public partial class MainWindow : Window
         try
         {
             var leds = await FetchJson("/api/leds");
-            if (leds.TryGetProperty("dimming", out var d) && d.ValueKind == JsonValueKind.Number)
-                DimmingValue.Text = d.GetInt32().ToString();
+            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
+                DimmingValue.Text = dimmingElement.GetInt32().ToString();
         }
         catch { }
     }
@@ -2398,8 +2398,8 @@ public partial class MainWindow : Window
     private void ShowFirmwareAdvisory(JsonElement advisory)
     {
         bool notable = advisory.ValueKind == JsonValueKind.Object
-                       && advisory.TryGetProperty("notable", out var n)
-                       && n.ValueKind == JsonValueKind.True;
+                       && advisory.TryGetProperty("notable", out var notableElement)
+                       && notableElement.ValueKind == JsonValueKind.True;
         if (!notable)
         {
             FirmwareBox.Visibility = Visibility.Collapsed;
@@ -3042,12 +3042,12 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var net = root.TryGetProperty("config", out var cfgEl)
-                      && cfgEl.TryGetProperty("DRINASConfig", out var innerEl)
-                      && innerEl.TryGetProperty("DRINasNetworkConfig", out var netEl)
-                ? netEl : default;
+            var networkConfig = root.TryGetProperty("config", out var configElement)
+                      && configElement.TryGetProperty("DRINASConfig", out var nasConfigElement)
+                      && nasConfigElement.TryGetProperty("DRINasNetworkConfig", out var networkElement)
+                ? networkElement : default;
 
-            if (net.ValueKind != JsonValueKind.Object)
+            if (networkConfig.ValueKind != JsonValueKind.Object)
             {
                 // The device answered but with nothing usable this time -- the
                 // same ambiguous "empty" reply docs/command-surface.md
@@ -3057,28 +3057,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var ip = net.TryGetProperty("IPConfig", out var ipEl) && ipEl.ValueKind == JsonValueKind.Object ? ipEl : default;
-            var jumbo = net.TryGetProperty("JumboFramesConfig", out var jEl) && jEl.ValueKind == JsonValueKind.Object ? jEl : default;
-
-            SettingsDeviceName.Text = DashIfEmpty(GetStringOr(net, "NasName", ""));
-            SettingsWorkgroup.Text = DashIfEmpty(GetStringOr(net, "NasWorkgroup", ""));
-            SettingsIp.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "IP", "") : "");
-            SettingsSubnet.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "Subnet", "") : "");
-            SettingsGateway.Text = DashIfEmpty(ip.ValueKind == JsonValueKind.Object ? GetStringOr(ip, "Gateway", "") : "");
-
-            var dns = ip.ValueKind == JsonValueKind.Object
-                ? string.Join(", ", new[] { GetStringOr(ip, "DNS1", ""), GetStringOr(ip, "DNS2", "") }.Where(v => !string.IsNullOrEmpty(v)))
-                : "";
-            SettingsDns.Text = DashIfEmpty(dns);
-
-            var mtu = jumbo.ValueKind == JsonValueKind.Object ? GetStringOr(jumbo, "MTUSize", "") : "";
-            bool jumboOn = jumbo.ValueKind == JsonValueKind.Object && GetStringOr(jumbo, "Enabled", "0") == "1";
-            SettingsJumbo.Text = string.IsNullOrEmpty(mtu) ? "—" : $"{(jumboOn ? "On" : "Off")}  ·  MTU {mtu}";
-
-            var speed = GetStringOr(net, "PortSpeed", "");
-            var duplex = GetStringOr(net, "PortDuplex", "");
-            SettingsPort.Text = string.IsNullOrEmpty(speed) ? "—"
-                : $"{speed} Mbit/s" + (string.IsNullOrEmpty(duplex) ? "" : $", {duplex} duplex");
+            RenderNetworkConfig(networkConfig);
 
             SettingsEmpty.Visibility = Visibility.Collapsed;
             SettingsGrid.Visibility = Visibility.Visible;
@@ -3095,9 +3074,38 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Fills the Settings tab's network fields from the device's own
+    /// DRINasNetworkConfig, verbatim, with a dash for anything it left
+    /// empty.</summary>
+    private void RenderNetworkConfig(JsonElement networkConfig)
+    {
+        var ipConfig = networkConfig.TryGetProperty("IPConfig", out var ipElement) && ipElement.ValueKind == JsonValueKind.Object ? ipElement : default;
+        var jumbo = networkConfig.TryGetProperty("JumboFramesConfig", out var jumboElement) && jumboElement.ValueKind == JsonValueKind.Object ? jumboElement : default;
+
+        SettingsDeviceName.Text = DashIfEmpty(GetStringOr(networkConfig, "NasName", ""));
+        SettingsWorkgroup.Text = DashIfEmpty(GetStringOr(networkConfig, "NasWorkgroup", ""));
+        SettingsIp.Text = DashIfEmpty(ipConfig.ValueKind == JsonValueKind.Object ? GetStringOr(ipConfig, "IP", "") : "");
+        SettingsSubnet.Text = DashIfEmpty(ipConfig.ValueKind == JsonValueKind.Object ? GetStringOr(ipConfig, "Subnet", "") : "");
+        SettingsGateway.Text = DashIfEmpty(ipConfig.ValueKind == JsonValueKind.Object ? GetStringOr(ipConfig, "Gateway", "") : "");
+
+        var dns = ipConfig.ValueKind == JsonValueKind.Object
+            ? string.Join(", ", new[] { GetStringOr(ipConfig, "DNS1", ""), GetStringOr(ipConfig, "DNS2", "") }.Where(server => !string.IsNullOrEmpty(server)))
+            : "";
+        SettingsDns.Text = DashIfEmpty(dns);
+
+        var mtuBytesText = jumbo.ValueKind == JsonValueKind.Object ? GetStringOr(jumbo, "MTUSize", "") : "";
+        bool jumboOn = jumbo.ValueKind == JsonValueKind.Object && GetStringOr(jumbo, "Enabled", "0") == "1";
+        SettingsJumbo.Text = string.IsNullOrEmpty(mtuBytesText) ? "—" : $"{(jumboOn ? "On" : "Off")}  ·  MTU {mtuBytesText}";
+
+        var portSpeedMbpsText = GetStringOr(networkConfig, "PortSpeed", "");
+        var duplex = GetStringOr(networkConfig, "PortDuplex", "");
+        SettingsPort.Text = string.IsNullOrEmpty(portSpeedMbpsText) ? "—"
+            : $"{portSpeedMbpsText} Mbit/s" + (string.IsNullOrEmpty(duplex) ? "" : $", {duplex} duplex");
+    }
+
     /// <summary>An em dash for a field the device left empty, so an empty
     /// value reads as "not set" rather than as a layout gap.</summary>
-    private static string DashIfEmpty(string s) => string.IsNullOrEmpty(s) ? "—" : s;
+    private static string DashIfEmpty(string text) => string.IsNullOrEmpty(text) ? "—" : text;
 
     // ---------------------------------------------------------------
     // Tools tab: version info, and the few actions that are safe and
@@ -3123,8 +3131,8 @@ public partial class MainWindow : Window
         // The SDK appends a "+<git-sha>" build-metadata suffix automatically
         // (source-revision stamping) -- plumbing detail, not something the
         // user needs on a version line. Keep just the x.y.z the csproj declares.
-        var plus = version.IndexOf('+');
-        if (plus >= 0) version = version[..plus];
+        var metadataStart = version.IndexOf('+');
+        if (metadataStart >= 0) version = version[..metadataStart];
         ToolsAppVersion.Text = $"Drobo Dashboard REBORN  v{version}";
         SettingsAppVersion.Text = $"Drobo Dashboard REBORN  v{version}";
 
@@ -3132,8 +3140,8 @@ public partial class MainWindow : Window
         OpenGuideBtn.Visibility = _guidePath is null ? Visibility.Collapsed : Visibility.Visible;
 
         _initializingDiagnosticsPref = true;
-        var pref = DroboSettings.LoadAll().DiagnosticsPreference;
-        DiagnosticsPrefCombo.SelectedIndex = pref switch
+        var diagnosticsPreference = DroboSettings.LoadAll().DiagnosticsPreference;
+        DiagnosticsPrefCombo.SelectedIndex = diagnosticsPreference switch
         {
             DroboSettings.DiagnosticsPreference.Clipboard => 1,
             DroboSettings.DiagnosticsPreference.File => 2,
@@ -3148,13 +3156,13 @@ public partial class MainWindow : Window
     private void DiagnosticsPrefCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_initializingDiagnosticsPref) return;
-        var pref = DiagnosticsPrefCombo.SelectedIndex switch
+        var diagnosticsPreference = DiagnosticsPrefCombo.SelectedIndex switch
         {
             1 => DroboSettings.DiagnosticsPreference.Clipboard,
             2 => DroboSettings.DiagnosticsPreference.File,
             _ => DroboSettings.DiagnosticsPreference.Ask,
         };
-        DroboSettings.SetDiagnosticsPreference(pref);
+        DroboSettings.SetDiagnosticsPreference(diagnosticsPreference);
     }
 
     /// <summary>
@@ -3168,10 +3176,10 @@ public partial class MainWindow : Window
     private static string? FindGuidePath()
     {
         var here = AppContext.BaseDirectory;
-        var dir = new DirectoryInfo(here);
-        for (var i = 0; i < 6 && dir is not null; i++, dir = dir.Parent)
+        var directory = new DirectoryInfo(here);
+        for (var levelsUp = 0; levelsUp < 6 && directory is not null; levelsUp++, directory = directory.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "docs", "accessing-your-files.md");
+            var candidate = Path.Combine(directory.FullName, "docs", "accessing-your-files.md");
             if (File.Exists(candidate)) return candidate;
         }
         return null;
@@ -3267,26 +3275,13 @@ public partial class MainWindow : Window
     /// </summary>
     private async void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
     {
-        var pref = DroboSettings.LoadAll().DiagnosticsPreference;
+        var diagnosticsPreference = DroboSettings.LoadAll().DiagnosticsPreference;
 
-        if (pref == DroboSettings.DiagnosticsPreference.Ask)
+        if (diagnosticsPreference == DroboSettings.DiagnosticsPreference.Ask)
         {
-            var dialog = new DiagnosticsChoiceDialog { Owner = this };
-            var answered = dialog.ShowDialog();
-            if (answered != true || dialog.Result == DiagnosticsChoiceDialog.Choice.Cancelled)
-                return;
-
-            pref = dialog.Result == DiagnosticsChoiceDialog.Choice.File
-                ? DroboSettings.DiagnosticsPreference.File
-                : DroboSettings.DiagnosticsPreference.Clipboard;
-
-            if (dialog.RememberChoice)
-            {
-                DroboSettings.SetDiagnosticsPreference(pref);
-                _initializingDiagnosticsPref = true;
-                DiagnosticsPrefCombo.SelectedIndex = pref == DroboSettings.DiagnosticsPreference.File ? 2 : 1;
-                _initializingDiagnosticsPref = false;
-            }
+            var answer = AskDiagnosticsPreference();
+            if (answer is null) return;
+            diagnosticsPreference = answer.Value;
         }
 
         try
@@ -3297,7 +3292,7 @@ public partial class MainWindow : Window
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
 
-            if (pref == DroboSettings.DiagnosticsPreference.File)
+            if (diagnosticsPreference == DroboSettings.DiagnosticsPreference.File)
                 SaveDiagnosticsToFile(json);
             else
             {
@@ -3310,6 +3305,33 @@ public partial class MainWindow : Window
             ToolsActionStatus.Text = "Could not copy diagnostics: " + ex.Message;
         }
         ToolsActionStatus.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Asks "clipboard or file?" for this one copy, and stores the answer when
+    /// "Remember my choice" is ticked (moving the Tools tab's combo to match
+    /// without re-saving it). Null when the dialog was cancelled, so nothing
+    /// is copied.
+    /// </summary>
+    private DroboSettings.DiagnosticsPreference? AskDiagnosticsPreference()
+    {
+        var dialog = new DiagnosticsChoiceDialog { Owner = this };
+        var answered = dialog.ShowDialog();
+        if (answered != true || dialog.Result == DiagnosticsChoiceDialog.Choice.Cancelled)
+            return null;
+
+        var diagnosticsPreference = dialog.Result == DiagnosticsChoiceDialog.Choice.File
+            ? DroboSettings.DiagnosticsPreference.File
+            : DroboSettings.DiagnosticsPreference.Clipboard;
+
+        if (dialog.RememberChoice)
+        {
+            DroboSettings.SetDiagnosticsPreference(diagnosticsPreference);
+            _initializingDiagnosticsPref = true;
+            DiagnosticsPrefCombo.SelectedIndex = diagnosticsPreference == DroboSettings.DiagnosticsPreference.File ? 2 : 1;
+            _initializingDiagnosticsPref = false;
+        }
+        return diagnosticsPreference;
     }
 
     /// <summary>Standard Windows save dialog defaulting to Documents, then writes
@@ -3458,19 +3480,13 @@ public partial class MainWindow : Window
             });
             var root = await PostSerializedJson("/api/backup/plan", body);
 
-            bool allowed = root.TryGetProperty("allowed", out var a)
-                           && a.ValueKind == JsonValueKind.True;
-            var lines = new List<string>();
-            foreach (var key in new[] { "refusals", "warnings" })
-            {
-                if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
-                    foreach (var item in arr.EnumerateArray())
-                        lines.Add(item.GetString() ?? "");
-            }
+            bool allowed = root.TryGetProperty("allowed", out var allowedElement)
+                           && allowedElement.ValueKind == JsonValueKind.True;
+            var lines = CollectPlanMessages(root);
 
             if (lines.Count > 0)
             {
-                BackupPlanText.Text = string.Join("\n\n", lines.Where(l => l.Length > 0));
+                BackupPlanText.Text = string.Join("\n\n", lines.Where(line => line.Length > 0));
                 BackupPlanBox.Visibility = Visibility.Visible;
             }
             else
@@ -3508,19 +3524,7 @@ public partial class MainWindow : Window
         // Belt and braces: the button should be disabled, but a stale click
         // queued before an edit must not slip through either.
         if (!_backupPlanApproved) return;
-
-        // Mirroring deletes. A confirmation dialog for an ordinary copy would
-        // be noise, but for this one it is the last chance to notice.
-        if (BackupMirror.IsChecked == true)
-        {
-            var answer = MessageBox.Show(this,
-                "Mirror is on.\n\nAnything in the backup folder that is not on the Drobo "
-                + "will be DELETED from the backup, including files you may have deleted "
-                + "from the Drobo by mistake.\n\nRun the backup with mirroring on?",
-                "Drobo Dashboard REBORN", MessageBoxButton.YesNo, MessageBoxImage.Warning,
-                MessageBoxResult.No);
-            if (answer != MessageBoxResult.Yes) return;
-        }
+        if (!ConfirmMirrorIfOn()) return;
 
         BackupStartBtn.IsEnabled = false;
         BackupCheckBtn.IsEnabled = false;
@@ -3534,9 +3538,9 @@ public partial class MainWindow : Window
                 confirm = true,
             });
             var root = await PostSerializedJson("/api/backup/start", body);
-            if (root.TryGetProperty("error", out var err))
+            if (root.TryGetProperty("error", out var errorElement))
             {
-                BackupStatus.Text = err.GetString() ?? "The agent refused to start it.";
+                BackupStatus.Text = errorElement.GetString() ?? "The agent refused to start it.";
                 BackupCheckBtn.IsEnabled = true;
                 return;
             }
@@ -3550,6 +3554,39 @@ public partial class MainWindow : Window
             BackupStatus.Text = "Could not start the backup: " + ex.Message;
             BackupCheckBtn.IsEnabled = true;
         }
+    }
+
+    /// <summary>The plan's refusals, then its warnings, in the agent's own
+    /// words and order.</summary>
+    private static List<string> CollectPlanMessages(JsonElement root)
+    {
+        var lines = new List<string>();
+        foreach (var key in new[] { "refusals", "warnings" })
+        {
+            if (!root.TryGetProperty(key, out var messages) || messages.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var item in messages.EnumerateArray())
+                lines.Add(item.GetString() ?? "");
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// Mirroring deletes. A confirmation dialog for an ordinary copy would be
+    /// noise, but for this one it is the last chance to notice. True when the
+    /// backup may go ahead: mirror is off, or the user said Yes.
+    /// </summary>
+    private bool ConfirmMirrorIfOn()
+    {
+        if (BackupMirror.IsChecked != true) return true;
+
+        var answer = MessageBox.Show(this,
+            "Mirror is on.\n\nAnything in the backup folder that is not on the Drobo "
+            + "will be DELETED from the backup, including files you may have deleted "
+            + "from the Drobo by mistake.\n\nRun the backup with mirroring on?",
+            "Drobo Dashboard REBORN", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        return answer == MessageBoxResult.Yes;
     }
 
     /// <summary>
@@ -3581,19 +3618,10 @@ public partial class MainWindow : Window
         try
         {
             var root = await FetchJson("/api/backup/status");
-            bool running = root.TryGetProperty("running", out var r)
-                           && r.ValueKind == JsonValueKind.True;
+            bool running = root.TryGetProperty("running", out var runningElement)
+                           && runningElement.ValueKind == JsonValueKind.True;
 
-            if (root.TryGetProperty("tail", out var tail) && tail.ValueKind == JsonValueKind.Array)
-            {
-                // Last few lines only. Robocopy is chatty and the point here is
-                // "it is still moving", not a full transcript.
-                var recent = tail.EnumerateArray()
-                                 .Select(x => x.GetString() ?? "")
-                                 .Where(x => x.Length > 0)
-                                 .TakeLast(4);
-                BackupTail.Text = string.Join("\n", recent);
-            }
+            ShowBackupTail(root);
 
             if (running)
             {
@@ -3601,12 +3629,9 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _backupPollTimer?.Stop();
-            _backupPollTimer = null;
-            BackupBar.Visibility = Visibility.Collapsed;
-            BackupCheckBtn.IsEnabled = true;
+            StopBackupPolling();
 
-            bool ok = root.TryGetProperty("ok", out var o) && o.ValueKind == JsonValueKind.True;
+            bool ok = root.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
             var summary = GetStringOr(root, "summary", "");
             var error = GetStringOr(root, "error", "");
             BackupStatus.Text = (ok ? "Finished. " : "Finished with problems. ")
@@ -3614,13 +3639,35 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _backupPollTimer?.Stop();
-            _backupPollTimer = null;
-            BackupBar.Visibility = Visibility.Collapsed;
-            BackupCheckBtn.IsEnabled = true;
+            StopBackupPolling();
             BackupStatus.Text = "Lost contact with the agent while backing up: " + ex.Message
                                 + "  The copy may still be running -- press Check to look again.";
         }
+    }
+
+    /// <summary>The last few lines of robocopy's output, when the status has
+    /// them. Robocopy is chatty and the point here is "it is still moving",
+    /// not a full transcript.</summary>
+    private void ShowBackupTail(JsonElement root)
+    {
+        if (!root.TryGetProperty("tail", out var tail) || tail.ValueKind != JsonValueKind.Array)
+            return;
+        var recent = tail.EnumerateArray()
+                         .Select(line => line.GetString() ?? "")
+                         .Where(line => line.Length > 0)
+                         .TakeLast(4);
+        BackupTail.Text = string.Join("\n", recent);
+    }
+
+    /// <summary>Stops the backup poll and puts the card back in its idle state
+    /// (bar hidden, Check enabled) -- shared by the "finished" and "lost the
+    /// agent" paths so neither can forget a step.</summary>
+    private void StopBackupPolling()
+    {
+        _backupPollTimer?.Stop();
+        _backupPollTimer = null;
+        BackupBar.Visibility = Visibility.Collapsed;
+        BackupCheckBtn.IsEnabled = true;
     }
 
     /// <summary>
@@ -3669,9 +3716,9 @@ public partial class MainWindow : Window
         {
             var root = await FetchJson("/api/leds");
 
-            if (root.TryGetProperty("dimming", out var d) && d.ValueKind == JsonValueKind.Number)
+            if (root.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
             {
-                DimmingValue.Text = d.GetInt32().ToString();
+                DimmingValue.Text = dimmingElement.GetInt32().ToString();
                 DimmingNote.Text = GetStringOr(root, "scale_note", "");
             }
             else
@@ -3682,42 +3729,7 @@ public partial class MainWindow : Window
                     + "stops answering this command for a while; try again shortly.");
             }
 
-            // Demo mode is shown ONLY on an explicit yes. Absent means the
-            // device didn't say, which is not the same as "no" -- and a warning
-            // strip appearing because of a missing field would be worse than
-            // useless on an ordinary array.
-            // THREE states, not two. The agent sends true, false, or null --
-            // and null means "the device did not tell us", which is NOT the
-            // same as "no".
-            //
-            // This used to be a plain if/else on `== True`, so an unknown
-            // answer took the else branch and silently retracted a demo-mode
-            // warning that a previous read had put up on measured grounds.
-            // Demo mode means the capacity figures are FABRICATED, so with-
-            // drawing that warning because a command timed out tells the user
-            // their numbers are real when nothing established that. Unknown
-            // now leaves whatever is on screen exactly as it is.
-            bool haveAnswer = root.TryGetProperty("demo_mode", out var dm)
-                              && (dm.ValueKind == JsonValueKind.True
-                                  || dm.ValueKind == JsonValueKind.False);
-            if (!haveAnswer) return;   // no measurement, no change
-
-            bool inDemo = dm.ValueKind == JsonValueKind.True;
-            if (inDemo)
-            {
-                var scale = root.TryGetProperty("scale_factor", out var sf)
-                            && sf.ValueKind == JsonValueKind.Number
-                    ? $" (scale factor {sf.GetInt32()})" : "";
-                DemoModeText.Text =
-                    "This Drobo is in shop-display (demo) mode" + scale + ". In that mode it "
-                    + "reports invented capacity rather than what the drives actually hold, so "
-                    + "the capacity figures in this app are not real until it is turned off.";
-                DemoModeBox.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                DemoModeBox.Visibility = Visibility.Collapsed;
-            }
+            RenderDemoMode(root);
         }
         catch (Exception ex)
         {
@@ -3728,6 +3740,47 @@ public partial class MainWindow : Window
         {
             ReadLedsBtn.IsEnabled = true;
         }
+    }
+
+    /// <summary>The shop-display (demo) mode warning, from the same /api/leds
+    /// answer.</summary>
+    private void RenderDemoMode(JsonElement root)
+    {
+        // Demo mode is shown ONLY on an explicit yes. Absent means the
+        // device didn't say, which is not the same as "no" -- and a warning
+        // strip appearing because of a missing field would be worse than
+        // useless on an ordinary array.
+        // THREE states, not two. The agent sends true, false, or null --
+        // and null means "the device did not tell us", which is NOT the
+        // same as "no".
+        //
+        // This used to be a plain if/else on `== True`, so an unknown
+        // answer took the else branch and silently retracted a demo-mode
+        // warning that a previous read had put up on measured grounds.
+        // Demo mode means the capacity figures are FABRICATED, so with-
+        // drawing that warning because a command timed out tells the user
+        // their numbers are real when nothing established that. Unknown
+        // now leaves whatever is on screen exactly as it is.
+        bool haveAnswer = root.TryGetProperty("demo_mode", out var demoModeElement)
+                          && (demoModeElement.ValueKind == JsonValueKind.True
+                              || demoModeElement.ValueKind == JsonValueKind.False);
+        if (!haveAnswer) return;   // no measurement, no change
+
+        bool inDemo = demoModeElement.ValueKind == JsonValueKind.True;
+        if (!inDemo)
+        {
+            DemoModeBox.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var scale = root.TryGetProperty("scale_factor", out var scaleFactorElement)
+                    && scaleFactorElement.ValueKind == JsonValueKind.Number
+            ? $" (scale factor {scaleFactorElement.GetInt32()})" : "";
+        DemoModeText.Text =
+            "This Drobo is in shop-display (demo) mode" + scale + ". In that mode it "
+            + "reports invented capacity rather than what the drives actually hold, so "
+            + "the capacity figures in this app are not real until it is turned off.";
+        DemoModeBox.Visibility = Visibility.Visible;
     }
 
     // ---------------------------------------------------------------
@@ -3884,12 +3937,7 @@ public partial class MainWindow : Window
                 // connected (502, {"error": ..., "apps": []}). Either way,
                 // show the agent's own reason and clear the list rather than
                 // leaving a stale one on screen looking current.
-                DroboAppsError.Text = GetStringOr(root, "error", $"The agent returned HTTP {(int)response.StatusCode}.");
-                DroboAppsError.Visibility = Visibility.Visible;
-                _droboApps.Clear();
-                DroboAppsSdk.Text = "";
-                DroboAppsEmpty.Text = "Press Refresh to see what's installed on your Drobo.";
-                DroboAppsEmpty.Visibility = Visibility.Visible;
+                ShowDroboAppsUnavailable(GetStringOr(root, "error", $"The agent returned HTTP {(int)response.StatusCode}."));
                 return;
             }
 
@@ -3897,18 +3945,26 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            DroboAppsError.Text = "Could not reach the agent.  (" + ex.Message + ")";
-            DroboAppsError.Visibility = Visibility.Visible;
-            _droboApps.Clear();
-            DroboAppsSdk.Text = "";
-            DroboAppsEmpty.Text = "Press Refresh to see what's installed on your Drobo.";
-            DroboAppsEmpty.Visibility = Visibility.Visible;
+            ShowDroboAppsUnavailable("Could not reach the agent.  (" + ex.Message + ")");
         }
         finally
         {
             DroboAppsRefreshBtn.IsEnabled = true;
             DroboAppsRefreshBtn.Content = "Refresh";
         }
+    }
+
+    /// <summary>Shows why the DroboApps list could not be read, and clears the
+    /// list, so a stale one never sits under the error looking
+    /// current.</summary>
+    private void ShowDroboAppsUnavailable(string message)
+    {
+        DroboAppsError.Text = message;
+        DroboAppsError.Visibility = Visibility.Visible;
+        _droboApps.Clear();
+        DroboAppsSdk.Text = "";
+        DroboAppsEmpty.Text = "Press Refresh to see what's installed on your Drobo.";
+        DroboAppsEmpty.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -3924,19 +3980,19 @@ public partial class MainWindow : Window
         var sdk = GetStringOr(root, "sdk_version", "");
         DroboAppsSdk.Text = string.IsNullOrEmpty(sdk) ? "" : $"SDK {sdk}";
 
-        var list = new List<DroboAppRow>();
-        if (root.TryGetProperty("apps", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        var rows = new List<DroboAppRow>();
+        if (root.TryGetProperty("apps", out var appsArray) && appsArray.ValueKind == JsonValueKind.Array)
         {
-            foreach (var a in arr.EnumerateArray())
+            foreach (var app in appsArray.EnumerateArray())
             {
-                bool running = IsTrue(a, "running");
-                bool hasWebUi = IsTrue(a, "has_web_ui");
-                var status = GetStringOr(a, "status", "");
-                list.Add(new DroboAppRow
+                bool running = IsTrue(app, "running");
+                bool hasWebUi = IsTrue(app, "has_web_ui");
+                var status = GetStringOr(app, "status", "");
+                rows.Add(new DroboAppRow
                 {
-                    Name = GetStringOr(a, "name", ""),
-                    Version = GetStringOr(a, "version", ""),
-                    Description = GetStringOr(a, "description", ""),
+                    Name = GetStringOr(app, "name", ""),
+                    Version = GetStringOr(app, "version", ""),
+                    Description = GetStringOr(app, "description", ""),
                     Status = status,
                     StatusVisibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible,
                     Running = running,
@@ -3951,10 +4007,10 @@ public partial class MainWindow : Window
         }
 
         _droboApps.Clear();
-        foreach (var row in list) _droboApps.Add(row);
+        foreach (var row in rows) _droboApps.Add(row);
 
         DroboAppsEmpty.Text = "No DroboApps reported.";
-        DroboAppsEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        DroboAppsEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -3980,11 +4036,11 @@ public partial class MainWindow : Window
         {
             var (okStatus, root) = await PostJson("/api/droboapps/action",
                 new { name = row.Name, action = verb });
-            if (okStatus && root.TryGetProperty("ok", out var okv) && okv.GetBoolean())
+            if (okStatus && root.TryGetProperty("ok", out var okElement) && okElement.GetBoolean())
             {
-                var msg = GetStringOr(root, "message", "Done.");
-                if (IsTrue(root, "simulated")) msg += "  [simulated Drobo]";
-                ShowConfigResult(DroboAppsActionResult, true, msg);
+                var message = GetStringOr(root, "message", "Done.");
+                if (IsTrue(root, "simulated")) message += "  [simulated Drobo]";
+                ShowConfigResult(DroboAppsActionResult, true, message);
                 // "apps" is omitted when the agent's post-action re-read
                 // failed; its message already says "accepted, unconfirmed"
                 // then, and the stale rows stay put -- pressing Refresh is
@@ -4056,48 +4112,54 @@ public partial class MainWindow : Window
     /// </summary>
     private void RenderEventLog(JsonElement root)
     {
-        var list = new List<EventLogRow>();
-        if (root.TryGetProperty("events", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        var rows = new List<EventLogRow>();
+        if (root.TryGetProperty("events", out var eventsArray) && eventsArray.ValueKind == JsonValueKind.Array)
         {
-            foreach (var ev in arr.EnumerateArray())
+            foreach (var logEntry in eventsArray.EnumerateArray())
             {
-                if (ev.ValueKind != JsonValueKind.Object) continue;
-                // Real-hardware entries arrive with the SDK's NOT_DECODED
-                // markers -- severity "" and ts 0.0 -- because the reply's
-                // line format was never captured (see drobo_nasd/eventlog.py).
-                // Those get a neutral LOG chip and no separate time, NOT an
-                // "INFO from 1970": the verbatim device line is the message,
-                // so whatever timestamp the device wrote is still on screen.
-                var severity = GetStringOr(ev, "severity", "info");
-                var (chipBg, chipFg) = SeverityBrushes(severity);
-
-                // The numeric timestamp, rendered in THIS PC's local time --
-                // never ts_iso, which is both local to wherever the agent runs
-                // and a false 1970 date for an undecoded ts of 0.
-                double ts = GetDoubleOrZero(ev, "ts");
-                var when = ts > 0
-                    ? DateTimeOffset.FromUnixTimeMilliseconds((long)(ts * 1000))
-                        .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                    : "";
-
-                list.Add(new EventLogRow
-                {
-                    SeverityText = severity.Length == 0 ? "LOG" : severity.ToUpperInvariant(),
-                    When = when,
-                    Message = GetStringOr(ev, "message", ""),
-                    ChipBackground = chipBg,
-                    SeverityBrush = chipFg,
-                });
+                if (logEntry.ValueKind != JsonValueKind.Object) continue;
+                rows.Add(BuildEventLogRow(logEntry));
             }
         }
-        list.Reverse();
+        rows.Reverse();
 
         _eventLog.Clear();
-        foreach (var row in list) _eventLog.Add(row);
+        foreach (var row in rows) _eventLog.Add(row);
 
         EventLogEmpty.Text = "The Drobo returned no event log entries. The agent reads the device's "
                            + "own log every few minutes, so right after it starts an empty list here "
                            + "is normal, not a fault -- try Refresh again shortly.";
-        EventLogEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EventLogEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>One log line's row.</summary>
+    private static EventLogRow BuildEventLogRow(JsonElement logEntry)
+    {
+        // Real-hardware entries arrive with the SDK's NOT_DECODED
+        // markers -- severity "" and ts 0.0 -- because the reply's
+        // line format was never captured (see drobo_nasd/eventlog.py).
+        // Those get a neutral LOG chip and no separate time, NOT an
+        // "INFO from 1970": the verbatim device line is the message,
+        // so whatever timestamp the device wrote is still on screen.
+        var severity = GetStringOr(logEntry, "severity", "info");
+        var (chipBg, chipFg) = SeverityBrushes(severity);
+
+        // The numeric timestamp, rendered in THIS PC's local time --
+        // never ts_iso, which is both local to wherever the agent runs
+        // and a false 1970 date for an undecoded ts of 0.
+        double timestampSeconds = GetDoubleOrZero(logEntry, "ts");
+        var when = timestampSeconds > 0
+            ? DateTimeOffset.FromUnixTimeMilliseconds((long)(timestampSeconds * 1000))
+                .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            : "";
+
+        return new EventLogRow
+        {
+            SeverityText = severity.Length == 0 ? "LOG" : severity.ToUpperInvariant(),
+            When = when,
+            Message = GetStringOr(logEntry, "message", ""),
+            ChipBackground = chipBg,
+            SeverityBrush = chipFg,
+        };
     }
 }

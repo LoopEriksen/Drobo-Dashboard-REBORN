@@ -347,6 +347,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Status,
     Alerts and Shares renderers are split into named helpers; every
     control is written in the same order. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Settings and
+    Tools tab handlers are split into named helpers. Every JSON key,
+    string and message is as it was. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
