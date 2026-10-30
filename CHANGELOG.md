@@ -118,6 +118,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     (positional calls are unaffected). Every message, the order in
     which candidates are tried and the identity check are as they
     were. (2026-10-29)
+  - `sdk/drobo_nasd/firmware.py`: the withdrawn-build advisory is
+    built by its own helper; its headline, detail text and JSON keys
+    are byte-identical. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

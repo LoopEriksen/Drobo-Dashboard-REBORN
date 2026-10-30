@@ -64,8 +64,8 @@ _VERSION_RE = re.compile(r"^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 @dataclass(frozen=True)
 class Advisory:
-    """What we can say about a firmware version.
-    Never an instruction.
+    """
+    What we can say about a firmware version. Never an instruction.
     """
 
     version: str
@@ -82,9 +82,14 @@ class Advisory:
         return self.risk == RISK_WITHDRAWN
 
     def to_dict(self) -> dict:
+        """
+        The advisory as JSON-ready values, with `notable` and
+        `last_known_good` added so a front end shows what this module
+        decided instead of re-deriving it from the version string.
+        """
         return {
             "version": self.version,
-            "release": (".".join(str(n) for n in self.release_numbers)
+            "release": (_release_text(self.release_numbers)
                         if self.release_numbers else None),
             "risk": self.risk,
             "notable": self.notable,
@@ -92,6 +97,11 @@ class Advisory:
             "detail": self.detail,
             "last_known_good": LAST_KNOWN_GOOD,
         }
+
+
+def _release_text(release_numbers: tuple[int, int, int]) -> str:
+    """(4, 3, 1) as "4.3.1" -- the release alone, without the build."""
+    return ".".join(str(number) for number in release_numbers)
 
 
 def parse_version(version: str) -> tuple[int, int, int] | None:
@@ -135,29 +145,42 @@ def assess(version: str) -> Advisory:
         )
 
     if release_numbers in WITHDRAWN_RELEASES:
-        release = ".".join(str(n) for n in release_numbers)
-        return Advisory(
-            version=version, release_numbers=release_numbers,
-            risk=RISK_WITHDRAWN,
-            headline=(
-                f"This Drobo runs firmware {release}, which Drobo withdrew."
-            ),
-            detail=(
-                f"{release} was pulled by Drobo's own engineers shortly after "
-                f"release over problems users reported, and the company went "
-                f"into bankruptcy the month after -- so no fix was ever "
-                f"shipped and none ever will be. The last version nobody "
-                f"reported trouble with was {LAST_KNOWN_GOOD}. "
-                # The honest half, and the reason this is not an alarm:
-                f"That is worth knowing rather than worth acting on: what was "
-                f"actually wrong with it was never published, plenty of units "
-                f"have run this build for years, and this one is reporting a "
-                f"healthy array right now. Changing firmware means writing an "
-                f"unsigned image to hardware with no recovery tool, so this "
-                f"software will not do it and does not suggest you do. Keep "
-                f"good backups -- which is true on any firmware."
-            ),
-        )
+        return _withdrawn_advisory(version, release_numbers)
 
     return Advisory(version=version, release_numbers=release_numbers,
                     risk=RISK_NONE, headline="", detail="")
+
+
+def _withdrawn_advisory(version: str,
+                        release_numbers: tuple[int, int, int]) -> Advisory:
+    """
+    The one advisory with something to say: a build the vendor pulled.
+
+    The text gives the history and stops short of advice, for the
+    reasons in the module docstring -- it informs, and says plainly that
+    this software will not change the firmware.
+    """
+    release_text = _release_text(release_numbers)
+    return Advisory(
+        version=version, release_numbers=release_numbers,
+        risk=RISK_WITHDRAWN,
+        headline=(
+            f"This Drobo runs firmware {release_text}, which Drobo withdrew."
+        ),
+        detail=(
+            f"{release_text} was pulled by Drobo's own engineers "
+            f"shortly after "
+            f"release over problems users reported, and the company went "
+            f"into bankruptcy the month after -- so no fix was ever "
+            f"shipped and none ever will be. The last version nobody "
+            f"reported trouble with was {LAST_KNOWN_GOOD}. "
+            # The honest half, and the reason this is not an alarm:
+            f"That is worth knowing rather than worth acting on: what was "
+            f"actually wrong with it was never published, plenty of units "
+            f"have run this build for years, and this one is reporting a "
+            f"healthy array right now. Changing firmware means writing an "
+            f"unsigned image to hardware with no recovery tool, so this "
+            f"software will not do it and does not suggest you do. Keep "
+            f"good backups -- which is true on any firmware."
+        ),
+    )
