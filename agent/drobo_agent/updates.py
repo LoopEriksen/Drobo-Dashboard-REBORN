@@ -101,6 +101,10 @@ class Release:
     released: str = ""
 
     def to_dict(self) -> dict:
+        """
+        Every field, spelled out rather than asdict(), so the JSON the
+        apps read is fixed here and not by the dataclass's field order.
+        """
         return {
             "version": self.version,
             "download_url": self.download_url,
@@ -121,9 +125,14 @@ class UpdateStatus:
 
     @property
     def update_available(self) -> bool:
+        """
+        The one yes/no a front-end needs, so none of them has to know
+        which state string means "yes".
+        """
         return self.state == STATE_AVAILABLE
 
     def to_dict(self) -> dict:
+        """The status as /api/update returns it, the release nested."""
         return {
             "state": self.state,
             "update_available": self.update_available,
@@ -150,7 +159,7 @@ def parse_version(version: str) -> tuple[int, ...] | None:
     parts = _DIGIT_RUN_RE.findall(release_part)
     if not parts:
         return None
-    return tuple(int(p) for p in parts)
+    return tuple(int(part) for part in parts)
 
 
 def is_newer(candidate: str, current: str) -> bool:
@@ -167,10 +176,11 @@ def is_newer(candidate: str, current: str) -> bool:
                                       parse_version(current))
     if candidate_parts is None or current_parts is None:
         return False
-    width = max(len(candidate_parts), len(current_parts))
+    component_count = max(len(candidate_parts), len(current_parts))
     candidate_parts = (candidate_parts
-                       + (0,) * (width - len(candidate_parts)))
-    current_parts = current_parts + (0,) * (width - len(current_parts))
+                       + (0,) * (component_count - len(candidate_parts)))
+    current_parts = (current_parts
+                     + (0,) * (component_count - len(current_parts)))
     return candidate_parts > current_parts
 
 
@@ -204,10 +214,10 @@ def _read_release(manifest: dict) -> Release | None:
     """
     # GitHub Releases:
     # tag_name is the version, conventionally "v"-prefixed.
-    tag = str(manifest.get("tag_name") or "").strip()
-    if tag:
+    tag_name = str(manifest.get("tag_name") or "").strip()
+    if tag_name:
         return Release(
-            version=tag.lstrip("vV"),
+            version=tag_name.lstrip("vV"),
             # The browser page, not a binary. Deliberate: this software
             # never downloads an update, and pointing a human at the
             # release page is exactly the right amount of help.
@@ -285,12 +295,13 @@ def check(config: dict, current_version: str,
             reason="Update checking is switched off. Nothing is contacted.")
 
     url = (config.get("manifest_url") or "").strip()
-    problem = _url_problem(url)
-    if problem:
+    manifest_url_problem = _url_problem(url)
+    if manifest_url_problem:
         # Enabled but unusable is a configuration mistake worth
         # surfacing, not a silent no-op -- somebody turned this on and
         # expects it to work.
-        return UpdateStatus(STATE_DISABLED, current_version, reason=problem)
+        return UpdateStatus(STATE_DISABLED, current_version,
+                            reason=manifest_url_problem)
 
     try:
         manifest = (fetch or _fetch_manifest)(url, timeout)
@@ -302,29 +313,57 @@ def check(config: dict, current_version: str,
         return UpdateStatus(STATE_ERROR, current_version,
                             reason="Update manifest was not a JSON object.")
 
-    # A channel lets one manifest serve stable and beta without the
-    # agent needing a second URL. Absent means "this manifest is the
-    # only channel".
     channel = (config.get("channel") or "stable").strip()
-    if "channels" in manifest and isinstance(manifest["channels"], dict):
-        manifest = manifest["channels"].get(channel) or {}
-        if not manifest:
-            return UpdateStatus(
-                STATE_ERROR, current_version,
-                reason=f"No {channel!r} channel in the update manifest.")
+    manifest = _channel_manifest(manifest, channel)
+    if manifest is None:
+        return UpdateStatus(
+            STATE_ERROR, current_version,
+            reason=f"No {channel!r} channel in the update manifest.")
 
     release = _read_release(manifest)
     if release is None:
         return UpdateStatus(STATE_ERROR, current_version,
                             reason="Update manifest carried no version.")
-    version = release.version
-    download_url = release.download_url
-    sha256 = release.sha256
 
-    if not is_newer(version, current_version):
+    if not is_newer(release.version, current_version):
         return UpdateStatus(STATE_CURRENT, current_version, latest=release,
                             reason="You are on the latest version.")
+    return _newer_release_status(release, current_version)
 
+
+def _channel_manifest(manifest: dict, channel: str):
+    """
+    The part of the manifest that describes `channel`, or None when the
+    manifest has channels but not that one.
+
+    A channel lets one manifest serve stable and beta without the agent
+    needing a second URL. A manifest with no "channels" object is the
+    only channel, and is returned as it is.
+    """
+    if not ("channels" in manifest and isinstance(manifest["channels"], dict)):
+        return manifest
+    return manifest["channels"].get(channel) or None
+
+
+def _has_wellformed_sha256(sha256: str) -> bool:
+    """
+    True when the manifest's checksum is 64 lowercase hex digits. Only
+    its shape is checked: nothing is downloaded, so there is nothing to
+    verify it against here.
+    """
+    return (len(sha256) == 64
+            and all(c in "0123456789abcdef" for c in sha256))
+
+
+def _newer_release_status(
+    release: Release, current_version: str
+) -> UpdateStatus:
+    """
+    The status for a release newer than the running one: announced,
+    with how far the announcement can vouch for it, or refused when its
+    link is not https://.
+    """
+    version = release.version
     # From here we would be pointing somebody at something to install,
     # so the announcement has to be honest about how much it can vouch
     # for.
@@ -332,7 +371,7 @@ def check(config: dict, current_version: str,
     # An https:// link is required either way -- an update announcement
     # over plaintext can be rewritten in transit, and that is the one
     # failure this refuses outright rather than annotates.
-    download_problem = _url_problem(download_url, "download link")
+    download_problem = _url_problem(release.download_url, "download link")
     if download_problem:
         return UpdateStatus(
             STATE_ERROR, current_version, latest=release,
@@ -352,9 +391,7 @@ def check(config: dict, current_version: str,
     # is not would be a lie. Neither shape is ever downloaded or
     # installed automatically, which is the control that actually
     # matters.
-    verified = (len(sha256) == 64
-                and all(c in "0123456789abcdef" for c in sha256))
-    if verified:
+    if _has_wellformed_sha256(release.sha256):
         assurance = ("A SHA-256 is published with it -- check the file you "
                      "download against it before running anything.")
     else:
@@ -403,16 +440,21 @@ def _installed_version(agent_dir: str) -> str:
         os.path.join(os.path.dirname(agent_dir), "version.txt"),    # installed
     )
     for path in candidates:
-        try:
-            with open(path, "r", encoding="utf-8") as version_file:
-                recorded = version_file.read().strip()
-                if recorded:
-                    return recorded
-        except OSError:
-            continue
+        recorded = _read_version_file(path)
+        if recorded:
+            return recorded
     # local import: api imports plenty, and this is a rare path
     from . import api
     return api.VERSION
+
+
+def _read_version_file(path: str) -> str:
+    """The version a version.txt records, or "" if it cannot be read."""
+    try:
+        with open(path, "r", encoding="utf-8") as version_file:
+            return version_file.read().strip()
+    except OSError:
+        return ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -432,7 +474,6 @@ def main(argv: list[str] | None = None) -> int:
     not tell.
     """
     import argparse
-    from . import config
 
     agent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     parser = argparse.ArgumentParser(
@@ -444,8 +485,22 @@ def main(argv: list[str] | None = None) -> int:
                              "(for shortcuts)")
     args = parser.parse_args(argv)
 
+    agent_config = _load_config_or_empty(args.config)
+    version = _installed_version(agent_dir)
+    status = check(agent_config.get("updates", {}), version)
+    return _print_status(status, version, args.quiet)
+
+
+def _load_config_or_empty(config_path: str) -> dict:
+    """
+    The agent's config, or {} -- update checks off -- when it cannot be
+    loaded for any reason other than the SystemExit load() raises for a
+    broken file, which is left to escape (see below).
+    """
+    from . import config
+
     try:
-        agent_config = config.load(args.config)
+        return config.load(config_path)
     except Exception:
         # Neither a missing config nor a broken one lands here.
         # load() creates a missing file from the defaults, and stops
@@ -457,11 +512,15 @@ def main(argv: list[str] | None = None) -> int:
         # read (permissions), JSON of the wrong shape, or a new token
         # it cannot save -- and that is read as an empty config, so
         # update checks are off.
-        agent_config = {}
+        return {}
 
-    version = _installed_version(agent_dir)
-    status = check(agent_config.get("updates", {}), version)
 
+def _print_status(status: UpdateStatus, version: str, quiet: bool) -> int:
+    """
+    Tell the person at the terminal, and return main()'s exit status:
+    1 an update is available, 2 could not tell, 0 otherwise. With
+    `quiet`, only an available update is printed.
+    """
     if status.state == STATE_AVAILABLE:
         print(f"A newer version is available: {status.latest.version} "
               f"(you have {version}).")
@@ -474,12 +533,12 @@ def main(argv: list[str] | None = None) -> int:
         # Offline, DNS hiccup, feed returned nonsense. Never alarming:
         # an update check that shouts on a train with no signal is worse
         # than one that says nothing.
-        if not args.quiet:
+        if not quiet:
             print(status.reason)
             print(f"You are on version {version}.")
         return 2
 
-    if not args.quiet:
+    if not quiet:
         print("Update checks are off." if status.state == STATE_DISABLED
               else f"You are up to date (version {version}).")
         if status.state == STATE_DISABLED:

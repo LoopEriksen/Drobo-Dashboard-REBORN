@@ -174,6 +174,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     named step, with the specification's reasons in the docstrings.
     Private helpers and local names only; every matrix and SVG it draws
     is identical. (2026-10-29)
+  - `agent/drobo_agent/updates.py`: `check()` and `main()` read as named
+    steps, and a helper that only checks a checksum's shape is no longer
+    called "verified". Every message, exit status and the order of the
+    checks are as they were, and nothing is downloaded or installed.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
