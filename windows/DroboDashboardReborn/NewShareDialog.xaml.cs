@@ -30,11 +30,16 @@ public partial class NewShareDialog : Window
         "1-27 characters. Start with a letter or digit; after that letters, "
         + "digits, spaces, underscores and hyphens.";
 
-    private static readonly Brush HintMuted = new SolidColorBrush(Color.FromRgb(0x6B, 0x76, 0x83));
-    private static readonly Brush HintProblem = new SolidColorBrush(Color.FromRgb(0xE2, 0x56, 0x4B));
+    /// <summary>The longest name the agent accepts. RulesText, the "at most"
+    /// message below and NameBox's MaxLength in NewShareDialog.xaml all say
+    /// 27 too, so a change here means changing all four.</summary>
+    private const int MaxShareNameLength = 27;
+
+    private static readonly Brush HintMutedBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x76, 0x83));
+    private static readonly Brush HintProblemBrush = new SolidColorBrush(Color.FromRgb(0xE2, 0x56, 0x4B));
 
     private readonly IReadOnlyCollection<string> _existingNames;
-    private readonly Func<string, Task<(WriteOutcome outcome, string message)>> _create;
+    private readonly Func<string, Task<(WriteOutcome outcome, string message)>> _createShare;
 
     /// <summary>The agent's message, verbatim (read-back suffix included).
     /// Only meaningful when ShowDialog returned true.</summary>
@@ -48,16 +53,16 @@ public partial class NewShareDialog : Window
     /// <param name="existingNames">Share names currently listed, for the
     /// duplicate check. The agent re-checks against the device's own list, so
     /// a stale copy here only costs one round trip, never a wrong write.</param>
-    /// <param name="create">POSTs /api/shares/create for the given name and
+    /// <param name="createShare">POSTs /api/shares/create for the given name and
     /// returns (outcome, message) -- message is the agent's own wording
     /// whichever way it went.</param>
     public NewShareDialog(IReadOnlyCollection<string> existingNames,
-        Func<string, Task<(WriteOutcome outcome, string message)>> create)
+        Func<string, Task<(WriteOutcome outcome, string message)>> createShare)
     {
         InitializeComponent();
         _existingNames = existingNames;
-        _create = create;
-        Validate();
+        _createShare = createShare;
+        UpdateValidationState();
         Loaded += (_, _) => NameBox.Focus();
     }
 
@@ -69,15 +74,15 @@ public partial class NewShareDialog : Window
     /// as strict or stricter, never looser. ASCII on purpose -- that is the
     /// alphabet the agent's rule means. Returns null when the name is fine.
     /// </summary>
-    internal static string? ShareNameProblem(string name, IEnumerable<string> existingNames)
+    internal static string? FindShareNameProblem(string name, IEnumerable<string> existingNames)
     {
         if (name.Length == 0) return "Enter a name.";
-        if (name.Length > 27) return "The name can be at most 27 characters.";
+        if (name.Length > MaxShareNameLength) return "The name can be at most 27 characters.";
         if (!char.IsAsciiLetterOrDigit(name[0]))
             return "The name must start with a letter or digit.";
-        foreach (var c in name)
-            if (!char.IsAsciiLetterOrDigit(c) && c != ' ' && c != '_' && c != '-')
-                return $"'{c}' is not allowed -- letters, digits, spaces, underscores and hyphens only.";
+        foreach (var character in name)
+            if (!char.IsAsciiLetterOrDigit(character) && character != ' ' && character != '_' && character != '-')
+                return $"'{character}' is not allowed -- letters, digits, spaces, underscores and hyphens only.";
         foreach (var existing in existingNames)
             if (string.Equals(existing, name, StringComparison.OrdinalIgnoreCase))
                 return $"There is already a share called {existing} -- names that differ only "
@@ -85,36 +90,46 @@ public partial class NewShareDialog : Window
         return null;
     }
 
+    /// <summary>Re-checks the name on every keystroke, so Create is never
+    /// enabled for a name the agent would refuse.</summary>
     private void NameBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         // Whatever the agent said about the previous attempt no longer
         // describes what is in the box.
         ErrorText.Visibility = Visibility.Collapsed;
-        Validate();
+        UpdateValidationState();
     }
 
     /// <summary>Sets the hint line and the Create button from the current
     /// text. An empty box shows the rules in grey rather than shouting
     /// "Enter a name." at someone who has not typed yet.</summary>
-    private void Validate()
+    private void UpdateValidationState()
     {
         var name = NameBox.Text;
-        var problem = ShareNameProblem(name, _existingNames);
+        var problem = FindShareNameProblem(name, _existingNames);
         bool showProblem = problem is not null && name.Length != 0;
         NameHint.Text = showProblem ? problem : RulesText;
-        NameHint.Foreground = showProblem ? HintProblem : HintMuted;
+        NameHint.Foreground = showProblem ? HintProblemBrush : HintMutedBrush;
         CreateBtn.IsEnabled = problem is null;
     }
 
+    /// <summary>
+    /// Sends the one POST for this click. A plain refusal (Failed) keeps the
+    /// dialog open with the agent's message, so the name can be fixed and
+    /// tried again. Every other outcome closes it, an unsettled one included:
+    /// the share may already exist, and the refreshed list on the Shares tab
+    /// is what shows whether it does -- a Create button under a warning
+    /// would only invite a second, duplicate attempt.
+    /// </summary>
     private async void Create_Click(object sender, RoutedEventArgs e)
     {
         var name = NameBox.Text;
-        if (ShareNameProblem(name, _existingNames) is not null) return;
+        if (FindShareNameProblem(name, _existingNames) is not null) return;
 
         SetBusy(true);
         try
         {
-            var (outcome, message) = await _create(name);
+            var (outcome, message) = await _createShare(name);
             if (outcome == WriteOutcome.Failed)
             {
                 ShowError(message);
@@ -131,11 +146,15 @@ public partial class NewShareDialog : Window
         }
     }
 
+    /// <summary>Locks the dialog while the POST is in flight, so the name
+    /// cannot change under a request already sent and Create cannot be
+    /// clicked twice.</summary>
     private void SetBusy(bool busy)
     {
-        // Leaving busy re-runs Validate rather than flatly re-enabling
-        // Create, so the button's state always comes from the rules.
-        if (busy) CreateBtn.IsEnabled = false; else Validate();
+        // Leaving busy re-runs UpdateValidationState rather than flatly
+        // re-enabling Create, so the button's state always comes from the
+        // rules.
+        if (busy) CreateBtn.IsEnabled = false; else UpdateValidationState();
         CancelBtn.IsEnabled = !busy;
         NameBox.IsEnabled = !busy;
         CreateBtn.Content = busy ? "Creating…" : "Create";

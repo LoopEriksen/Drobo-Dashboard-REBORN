@@ -312,6 +312,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/MarkdownGuide.cs`: one helper per kind
     of block, tried in the same order as before. The HTML written for
     the Shares guide is unchanged. (2026-10-29)
+  - `windows/DroboDashboardReborn/NewShareDialog.xaml.cs`: names say
+    what they return or hold, and the 27-character limit is named.
+    Every message is as it was. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
