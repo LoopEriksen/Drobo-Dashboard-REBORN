@@ -130,6 +130,22 @@ SKIP_EXTENSIONS = {
     ".docx", ".doc", ".pdf", ".xlsx"}
 
 
+def _pattern_lines(path):
+    """(line_number, text) for every pattern in a one-regex-per-line
+    file, skipping blank lines and # comments.
+
+    Shared by the private list and the allowlist so the two files are
+    read by exactly the same rules; the line number is kept so a bad
+    entry can be reported where it is.
+    """
+    with open(path, encoding="utf-8", errors="ignore") as pattern_file:
+        for line_number, line in enumerate(pattern_file, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            yield line_number, line
+
+
 def load_local_patterns():
     """User-private regexes
     from scripts/pii_patterns.local (gitignored).
@@ -157,19 +173,15 @@ def load_local_patterns():
             "cannot see the category it exists for.")
         return private_patterns, notes
 
-    with open(path, encoding="utf-8", errors="ignore") as pattern_file:
-        for lineno, line in enumerate(pattern_file, 1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            try:
-                private_patterns.append(("private pattern",
-                                         re.compile(line, re.I)))
-            except re.error as exc:
-                # Silently dropping a bad pattern used to leave a hole
-                # shaped exactly like the thing it was meant to catch.
-                notes.append(f"pii_patterns.local:{lineno} is not a valid "
-                             f"regex and was skipped ({exc}).")
+    for line_number, line in _pattern_lines(path):
+        try:
+            private_patterns.append(("private pattern",
+                                     re.compile(line, re.I)))
+        except re.error as exc:
+            # Silently dropping a bad pattern used to leave a hole
+            # shaped exactly like the thing it was meant to catch.
+            notes.append(f"pii_patterns.local:{line_number} is not a valid "
+                         f"regex and was skipped ({exc}).")
     if not private_patterns:
         notes.append(
             "pii_patterns.local exists but defines no usable patterns.")
@@ -195,16 +207,12 @@ def load_allowlist():
     path = os.path.join(REPO_ROOT, "scripts", "pii_allow.txt")
     if not os.path.exists(path):
         return allow_patterns, notes
-    with open(path, encoding="utf-8", errors="ignore") as allowlist_file:
-        for lineno, line in enumerate(allowlist_file, 1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            try:
-                allow_patterns.append(re.compile(line, re.I))
-            except re.error as exc:
-                notes.append(f"pii_allow.txt:{lineno} is not a valid regex "
-                             f"and was skipped ({exc}).")
+    for line_number, line in _pattern_lines(path):
+        try:
+            allow_patterns.append(re.compile(line, re.I))
+        except re.error as exc:
+            notes.append(f"pii_allow.txt:{line_number} is not a valid regex "
+                         f"and was skipped ({exc}).")
     return allow_patterns, notes
 
 
@@ -233,17 +241,27 @@ def tracked_files():
                                     capture_output=True, check=True)
     except (OSError, subprocess.CalledProcessError):
         return None
-    return [p for p in
-            git_result.stdout.decode("utf-8", "replace").split("\0") if p]
+    return [relative_path for relative_path in
+            git_result.stdout.decode("utf-8", "replace").split("\0")
+            if relative_path]
 
 
 def walked_files():
-    """Every file in the working tree, repo-relative."""
+    """Every file in the working tree, repo-relative.
+
+    The fallback when this is not a git checkout, and what --all asks
+    for. It includes build output and anything untracked, which is why
+    it is not the default: see tracked_files for how noisy that was.
+    SKIP_DIRS is pruned during the walk so os.walk never descends into
+    .git/ or a virtualenv at all.
+    """
     relative_paths = []
-    for root, dirs, files in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for file_name in files:
-            path = os.path.join(root, file_name)
+    for directory_path, directory_names, file_names in os.walk(REPO_ROOT):
+        directory_names[:] = [directory_name
+                              for directory_name in directory_names
+                              if directory_name not in SKIP_DIRS]
+        for file_name in file_names:
+            path = os.path.join(directory_path, file_name)
             relative_paths.append(
                 os.path.relpath(path, REPO_ROOT).replace("\\", "/"))
     return relative_paths
@@ -260,7 +278,41 @@ def walked_files():
 # scanner disagree about the same line.
 CREDIT_CONTEXT = re.compile(r"drobo-utils|petersilva|Silva", re.I)
 
-_USER_PATH_PARTS = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)", re.I | re.S)
+# Splits a user-path match into the "C:\Users\" prefix, which is shown,
+# and the account name after it, which redact() masks.
+_USER_PATH_SPLIT_PATTERN = re.compile(r"(C:[\\/]+Users[\\/]+)(.*)",
+                                      re.I | re.S)
+
+
+def _redact_mac(snippet):
+    """The MAC with its last three octets masked.
+
+    The first three octets are the vendor OUI -- printing them says "a
+    Drobo", not "which Drobo". The three that identify the unit are
+    masked, separators kept so the line still reads as an address.
+    """
+    redacted_characters, digit_count = [], 0
+    for character in snippet:
+        if character in ":-":
+            redacted_characters.append(character)
+            continue
+        digit_count += 1
+        redacted_characters.append(character if digit_count <= 6 else "*")
+    return "".join(redacted_characters)
+
+
+def _redact_user_path(snippet):
+    """The user path, its account name masked after the first letter.
+
+    A snippet that does not split into prefix and name is returned as
+    it is; the pattern requires a name, so that does not happen today.
+    """
+    path_match = _USER_PATH_SPLIT_PATTERN.match(snippet)
+    if not path_match or not path_match.group(2):
+        return snippet
+    account_name = path_match.group(2)
+    return (path_match.group(1) + account_name[0]
+            + "*" * max(len(account_name) - 1, 1))
 
 
 def redact(label, snippet):
@@ -285,72 +337,111 @@ def redact(label, snippet):
         # what follows is the unit.
         return snippet[:3] + "*" * max(len(snippet) - 3, 1)
     if label == "Drobo MAC address":
-        # The first three octets are the vendor OUI -- printing them
-        # says "a Drobo", not "which Drobo". The three that identify the
-        # unit are masked, separators kept so the line still reads as an
-        # address.
-        redacted_characters, digit_count = [], 0
-        for character in snippet:
-            if character in ":-":
-                redacted_characters.append(character)
-                continue
-            digit_count += 1
-            redacted_characters.append(character if digit_count <= 6 else "*")
-        return "".join(redacted_characters)
+        return _redact_mac(snippet)
     if label == "absolute Windows user path":
-        path_match = _USER_PATH_PARTS.match(snippet)
-        if path_match and path_match.group(2):
-            account_name = path_match.group(2)
-            return (path_match.group(1) + account_name[0]
-                    + "*" * max(len(account_name) - 1, 1))
+        return _redact_user_path(snippet)
     return snippet
 
 
+def _is_skipped(relative_path):
+    """True for a file this scan never reads.
+
+    git ls-files knows nothing of SKIP_DIRS, so they are applied here,
+    to both file lists; otherwise the tracked scan and --all disagree
+    about scope.
+    """
+    if relative_path in SKIP_FILES:
+        return True
+    if os.path.splitext(relative_path)[1].lower() in SKIP_EXTENSIONS:
+        return True
+    return any(part in SKIP_DIRS for part in relative_path.split("/"))
+
+
+def _is_accepted_hit(label, snippet, line, allow_patterns):
+    """True when a match is a known-good one rather than a hit.
+
+    Three rules: a reserved or demo email domain, a private-name match
+    on a credit line, and a reviewed exception from pii_allow.txt.
+    """
+    if label == "email address" and ALLOWED_EMAIL_DOMAIN.search(snippet):
+        return True
+    if label == "private pattern" and CREDIT_CONTEXT.search(line):
+        return True
+    return any(allow_pattern.search(snippet)
+               for allow_pattern in allow_patterns)
+
+
+def _matches_on_line(line, patterns):
+    """(label, snippet) for every match of every pattern on the line.
+
+    Every match, not only the first. Stopping at the first meant an
+    accepted match early in a line -- a reserved test address, a
+    reviewed exception -- hid a real one later on the same line.
+    """
+    for label, pattern in patterns:
+        for match in pattern.finditer(line):
+            yield label, match.group(0).strip()
+
+
+def _line_hits(relative_path, line_number, line, patterns, allow_patterns):
+    """The hits on one line, as (relative_path, line_number, label,
+    snippet) tuples, in pattern order.
+    """
+    return [(relative_path, line_number, label, snippet)
+            for label, snippet in _matches_on_line(line, patterns)
+            if not _is_accepted_hit(label, snippet, line, allow_patterns)]
+
+
+def _scan_lines(relative_path, text_file, patterns, allow_patterns, hits):
+    """Append every hit in an open file to hits, line by line.
+
+    Appending as it goes (rather than returning a list) means the hits
+    from lines read before a read error are kept, as they always were.
+    """
+    for line_number, line in enumerate(text_file, 1):
+        hits.extend(_line_hits(relative_path, line_number, line, patterns,
+                               allow_patterns))
+
+
+def _scan_one_file(relative_path, patterns, allow_patterns, hits):
+    """Append every hit in one repo file to hits; skip it if unreadable.
+
+    Read as UTF-8 with undecodable bytes ignored, so one stray byte
+    neither stops the whole scan nor skips the file; a file that cannot
+    be opened at all is left out, and the rest are still scanned.
+    """
+    try:
+        with open(os.path.join(REPO_ROOT, relative_path),
+                  encoding="utf-8", errors="ignore") as text_file:
+            _scan_lines(relative_path, text_file, patterns, allow_patterns,
+                        hits)
+    except (OSError, UnicodeError):
+        return
+
+
 def scan_files(patterns, allow_patterns, relative_paths):
+    """Every hit in relative_paths, as (relative_path, line_number,
+    label, snippet) tuples, in file then line then pattern order.
+
+    The patterns are tried on every line, and every match is kept, so
+    one accepted match cannot hide a real one beside it.
+    """
     hits = []
     for relative_path in relative_paths:
-        if relative_path in SKIP_FILES:
+        if _is_skipped(relative_path):
             continue
-        if os.path.splitext(relative_path)[1].lower() in SKIP_EXTENSIONS:
-            continue
-        # git ls-files knows nothing of SKIP_DIRS, so apply them to both
-        # file lists; otherwise the tracked scan and --all disagree
-        # about scope.
-        if any(part in SKIP_DIRS for part in relative_path.split("/")):
-            continue
-        try:
-            with open(os.path.join(REPO_ROOT, relative_path),
-                      encoding="utf-8", errors="ignore") as text_file:
-                for lineno, line in enumerate(text_file, 1):
-                    for label, pattern in patterns:
-                        # Every match on the line, not only the first.
-                        # Stopping at the first meant an accepted match
-                        # early in a line -- a reserved test address, a
-                        # reviewed exception -- hid a real one later on
-                        # the same line.
-                        for match in pattern.finditer(line):
-                            snippet = match.group(0).strip()
-                            if (label == "email address"
-                                    and ALLOWED_EMAIL_DOMAIN.search(snippet)):
-                                continue
-                            if (label == "private pattern"
-                                    and CREDIT_CONTEXT.search(line)):
-                                continue
-                            if any(a.search(snippet) for a in allow_patterns):
-                                continue
-                            hits.append((relative_path, lineno, label,
-                                         snippet))
-        except (OSError, UnicodeError):
-            continue
+        _scan_one_file(relative_path, patterns, allow_patterns, hits)
     return hits
 
 
-def main():
-    # --path lets this guard another checkout instead of only the one it
-    # happens to live in. Before this existed, an unknown flag was
-    # silently ignored and you got a clean-looking scan of the WRONG
-    # directory.
-    global REPO_ROOT
+def _parse_arguments():
+    """The command line, parsed.
+
+    --path lets this guard another checkout instead of only the one it
+    happens to live in. Before it existed, an unknown flag was silently
+    ignored and you got a clean-looking scan of the WRONG directory;
+    argparse now rejects one.
+    """
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -369,46 +460,104 @@ def main():
     parser.add_argument("--generic-only", action="store_true",
                         help="skip the private name list and say so; for CI, "
                              "where that list never exists")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def _choose_files(args):
+    """(relative_paths, scope_description) for the scope asked for, or
+    None when --tracked was asked for and this is not a checkout.
+
+    Without --tracked, a tree that is not a checkout is walked instead,
+    and the scope line says so.
+    """
+    if args.all:
+        return walked_files(), "every file in the tree"
+    relative_paths = tracked_files()
+    if relative_paths is not None:
+        return relative_paths, (
+            f"the {len(relative_paths)} files git tracks "
+            f"(use --all for everything)")
+    if args.tracked:
+        # Walking instead would report on a different file set
+        # than the one that was asked for.
+        print(f"Not a git checkout (or git unavailable): {REPO_ROOT}")
+        return None
+    return walked_files(), (
+        "every file in the tree "
+        "(not a git checkout, so nothing is 'tracked')")
+
+
+def _load_private_patterns(generic_only):
+    """(private_patterns, notes), or none at all under --generic-only.
+
+    CI can never hold the private list: it is gitignored by design, and
+    putting the names anywhere a runner can read them would publish
+    them. Saying so beats both alternatives -- failing every run, or
+    calling a scan clean that never looked for names. The hook checks
+    names on every clone that has the list.
+    """
+    if not generic_only:
+        return load_local_patterns()
+    print("  name detection skipped (--generic-only): the private pattern "
+          "list is per-machine and never present in CI")
+    return [], []
+
+
+def _report(hits, private_pattern_notes, generic_only):
+    """Print the verdict and the redacted hits; return the exit code.
+
+    "Clean" is only honest when every category was actually checked:
+    no hits with a warning about the private list is still 1, while
+    --generic-only is 0 because it says out loud that names were not
+    checked, and CI has no way to check them.
+    """
+    if not hits:
+        if private_pattern_notes:
+            print("PII scan: no hits from the patterns that RAN -- but see "
+                  "the warnings above; this is not a clean bill of health.")
+            return 1
+        if generic_only:
+            print("PII scan: clean for the built-in categories — names were "
+                  "not checked here.")
+            return 0
+        print("PII scan: clean — no personal or identifying data found.")
+        return 0
+    print(f"PII scan: {len(hits)} potential hit(s) found:\n")
+    for relative_path, line_number, label, snippet in hits:
+        print(f"  {relative_path}:{line_number}  [{label}]  "
+              f"{redact(label, snippet)}")
+    print("\nReview each hit. Demo accounts (@demo.com) and reserved test "
+          "domains are allowed;\nanything else should be removed, replaced, "
+          "or -- once reviewed -- added to scripts/pii_allow.txt.")
+    return 1
+
+
+def main():
+    """Scan, report, and return the exit code.
+
+    0 is clean (or clean for the built-in categories under
+    --generic-only), 1 is a hit or a category that could not be
+    checked, and 2 is a scan that could not start: a --path that is
+    not a directory, or --tracked outside a checkout. REPO_ROOT is
+    rebound for --path before anything reads it, so every helper
+    (including the pattern loaders) works on the repo being scanned.
+    """
+    global REPO_ROOT
+    args = _parse_arguments()
     if args.path:
         REPO_ROOT = os.path.abspath(args.path)
         if not os.path.isdir(REPO_ROOT):
             print(f"No such directory: {REPO_ROOT}")
             return 2
 
-    if args.all:
-        relative_paths, scope_description = (walked_files(),
-                                             "every file in the tree")
-    else:
-        relative_paths = tracked_files()
-        if relative_paths is None:
-            if args.tracked:
-                # Walking instead would report on a different file set
-                # than the one that was asked for.
-                print(f"Not a git checkout (or git unavailable): {REPO_ROOT}")
-                return 2
-            relative_paths = walked_files()
-            scope_description = (
-                "every file in the tree "
-                "(not a git checkout, so nothing is 'tracked')")
-        else:
-            scope_description = (
-                f"the {len(relative_paths)} files git tracks "
-                f"(use --all for everything)")
+    chosen_files = _choose_files(args)
+    if chosen_files is None:
+        return 2
+    relative_paths, scope_description = chosen_files
 
     print(f"Scanning {REPO_ROOT}")
-    if args.generic_only:
-        # CI can never hold the private list: it is gitignored by
-        # design, and putting the names anywhere a runner can read them
-        # would publish them. Saying so beats both alternatives --
-        # failing every run, or calling a scan clean that never looked
-        # for names. The hook checks names on every clone that has the
-        # list.
-        private_patterns, private_pattern_notes = [], []
-        print("  name detection skipped (--generic-only): the private pattern "
-              "list is per-machine and never present in CI")
-    else:
-        private_patterns, private_pattern_notes = load_local_patterns()
+    private_patterns, private_pattern_notes = _load_private_patterns(
+        args.generic_only)
     allow_patterns, allowlist_notes = load_allowlist()
     for note in private_pattern_notes:
         print(f"  !! {note}")
@@ -421,27 +570,7 @@ def main():
 
     hits = scan_files(BUILTIN_PATTERNS + private_patterns, allow_patterns,
                       relative_paths)
-    if not hits:
-        # "Clean" is only honest when every category
-        # was actually checked.
-        if private_pattern_notes:
-            print("PII scan: no hits from the patterns that RAN -- but see "
-                  "the warnings above; this is not a clean bill of health.")
-            return 1
-        if args.generic_only:
-            print("PII scan: clean for the built-in categories — names were "
-                  "not checked here.")
-            return 0
-        print("PII scan: clean — no personal or identifying data found.")
-        return 0
-    print(f"PII scan: {len(hits)} potential hit(s) found:\n")
-    for relative_path, lineno, label, snippet in hits:
-        print(f"  {relative_path}:{lineno}  [{label}]  "
-              f"{redact(label, snippet)}")
-    print("\nReview each hit. Demo accounts (@demo.com) and reserved test "
-          "domains are allowed;\nanything else should be removed, replaced, "
-          "or -- once reviewed -- added to scripts/pii_allow.txt.")
-    return 1
+    return _report(hits, private_pattern_notes, args.generic_only)
 
 
 if __name__ == "__main__":
