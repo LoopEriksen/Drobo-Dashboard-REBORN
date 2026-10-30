@@ -125,6 +125,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     they do, and units the field names cannot carry are comments.
     Every field keeps its name and order, so the agent's JSON keys are
     unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/netcheck.py`: the interface parser reads one line
+    at a time through named helpers, taking the same decisions in the
+    same order. Private helpers and local names only; every
+    user-visible text is byte-identical. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

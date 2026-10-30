@@ -71,8 +71,8 @@ _HEX_NETMASK_RE = re.compile(r"\b0x([0-9a-fA-F]{8})\b")
 
 @dataclass(frozen=True)
 class Interface:
-    """One IPv4 address this machine holds,
-    and how wide its network is.
+    """
+    One IPv4 address this machine holds, and how wide its network is.
     """
 
     address: str
@@ -84,19 +84,22 @@ class Interface:
 
     @property
     def network(self) -> ipaddress.IPv4Network:
+        """
+        The network this address sits in. strict=False because the
+        address is a host on that network, not its network address.
+        """
         return ipaddress.ip_network(
             f"{self.address}/{self.prefix_length}", strict=False
         )
 
     def network_contains(self, address: ipaddress.IPv4Address) -> bool:
+        """True when `address` is on this interface's network."""
         return address in self.network
 
 
 @dataclass(frozen=True)
 class Diagnosis:
-    """What we can say about `target`
-    from where this machine is standing.
-    """
+    """What we can say about `target` from where this machine stands."""
 
     target: str
     interfaces: tuple[Interface, ...]
@@ -117,18 +120,26 @@ class Diagnosis:
 
     @property
     def message(self) -> str:
-        """Everything, in one string, for a caller with only one field
-        to fill.
+        """
+        Everything, in one string, for a caller with only one field to
+        fill.
         """
         return " ".join(
-            p for p in (self.headline, self.detail, self.caveat) if p
+            part for part in (self.headline, self.detail, self.caveat)
+            if part
         )
 
     def to_dict(self) -> dict:
+        """
+        The diagnosis as JSON-ready values. Networks and addresses are
+        flattened to strings, because a front end only displays them
+        and should not need to know what an Interface is.
+        """
         return {
             "target": self.target,
-            "networks": [str(i.network) for i in self.interfaces],
-            "addresses": [i.address for i in self.interfaces],
+            "networks": [str(interface.network)
+                         for interface in self.interfaces],
+            "addresses": [interface.address for interface in self.interfaces],
             "same_network": self.same_network,
             "assumed_prefix": self.assumed_prefix,
             "headline": self.headline,
@@ -162,10 +173,11 @@ def _prefix_from_mask(dotted_mask: str) -> int | None:
     to raise.
     """
     try:
-        prefix = ipaddress.IPv4Network(f"0.0.0.0/{dotted_mask}").prefixlen
+        prefix_length = ipaddress.IPv4Network(
+            f"0.0.0.0/{dotted_mask}").prefixlen
     except ValueError:
         return None
-    return prefix or None
+    return prefix_length or None
 
 
 def _prefix_from_hex(hex_mask: str) -> int | None:
@@ -232,55 +244,115 @@ def parse_interfaces(text: str) -> list[Interface]:
     pending_address: str | None = None  # an address still waiting for its mask
 
     for line in text.splitlines():
-        cidr_match = _CIDR_RE.search(line)
-        if cidr_match:
-            address, prefix = cidr_match.group(1), int(cidr_match.group(2))
-            pending_address = None
-            if _is_usable_address(address) and 0 < prefix <= 32:
-                interfaces.append(Interface(address, prefix))
-            continue
+        found_interface, pending_address = _scan_line(line, pending_address)
+        if found_interface is not None:
+            interfaces.append(found_interface)
+    return _without_duplicates(interfaces)
 
-        ipv4_tokens = _IPV4_RE.findall(line)
-        hex_mask_match = _HEX_NETMASK_RE.search(line)
 
-        if not ipv4_tokens:
-            if hex_mask_match and pending_address:
-                prefix = _prefix_from_hex(hex_mask_match.group(1))
-                if prefix:
-                    interfaces.append(Interface(pending_address, prefix))
-                pending_address = None
-            continue
+def _scan_line(
+    line: str, pending_address: str | None
+) -> tuple[Interface | None, str | None]:
+    """
+    One line of the listing: the interface it completes (or None) and
+    the address left waiting for a mask afterwards.
 
-        # Split this line's IPv4-shaped tokens into "could be a mask"
-        # and "must be an address". A host address is never a contiguous
-        # netmask, so this classification is exact rather than
-        # heuristic.
-        addresses = [t for t in ipv4_tokens if _prefix_from_mask(t) is None]
-        masks = [p for p in (_prefix_from_mask(t) for t in ipv4_tokens) if p]
+    This is parse_interfaces' state machine, one line at a time. Every
+    line yields at most one interface, so the caller only has to
+    collect them; what to carry to the next line is decided here.
+    """
+    cidr_match = _CIDR_RE.search(line)
+    if cidr_match:
+        return _interface_from_cidr(cidr_match), None
 
-        if addresses:
-            # A new address supersedes any earlier one still waiting:
-            # the previous line's lone address never got a mask, so it
-            # was a gateway, a DNS server, or something else that isn't
-            # ours.
-            line_address = addresses[0]
-            prefix = masks[0] if masks else (
-                _prefix_from_hex(hex_mask_match.group(1))
-                if hex_mask_match else None)
-            if prefix:
-                pending_address = None
-                if _is_usable_address(line_address):
-                    interfaces.append(Interface(line_address, prefix))
-            else:
-                pending_address = (
-                    line_address if _is_usable_address(line_address)
-                    else None)
-            continue
+    ipv4_tokens = _IPV4_RE.findall(line)
+    hex_mask_match = _HEX_NETMASK_RE.search(line)
 
-        if masks and pending_address:
-            interfaces.append(Interface(pending_address, masks[0]))
-            pending_address = None
+    if not ipv4_tokens:
+        return _complete_with_hex_mask(hex_mask_match, pending_address)
 
+    host_addresses, mask_prefix_lengths = _classify_tokens(ipv4_tokens)
+
+    if host_addresses:
+        # A new address supersedes any earlier one still waiting: the
+        # previous line's lone address never got a mask, so it was a
+        # gateway, a DNS server, or something else that isn't ours.
+        prefix_length = mask_prefix_lengths[0] if mask_prefix_lengths else (
+            _prefix_from_hex(hex_mask_match.group(1))
+            if hex_mask_match else None)
+        return _interface_from_address_line(host_addresses[0],
+                                            prefix_length)
+
+    if mask_prefix_lengths and pending_address:
+        return Interface(pending_address, mask_prefix_lengths[0]), None
+    return None, pending_address
+
+
+def _interface_from_cidr(cidr_match: re.Match) -> Interface | None:
+    """The interface an "address/prefix" token names, if usable."""
+    address, prefix_length = cidr_match.group(1), int(cidr_match.group(2))
+    if _is_usable_address(address) and 0 < prefix_length <= 32:
+        return Interface(address, prefix_length)
+    return None
+
+
+def _complete_with_hex_mask(
+    hex_mask_match: re.Match | None, pending_address: str | None
+) -> tuple[Interface | None, str | None]:
+    """
+    A line with no IPv4 token: a hex mask on it completes the waiting
+    address (macOS/BSD print the mask after the address). Once a mask
+    has been seen the waiting address is spent, whether or not the mask
+    was usable; a line with neither leaves the wait as it was.
+    """
+    if not (hex_mask_match and pending_address):
+        return None, pending_address
+    prefix_length = _prefix_from_hex(hex_mask_match.group(1))
+    if not prefix_length:
+        return None, None
+    return Interface(pending_address, prefix_length), None
+
+
+def _classify_tokens(ipv4_tokens: list[str]) -> tuple[list[str], list[int]]:
+    """
+    Split a line's IPv4-shaped tokens into host addresses and the
+    prefix lengths of the netmasks among them.
+
+    A host address is never a contiguous netmask, so this
+    classification is exact rather than heuristic.
+    """
+    host_addresses = [token for token in ipv4_tokens
+                      if _prefix_from_mask(token) is None]
+    mask_prefix_lengths = [
+        prefix_length
+        for prefix_length in (_prefix_from_mask(token)
+                              for token in ipv4_tokens)
+        if prefix_length]
+    return host_addresses, mask_prefix_lengths
+
+
+def _interface_from_address_line(
+    line_address: str, prefix_length: int | None
+) -> tuple[Interface | None, str | None]:
+    """
+    A line that holds an address: with a mask on the same line it is a
+    finished interface (if usable); without one the address waits for
+    a mask on a later line (if usable), and an unusable one waits for
+    nothing.
+    """
+    if prefix_length:
+        if not _is_usable_address(line_address):
+            return None, None
+        return Interface(line_address, prefix_length), None
+    return None, (line_address if _is_usable_address(line_address)
+                  else None)
+
+
+def _without_duplicates(interfaces: list[Interface]) -> list[Interface]:
+    """
+    `interfaces` with each address/prefix pair kept once, at its first
+    place, so an address the listing names twice is reported once.
+    """
     seen: set[tuple[str, int]] = set()
     unique_interfaces: list[Interface] = []
     for interface in interfaces:
@@ -329,17 +401,17 @@ def _routing_probe() -> str:
     A UDP "connect" to a public address sends no packet -- it only asks
     the OS which local address it would use -- so this costs nothing and
     works with no network at all. Returns "" rather than a loopback
-    address on failure: 127. 0.0.1 would be a confident, wrong answer
+    address on failure: 127.0.0.1 would be a confident, wrong answer
     about where this machine lives.
     """
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        probe.connect(("8.8.8.8", 53))
-        address = probe.getsockname()[0]
+        probe_socket.connect(("8.8.8.8", 53))
+        address = probe_socket.getsockname()[0]
     except OSError:
         return ""
     finally:
-        probe.close()
+        probe_socket.close()
     return address if _is_usable_address(address) else ""
 
 
@@ -371,6 +443,10 @@ def local_interfaces(timeout: float = 3.0) -> list[Interface]:
 
 
 def _join_with_and(items: list[str]) -> str:
+    """
+    "a", "a and b", "a, b and c" -- the list as a person would say it,
+    since the result goes straight into a sentence.
+    """
     if len(items) == 1:
         return items[0]
     if len(items) == 2:
@@ -379,7 +455,11 @@ def _join_with_and(items: list[str]) -> str:
 
 
 def _describe_networks(interfaces: tuple[Interface, ...]) -> str:
-    network_names = [str(i.network) for i in interfaces]
+    """
+    The networks this machine is on, in words, the list cut short after
+    _MAX_NETWORKS_LISTED so the sentence stays readable.
+    """
+    network_names = [str(interface.network) for interface in interfaces]
     if len(network_names) <= _MAX_NETWORKS_LISTED:
         return _join_with_and(network_names)
     unlisted_count = len(network_names) - _MAX_NETWORKS_LISTED
@@ -434,6 +514,26 @@ def diagnose(
             headline="", detail="", caveat="",
         )
 
+    headline, detail, caveat = _different_network_texts(
+        networks_description, target_address, any_mask_assumed)
+    return Diagnosis(
+        target=str(target_address), interfaces=known_interfaces,
+        same_network=False, assumed_prefix=any_mask_assumed,
+        headline=headline, detail=detail, caveat=caveat,
+    )
+
+
+def _different_network_texts(
+    networks_description: str, target_address: ipaddress.IPv4Address,
+    any_mask_assumed: bool,
+) -> tuple[str, str, str]:
+    """
+    The headline, detail and caveat for a Drobo on another network.
+
+    The caveat is always there, because a mismatch is only the likely
+    explanation (networks can be routed together), and it says so again
+    when a mask was assumed rather than read.
+    """
     headline = "This PC is on a different network from the Drobo."
     detail = (
         f"It is on {networks_description}, while the Drobo was last seen "
@@ -450,11 +550,7 @@ def diagnose(
             " This PC's subnet mask could not be read, so the usual /24 was "
             "assumed when working that out."
         )
-    return Diagnosis(
-        target=str(target_address), interfaces=known_interfaces,
-        same_network=False, assumed_prefix=any_mask_assumed,
-        headline=headline, detail=detail, caveat=caveat,
-    )
+    return headline, detail, caveat
 
 
 def explain(target: str, interfaces: list[Interface] | None = None) -> str:
