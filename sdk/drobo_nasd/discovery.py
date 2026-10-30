@@ -13,8 +13,8 @@ Discovery, cheapest/most-specific first:
     a) mDNS browse for "_nasd._tcp" (discover_mdns)
     b) resolve a known hostname, e.g. "MyDrobo.local" (resolve_hostname)
     c) a last-known-good IP the caller remembers from before (just a
-    Candidate) d) OPTIONAL last resort: sweep the local /24 for an open
-    nasd port
+       Candidate)
+    d) OPTIONAL last resort: sweep the local /24 for an open nasd port
        (sweep_subnet) -- off unless the caller opts in, because it is
        the slowest and least specific way to find anything.
 
@@ -33,9 +33,11 @@ they raise the bar for a deliberate LAN attacker from "trivial" to "has
 to also fake an address and/or a MAC". A hostile party already on the
 LAN does not need to spoof any of this, because the Drobo itself has
 zero authentication -- the realistic risk here is deception (fake health
-readings reaching the dashboard), not data theft, and this agent never
-writes to the device. Comments below repeat this where it is easy to
-forget.
+readings reaching the dashboard), not data theft. Discovery itself only
+ever reads: the greeting nasd pushes on connect. (This note used to say
+the agent never writes to the device; that stopped being true on
+2026-07-27, when the gated writes in commands.py began.) Comments below
+repeat this where it is easy to forget.
 
 The mDNS piece (_encode_dns_name, _decode_dns_name, _build_mdns_query,
 parse_mdns_response, discover_mdns) is implemented from the
@@ -72,6 +74,19 @@ RECORD_TYPE_A = 1
 RECORD_TYPE_PTR = 12
 RECORD_TYPE_SRV = 33
 
+# Comfortably more labels and pointer jumps than a real name uses. The
+# cap is what stops a packet whose compression pointers form a loop
+# from spinning forever.
+_MAX_NAME_HOPS = 128
+
+# The largest mDNS packet RFC 6762 section 17 allows (9000 bytes,
+# headers included), so recvfrom never truncates a reply.
+_MDNS_RECEIVE_BUFFER_BYTES = 9000
+
+# How long one recvfrom waits before the browse loop checks its overall
+# deadline again.
+_MDNS_RECEIVE_WAIT_SECONDS = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Minimal mDNS client -- query encoding and response decoding.
@@ -79,6 +94,11 @@ RECORD_TYPE_SRV = 33
 
 
 def _encode_dns_name(name: str) -> bytes:
+    """
+    A dotted name as DNS labels (RFC 1035 section 3.1): each label
+    length-prefixed, the whole name ended by a zero byte. Empty labels
+    are skipped, so a trailing dot does not end the name early.
+    """
     encoded = b""
     for label in name.split("."):
         if label:
@@ -86,39 +106,52 @@ def _encode_dns_name(name: str) -> bytes:
     return encoded + b"\x00"
 
 
-def _decode_dns_name(data: bytes, offset: int) -> tuple[str, int]:
-    """Decode a (possibly compressed, RFC 1035 sec 4.1.4) DNS name."""
+def _decode_dns_name(packet: bytes, offset: int) -> tuple[str, int]:
+    """
+    Decode a (possibly compressed, RFC 1035 sec 4.1.4) DNS name.
+
+    Returns the name and the offset just past it in the record being
+    read. After a compression pointer that is the byte after the FIRST
+    pointer, not wherever the jumps ended, because only the pointer
+    itself sits in the record.
+    """
     labels: list[str] = []
-    jumped = False
+    followed_pointer = False
     resume_offset = offset
-    iterations = 0
-    while offset < len(data) and iterations < 128:
-        iterations += 1
-        length = data[offset]
-        if length == 0:
+    label_hops = 0
+    while offset < len(packet) and label_hops < _MAX_NAME_HOPS:
+        label_hops += 1
+        label_length = packet[offset]
+        if label_length == 0:
             offset += 1
             break
-        if length & 0xC0 == 0xC0:
-            if offset + 1 >= len(data):
+        if label_length & 0xC0 == 0xC0:
+            if offset + 1 >= len(packet):
                 break
             pointer = struct.unpack(
-                "!H", data[offset:offset + 2]
+                "!H", packet[offset:offset + 2]
             )[0] & 0x3FFF
-            if not jumped:
-                resume_offset = offset + 2
-            jumped = True
+            resume_offset = (resume_offset if followed_pointer
+                             else offset + 2)
+            followed_pointer = True
             offset = pointer
             continue
         offset += 1
         labels.append(
-            data[offset:offset + length].decode("utf-8", "replace")
+            packet[offset:offset + label_length].decode("utf-8", "replace")
         )
-        offset += length
-    return ".".join(labels), (resume_offset if jumped else offset)
+        offset += label_length
+    return ".".join(labels), (resume_offset if followed_pointer else offset)
 
 
 def _build_mdns_query(question_name: str,
                       question_type: int = RECORD_TYPE_PTR) -> bytes:
+    """
+    One mDNS question for `question_name`, asking for a unicast reply.
+
+    A unicast reply comes straight back to this socket, which is what
+    lets discover_mdns read it without joining the multicast group.
+    """
     header = struct.pack("!HHHHHH", 0, 0, 1, 0, 0, 0)
     # qclass 0x8001 = IN with the "unicast response please" bit set, so
     # a responder answers straight back to us instead of multicasting.
@@ -126,7 +159,7 @@ def _build_mdns_query(question_name: str,
             + struct.pack("!HH", question_type, 0x8001))
 
 
-def parse_mdns_response(data: bytes) -> list[dict]:
+def parse_mdns_response(packet: bytes) -> list[dict]:
     """
     Pull PTR/SRV/A records out of one mDNS/DNS response packet.
 
@@ -138,37 +171,52 @@ def parse_mdns_response(data: bytes) -> list[dict]:
     ...}; SRV records additionally carry "port".
     """
     records: list[dict] = []
-    if len(data) < 12:
+    if len(packet) < 12:
         return records
     (_message_id, _flags, question_count, answer_count, authority_count,
-     additional_count) = struct.unpack("!HHHHHH", data[:12])
+     additional_count) = struct.unpack("!HHHHHH", packet[:12])
     offset = 12
     for _ in range(question_count):
-        _, offset = _decode_dns_name(data, offset)
+        _, offset = _decode_dns_name(packet, offset)
         offset += 4  # qtype + qclass
     for _ in range(answer_count + authority_count + additional_count):
-        if offset >= len(data):
+        if offset >= len(packet):
             break
-        name, offset = _decode_dns_name(data, offset)
-        if offset + 10 > len(data):
+        name, offset = _decode_dns_name(packet, offset)
+        if offset + 10 > len(packet):
             break
         record_type, _record_class, _time_to_live, record_data_length = (
-            struct.unpack("!HHIH", data[offset:offset + 10]))
+            struct.unpack("!HHIH", packet[offset:offset + 10]))
         offset += 10
-        record_data = data[offset:offset + record_data_length]
         record: dict = {"name": name, "type": record_type}
-        if record_type == RECORD_TYPE_PTR:
-            record["value"], _ = _decode_dns_name(data, offset)
-        elif record_type == RECORD_TYPE_A and record_data_length == 4:
-            record["value"] = socket.inet_ntoa(record_data)
-        elif record_type == RECORD_TYPE_SRV and record_data_length >= 6:
-            _priority, _weight, port = struct.unpack("!HHH", record_data[:6])
-            target, _ = _decode_dns_name(data, offset + 6)
-            record["value"] = target
-            record["port"] = port
+        record.update(_record_fields(packet, offset, record_type,
+                                     record_data_length))
         records.append(record)
         offset += record_data_length
     return records
+
+
+def _record_fields(packet: bytes, offset: int, record_type: int,
+                   record_data_length: int) -> dict:
+    """
+    The "value" (and, for SRV, "port") of one record whose data starts
+    at `offset`; {} for a type discovery has no use for.
+
+    A record whose data is too short for its type also gives {}, so the
+    record is still listed by name and type but carries no value read
+    from bytes it does not have.
+    """
+    record_data = packet[offset:offset + record_data_length]
+    if record_type == RECORD_TYPE_PTR:
+        value, _ = _decode_dns_name(packet, offset)
+        return {"value": value}
+    if record_type == RECORD_TYPE_A and record_data_length == 4:
+        return {"value": socket.inet_ntoa(record_data)}
+    if record_type == RECORD_TYPE_SRV and record_data_length >= 6:
+        _priority, _weight, port = struct.unpack("!HHH", record_data[:6])
+        target, _ = _decode_dns_name(packet, offset + 6)
+        return {"value": target, "port": port}
+    return {}
 
 
 @dataclass
@@ -196,8 +244,7 @@ def discover_mdns(timeout: float = 3.0) -> list[Candidate]:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-    sock.settimeout(0.5)
-    candidates_by_host: dict[str, Candidate] = {}
+    sock.settimeout(_MDNS_RECEIVE_WAIT_SECONDS)
     try:
         try:
             sock.sendto(
@@ -206,32 +253,57 @@ def discover_mdns(timeout: float = 3.0) -> list[Candidate]:
             )
         except OSError:
             return []
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                packet, sender_address = sock.recvfrom(9000)
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-            records = parse_mdns_response(packet)
-            if not records:
-                continue
-            port = esatm.DEFAULT_PORT
-            for record in records:
-                if record["type"] == RECORD_TYPE_SRV:
-                    port = record["port"]
-            candidates_by_host.setdefault(
-                sender_address[0], Candidate(sender_address[0], port, "mdns"))
-            for record in records:
-                if record["type"] == RECORD_TYPE_A:
-                    candidates_by_host.setdefault(
-                        record["value"],
-                        Candidate(record["value"], port, "mdns"),
-                    )
+        candidates_by_host = _collect_mdns_replies(sock, timeout)
     finally:
         sock.close()
     return list(candidates_by_host.values())
+
+
+def _collect_mdns_replies(sock: socket.socket,
+                          timeout: float) -> dict[str, Candidate]:
+    """
+    Listen for `timeout` seconds and collect a Candidate per address,
+    the first sighting of each kept.
+
+    Every reply that arrives in the window is read, not just the first:
+    more than one Drobo can be on the LAN, and one Drobo can answer
+    from more than one interface.
+    """
+    candidates_by_host: dict[str, Candidate] = {}
+    listen_deadline = time.time() + timeout
+    while time.time() < listen_deadline:
+        try:
+            packet, sender_address = sock.recvfrom(
+                _MDNS_RECEIVE_BUFFER_BYTES)
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        for candidate in _candidates_from_packet(packet, sender_address):
+            candidates_by_host.setdefault(candidate.host, candidate)
+    return candidates_by_host
+
+
+def _candidates_from_packet(packet: bytes,
+                            sender_address: tuple) -> list[Candidate]:
+    """
+    The candidates one mDNS reply gives: its sender first, then every
+    A-record address in it, all on the SRV record's port (or the nasd
+    default when the reply has no SRV). [] for a packet with no
+    records.
+    """
+    records = parse_mdns_response(packet)
+    if not records:
+        return []
+    port = esatm.DEFAULT_PORT
+    for record in records:
+        if record["type"] == RECORD_TYPE_SRV:
+            port = record["port"]
+    candidates = [Candidate(sender_address[0], port, "mdns")]
+    for record in records:
+        if record["type"] == RECORD_TYPE_A:
+            candidates.append(Candidate(record["value"], port, "mdns"))
+    return candidates
 
 
 def _is_link_local(host: str) -> bool:
@@ -256,19 +328,31 @@ def _is_link_local(host: str) -> bool:
 def resolve_hostname(
     hostname: str, port: int = esatm.DEFAULT_PORT
 ) -> Candidate | None:
-    """b) Resolve a known name, e.g. 'MyDrobo.local',
-    via the OS resolver.
+    """
+    b) Resolve a known name, e.g. 'MyDrobo.local', via the OS resolver.
+
+    The OS resolver rather than a lookup of our own, because it already
+    knows every source the machine uses for names -- the hosts file, the
+    router's DNS, and .local names where the OS speaks mDNS.
     """
     if not hostname:
         return None
     try:
-        ip = socket.gethostbyname(hostname)
+        address = socket.gethostbyname(hostname)
     except OSError:
         return None
-    return Candidate(ip, port, "hostname")
+    return Candidate(address, port, "hostname")
 
 
 def _local_ipv4() -> str:
+    """
+    This machine's IPv4 address on the interface that routes outward,
+    or 127.0.0.1 when it has none.
+
+    Connecting a UDP socket sends no packet; it only makes the OS pick
+    the interface and source address it would use to reach 8.8.8.8,
+    which is the address whose /24 a sweep should cover.
+    """
     probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe_socket.connect(("8.8.8.8", 53))
@@ -290,25 +374,30 @@ def sweep_subnet(
 
     Concurrent and time-bounded -- the per-host timeout is sized so
     that, even in the worst case (every host silently drops the packet),
-    the whole sweep finishes within roughly `time_budget` seconds. The
-    caller has to opt in (see resolve()'s try_sweep); this is never run
-    automatically.
+    the whole sweep finishes within roughly `time_budget` seconds, with
+    `workers` connection attempts in flight at once. The caller has to
+    opt in (see resolve()'s try_sweep); this is never run automatically.
     """
     if cidr is None:
         cidr = str(ipaddress.ip_network(_local_ipv4() + "/24", strict=False))
     network = ipaddress.ip_network(cidr, strict=False)
-    host_addresses = [str(h) for h in network.hosts()]
+    host_addresses = [str(host) for host in network.hosts()]
     if not host_addresses:
         return []
     # ceil(len(host_addresses) / workers)
-    rounds = max(1, -(-len(host_addresses) // workers))
-    per_host_timeout = max(0.05, time_budget / rounds)
+    round_count = max(1, -(-len(host_addresses) // workers))
+    per_host_timeout_seconds = max(0.05, time_budget / round_count)
 
-    def accepts_connection(ip: str) -> bool:
+    def accepts_connection(address: str) -> bool:
+        """
+        True when `address` accepts a TCP connection on `port`. Any
+        failure is False: a host that cannot be reached is simply not a
+        candidate.
+        """
         probe_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe_socket.settimeout(per_host_timeout)
+        probe_socket.settimeout(per_host_timeout_seconds)
         try:
-            return probe_socket.connect_ex((ip, port)) == 0
+            return probe_socket.connect_ex((address, port)) == 0
         except OSError:
             return False
         finally:
@@ -316,8 +405,8 @@ def sweep_subnet(
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         answered_flags = pool.map(accepts_connection, host_addresses)
-        return [Candidate(ip, port, "sweep")
-                for ip, answered in zip(host_addresses, answered_flags)
+        return [Candidate(address, port, "sweep")
+                for address, answered in zip(host_addresses, answered_flags)
                 if answered]
 
 
@@ -347,6 +436,11 @@ _IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 
 
 def _normalize_mac(mac: str) -> str:
+    """
+    One spelling for a MAC address -- colons, lower case -- because
+    Windows writes dashes and a person may type capitals, and the same
+    address must compare equal however it was written.
+    """
     return mac.replace("-", ":").lower()
 
 
@@ -392,18 +486,27 @@ def _read_arp_table_text(timeout: float = 2.0) -> str | None:
             continue
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
-    if not sys.platform.startswith("win"):
-        try:
-            with open("/proc/net/arp", "r", encoding="utf-8") as arp_file:
-                return arp_file.read()
-        except OSError:
-            pass
-    return None
+    if sys.platform.startswith("win"):
+        return None
+    return _read_proc_net_arp()
+
+
+def _read_proc_net_arp() -> str | None:
+    """
+    Linux's ARP table straight from the kernel, or None when it cannot
+    be read -- the fallback for a machine with no 'arp' tool installed.
+    """
+    try:
+        with open("/proc/net/arp", "r", encoding="utf-8") as arp_file:
+            return arp_file.read()
+    except OSError:
+        return None
 
 
 def mac_for_ip(ip: str, timeout: float = 2.0) -> str | None:
-    """Best-effort MAC for `ip` from the local ARP table,
-    or None if unknown.
+    """
+    Best-effort MAC for `ip` from the local ARP table, or None if
+    unknown.
     """
     text = _read_arp_table_text(timeout)
     if text is None:
@@ -423,6 +526,11 @@ def mac_for_ip(ip: str, timeout: float = 2.0) -> str | None:
 
 
 def _in_allowed_subnets(host: str, allowed_subnets: list[str]) -> bool:
+    """
+    True when `host` is inside one of the CIDR ranges. A range that does
+    not parse is skipped rather than raised, so one typo in the config
+    cannot stop every candidate from being tried against the others.
+    """
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
@@ -431,20 +539,30 @@ def _in_allowed_subnets(host: str, allowed_subnets: list[str]) -> bool:
         # identity verification downstream is still the real gate.
         return True
     for cidr in allowed_subnets:
-        try:
-            if address in ipaddress.ip_network(cidr, strict=False):
-                return True
-        except ValueError:
-            continue
+        network = _network_or_none(cidr)
+        if network is not None and address in network:
+            return True
     return False
+
+
+def _network_or_none(
+    cidr: str,
+) -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
+    """The network `cidr` names, or None when it does not parse."""
+    try:
+        return ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return None
 
 
 def filter_allowed_subnets(
     candidates: list[Candidate], allowed_subnets: list[str] | None
 ) -> tuple[list[Candidate], list[Candidate]]:
-    """Split `candidates` into (allowed, rejected) by allowed_subnets. A
+    """
+    Split `candidates` into (allowed, rejected) by allowed_subnets. A
     falsy allowed_subnets means "no restriction configured" --
-    everything passes."""
+    everything passes.
+    """
     if not allowed_subnets:
         return list(candidates), []
     allowed: list[Candidate] = []
@@ -458,6 +576,11 @@ def filter_allowed_subnets(
 def _subnet_reject_message(
     candidate: Candidate, allowed_subnets: list[str]
 ) -> str:
+    """
+    Why `candidate` was refused for its address. It names the ranges
+    and how to change them, because the usual cause is a Drobo or a
+    network moved on purpose, not an impostor.
+    """
     return (
         f"refusing {candidate.host}:{candidate.port} -- its address is "
         f"outside the allowed subnet(s) {', '.join(allowed_subnets)}. "
@@ -478,8 +601,9 @@ def _subnet_reject_message(
 
 
 class IdentityMismatchError(Exception):
-    """A candidate answered, but something about it doesn't match what
-    we expect -- esa_id, MAC, or (via allowed_subnets) address range.
+    """
+    A candidate answered, but something about it doesn't match what we
+    expect -- esa_id, MAC, or (via allowed_subnets) address range.
 
     Raised instead of ever silently connecting to a stranger's NAS. The
     message always names what changed, what was expected, and what was
@@ -491,6 +615,16 @@ class IdentityMismatchError(Exception):
 
 @dataclass
 class VerificationResult:
+    """
+    A candidate that passed verify_candidate, with what it said about
+    itself.
+
+    Returned whole rather than as a bare identity, because the caller
+    needs all of it: where to connect (candidate), what to show and pin
+    (identity, mac), and whether there was anything to check against
+    yet (first_run).
+    """
+
     candidate: Candidate
     identity: dict
     first_run: bool  # True: no expected_esa_id was configured, so we can't
@@ -508,8 +642,8 @@ def verify_candidate(
     timeout: float = 5.0,
 ) -> VerificationResult:
     """
-    Connect to `candidate`, read its unprompted greeting,
-    and check identity.
+    Connect to `candidate`, read its unprompted greeting, and check
+    identity.
 
       - expected_esa_id set and it MATCHES    -> VerificationResult
         (first_run=False)
@@ -531,8 +665,8 @@ def verify_candidate(
         VerificationResult (for the caller to pin next time) but never
         checked.
 
-    Only ever reads the greeting nasd pushes on connect --
-    no command is sent.
+    Only ever reads the greeting nasd pushes on connect -- no command
+    is sent.
     """
     payload = esatm.fetch_greeting(candidate.host, candidate.port, timeout)
     identity = esatm.parse_identity(payload)
@@ -547,32 +681,47 @@ def verify_candidate(
 
     mac = mac_for_ip(candidate.host)
     if expected_mac:
-        normalized_expected_mac = _normalize_mac(expected_mac)
-        if mac is None:
-            warnings.warn(
-                f"could not confirm MAC address for {candidate.host} "
-                f"(expected {normalized_expected_mac}) -- local ARP table "
-                f"unavailable or unreadable, so MAC corroboration is skipped "
-                f"this time. Proceeding on esa_id alone.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        elif mac != normalized_expected_mac:
-            raise IdentityMismatchError(
-                f"refusing {candidate.host}:{candidate.port} -- its MAC "
-                f"address is {mac}, expected {normalized_expected_mac}. "
-                f"esa_id matched (esa_id={esa_id!r}), but the link-layer "
-                f"address changed -- usually this means the Drobo's network "
-                f"adapter or cable was swapped (or you moved to a different "
-                f"unit that happens to share the pinned esa_id by "
-                f"coincidence). If this was an intentional hardware change, "
-                f"update expected_mac; otherwise treat this as suspicious and "
-                f"investigate before trusting it."
-            )
+        _check_mac(candidate, esa_id, mac, expected_mac)
 
     return VerificationResult(
         candidate, identity, first_run=not expected_esa_id, mac=mac
     )
+
+
+def _check_mac(candidate: Candidate, esa_id: str, mac: str | None,
+               expected_mac: str) -> None:
+    """
+    Refuse a candidate whose MAC is known and differs from
+    expected_mac; warn, and let it through, when the MAC is unknown.
+
+    The warning is attributed to whoever called verify_candidate
+    (stacklevel=3: this helper, then verify_candidate, then its
+    caller), the same line it pointed at before this check moved out
+    of verify_candidate.
+    """
+    normalized_expected_mac = _normalize_mac(expected_mac)
+    if mac is None:
+        warnings.warn(
+            f"could not confirm MAC address for {candidate.host} "
+            f"(expected {normalized_expected_mac}) -- local ARP table "
+            f"unavailable or unreadable, so MAC corroboration is skipped "
+            f"this time. Proceeding on esa_id alone.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return
+    if mac != normalized_expected_mac:
+        raise IdentityMismatchError(
+            f"refusing {candidate.host}:{candidate.port} -- its MAC "
+            f"address is {mac}, expected {normalized_expected_mac}. "
+            f"esa_id matched (esa_id={esa_id!r}), but the link-layer "
+            f"address changed -- usually this means the Drobo's network "
+            f"adapter or cable was swapped (or you moved to a different "
+            f"unit that happens to share the pinned esa_id by "
+            f"coincidence). If this was an intentional hardware change, "
+            f"update expected_mac; otherwise treat this as suspicious and "
+            f"investigate before trusting it."
+        )
 
 
 def _gather_candidates(
@@ -625,6 +774,17 @@ def _gather_candidates(
     if try_sweep:
         candidates.extend(sweep_subnet(port=port))
 
+    ordered = _without_duplicates(candidates)
+    ordered.sort(key=lambda candidate: _is_link_local(candidate.host))
+    return ordered
+
+
+def _without_duplicates(candidates: list[Candidate]) -> list[Candidate]:
+    """
+    `candidates` with each host:port kept only at its first, highest
+    priority, place -- so an address found two ways is tried once, as
+    the better source.
+    """
     seen: set[tuple[str, int]] = set()
     ordered: list[Candidate] = []
     for candidate in candidates:
@@ -633,7 +793,6 @@ def _gather_candidates(
             continue
         seen.add(key)
         ordered.append(candidate)
-    ordered.sort(key=lambda c: _is_link_local(c.host))
     return ordered
 
 
@@ -706,8 +865,19 @@ def resolve(
             "found device(s) on the network, but none matched the expected "
             "Drobo:\n  " + "\n  ".join(mismatches)
         )
-    tried = ", ".join(f"{c.host}:{c.port} ({c.source})" for c in candidates)
-    raise LookupError(
+    raise _not_found_error(candidates, try_sweep)
+
+
+def _not_found_error(candidates: list[Candidate],
+                     try_sweep: bool) -> LookupError:
+    """
+    The "nothing answered" error, naming every address tried and how it
+    was found, and whether the sweep ran -- the three things someone
+    needs to work out why their Drobo was not seen.
+    """
+    tried = ", ".join(f"{candidate.host}:{candidate.port} ({candidate.source})"
+                      for candidate in candidates)
+    return LookupError(
         "no Drobo found. Tried: "
         + (tried if tried else
            "nothing -- mDNS, hostname, and last-known IP all came up empty")

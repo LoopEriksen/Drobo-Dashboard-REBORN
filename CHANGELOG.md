@@ -112,6 +112,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     steps, and the login goes through sysinfo's shared helper. Every
     refusal, its order and message, and every byte sent to the Drobo
     are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/discovery.py`: browsing, verifying and resolving
+    read as named steps; for testers who call it by keyword,
+    `parse_mdns_response(data)` -> `parse_mdns_response(packet)`
+    (positional calls are unaffected). Every message, the order in
+    which candidates are tried and the identity check are as they
+    were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
