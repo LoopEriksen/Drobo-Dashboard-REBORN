@@ -299,6 +299,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/DroboAppRow.cs`: each DroboApp-row
     property says what it is for, including why an app's name is never
     reworded. Doc comments only; no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/DroboSettings.cs`: one reader per
+    `settings.json` section, called in the same order inside the same
+    error handling. Every settings key and value is as it was.
+    (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
