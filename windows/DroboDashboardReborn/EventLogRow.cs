@@ -11,6 +11,8 @@ namespace DroboDashboardReborn;
 /// </summary>
 public sealed class EventLogRow
 {
+    /// <summary>The chip's label: the severity in capitals, or "LOG" when
+    /// the agent gives the line none, so the chip is never blank.</summary>
     public string SeverityText { get; set; } = "";
 
     /// <summary>When the entry happened, as local wall-clock text
@@ -19,6 +21,8 @@ public sealed class EventLogRow
 
     public string Message { get; set; } = "";
 
+    /// <summary>The chip's colours, from the same severity table AlertRow
+    /// uses, so a log line and an alert of one severity look alike.</summary>
     public Brush ChipBackground { get; set; } = Brushes.Transparent;
     public Brush SeverityBrush { get; set; } = Brushes.Gray;
 }

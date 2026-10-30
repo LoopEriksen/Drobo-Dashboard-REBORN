@@ -303,6 +303,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `settings.json` section, called in the same order inside the same
     error handling. Every settings key and value is as it was.
     (2026-10-29)
+  - `windows/DroboDashboardReborn/EventLogRow.cs`: the chip fields say
+    what they hold and why the label falls back to "LOG". Comments
+    only; no property is renamed. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
