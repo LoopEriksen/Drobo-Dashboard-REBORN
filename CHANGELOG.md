@@ -287,6 +287,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/DiagnosticsChoiceDialog.xaml.cs`: the
     choice and why it defaults to Cancelled are documented. Doc
     comments only. (2026-10-29)
+  - `windows/DroboDashboardReborn/DiagnosticsReport.cs`: one helper per
+    report section, in the same order as before. Every heading, label,
+    format and JSON key read is as it was. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

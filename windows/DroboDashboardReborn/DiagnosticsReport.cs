@@ -22,143 +22,206 @@ internal static class DiagnosticsReport
     /// and forwarded on somewhere the on-screen warning is long gone.</summary>
     public static string BuildText(string json)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("Drobo Dashboard REBORN -- Diagnostics");
-        sb.AppendLine("Generated " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
-        sb.AppendLine();
-        sb.AppendLine("This file includes your drive serial numbers, and -- when the Drobo could");
-        sb.AppendLine("not be reached -- the private network addresses of this PC. Check who you");
-        sb.AppendLine("send it to before sharing it anywhere public (forums, support tickets, etc).");
-        sb.AppendLine();
+        var report = new StringBuilder();
+        report.AppendLine("Drobo Dashboard REBORN -- Diagnostics");
+        report.AppendLine("Generated " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        report.AppendLine();
+        report.AppendLine("This file includes your drive serial numbers, and -- when the Drobo could");
+        report.AppendLine("not be reached -- the private network addresses of this PC. Check who you");
+        report.AppendLine("send it to before sharing it anywhere public (forums, support tickets, etc).");
+        report.AppendLine();
 
         try
         {
             using var doc = JsonDocument.Parse(json);
-            AppendSummary(sb, doc.RootElement);
+            AppendSummary(report, doc.RootElement);
         }
         catch (Exception ex)
         {
-            sb.AppendLine("Could not read the agent's response as JSON (" + ex.Message + ") -- see the raw text below.");
-            sb.AppendLine();
+            report.AppendLine("Could not read the agent's response as JSON (" + ex.Message + ") -- see the raw text below.");
+            report.AppendLine();
         }
 
-        sb.AppendLine(new string('-', 72));
-        sb.AppendLine("RAW JSON (for support tickets or advanced troubleshooting)");
-        sb.AppendLine(new string('-', 72));
-        sb.AppendLine(json);
-        return sb.ToString();
+        report.AppendLine(new string('-', 72));
+        report.AppendLine("RAW JSON (for support tickets or advanced troubleshooting)");
+        report.AppendLine(new string('-', 72));
+        report.AppendLine(json);
+        return report.ToString();
     }
 
-    private static void AppendSummary(StringBuilder sb, JsonElement root)
+    /// <summary>
+    /// The human-readable part, one heading per section, in the order a
+    /// reader needs them: why the Drobo was unreachable (if known), then
+    /// the device, capacity, drives, recent events and performance.
+    /// Sections the reply does not carry are left out rather than printed
+    /// empty.
+    /// </summary>
+    private static void AppendSummary(StringBuilder report, JsonElement root)
     {
+        // Read before anything is written, as it always has been: a reply
+        // with no "device" throws here, and BuildText reports that instead.
         var device = root.GetProperty("device");
-        var reachable = root.TryGetProperty("reachable", out var r) && r.ValueKind == JsonValueKind.True;
+        var reachable = root.TryGetProperty("reachable", out var reachableElement)
+                        && reachableElement.ValueKind == JsonValueKind.True;
 
-        // First, before any device fields: if the Drobo could not be reached
-        // and the agent worked out why, that is the whole story and everything
-        // below it is stale. A report that opens with an empty DEVICE block
-        // reads as "the NAS is broken" when the answer may be that this PC is
-        // on the wrong network -- and the person reading the report is often
-        // not the person who generated it.
-        if (root.TryGetProperty("network_hint", out var hint) && hint.ValueKind == JsonValueKind.Object)
-        {
-            sb.AppendLine("WHY THE DROBO COULD NOT BE REACHED");
-            sb.AppendLine("  " + GetStringOr(hint, "headline", ""));
-            sb.AppendLine("  " + GetStringOr(hint, "detail", ""));
-            var caveat = GetStringOr(hint, "caveat", "");
-            if (caveat.Length > 0) sb.AppendLine("  " + caveat);
-            sb.AppendLine();
-        }
+        AppendNetworkHint(report, root);
+        AppendDevice(report, root, device, reachable);
+        AppendCapacity(report, root);
+        AppendDrives(report, root);
+        AppendRecentEvents(report, root);
+        AppendPerformance(report, root);
+    }
 
-        sb.AppendLine("DEVICE");
-        AppendField(sb, "Name", GetStringOr(device, "name", "Drobo"));
-        AppendField(sb, "Model", GetStringOr(device, "model", ""));
-        AppendField(sb, "Firmware", GetStringOr(device, "firmware", "?"));
-        AppendField(sb, "Address", GetStringOr(device, "ip", ""));
-        AppendField(sb, "Status", GetStringOr(root, "overall_state", "unknown") + (reachable ? "" : "  (unreachable)"));
-        AppendField(sb, "Uptime", FormatUptime(GetInt64OrZero(device, "uptime_seconds")));
+    /// <summary>
+    /// First, before any device fields: if the Drobo could not be reached
+    /// and the agent worked out why, that is the whole story and everything
+    /// below it is stale. A report that opens with an empty DEVICE block
+    /// reads as "the NAS is broken" when the answer may be that this PC is
+    /// on the wrong network -- and the person reading the report is often
+    /// not the person who generated it.
+    /// </summary>
+    private static void AppendNetworkHint(StringBuilder report, JsonElement root)
+    {
+        if (!root.TryGetProperty("network_hint", out var hint) || hint.ValueKind != JsonValueKind.Object) return;
+
+        report.AppendLine("WHY THE DROBO COULD NOT BE REACHED");
+        report.AppendLine("  " + GetStringOr(hint, "headline", ""));
+        report.AppendLine("  " + GetStringOr(hint, "detail", ""));
+        var caveat = GetStringOr(hint, "caveat", "");
+        if (caveat.Length > 0) report.AppendLine("  " + caveat);
+        report.AppendLine();
+    }
+
+    /// <summary>The DEVICE block, always written: name, model, firmware,
+    /// address, overall state and uptime, plus the firmware note when the
+    /// agent flags the installed build.</summary>
+    private static void AppendDevice(StringBuilder report, JsonElement root, JsonElement device, bool reachable)
+    {
+        report.AppendLine("DEVICE");
+        AppendField(report, "Name", GetStringOr(device, "name", "Drobo"));
+        AppendField(report, "Model", GetStringOr(device, "model", ""));
+        AppendField(report, "Firmware", GetStringOr(device, "firmware", "?"));
+        AppendField(report, "Address", GetStringOr(device, "ip", ""));
+        AppendField(report, "Status", GetStringOr(root, "overall_state", "unknown") + (reachable ? "" : "  (unreachable)"));
+        AppendField(report, "Uptime", FormatUptime(GetInt64OrZero(device, "uptime_seconds")));
         // Sits with the version it is about. Only present for the builds Drobo
         // withdrew, and worth carrying into a support thread: anyone reading
         // this report otherwise has to know the 5N's release history to spot it.
-        if (root.TryGetProperty("firmware_advisory", out var fw)
-            && fw.ValueKind == JsonValueKind.Object
-            && fw.TryGetProperty("notable", out var n) && n.ValueKind == JsonValueKind.True)
+        if (root.TryGetProperty("firmware_advisory", out var firmwareAdvisory)
+            && firmwareAdvisory.ValueKind == JsonValueKind.Object
+            && firmwareAdvisory.TryGetProperty("notable", out var notable) && notable.ValueKind == JsonValueKind.True)
         {
-            AppendField(sb, "Firmware note", GetStringOr(fw, "headline", ""));
+            AppendField(report, "Firmware note", GetStringOr(firmwareAdvisory, "headline", ""));
         }
-        sb.AppendLine();
-
-        if (root.TryGetProperty("capacity", out var cap) && cap.ValueKind == JsonValueKind.Object)
-        {
-            sb.AppendLine("CAPACITY");
-            double frac = cap.TryGetProperty("used_fraction", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDouble() : 0;
-            AppendField(sb, "Used", $"{FormatBytes(GetInt64OrZero(cap, "used_bytes"))}  ({frac * 100:0.0}%)");
-            AppendField(sb, "Free", FormatBytes(GetInt64OrZero(cap, "free_bytes")));
-            AppendField(sb, "Usable", FormatBytes(GetInt64OrZero(cap, "usable_bytes")));
-            AppendField(sb, "Protection", FormatBytes(GetInt64OrZero(cap, "protection_bytes")));
-            AppendField(sb, "Raw", FormatBytes(GetInt64OrZero(cap, "raw_bytes")));
-            sb.AppendLine();
-        }
-
-        if (root.TryGetProperty("drives", out var drives) && drives.ValueKind == JsonValueKind.Array)
-        {
-            sb.AppendLine("DRIVES");
-            foreach (var d in drives.EnumerateArray())
-            {
-                int bay = d.TryGetProperty("bay", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt32() : 0;
-                bool present = d.TryGetProperty("present", out var p) && p.ValueKind == JsonValueKind.True;
-                if (!present)
-                {
-                    sb.AppendLine($"  Bay {bay}   empty");
-                    continue;
-                }
-
-                var state = GetStringOr(d, "state", "unknown");
-                var model = GetStringOr(d, "model", "disk");
-                var serial = GetStringOr(d, "serial", "");
-                double? tempC = d.TryGetProperty("temperature_c", out var t) && t.ValueKind == JsonValueKind.Number
-                    ? t.GetDouble() : (double?)null;
-                var tail = tempC.HasValue ? $"{tempC:0.0}C" : "";
-                sb.AppendLine($"  Bay {bay}   {state,-8} {model}   serial {serial}   {tail}".TrimEnd());
-            }
-            sb.AppendLine();
-        }
-
-        if (root.TryGetProperty("event_log", out var events) && events.ValueKind == JsonValueKind.Array
-            && events.GetArrayLength() > 0)
-        {
-            sb.AppendLine("RECENT EVENTS");
-            foreach (var e in events.EnumerateArray())
-                sb.AppendLine($"  {GetStringOr(e, "ts_iso", "?"),-20} {GetStringOr(e, "severity", "info"),-8} {GetStringOr(e, "message", "")}");
-            sb.AppendLine();
-        }
-
-        if (root.TryGetProperty("performance", out var perf) && perf.ValueKind == JsonValueKind.Object)
-        {
-            sb.AppendLine("PERFORMANCE");
-            AppendField(sb, "Read", GetInt64OrZero(perf, "read_mb_per_s") + " MB/s");
-            AppendField(sb, "Write", GetInt64OrZero(perf, "write_mb_per_s") + " MB/s");
-            AppendField(sb, "IOPS", GetInt64OrZero(perf, "iops").ToString());
-            // When the Drobo sent these: a failed fetch keeps the last figures,
-            // so they can be much older than the report.
-            if (perf.TryGetProperty("measured_at", out var measuredAt) && measuredAt.ValueKind == JsonValueKind.Number)
-                AppendField(sb, "Measured at", DateTimeOffset.FromUnixTimeMilliseconds((long)(measuredAt.GetDouble() * 1000))
-                    .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
-            sb.AppendLine();
-        }
+        report.AppendLine();
     }
 
-    private static void AppendField(StringBuilder sb, string label, string value) =>
-        sb.AppendLine($"  {label,-12}{value}");
-
-    private static string FormatUptime(long sec)
+    /// <summary>The CAPACITY block, in bytes formatted for reading, with the
+    /// used share as a percentage.</summary>
+    private static void AppendCapacity(StringBuilder report, JsonElement root)
     {
-        if (sec <= 0) return "just started";
-        var d = sec / 86400;
-        var h = (sec % 86400) / 3600;
-        var m = (sec % 3600) / 60;
-        if (d > 0) return $"{d} day{(d == 1 ? "" : "s")}" + (h > 0 ? $" {h}h" : "");
-        if (h > 0) return $"{h}h" + (m > 0 ? $" {m}m" : "");
-        return $"{Math.Max(1, m)}m";
+        if (!root.TryGetProperty("capacity", out var capacity) || capacity.ValueKind != JsonValueKind.Object) return;
+
+        report.AppendLine("CAPACITY");
+        double usedFraction = capacity.TryGetProperty("used_fraction", out var usedFractionElement)
+                              && usedFractionElement.ValueKind == JsonValueKind.Number
+            ? usedFractionElement.GetDouble() : 0;
+        AppendField(report, "Used", $"{FormatBytes(GetInt64OrZero(capacity, "used_bytes"))}  ({usedFraction * 100:0.0}%)");
+        AppendField(report, "Free", FormatBytes(GetInt64OrZero(capacity, "free_bytes")));
+        AppendField(report, "Usable", FormatBytes(GetInt64OrZero(capacity, "usable_bytes")));
+        AppendField(report, "Protection", FormatBytes(GetInt64OrZero(capacity, "protection_bytes")));
+        AppendField(report, "Raw", FormatBytes(GetInt64OrZero(capacity, "raw_bytes")));
+        report.AppendLine();
+    }
+
+    /// <summary>The DRIVES block: one line per bay, empty bays included so
+    /// the reader can see which slots are free.</summary>
+    private static void AppendDrives(StringBuilder report, JsonElement root)
+    {
+        if (!root.TryGetProperty("drives", out var drives) || drives.ValueKind != JsonValueKind.Array) return;
+
+        report.AppendLine("DRIVES");
+        foreach (var drive in drives.EnumerateArray())
+            AppendDriveLine(report, drive);
+        report.AppendLine();
+    }
+
+    /// <summary>One bay's line. The serial is included on purpose, which is
+    /// why BuildText's header warns about sharing the file.</summary>
+    private static void AppendDriveLine(StringBuilder report, JsonElement drive)
+    {
+        int bay = drive.TryGetProperty("bay", out var bayElement) && bayElement.ValueKind == JsonValueKind.Number
+            ? bayElement.GetInt32() : 0;
+        bool present = drive.TryGetProperty("present", out var presentElement)
+                       && presentElement.ValueKind == JsonValueKind.True;
+        if (!present)
+        {
+            report.AppendLine($"  Bay {bay}   empty");
+            return;
+        }
+
+        var state = GetStringOr(drive, "state", "unknown");
+        var model = GetStringOr(drive, "model", "disk");
+        var serial = GetStringOr(drive, "serial", "");
+        double? tempC = drive.TryGetProperty("temperature_c", out var temperatureElement)
+                        && temperatureElement.ValueKind == JsonValueKind.Number
+            ? temperatureElement.GetDouble() : (double?)null;
+        var temperatureText = tempC.HasValue ? $"{tempC:0.0}C" : "";
+        report.AppendLine($"  Bay {bay}   {state,-8} {model}   serial {serial}   {temperatureText}".TrimEnd());
+    }
+
+    /// <summary>The RECENT EVENTS block, left out entirely when the log is
+    /// empty or missing so an empty heading does not suggest a fault.</summary>
+    private static void AppendRecentEvents(StringBuilder report, JsonElement root)
+    {
+        if (!root.TryGetProperty("event_log", out var events) || events.ValueKind != JsonValueKind.Array
+            || events.GetArrayLength() <= 0) return;
+
+        report.AppendLine("RECENT EVENTS");
+        foreach (var logEntry in events.EnumerateArray())
+            report.AppendLine($"  {GetStringOr(logEntry, "ts_iso", "?"),-20} {GetStringOr(logEntry, "severity", "info"),-8} {GetStringOr(logEntry, "message", "")}");
+        report.AppendLine();
+    }
+
+    /// <summary>The PERFORMANCE block, with the time the Drobo measured the
+    /// figures when the agent knows it.</summary>
+    private static void AppendPerformance(StringBuilder report, JsonElement root)
+    {
+        if (!root.TryGetProperty("performance", out var performance) || performance.ValueKind != JsonValueKind.Object) return;
+
+        report.AppendLine("PERFORMANCE");
+        AppendField(report, "Read", GetInt64OrZero(performance, "read_mb_per_s") + " MB/s");
+        AppendField(report, "Write", GetInt64OrZero(performance, "write_mb_per_s") + " MB/s");
+        AppendField(report, "IOPS", GetInt64OrZero(performance, "iops").ToString());
+        // When the Drobo sent these: a failed fetch keeps the last figures,
+        // so they can be much older than the report.
+        if (performance.TryGetProperty("measured_at", out var measuredAtUnixSeconds)
+            && measuredAtUnixSeconds.ValueKind == JsonValueKind.Number)
+            AppendField(report, "Measured at", DateTimeOffset.FromUnixTimeMilliseconds((long)(measuredAtUnixSeconds.GetDouble() * 1000))
+                .ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        report.AppendLine();
+    }
+
+    /// <summary>One indented "label  value" line. The fixed 12-column label
+    /// keeps every block's values lined up in a plain-text file.</summary>
+    private static void AppendField(StringBuilder report, string label, string value) =>
+        report.AppendLine($"  {label,-12}{value}");
+
+    /// <summary>
+    /// Uptime as a reader would say it ("3 days 4h", "2h 5m", "7m"), since
+    /// a raw seconds count means nothing at a glance. Zero or less reads
+    /// "just started" -- and so does a missing or null uptime_seconds,
+    /// which GetInt64OrZero turns into 0. Under a minute reads "1m", not
+    /// "0m".
+    /// </summary>
+    private static string FormatUptime(long uptimeSeconds)
+    {
+        if (uptimeSeconds <= 0) return "just started";
+        var days = uptimeSeconds / 86400;
+        var hours = (uptimeSeconds % 86400) / 3600;
+        var minutes = (uptimeSeconds % 3600) / 60;
+        if (days > 0) return $"{days} day{(days == 1 ? "" : "s")}" + (hours > 0 ? $" {hours}h" : "");
+        if (hours > 0) return $"{hours}h" + (minutes > 0 ? $" {minutes}m" : "");
+        return $"{Math.Max(1, minutes)}m";
     }
 }
