@@ -78,7 +78,10 @@ except ImportError:  # pragma: no cover
 #: function's strings.
 DEFAULT_WINDOW_BYTES = 400
 
-_STRING_RE = re.compile(rb"[\x20-\x7e]{3,}")
+#: A printable run of three characters or more. Three is the shortest
+#: tag worth reporting (_TAG_RE asks for the same), and anything shorter
+#: is mostly opcode bytes that happen to be printable.
+_PRINTABLE_RUN_RE = re.compile(rb"[\x20-\x7e]{3,}")
 
 #: An XML tag name as this firmware writes them: CamelCase, no spaces,
 #: no punctuation. Deliberately strict -- the cost of a loose filter is
@@ -99,11 +102,23 @@ _NOISE_WORDS = {
     "Success", "Failure", "Status", "Type", "Name", "Value", "Data",
 }
 
+#: A bare command name shorter than this (once "eCmd" is stripped) would
+#: match too many unrelated debug strings to be an anchor.
+_MIN_BARE_NAME_CHARS = 4
 
-def extract_strings(blob: bytes) -> list[tuple[int, str]]:
-    """Every printable run in the binary, with its file offset."""
+#: How many candidates are printed per command; the rest are weaker,
+#: since the list is sorted by hit count.
+MAX_CANDIDATES_SHOWN = 12
+
+
+def extract_strings(binary_bytes: bytes) -> list[tuple[int, str]]:
+    """Every printable run in the binary, with its file offset.
+
+    The offset is kept because nearness to a handler's string is the
+    whole of the evidence this tool offers.
+    """
     return [(match.start(), match.group().decode("ascii", "replace"))
-            for match in _STRING_RE.finditer(blob)]
+            for match in _PRINTABLE_RUN_RE.finditer(binary_bytes)]
 
 
 def find_markers(strings: list[tuple[int, str]],
@@ -135,20 +150,26 @@ def find_markers(strings: list[tuple[int, str]],
 
     bare_name = (command_name[4:] if command_name.startswith("eCmd")
                  else command_name)
-    if len(bare_name) >= 4:
-        for string_offset, text in strings:
-            # "::" restricts this to C++ symbol/debug strings, so a
-            # command like eCmdGetConfig doesn't match every log line
-            # mentioning "GetConfig" in passing.
-            if (bare_name in text and "::" in text
-                    and (string_offset, text) not in markers):
-                markers.append((string_offset, text))
+    if len(bare_name) < _MIN_BARE_NAME_CHARS:
+        return markers
+    for string_offset, text in strings:
+        # "::" restricts this to C++ symbol/debug strings, so a
+        # command like eCmdGetConfig doesn't match every log line
+        # mentioning "GetConfig" in passing.
+        if (bare_name in text and "::" in text
+                and (string_offset, text) not in markers):
+            markers.append((string_offset, text))
     return markers
 
 
 def candidates_near(strings: list[tuple[int, str]], offset: int,
                     window: int = DEFAULT_WINDOW_BYTES) -> list[str]:
-    """Tag-shaped strings within `window` bytes of `offset`."""
+    """Tag-shaped strings within `window` bytes of `offset`.
+
+    Command names and _NOISE_WORDS are left out: the names sit in their
+    own table and the noise words are everywhere, so neither says
+    anything about this handler's parameters.
+    """
     candidates: list[str] = []
     for string_offset, text in strings:
         if abs(string_offset - offset) > window:
@@ -159,26 +180,27 @@ def candidates_near(strings: list[tuple[int, str]], offset: int,
     return candidates
 
 
-def analyse_command(blob: bytes, command_name: str,
+def analyse_command(binary_bytes: bytes, command_name: str,
                     window: int = DEFAULT_WINDOW_BYTES) -> dict:
     """Candidate tag names associated with one command.
 
     Named for what it analyses: one command at a time, so a run over
     every command is just a loop over this.
     """
-    strings = extract_strings(blob)
-    markers = find_markers(strings, command_name)
-    tag_hits: dict[str, int] = {}
-    for string_offset, _ in markers:
+    strings = extract_strings(binary_bytes)
+    handler_markers = find_markers(strings, command_name)
+    tag_hit_counts: dict[str, int] = {}
+    for string_offset, _ in handler_markers:
         for tag in candidates_near(strings, string_offset, window):
-            tag_hits[tag] = tag_hits.get(tag, 0) + 1
+            tag_hit_counts[tag] = tag_hit_counts.get(tag, 0) + 1
     return {
         "command": command_name,
         "id": COMMANDS.get(command_name),
-        "markers": len(markers),
+        "markers": len(handler_markers),
         # Most-repeated first: a tag near several of a command's markers
         # is a better bet than one seen beside a single log line.
-        "candidates": sorted(tag_hits, key=lambda tag: (-tag_hits[tag], tag)),
+        "candidates": sorted(tag_hit_counts,
+                             key=lambda tag: (-tag_hit_counts[tag], tag)),
     }
 
 
@@ -188,7 +210,7 @@ def analyse_command(blob: bytes, command_name: str,
 # ---------------------------------------------------------------------------
 
 #: (anchor string, tags we CONFIRMED independently by measurement)
-_KNOWN_GOOD = [
+_KNOWN_GOOD_ANCHORS = [
     # From the live 5N's eCmdGetPerformance reply --
     # see docs/command-surface.md.
     ("ESADevice::GetPerformance",
@@ -200,21 +222,34 @@ _KNOWN_GOOD = [
 ]
 
 
-def validate(blob: bytes, window: int = DEFAULT_WINDOW_BYTES
+def _tags_near_anchor(strings: list[tuple[int, str]], anchor: str,
+                      window: int) -> set[str]:
+    """Every candidate tag near any string that contains `anchor`."""
+    found: set[str] = set()
+    for string_offset, text in strings:
+        if anchor in text:
+            found.update(candidates_near(strings, string_offset, window))
+    return found
+
+
+def validate(binary_bytes: bytes, window: int = DEFAULT_WINDOW_BYTES
              ) -> list[tuple[str, set, set]]:
-    """Returns [(anchor, expected, found)] for each known-good case."""
-    strings = extract_strings(blob)
-    results = []
-    for anchor, expected in _KNOWN_GOOD:
-        found: set[str] = set()
-        for string_offset, text in strings:
-            if anchor in text:
-                found.update(candidates_near(strings, string_offset, window))
-        results.append((anchor, expected, found))
-    return results
+    """Returns [(anchor, expected, found)] for each known-good case.
+
+    The method has to reproduce tags already measured on the wire
+    before anything else it prints deserves trust; see the section
+    comment above.
+    """
+    strings = extract_strings(binary_bytes)
+    validation_results = []
+    for anchor, expected in _KNOWN_GOOD_ANCHORS:
+        found = _tags_near_anchor(strings, anchor, window)
+        validation_results.append((anchor, expected, found))
+    return validation_results
 
 
-def main(argv=None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
+    """The command line."""
     parser = argparse.ArgumentParser(
         description="Recover candidate command parameters "
                     "from the nasd binary.")
@@ -231,38 +266,34 @@ def main(argv=None) -> int:
     parser.add_argument("--min", type=int, default=1,
                         help="only show commands with "
                              "at least this many candidates")
-    args = parser.parse_args(argv)
+    return parser
 
-    if not os.path.exists(args.binary):
-        print(f"No such file: {args.binary}")
-        return 2
-    blob = open(args.binary, "rb").read()
 
-    if args.validate:
-        print("\nDoes this method rediscover what we already measured "
-              "on the wire?\n")
-        all_reproduced = True
-        for anchor, expected, found in validate(blob, args.window):
-            missing = expected - found
-            verdict = "PASS" if not missing else "FAIL"
-            if missing:
-                all_reproduced = False
-            print(f"  {verdict}  {anchor}")
-            print(f"        expected: {', '.join(sorted(expected))}")
-            if missing:
-                print(f"        MISSING:  {', '.join(sorted(missing))}")
-        print("\n" + ("The method reproduces known-good results.\n"
-                      if all_reproduced else
-                      "The method FAILED to reproduce known results -- do "
-                      "not trust its other output.\n"))
-        return 0 if all_reproduced else 1
+def _run_validation(binary_bytes: bytes, window: int) -> int:
+    """--validate: print each known-good case and return 0 only when
+    every one is reproduced."""
+    print("\nDoes this method rediscover what we already measured "
+          "on the wire?\n")
+    all_reproduced = True
+    for anchor, expected, found in validate(binary_bytes, window):
+        missing = expected - found
+        verdict = "PASS" if not missing else "FAIL"
+        if missing:
+            all_reproduced = False
+        print(f"  {verdict}  {anchor}")
+        print(f"        expected: {', '.join(sorted(expected))}")
+        if missing:
+            print(f"        MISSING:  {', '.join(sorted(missing))}")
+    print("\n" + ("The method reproduces known-good results.\n"
+                  if all_reproduced else
+                  "The method FAILED to reproduce known results -- do "
+                  "not trust its other output.\n"))
+    return 0 if all_reproduced else 1
 
-    commands_to_show = [args.command] if args.command else sorted(COMMANDS)
-    if args.command and args.command not in COMMANDS:
-        print(f"{args.command!r} is not in the firmware command table.")
-        return 2
 
-    print(f"\n{os.path.basename(args.binary)} -- "
+def _print_evidence_caveat(binary_path: str) -> None:
+    """The heading, which says up front how far this evidence goes."""
+    print(f"\n{os.path.basename(binary_path)} -- "
           f"candidate parameters per command")
     print("FIRMWARE-level evidence: "
           "these strings exist near each command's handler.")
@@ -271,17 +302,49 @@ def main(argv=None) -> int:
     print("prove the XML nesting, nor that a tag is a parameter rather than a")
     print("reply field. Confirm before sending anything.\n")
 
+
+def _print_candidates(binary_bytes: bytes, commands_to_show: list[str],
+                      window: int, min_candidates: int) -> int:
+    """Print each command with at least `min_candidates` candidates;
+    returns how many were printed."""
     shown_count = 0
     for command_name in commands_to_show:
-        result = analyse_command(blob, command_name, args.window)
-        if len(result["candidates"]) < args.min:
+        result = analyse_command(binary_bytes, command_name, window)
+        if len(result["candidates"]) < min_candidates:
             continue
         shown_count += 1
         print(f"  {command_name}  (id {result['id']}, "
               f"{result['markers']} marker(s))")
-        for tag in result["candidates"][:12]:
+        for tag in result["candidates"][:MAX_CANDIDATES_SHOWN]:
             print(f"      {tag}")
         print()
+    return shown_count
+
+
+def main(argv=None) -> int:
+    """List candidate parameters per command, or --validate the method.
+
+    Returns 2 for a missing file or an unknown --command, 1 when
+    validation fails, and 0 otherwise.
+    """
+    args = _build_parser().parse_args(argv)
+
+    if not os.path.exists(args.binary):
+        print(f"No such file: {args.binary}")
+        return 2
+    binary_bytes = open(args.binary, "rb").read()
+
+    if args.validate:
+        return _run_validation(binary_bytes, args.window)
+
+    commands_to_show = [args.command] if args.command else sorted(COMMANDS)
+    if args.command and args.command not in COMMANDS:
+        print(f"{args.command!r} is not in the firmware command table.")
+        return 2
+
+    _print_evidence_caveat(args.binary)
+    shown_count = _print_candidates(binary_bytes, commands_to_show,
+                                    args.window, args.min)
 
     print(f"{shown_count} command(s) with candidates. "
           f"Run with --validate to check the method against results "

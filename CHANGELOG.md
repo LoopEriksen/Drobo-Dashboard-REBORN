@@ -209,6 +209,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `payload_format`. Every sub-command prints the same lines and
     writes the same files, and the command line and `--help` are
     unchanged. (2026-10-29)
+  - `tools/fw_params.py`: `main` reads as three steps and the binary is
+    named as bytes. The listing, the `--validate` report, the exit
+    codes, the `--min` and `--window` flags, the `window=` keyword and
+    the returned keys are as they were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
