@@ -121,6 +121,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `sdk/drobo_nasd/firmware.py`: the withdrawn-build advisory is
     built by its own helper; its headline, detail text and JSON keys
     are byte-identical. (2026-10-29)
+  - `sdk/drobo_nasd/models.py`: the shapes say why they look the way
+    they do, and units the field names cannot carry are comments.
+    Every field keeps its name and order, so the agent's JSON keys are
+    unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

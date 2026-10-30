@@ -36,7 +36,15 @@ def gigabytes_to_bytes(gigabytes: float) -> int:
 
 @dataclass
 class DriveSlot:
-    bay: int
+    """
+    One drive bay, populated or not.
+
+    A bay with no disk is still a DriveSlot (present=False), so a front
+    end can draw every bay of the chassis in order without knowing how
+    many it has.
+    """
+
+    bay: int  # 1-based; the device's own slot numbers start at 0
     present: bool = False
     state: str = STATE_EMPTY
     model: str = ""
@@ -85,6 +93,11 @@ class Capacity:
 
     @property
     def used_fraction(self) -> float:
+        """
+        used_bytes as a fraction of usable_bytes, 0.0 when there is no
+        usable capacity -- a pack that reports none (or a reading that
+        never arrived) shows as empty rather than dividing by zero.
+        """
         if self.usable_bytes <= 0:
             return 0.0
         return self.used_bytes / self.usable_bytes
@@ -102,7 +115,7 @@ class BatteryInfo:
     power loss."""
 
     state: str = STATE_UNKNOWN
-    charge_pct: float | None = None
+    charge_pct: float | None = None  # percent, 0-100
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -111,6 +124,13 @@ class BatteryInfo:
 
 @dataclass
 class FanInfo:
+    """
+    Fan speed and health. A 5N reports no fan reading over either
+    channel, so from the real device this stays UNKNOWN; the field is
+    kept so a front end has a place for it and the simulated driver can
+    exercise one.
+    """
+
     rpm: int | None = None
     state: str = STATE_UNKNOWN
 
@@ -181,7 +201,7 @@ class EventLogEntry:
     is uncaptured -- not that the event happened in 1970 or carried no
     weight."""
 
-    ts: float
+    ts: float  # Unix seconds
     severity: str
     message: str
 
@@ -327,6 +347,11 @@ class PackHealth:
 
 @dataclass
 class DeviceInfo:
+    """
+    The chassis itself: who it is, what it runs, and the readings that
+    belong to the box rather than to a drive or the pack.
+    """
+
     name: str = ""
     model: str = ""
     serial: str = ""
@@ -355,7 +380,7 @@ class DeviceInfo:
 class Snapshot:
     """One complete reading of the Drobo, at one moment."""
 
-    taken_at: float = field(default_factory=time.time)
+    taken_at: float = field(default_factory=time.time)  # Unix seconds
     reachable: bool = True
     source: str = "unknown"  # which driver produced this
     device: DeviceInfo = field(default_factory=DeviceInfo)
@@ -373,9 +398,18 @@ class Snapshot:
 
     @property
     def overall_state(self) -> str:
+        """
+        One word for the whole device: the worst state of any present
+        drive.
+
+        Empty bays are ignored, since an empty bay is a normal thing for
+        a Drobo to have. With no present drives at all the answer is
+        UNKNOWN, not OK: with nothing to judge, calling the device
+        healthy would be a guess.
+        """
         if not self.reachable:
             return STATE_UNKNOWN
-        states = [d.state for d in self.drives if d.present]
+        states = [drive.state for drive in self.drives if drive.present]
         if STATE_FAILED in states:
             return STATE_FAILED
         if STATE_WARNING in states:
@@ -393,14 +427,14 @@ class Snapshot:
             "overall_state": self.overall_state,
             "device": self.device.to_dict(),
             "capacity": self.capacity.to_dict(),
-            "drives": [d.to_dict() for d in self.drives],
-            "volumes": [v.to_dict() for v in self.volumes],
+            "drives": [drive.to_dict() for drive in self.drives],
+            "volumes": [volume.to_dict() for volume in self.volumes],
             "max_volumes": self.max_volumes,
             "battery": self.battery.to_dict(),
             "fan": self.fan.to_dict(),
             "power": self.power.to_dict(),
             "performance": self.performance.to_dict(),
-            "event_log": [e.to_dict() for e in self.event_log],
+            "event_log": [entry.to_dict() for entry in self.event_log],
             "pack_health": self.pack_health.to_dict(),
             "error": self.error,
         }
