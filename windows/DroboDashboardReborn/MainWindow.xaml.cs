@@ -42,8 +42,18 @@ namespace DroboDashboardReborn;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(10) };
+    /// <summary>How long one request to the local agent may take before it is
+    /// reported as unreachable. A status tick makes up to four requests in a
+    /// row (status, alerts twice, shares), so one tick can take up to four
+    /// times this.</summary>
+    private const int AgentRequestTimeoutSeconds = 8;
+
+    /// <summary>How often the Status tab re-reads /api/status. The footer's
+    /// "polling every 10s" and several comments say 10s too.</summary>
+    private const int StatusPollIntervalSeconds = 10;
+
+    private readonly HttpClient _agentHttpClient = new() { Timeout = TimeSpan.FromSeconds(AgentRequestTimeoutSeconds) };
+    private readonly DispatcherTimer _statusPollTimer = new() { Interval = TimeSpan.FromSeconds(StatusPollIntervalSeconds) };
     private readonly ObservableCollection<DriveRow> _bays = new();
     private readonly ObservableCollection<VolumeRow> _volumes = new();
     private readonly ObservableCollection<AlertRow> _alerts = new();
@@ -57,7 +67,7 @@ public partial class MainWindow : Window
     // The guest-logon explanation from the last /api/shares response, kept
     // around so a Connect-as dialog opened later (or an ERROR_ACCESS_DENIED
     // from Windows) can reuse the same wording instead of inventing new text.
-    private string? _lastAdviceDetail;
+    private string? _lastGuestAdviceDetail;
 
     // The Drobo remembered from a previous launch (see DroboSettings), and
     // whether we've already acted on it this run. One-shot on purpose: only
@@ -66,11 +76,11 @@ public partial class MainWindow : Window
     // there until the user clicks something -- it would be exactly the
     // "steals focus / does things on its own" behaviour the maintainer is
     // already unhappy about if it kept redirecting itself back.
-    private DroboSettings.RememberedDevice? _remembered;
+    private DroboSettings.RememberedDevice? _rememberedDevice;
 
     /// <summary>Decides which alerts earn a desktop notification. Long-lived,
     /// because its whole job depends on remembering what it has already seen.</summary>
-    private readonly AlertNotifier _notifier = new();
+    private readonly AlertNotifier _alertNotifier = new();
 
     /// <summary>
     /// Bumped every time we leave a Drobo or start a fresh device search.
@@ -108,7 +118,7 @@ public partial class MainWindow : Window
     // disposes it when the window actually closes. Nullable only because
     // it's assigned in the constructor after InitializeComponent, not
     // because it's ever expected to be missing afterwards.
-    private TrayIconManager? _tray;
+    private TrayIconManager? _trayIcon;
 
     // Device name + overall health as of the last successful RenderStatus(), kept
     // around so RefreshStatus() can hand the tray icon a tooltip/badge update
@@ -120,10 +130,10 @@ public partial class MainWindow : Window
     /// <summary>Which driver the agent is running ("drobo5n", "mock"), from the
     /// latest status reading. Decides whether a share login goes to Windows or
     /// to the simulator.</summary>
-    private string _lastSource = "";
+    private string _lastDriverName = "";
 
     private bool IsSimulator =>
-        string.Equals(_lastSource, "mock", StringComparison.OrdinalIgnoreCase);
+        string.Equals(_lastDriverName, "mock", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Shares "connected" on the simulated Drobo, by UNC path, with the drive
@@ -152,12 +162,12 @@ public partial class MainWindow : Window
     };
 
     // brushes reused across refreshes
-    private static readonly Brush Ok       = Brush("#46C07A");
-    private static readonly Brush Warning  = Brush("#E9A83C");
-    private static readonly Brush Failed   = Brush("#E2564B");
-    private static readonly Brush Unknown  = Brush("#8B93A1");
-    private static readonly Brush Accent   = Brush("#2C7BC4");
-    private static readonly Brush Muted    = Brush("#6B7683");
+    private static readonly Brush OkBrush       = BrushFromHex("#46C07A");
+    private static readonly Brush WarningBrush  = BrushFromHex("#E9A83C");
+    private static readonly Brush FailedBrush   = BrushFromHex("#E2564B");
+    private static readonly Brush UnknownBrush  = BrushFromHex("#8B93A1");
+    private static readonly Brush AccentBrush   = BrushFromHex("#2C7BC4");
+    private static readonly Brush MutedBrush    = BrushFromHex("#6B7683");
 
     public MainWindow()
     {
@@ -165,8 +175,8 @@ public partial class MainWindow : Window
         ApplyStartupSizing();
         RefuseToBePinnedOnTop();
 
-        _tray = new TrayIconManager(this);
-        Closed += (_, _) => _tray?.Dispose();
+        _trayIcon = new TrayIconManager(this);
+        Closed += (_, _) => _trayIcon?.Dispose();
 
         Bays.ItemsSource = _bays;
         Volumes.ItemsSource = _volumes;
@@ -178,12 +188,12 @@ public partial class MainWindow : Window
         DroboAppsList.ItemsSource = _droboApps;
         EventLogList.ItemsSource = _eventLog;
 
-        _timer.Tick += async (_, _) => await RefreshStatus();
+        _statusPollTimer.Tick += async (_, _) => await RefreshStatus();
 
         TryAutoFillFromAgentConfig();
 
         var settings = DroboSettings.LoadAll();
-        _remembered = settings.Remembered;
+        _rememberedDevice = settings.Remembered;
         foreach (var m in settings.ManualDevices) _manualDevices.Add(m);
         _autoDiscoveryEnabled = settings.AutoDiscoveryEnabled;
         AutoDiscoveryCheck.IsChecked = _autoDiscoveryEnabled;
@@ -356,7 +366,7 @@ public partial class MainWindow : Window
         // Backstop. The hook above catches the ordinary route, but this has
         // now bitten the maintainer twice, so it gets belt and braces: a cheap
         // check that puts us back where we belong if anything slips through.
-        var watchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        var watchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TopmostWatchdogIntervalMilliseconds) };
         watchdog.Tick += (_, _) =>
         {
             var h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -371,6 +381,11 @@ public partial class MainWindow : Window
 
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOPMOST = 0x0008;
+
+    /// <summary>How often the backstop checks whether something has pinned the
+    /// window on top anyway. Half a second is short enough that a pin never
+    /// lingers visibly, and the check is one cheap style read.</summary>
+    private const int TopmostWatchdogIntervalMilliseconds = 500;
 
     // ---------------------------------------------------------------
     // Window sizing -- computed from the current monitor, not a fixed pixel size
@@ -490,7 +505,7 @@ public partial class MainWindow : Window
         (string.Equals(u.Host, "127.0.0.1", StringComparison.Ordinal) ||
          string.Equals(u.Host, "localhost", StringComparison.OrdinalIgnoreCase));
 
-    private static SolidColorBrush Brush(string hex) =>
+    private static SolidColorBrush BrushFromHex(string hex) =>
         new((Color)ColorConverter.ConvertFromString(hex));
 
     private string BaseUrl => AgentUrl.Text.TrimEnd('/');
@@ -513,7 +528,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            SetConnSettingsExpanded(true);
+            SetConnectionSettingsExpanded(true);
             TokenHelp.Visibility = Visibility.Visible;
             LandingSub.Text = "Enter your agent token below, then we'll search for it.";
         }
@@ -568,12 +583,12 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/discover");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
 
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
                 ShowDiscoverError("The agent rejected that token. Enter the right one below.");
-                SetConnSettingsExpanded(true);
+                SetConnectionSettingsExpanded(true);
                 TokenHelp.Visibility = Visibility.Visible;
                 return;
             }
@@ -616,9 +631,9 @@ public partial class MainWindow : Window
         if (_autoConnectAttempted) return;
         _autoConnectAttempted = true;
 
-        if (_remembered is null) return;
+        if (_rememberedDevice is null) return;
 
-        var match = _devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.EsaId) && d.EsaId == _remembered.EsaId);
+        var match = _devices.FirstOrDefault(d => !string.IsNullOrEmpty(d.EsaId) && d.EsaId == _rememberedDevice.EsaId);
         if (match is null)
         {
             // "Isn't showing up right now" is true and unhelpful. The most
@@ -628,8 +643,8 @@ public partial class MainWindow : Window
             // status connection does. So the empty picker and the unreachable
             // dashboard are usually the same problem, and both deserve the same
             // answer. Asking costs one local API call and no network traffic.
-            LandingSub.Text = $"Your usual Drobo ({_remembered.Name}) isn't showing up right now.";
-            var why = await ExplainMissingDevice(_remembered.Host);
+            LandingSub.Text = $"Your usual Drobo ({_rememberedDevice.Name}) isn't showing up right now.";
+            var why = await ExplainMissingDevice(_rememberedDevice.Host);
             if (why is not null) LandingSub.Text += "  " + why;
             return;
         }
@@ -751,8 +766,8 @@ public partial class MainWindow : Window
                     manualMatched.Add(host);
                     row.BadgeText = "MANUALLY ADDED";
                     row.BadgeVisibility = Visibility.Visible;
-                    row.BadgeBackground = Brush("#12202E");
-                    row.BadgeForeground = Accent;
+                    row.BadgeBackground = BrushFromHex("#12202E");
+                    row.BadgeForeground = AccentBrush;
                 }
 
                 list.Add(row);
@@ -773,8 +788,8 @@ public partial class MainWindow : Window
                 Summary = "Manually added" + (m.Port > 0 ? $"  ·  port {m.Port}" : "") + "  ·  didn't answer",
                 BadgeText = "NOT VERIFIED",
                 BadgeVisibility = Visibility.Visible,
-                BadgeBackground = Brush("#2E2311"),
-                BadgeForeground = Warning,
+                BadgeBackground = BrushFromHex("#2E2311"),
+                BadgeForeground = WarningBrush,
             });
         }
 
@@ -818,7 +833,7 @@ public partial class MainWindow : Window
 
     private void EnterAddressManually_Click(object sender, RoutedEventArgs e)
     {
-        SetConnSettingsExpanded(true);
+        SetConnectionSettingsExpanded(true);
         ManualHostInput.Focus();
     }
 
@@ -833,7 +848,7 @@ public partial class MainWindow : Window
     /// -- but deleting the calls would lose the record of WHY those moments
     /// wanted the user's attention pointed at settings.
     /// </summary>
-    private void SetConnSettingsExpanded(bool expanded)
+    private void SetConnectionSettingsExpanded(bool expanded)
     {
         // Nothing to expand any more. Intentionally empty.
     }
@@ -883,7 +898,7 @@ public partial class MainWindow : Window
         UpdateManualDevicesEmptyState();
 
         ManualAddResult.Text = $"Checking {host}…";
-        ManualAddResult.Foreground = Muted;
+        ManualAddResult.Foreground = MutedBrush;
         ManualAddResult.Visibility = Visibility.Visible;
 
         var probe = await ProbeAddress(host);
@@ -892,12 +907,12 @@ public partial class MainWindow : Window
             var name = probe.device.ValueKind == JsonValueKind.Object
                 ? GetStringOr(probe.device, "name", "") : "";
             ManualAddResult.Text = $"Found {(string.IsNullOrEmpty(name) ? "a Drobo" : name)} at {host}.";
-            ManualAddResult.Foreground = Ok;
+            ManualAddResult.Foreground = OkBrush;
         }
         else
         {
             ManualAddResult.Text = probe.error ?? $"Nothing at {host} answered as a Drobo.";
-            ManualAddResult.Foreground = Warning;
+            ManualAddResult.Foreground = WarningBrush;
         }
 
         await SearchForDevices();
@@ -1042,7 +1057,7 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/emailalerts/test");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(body);
             PrefEmailStatus.Text = resp.IsSuccessStatusCode
@@ -1161,11 +1176,11 @@ public partial class MainWindow : Window
     /// actually have a serial to remember it by.</param>
     private async Task ConnectAndShowDashboard(DiscoveredDeviceRow? device = null)
     {
-        _timer.Stop();
+        _statusPollTimer.Stop();
         var (ok, error) = await RefreshStatus();
         if (ok)
         {
-            _timer.Start();
+            _statusPollTimer.Start();
             ShowDashboard();
             RememberDevice(device);
         }
@@ -1179,26 +1194,26 @@ public partial class MainWindow : Window
     {
         if (device is null || string.IsNullOrEmpty(device.EsaId)) return;
 
-        _remembered = new DroboSettings.RememberedDevice
+        _rememberedDevice = new DroboSettings.RememberedDevice
         {
             EsaId = device.EsaId,
             Host = device.Host,
             Name = device.Name,
             Model = device.Model,
         };
-        DroboSettings.RememberDevice(_remembered);
+        DroboSettings.RememberDevice(_rememberedDevice);
         UpdateForgetLinkVisibility();
     }
 
     private void ForgetDevice_Click(object sender, RoutedEventArgs e)
     {
         DroboSettings.ForgetDevice();
-        _remembered = null;
+        _rememberedDevice = null;
         UpdateForgetLinkVisibility();
     }
 
     private void UpdateForgetLinkVisibility() =>
-        ForgetDeviceLink.Visibility = _remembered is not null ? Visibility.Visible : Visibility.Collapsed;
+        ForgetDeviceLink.Visibility = _rememberedDevice is not null ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// "Choose a different Drobo" -- the way back to the picker from the
@@ -1209,7 +1224,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ChangeDrobo_Click(object sender, RoutedEventArgs e)
     {
-        _timer.Stop();
+        _statusPollTimer.Stop();
         ShowLanding();
         _ = SearchForDevices();
 
@@ -1222,7 +1237,7 @@ public partial class MainWindow : Window
         // cannot land after this line and re-seed the notifier with the Drobo
         // we are walking away from.
         _generation++;
-        _notifier.Reset();
+        _alertNotifier.Reset();
 
         // The Settings tab's config was read from whichever Drobo we were
         // just connected to -- clear it out so a switch to a different
@@ -1274,12 +1289,12 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
 
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
                 var msg = "Token rejected. Check the token from the agent's config.json.";
-                ShowError(msg);
+                ShowAgentUnreachable(msg);
                 return (false, msg);
             }
             resp.EnsureSuccessStatusCode();
@@ -1298,7 +1313,7 @@ public partial class MainWindow : Window
         {
             if (generation != _generation) return (false, null);
             var msg = "Cannot reach the agent. Is it running?  (" + ex.Message + ")";
-            ShowError(msg);
+            ShowAgentUnreachable(msg);
             return (false, msg);
         }
 
@@ -1315,7 +1330,7 @@ public partial class MainWindow : Window
         // see TrayIconManager.UpdateStatus. _alerts is the active-only list
         // RenderAlerts just rebuilt, so "any critical" here means "active
         // right now", not "ever happened".
-        _tray?.UpdateStatus(_lastDeviceName, _lastOverallState, _alerts.Any(a => a.Severity == "critical"));
+        _trayIcon?.UpdateStatus(_lastDeviceName, _lastOverallState, _alerts.Any(a => a.Severity == "critical"));
         return (true, null);
     }
 
@@ -1491,7 +1506,7 @@ public partial class MainWindow : Window
             var (okStatus, root) = await PostJson(path, body);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             ShowConfigResult(resultBox, outcome, outcome.Succeeded()
-                ? WriteMessage(root, outcome)
+                ? BuildWriteSuccessMessage(root, outcome)
                 : GetStringOr(root, "error", "The Drobo did not accept that change."));
             // Keep the Tools card's own read-out honest after a brightness
             // change -- and after an UNSETTLED one especially, since the
@@ -1519,7 +1534,7 @@ public partial class MainWindow : Window
     /// that read-back, and saying it twice reads as if two separate things had
     /// been confirmed.
     /// </summary>
-    private static string WriteMessage(JsonElement root, WriteOutcome outcome)
+    private static string BuildWriteSuccessMessage(JsonElement root, WriteOutcome outcome)
     {
         var msg = GetStringOr(root, "message", "Done.");
         if (outcome == WriteOutcome.Confirmed
@@ -1554,9 +1569,9 @@ public partial class MainWindow : Window
         box.Text = text;
         box.Foreground = outcome switch
         {
-            WriteOutcome.Confirmed or WriteOutcome.ConfirmedUnacknowledged => Ok,
-            WriteOutcome.Unsettled => Warning,
-            _ => Failed,
+            WriteOutcome.Confirmed or WriteOutcome.ConfirmedUnacknowledged => OkBrush,
+            WriteOutcome.Unsettled => WarningBrush,
+            _ => FailedBrush,
         };
         box.Visibility = Visibility.Visible;
     }
@@ -1575,7 +1590,7 @@ public partial class MainWindow : Window
         using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
         req.Headers.Add("X-Agent-Token", Token.Password);
         req.Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
-        using var resp = await _http.SendAsync(req);
+        using var resp = await _agentHttpClient.SendAsync(req);
         var json = await resp.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         return (resp.IsSuccessStatusCode, doc.RootElement.Clone());
@@ -1585,7 +1600,7 @@ public partial class MainWindow : Window
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
         req.Headers.Add("X-Agent-Token", Token.Password);
-        using var resp = await _http.SendAsync(req);
+        using var resp = await _agentHttpClient.SendAsync(req);
         resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
@@ -1630,18 +1645,18 @@ public partial class MainWindow : Window
     /// which matters most in the exact moment somebody is switching it off
     /// because it just annoyed them.
     /// </summary>
-    private void MaybeNotify(List<AlertRow> active)
+    private void NotifyNewAlerts(List<AlertRow> active)
     {
-        if (_tray is null) return;
+        if (_trayIcon is null) return;
 
         var settings = DroboSettings.LoadAll();
-        var notices = _notifier.Evaluate(
+        var notices = _alertNotifier.Evaluate(
             active.Select(a => (a.Key, a.Severity, a.Message)),
             settings.NotificationsEnabled,
             settings.NotificationCategories);
 
         foreach (var notice in notices)
-            _tray.ShowAlert(notice.Severity, notice.Message);
+            _trayIcon.ShowAlert(notice.Severity, notice.Message);
     }
 
     private void RenderAlerts(JsonElement activeRoot, JsonElement allRoot)
@@ -1669,7 +1684,7 @@ public partial class MainWindow : Window
                     Severity = severity,
                     SeverityText = severity.ToUpperInvariant(),
                     Message = GetStringOr(a, "message", ""),
-                    Since = "since " + RelativeTime(GetDoubleOrZero(a, "first_seen")),
+                    Since = "since " + FormatRelativeTime(GetDoubleOrZero(a, "first_seen")),
                     ChipBackground = chipBg,
                     SeverityBrush = chipFg,
                     Active = isActive,
@@ -1683,7 +1698,7 @@ public partial class MainWindow : Window
                 else
                 {
                     var clearedAt = GetDoubleOrZero(a, "cleared_at");
-                    row.ClearedText = "cleared " + RelativeTime(clearedAt);
+                    row.ClearedText = "cleared " + FormatRelativeTime(clearedAt);
                     row.SortTimeUnixSeconds = clearedAt;
                     resolvedList.Add(row);
                 }
@@ -1698,7 +1713,7 @@ public partial class MainWindow : Window
         // never repeats a standing alert, and respects the per-category
         // switches, all of which default off. This just shows what it hands
         // back. See its class comment for why that separation exists.
-        MaybeNotify(activeList);
+        NotifyNewAlerts(activeList);
 
         _alerts.Clear();
         foreach (var row in activeList) _alerts.Add(row);
@@ -1713,10 +1728,10 @@ public partial class MainWindow : Window
 
     private static (Brush bg, Brush fg) SeverityBrushes(string severity) => severity switch
     {
-        "critical" => (Brush("#301714"), Failed),
-        "warning"  => (Brush("#2E2311"), Warning),
-        "info"     => (Brush("#12202E"), Accent),
-        _          => (Brush("#22262E"), Unknown),
+        "critical" => (BrushFromHex("#301714"), FailedBrush),
+        "warning"  => (BrushFromHex("#2E2311"), WarningBrush),
+        "info"     => (BrushFromHex("#12202E"), AccentBrush),
+        _          => (BrushFromHex("#22262E"), UnknownBrush),
     };
 
     /// <summary>Worst-first, newest-first within a severity band. TryGetValue
@@ -1760,7 +1775,7 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/shares");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             resp.EnsureSuccessStatusCode();
 
             var json = await resp.Content.ReadAsStringAsync();
@@ -1784,7 +1799,7 @@ public partial class MainWindow : Window
         var advice = root.TryGetProperty("advice", out var adv) && adv.ValueKind == JsonValueKind.Object
             ? adv : default;
         var headline = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "headline", "") : "";
-        _lastAdviceDetail = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "detail", "") : "";
+        _lastGuestAdviceDetail = advice.ValueKind == JsonValueKind.Object ? GetStringOr(advice, "detail", "") : "";
         if (string.IsNullOrEmpty(headline))
         {
             GuestAdviceBox.Visibility = Visibility.Collapsed;
@@ -1792,7 +1807,7 @@ public partial class MainWindow : Window
         else
         {
             GuestAdviceHeadline.Text = headline;
-            GuestAdviceDetail.Text = _lastAdviceDetail;
+            GuestAdviceDetail.Text = _lastGuestAdviceDetail;
             GuestAdviceBox.Visibility = Visibility.Visible;
         }
 
@@ -1976,7 +1991,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> PromptConnect(ShareRow row)
     {
-        var dialog = new ConnectShareDialog(row.Name, row.Unc, SmbConnections.NextFreeDriveLetter(), _lastAdviceDetail,
+        var dialog = new ConnectShareDialog(row.Name, row.Unc, SmbConnections.NextFreeDriveLetter(), _lastGuestAdviceDetail,
                                             IsSimulator ? SimulatedSignIn(row) : null)
         {
             Owner = this,
@@ -2045,7 +2060,7 @@ public partial class MainWindow : Window
             int code = await Task.Run(() => SmbConnections.Disconnect(target));
             if (code != 0)
             {
-                MessageBox.Show(this, SmbConnections.DescribeError(code, _lastAdviceDetail),
+                MessageBox.Show(this, SmbConnections.DescribeError(code, _lastGuestAdviceDetail),
                     "Drobo Dashboard REBORN", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             await RefreshShares();
@@ -2113,7 +2128,7 @@ public partial class MainWindow : Window
             var (okStatus, root) = await PostJson(path, body);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             return (outcome, outcome.Succeeded()
-                ? WriteMessage(root, outcome)
+                ? BuildWriteSuccessMessage(root, outcome)
                 : GetStringOr(root, "error", "The Drobo did not accept that."));
         }
         catch (Exception ex)
@@ -2128,7 +2143,7 @@ public partial class MainWindow : Window
         string.Join(" ", s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>Turns a unix-seconds timestamp into "4m ago"-style text.</summary>
-    private static string RelativeTime(double unixSeconds)
+    private static string FormatRelativeTime(double unixSeconds)
     {
         if (unixSeconds <= 0) return "unknown";
         var then = DateTimeOffset.FromUnixTimeMilliseconds((long)(unixSeconds * 1000));
@@ -2140,9 +2155,9 @@ public partial class MainWindow : Window
         return $"{(int)span.TotalDays}d ago";
     }
 
-    private void ShowError(string message)
+    private void ShowAgentUnreachable(string message)
     {
-        SetPill("unreachable", Unknown, "#22262E", "#39424D");
+        SetOverallStatePill("unreachable", UnknownBrush, "#22262E", "#39424D");
         SettingsFirmware.Text = "Not connected to a Drobo";
         DeviceSub.Text = message;
         Footer.Text = "Last attempt failed at " + DateTime.Now.ToString("HH:mm:ss");
@@ -2223,7 +2238,7 @@ public partial class MainWindow : Window
     /// When the device hasn't answered yet, both are simply absent rather than
     /// shown as a dash or a zero.
     /// </summary>
-    private static string DeviceExtras(JsonElement device)
+    private static string FormatDeviceExtras(JsonElement device)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -2297,7 +2312,7 @@ public partial class MainWindow : Window
 
         if (!hasReading)
         {
-            SetPill("unreachable", Unknown, "#22262E", "#39424D");
+            SetOverallStatePill("unreachable", UnknownBrush, "#22262E", "#39424D");
             SettingsFirmware.Text = "Not connected to a Drobo";
             DeviceSub.Text = GetStringOr(s, "error", "Waiting for the first reading from the agent.");
             Footer.Text = "No reading at " + DateTime.Now.ToString("HH:mm:ss");
@@ -2314,23 +2329,23 @@ public partial class MainWindow : Window
         // must never survive a switch to real hardware, or the Shares tab would
         // claim a real share is open when Windows has no session to it.
         var source = GetStringOr(s, "source", "");
-        if (!string.Equals(source, _lastSource, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(source, _lastDriverName, StringComparison.OrdinalIgnoreCase))
             _simulatedConnections.Clear();
-        _lastSource = source;
+        _lastDriverName = source;
 
         DeviceSub.Text = $"{GetStringOr(device, "model", "")}  ·  firmware {GetStringOr(device, "firmware", "?")}"
                        + $"  ·  {GetStringOr(device, "ip", "")}  ·  {GetStringOr(s, "source", "")} driver"
-                       + DeviceExtras(device);
+                       + FormatDeviceExtras(device);
 
         var state = GetStringOr(s, "overall_state", "unknown");
         var reachable = s.TryGetProperty("reachable", out var r) && r.GetBoolean();
         state = reachable ? state : "unreachable";
         switch (state)
         {
-            case "ok":       SetPill(state, Ok, "#10281B", "#46C07A"); break;
-            case "warning":  SetPill(state, Warning, "#2E2311", "#E9A83C"); break;
-            case "failed":   SetPill(state, Failed, "#301714", "#E2564B"); break;
-            default:         SetPill(state, Unknown, "#22262E", "#39424D"); break;
+            case "ok":       SetOverallStatePill(state, OkBrush, "#10281B", "#46C07A"); break;
+            case "warning":  SetOverallStatePill(state, WarningBrush, "#2E2311", "#E9A83C"); break;
+            case "failed":   SetOverallStatePill(state, FailedBrush, "#301714", "#E2564B"); break;
+            default:         SetOverallStatePill(state, UnknownBrush, "#22262E", "#39424D"); break;
         }
 
         // "unreachable" on its own reads as "your NAS has died". Often it
@@ -2380,7 +2395,7 @@ public partial class MainWindow : Window
         double yellowThreshold = packHealth.ValueKind == JsonValueKind.Object
             && packHealth.TryGetProperty("yellow_threshold_fraction", out var yt) && yt.ValueKind == JsonValueKind.Number
             ? yt.GetDouble() : 0.85;
-        CapBar.Background = frac >= redThreshold ? Failed : frac >= yellowThreshold ? Warning : Accent;
+        CapBar.Background = frac >= redThreshold ? FailedBrush : frac >= yellowThreshold ? WarningBrush : AccentBrush;
         double filled = Math.Max(0, Math.Min(1.0, frac));
         CapBarFillCol.Width = new GridLength(filled, GridUnitType.Star);
         CapBarRestCol.Width = new GridLength(1 - filled, GridUnitType.Star);
@@ -2420,12 +2435,12 @@ public partial class MainWindow : Window
                 _bays.Add(new DriveRow
                 {
                     BayLabel = "Bay " + bay, ModelSerial = "empty bay", Firmware = "",
-                    Size = "", StateText = "empty", StateBrush = Muted, Stripe = Brush("#39424D"),
+                    Size = "", StateText = "empty", StateBrush = MutedBrush, Stripe = BrushFromHex("#39424D"),
                 });
                 continue;
             }
             var st = GetStringOr(d, "state", "unknown");
-            var brush = st switch { "ok" => Ok, "warning" => Warning, "failed" => Failed, _ => Unknown };
+            var brush = st switch { "ok" => OkBrush, "warning" => WarningBrush, "failed" => FailedBrush, _ => UnknownBrush };
             double? tempC = d.TryGetProperty("temperature_c", out var t) && t.ValueKind == JsonValueKind.Number
                 ? t.GetDouble() : (double?)null;
             var tail = tempC.HasValue ? $"{st}  {tempC:0.0}°C" : st;
@@ -2460,7 +2475,7 @@ public partial class MainWindow : Window
                 // failure is StateText/StateBrush's job, from the drive's own
                 // reported state). Matches the web dashboard, which colours
                 // both the same var(--warn) amber.
-                FlagsBrush = Warning,
+                FlagsBrush = WarningBrush,
                 FlagsVisibility = flagParts.Count == 0 ? Visibility.Collapsed : Visibility.Visible,
             });
         }
@@ -2583,14 +2598,14 @@ public partial class MainWindow : Window
 
         // A failed fetch keeps the last figures, and the command port can stop
         // answering for half an hour -- so past one missed refresh, say how old
-        // they are, as DeviceExtras does for the temperature. measured_at is
+        // they are, as FormatDeviceExtras does for the temperature. measured_at is
         // absent from an older agent; GetDoubleOrZero() then gives 0 and no age
         // shows.
         double measuredAt = GetDoubleOrZero(perf, "measured_at");
         bool stale = measuredAt > 0
                      && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - measuredAt > PerfStaleSeconds;
         PerfAge.Text = stale
-            ? "Last read " + RelativeTime(measuredAt) + " -- the Drobo has not sent newer figures since."
+            ? "Last read " + FormatRelativeTime(measuredAt) + " -- the Drobo has not sent newer figures since."
             : "";
         PerfAge.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
 
@@ -2625,9 +2640,9 @@ public partial class MainWindow : Window
         var power = s.TryGetProperty("power", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
         var fan = s.TryGetProperty("fan", out var fn) && fn.ValueKind == JsonValueKind.Object ? fn : default;
 
-        SetHealthPill(BatteryPill, BatteryPillText, HealthState(battery));
-        SetHealthPill(PsuPill, PsuPillText, HealthState(power));
-        SetHealthPill(FanPill, FanPillText, HealthState(fan));
+        SetHealthPill(BatteryPill, BatteryPillText, ReadHealthState(battery));
+        SetHealthPill(PsuPill, PsuPillText, ReadHealthState(power));
+        SetHealthPill(FanPill, FanPillText, ReadHealthState(fan));
 
         BatteryDetail.Text = battery.ValueKind == JsonValueKind.Object
                              && battery.TryGetProperty("charge_pct", out var ch)
@@ -2649,7 +2664,7 @@ public partial class MainWindow : Window
         HardwareHealthNote.Visibility = notes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private static string HealthState(JsonElement el) =>
+    private static string ReadHealthState(JsonElement el) =>
         el.ValueKind == JsonValueKind.Object ? GetStringOr(el, "state", "unknown") : "unknown";
 
     /// <summary>One health pill: the state word in the same colours the drive
@@ -2660,22 +2675,22 @@ public partial class MainWindow : Window
     {
         var (fg, bg) = state switch
         {
-            "ok"      => (Ok, "#10281B"),
-            "warning" => (Warning, "#2E2311"),
-            "failed"  => (Failed, "#301714"),
-            _         => (Unknown, "#22262E"),
+            "ok"      => (OkBrush, "#10281B"),
+            "warning" => (WarningBrush, "#2E2311"),
+            "failed"  => (FailedBrush, "#301714"),
+            _         => (UnknownBrush, "#22262E"),
         };
         text.Text = string.IsNullOrEmpty(state) ? "UNKNOWN" : state.ToUpperInvariant();
         text.Foreground = fg;
-        pill.Background = Brush(bg);
+        pill.Background = BrushFromHex(bg);
     }
 
-    private void SetPill(string text, Brush fg, string bg, string border)
+    private void SetOverallStatePill(string text, Brush fg, string bg, string border)
     {
         StateText.Text = text;
         StateText.Foreground = fg;
-        StatePill.Background = Brush(bg);
-        StatePill.BorderBrush = Brush(border);
+        StatePill.Background = BrushFromHex(bg);
+        StatePill.BorderBrush = BrushFromHex(border);
     }
 
     // ---------------------------------------------------------------
@@ -2701,7 +2716,7 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboconfig?section=network");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -2876,7 +2891,7 @@ public partial class MainWindow : Window
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/ping");
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
@@ -2961,7 +2976,7 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
 
@@ -3055,7 +3070,11 @@ public partial class MainWindow : Window
     // ---------------------------------------------------------------
 
     /// <summary>Polls /api/backup/status while a backup runs. Null when idle.</summary>
-    private DispatcherTimer? _backupPoll;
+    private DispatcherTimer? _backupPollTimer;
+
+    /// <summary>The backup poll's interval -- see StartBackupPolling for why it
+    /// is shorter than the status poll's.</summary>
+    private const int BackupPollIntervalSeconds = 2;
 
     /// <summary>
     /// True only once the agent has PLANNED this exact source/destination/mirror
@@ -3147,7 +3166,7 @@ public partial class MainWindow : Window
                 destination = BackupDest.Text.Trim(),
                 mirror = BackupMirror.IsChecked == true,
             });
-            var root = await PostJson("/api/backup/plan", body);
+            var root = await PostSerializedJson("/api/backup/plan", body);
 
             bool allowed = root.TryGetProperty("allowed", out var a)
                            && a.ValueKind == JsonValueKind.True;
@@ -3218,7 +3237,7 @@ public partial class MainWindow : Window
                 mirror = BackupMirror.IsChecked == true,
                 confirm = true,
             });
-            var root = await PostJson("/api/backup/start", body);
+            var root = await PostSerializedJson("/api/backup/start", body);
             if (root.TryGetProperty("error", out var err))
             {
                 BackupStatus.Text = err.GetString() ?? "The agent refused to start it.";
@@ -3248,10 +3267,10 @@ public partial class MainWindow : Window
     /// </summary>
     private void StartBackupPolling()
     {
-        _backupPoll?.Stop();
-        _backupPoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _backupPoll.Tick += async (_, _) => await PollBackupOnce();
-        _backupPoll.Start();
+        _backupPollTimer?.Stop();
+        _backupPollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(BackupPollIntervalSeconds) };
+        _backupPollTimer.Tick += async (_, _) => await PollBackupOnce();
+        _backupPollTimer.Start();
     }
 
     private async Task PollBackupOnce()
@@ -3279,8 +3298,8 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _backupPoll?.Stop();
-            _backupPoll = null;
+            _backupPollTimer?.Stop();
+            _backupPollTimer = null;
             BackupBar.Visibility = Visibility.Collapsed;
             BackupCheckBtn.IsEnabled = true;
 
@@ -3292,8 +3311,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _backupPoll?.Stop();
-            _backupPoll = null;
+            _backupPollTimer?.Stop();
+            _backupPollTimer = null;
             BackupBar.Visibility = Visibility.Collapsed;
             BackupCheckBtn.IsEnabled = true;
             BackupStatus.Text = "Lost contact with the agent while backing up: " + ex.Message
@@ -3301,15 +3320,26 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>POST a JSON body and return the parsed response.</summary>
-    private async Task<JsonElement> PostJson(string path, string body)
+    /// <summary>
+    /// POST an already-serialised JSON body and return the parsed response,
+    /// whatever its status. The backup routes put their answer in the body
+    /// either way -- /api/backup/plan lists refusals in a 200, and
+    /// /api/backup/start refuses with a 4xx whose "error" says why -- and that
+    /// text is what the Backup card shows, so the status is deliberately not
+    /// checked here: the caller reads the body's own fields instead.
+    ///
+    /// Named apart from <see cref="PostJson(string, object)"/> on purpose:
+    /// that one serialises its body and returns the status too, and with a
+    /// shared name a string passed to it would silently pick this overload.
+    /// </summary>
+    private async Task<JsonElement> PostSerializedJson(string path, string body)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path)
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
         };
         req.Headers.Add("X-Agent-Token", Token.Password);
-        using var resp = await _http.SendAsync(req);
+        using var resp = await _agentHttpClient.SendAsync(req);
         var json = await resp.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
@@ -3438,15 +3468,15 @@ public partial class MainWindow : Window
         {
             // A real POST, built as its own HttpRequestMessage (same
             // convention every other call in this file uses) rather than a
-            // bare _http.PostAsync(url, content) -- that overload has nowhere
-            // to hang the X-Agent-Token header without mutating _http's
+            // bare _agentHttpClient.PostAsync(url, content) -- that overload has nowhere
+            // to hang the X-Agent-Token header without mutating _agentHttpClient's
             // shared DefaultRequestHeaders, which the 10s poll timer and this
             // click could then race on. HttpMethod.Post + SendAsync is what
             // actually goes out on the wire as POST; there is no GetAsync
             // anywhere on this path.
             using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/identify" + query);
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -3482,7 +3512,7 @@ public partial class MainWindow : Window
     private void ShowIdentifyResult(string text, bool ok, bool simulated)
     {
         IdentifyResultText.Text = text;
-        IdentifyResultText.Foreground = ok ? Ok : Warning;
+        IdentifyResultText.Foreground = ok ? OkBrush : WarningBrush;
         IdentifySimulatedBadge.Visibility = ok && simulated ? Visibility.Visible : Visibility.Collapsed;
         IdentifyResultBox.Visibility = Visibility.Visible;
     }
@@ -3511,7 +3541,7 @@ public partial class MainWindow : Window
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/droboapps");
             req.Headers.Add("X-Agent-Token", Token.Password);
-            using var resp = await _http.SendAsync(req);
+            using var resp = await _agentHttpClient.SendAsync(req);
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -3581,8 +3611,8 @@ public partial class MainWindow : Window
                     StatusVisibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible,
                     Running = running,
                     RunningText = running ? "RUNNING" : "STOPPED",
-                    RunningBrush = running ? Ok : Muted,
-                    RunningChipBackground = running ? Brush("#10281B") : Brush("#22262E"),
+                    RunningBrush = running ? OkBrush : MutedBrush,
+                    RunningChipBackground = running ? BrushFromHex("#10281B") : BrushFromHex("#22262E"),
                     HasWebUi = hasWebUi,
                     WebUiVisibility = hasWebUi ? Visibility.Visible : Visibility.Collapsed,
                     ActionVerb = running ? "Stop" : "Start",
