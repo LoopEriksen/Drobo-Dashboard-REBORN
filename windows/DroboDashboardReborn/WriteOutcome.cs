@@ -34,6 +34,12 @@ public enum WriteOutcome
     Failed,
 }
 
+/// <summary>
+/// The rules for <see cref="WriteOutcome"/>, kept beside the enum so the way
+/// an agent answer becomes an outcome, and which outcomes count as done, are
+/// read in one place. A C# enum cannot carry methods, hence a static class of
+/// extension-style helpers.
+/// </summary>
 public static class WriteOutcomes
 {
     /// <summary>
@@ -48,21 +54,21 @@ public static class WriteOutcomes
     /// </summary>
     public static WriteOutcome FromAgentAnswer(bool isSuccessStatus, JsonElement answer)
     {
-        var succeeded = isSuccessStatus
-            && answer.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
-        var claimed = JsonHelpers.GetStringOr(answer, "outcome", "") switch
+        var statusSaysSucceeded = isSuccessStatus
+            && answer.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
+        var claimedOutcome = JsonHelpers.GetStringOr(answer, "outcome", "") switch
         {
             "verified" => WriteOutcome.Confirmed,
             "verified_unacknowledged" => WriteOutcome.ConfirmedUnacknowledged,
             "failed" => WriteOutcome.Failed,
             "unknown" => WriteOutcome.Unsettled,
-            "" => succeeded ? WriteOutcome.Confirmed : WriteOutcome.Failed,
+            "" => statusSaysSucceeded ? WriteOutcome.Confirmed : WriteOutcome.Failed,
             _ => WriteOutcome.Unsettled,
         };
         // A success label on an answer whose status says otherwise is a
         // contradiction, and the honest reading of a contradiction is that
         // nobody knows what happened.
-        return !succeeded && claimed.Succeeded() ? WriteOutcome.Unsettled : claimed;
+        return !statusSaysSucceeded && claimedOutcome.Succeeded() ? WriteOutcome.Unsettled : claimedOutcome;
     }
 
     /// <summary>Whether the write is one the user can treat as done.</summary>

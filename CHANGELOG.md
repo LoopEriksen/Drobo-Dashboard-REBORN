@@ -332,6 +332,9 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   - `windows/DroboDashboardReborn/TrayIconManager.cs`: the tooltip,
     balloon and timeout limits are named constants with their reasons;
     every value is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/WriteOutcome.cs`: the two verdicts a
+    write's answer is weighed by have names. The outcome strings and
+    their mapping are unchanged. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
