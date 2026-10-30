@@ -217,6 +217,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     credential regexes are named for what they match (same patterns
     and flags). Every report prints the same lines and returns the
     same exit code, and the command line is unchanged. (2026-10-29)
+  - `tools/nasd_probe.py`: one helper per attempt, and the timeouts are
+    named in seconds; for testers who import it, `read_available`'s
+    `first_timeout` and `idle_timeout` -> `first_timeout_seconds` and
+    `idle_timeout_seconds`, `connect_to_status_port(timeout)` ->
+    `timeout_seconds` and `hexdump(limit)` -> `limit_bytes` (positional
+    calls are unaffected). The bytes sent, the order of attempts, the
+    console output, the JSON report and the command line are as they
+    were. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

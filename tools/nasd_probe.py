@@ -82,6 +82,12 @@ STATUS_PORT = 5000
 # <Error>N</Error> responses, so these are shaped around that.
 # ---------------------------------------------------------------------------
 def candidate_bodies(command_name: str) -> list[tuple[str, bytes]]:
+    """Every request-body shape worth trying, each with a short label.
+
+    Each shape is a guess built from what the firmware gives away (an
+    XML DOM, replies of the form <Error>N</Error>), not from a
+    capture, so the probe tries them all and lets the replies decide.
+    """
     return [
         ("bare-element", f"<{command_name}/>".encode()),
         ("command-element", f"<Command>{command_name}</Command>".encode()),
@@ -147,58 +153,102 @@ FRAMINGS = [
 ]
 
 
-def hexdump(data: bytes, limit: int = 512) -> list[str]:
+# The most one recv() call asks for while draining a reply.
+RECEIVE_CHUNK_BYTES = 8192
+
+
+def hexdump(data: bytes, limit_bytes: int = 512) -> list[str]:
+    """Format up to `limit_bytes` of `data` as offset/hex/ASCII lines.
+
+    The report keeps a hexdump rather than the raw bytes because a
+    framing guess that gets refused may be refused in binary, and the
+    dump stays readable in JSON.
+    """
     lines = []
-    for offset in range(0, min(len(data), limit), 16):
-        chunk = data[offset:offset + 16]
-        hex_part = " ".join(f"{b:02x}" for b in chunk).ljust(47)
-        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+    for offset in range(0, min(len(data), limit_bytes), 16):
+        row = data[offset:offset + 16]
+        hex_part = " ".join(f"{byte_value:02x}" for byte_value in row)
+        hex_part = hex_part.ljust(47)
+        ascii_part = "".join(chr(byte_value) if 32 <= byte_value < 127
+                             else "." for byte_value in row)
         lines.append(f"{offset:04x}  {hex_part}  {ascii_part}")
     return lines
 
 
-def classify_response(data: bytes) -> str | None:
-    """Score a response.
-    Returns a description if it looks meaningful.
+def classify_response(reply_bytes: bytes) -> str | None:
+    """Describe a reply in a few words, or None for no reply at all.
+
+    A verdict string rather than a yes/no, because the summary ranks
+    the "promising" attempts by what the verdict says (XML, an <Error>
+    element) and a person reading the report wants the reason too.
     """
-    if not data:
+    if not reply_bytes:
         return None
-    if b"<Error>" in data:
+    if b"<Error>" in reply_bytes:
         return "contains <Error> -- this is the nasd response format"
-    if data.lstrip()[:5] == b"<?xml":
+    if reply_bytes.lstrip()[:5] == b"<?xml":
         return "XML declaration"
-    if re.match(rb"\s*<[A-Za-z]", data):
+    if re.match(rb"\s*<[A-Za-z]", reply_bytes):
         return "starts with an XML element"
-    printable = sum(1 for b in data[:64] if 9 <= b <= 126)
-    if printable > len(data[:64]) * 0.9:
-        return f"printable text: {data[:60]!r}"
-    return f"binary, {len(data)} bytes"
+    printable_count = sum(1 for byte_value in reply_bytes[:64]
+                          if 9 <= byte_value <= 126)
+    if printable_count > len(reply_bytes[:64]) * 0.9:
+        return f"printable text: {reply_bytes[:60]!r}"
+    return f"binary, {len(reply_bytes)} bytes"
 
 
-def read_available(sock: socket.socket, first_timeout: float = 3.0,
-                   idle_timeout: float = 0.6, max_bytes: int = 65536) -> bytes:
-    """Read until the peer goes quiet."""
-    sock.settimeout(first_timeout)
-    received = b""
+def _receive_until_idle(sock: socket.socket, chunks: list[bytes],
+                        idle_timeout_seconds: float,
+                        max_bytes: int) -> None:
+    """Append what `sock` sends to `chunks` until it closes or fills.
+
+    Split out of read_available so that a timeout, which is how a
+    quiet peer ends the read, can be caught there while the chunks
+    received before it are kept.
+    """
+    received_count = 0
+    while received_count < max_bytes:
+        chunk = sock.recv(RECEIVE_CHUNK_BYTES)
+        if not chunk:
+            return
+        chunks.append(chunk)
+        received_count += len(chunk)
+        sock.settimeout(idle_timeout_seconds)
+
+
+def read_available(sock: socket.socket, first_timeout_seconds: float = 3.0,
+                   idle_timeout_seconds: float = 0.6,
+                   max_bytes: int = 65536) -> bytes:
+    """Read until the peer goes quiet, and return what it sent.
+
+    With no known framing there is no length to read up to, so the
+    only end of a reply is silence: wait `first_timeout_seconds` for
+    the first bytes, then `idle_timeout_seconds` after each later
+    chunk. A timeout or socket error ends the read; it is not an
+    error here.
+    """
+    sock.settimeout(first_timeout_seconds)
+    chunks: list[bytes] = []
     try:
-        while len(received) < max_bytes:
-            piece = sock.recv(8192)
-            if not piece:
-                break
-            received += piece
-            sock.settimeout(idle_timeout)
+        _receive_until_idle(sock, chunks, idle_timeout_seconds, max_bytes)
     except (socket.timeout, TimeoutError):
         pass
     except OSError:
         pass
-    return received
+    return b"".join(chunks)
 
 
-def connect_to_status_port(host: str,
-                           timeout: float = 5.0) -> socket.socket | None:
+def connect_to_status_port(host: str, timeout_seconds: float = 5.0
+                           ) -> socket.socket | None:
+    """Open a connection to nasd's port, or print why not and give None.
+
+    None rather than an exception, so a probe that loses the device
+    part-way still writes down the attempts it already made.
+    """
     try:
-        sock = socket.create_connection((host, STATUS_PORT), timeout=timeout)
-        sock.settimeout(timeout)
+        sock = socket.create_connection((host, STATUS_PORT),
+                                        timeout=timeout_seconds)
+        sock.settimeout(timeout_seconds)
         return sock
     except OSError as exc:
         print(f"  ! could not connect to {host}:{STATUS_PORT} -- {exc}")
@@ -208,31 +258,105 @@ def connect_to_status_port(host: str,
 def probe_banner(host: str) -> dict:
     """Connect and say nothing. Does the Drobo speak first?"""
     print("\n== 1. does the server speak first? ==")
-    result = {"test": "banner", "bytes": 0}
+    banner_result = {"test": "banner", "bytes": 0}
     sock = connect_to_status_port(host)
     if not sock:
-        result["error"] = "connect failed"
-        return result
+        banner_result["error"] = "connect failed"
+        return banner_result
     try:
-        data = read_available(sock, first_timeout=4.0)
-        result["bytes"] = len(data)
-        if data:
-            result["hexdump"] = hexdump(data)
-            result["verdict"] = classify_response(data)
-            print(f"  server sent {len(data)} bytes unprompted -- "
-                  f"{result['verdict']}")
-            for line in hexdump(data, 128):
-                print("    " + line)
-        else:
-            print("  silence. The client speaks first.")
-            result["verdict"] = "silent -- client speaks first"
+        reply_bytes = read_available(sock, first_timeout_seconds=4.0)
+        banner_result["bytes"] = len(reply_bytes)
+        _record_banner(banner_result, reply_bytes)
     finally:
         sock.close()
-    return result
+    return banner_result
+
+
+def _record_banner(banner_result: dict, reply_bytes: bytes) -> None:
+    """Add what the unprompted read showed to the result, and say it.
+
+    Silence is a result worth recording too: it means the client has
+    to speak first.
+    """
+    if not reply_bytes:
+        print("  silence. The client speaks first.")
+        banner_result["verdict"] = "silent -- client speaks first"
+        return
+    banner_result["hexdump"] = hexdump(reply_bytes)
+    banner_result["verdict"] = classify_response(reply_bytes)
+    print(f"  server sent {len(reply_bytes)} bytes unprompted -- "
+          f"{banner_result['verdict']}")
+    for line in hexdump(reply_bytes, 128):
+        print("    " + line)
+
+
+def _framed_attempts(command_name: str):
+    """Yield (body name, framing name, payload) for every combination.
+
+    Bodies are the outer loop and framings the inner one, which is the
+    order the report lists them in.
+    """
+    for body_name, body in candidate_bodies(command_name):
+        for framing_name, apply_framing in FRAMINGS:
+            yield body_name, framing_name, apply_framing(body)
+
+
+def _ensure_connection(sock: socket.socket | None, host: str,
+                       persistent: bool) -> socket.socket | None:
+    """Return the socket the next attempt should use.
+
+    With --persistent an open socket is reused, to see whether nasd
+    keeps a conversation going after a bad request; otherwise every
+    attempt gets a fresh connection, so one refusal cannot colour the
+    next. None means the connection could not be made.
+    """
+    if persistent and sock is not None:
+        return sock
+    if sock:
+        sock.close()
+    return connect_to_status_port(host)
+
+
+def _send_one_attempt(sock: socket.socket, body_name: str,
+                      framing_name: str,
+                      payload: bytes) -> tuple[dict, bool]:
+    """Send one framed payload, read the reply, and describe both.
+
+    Returns the attempt's record and whether the send went through;
+    after a failed send the caller drops the socket, since nothing
+    more can be read from it.
+    """
+    attempt = {"body": body_name, "framing": framing_name,
+               "sent": payload[:120].decode("latin1", "replace"),
+               "sent_bytes": len(payload)}
+    try:
+        sock.sendall(payload)
+    except OSError as exc:
+        attempt["error"] = f"send failed: {exc}"
+        return attempt, False
+    reply_bytes = read_available(sock, first_timeout_seconds=2.5)
+    attempt["received_bytes"] = len(reply_bytes)
+    label = f"{body_name}/{framing_name}"
+    if not reply_bytes:
+        print(f"  {label:34s} -> (nothing)")
+        return attempt, True
+    attempt["hexdump"] = hexdump(reply_bytes)
+    attempt["text"] = reply_bytes[:1024].decode("utf-8", "replace")
+    attempt["verdict"] = classify_response(reply_bytes)
+    print(f"  {label:34s} -> {len(reply_bytes):5d} bytes  "
+          f"{attempt['verdict']}")
+    return attempt, True
 
 
 def probe_framings(host: str, command_name: str,
                    persistent: bool) -> list[dict]:
+    """Send `command_name` in every body shape and framing, and record.
+
+    The command is checked against FORBIDDEN before anything is sent,
+    even though main only passes SAFE_COMMANDS: the refusal is meant to
+    hold for any caller. If the device stops accepting connections
+    part-way, the attempts made so far are returned.
+    """
     print(f"\n== 2. framing sweep using {command_name} ==")
     if command_name in FORBIDDEN:
         raise SystemExit(
@@ -240,47 +364,23 @@ def probe_framings(host: str, command_name: str,
 
     results = []
     sock = None
-    for body_name, body in candidate_bodies(command_name):
-        for framing_name, apply_framing in FRAMINGS:
-            payload = apply_framing(body)
-            label = f"{body_name}/{framing_name}"
-            if not persistent or sock is None:
-                if sock:
-                    sock.close()
-                sock = connect_to_status_port(host)
-                if not sock:
-                    return results
-            attempt = {"body": body_name, "framing": framing_name,
-                       "sent": payload[:120].decode("latin1", "replace"),
-                       "sent_bytes": len(payload)}
-            try:
-                sock.sendall(payload)
-            except OSError as exc:
-                attempt["error"] = f"send failed: {exc}"
-                results.append(attempt)
-                sock.close()
-                sock = None
-                continue
-            data = read_available(sock, first_timeout=2.5)
-            attempt["received_bytes"] = len(data)
-            if data:
-                attempt["hexdump"] = hexdump(data)
-                attempt["text"] = data[:1024].decode("utf-8", "replace")
-                attempt["verdict"] = classify_response(data)
-                print(f"  {label:34s} -> {len(data):5d} bytes  "
-                      f"{attempt['verdict']}")
-            else:
-                print(f"  {label:34s} -> (nothing)")
-            results.append(attempt)
-            if not persistent:
-                sock.close()
-                sock = None
+    for body_name, framing_name, payload in _framed_attempts(command_name):
+        sock = _ensure_connection(sock, host, persistent)
+        if not sock:
+            return results
+        attempt, sent = _send_one_attempt(sock, body_name, framing_name,
+                                          payload)
+        results.append(attempt)
+        if not sent or not persistent:
+            sock.close()
+            sock = None
     if sock:
         sock.close()
     return results
 
 
-def main(argv=None) -> int:
+def _parse_arguments(argv) -> argparse.Namespace:
+    """Read the command line (the module docstring is the --help)."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -293,7 +393,56 @@ def main(argv=None) -> int:
                         help="connect and read, but never send anything")
     parser.add_argument("--persistent", action="store_true",
                         help="reuse one connection for every attempt")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def _print_framing_summary(framings: list[dict], host: str) -> None:
+    """Say how many attempts got a reply and which look most promising.
+
+    An attempt is "promising" when its reply mentions Error or its
+    verdict mentions XML, because those are the shapes the firmware
+    says nasd answers in.
+    """
+    answered = [attempt for attempt in framings
+                if attempt.get("received_bytes")]
+    print("\n== summary ==")
+    print(f"  {len(answered)} of {len(framings)} "
+          "attempts got a reply")
+    promising = [attempt for attempt in answered
+                 if "Error" in (attempt.get("text") or "")
+                 or "XML" in (attempt.get("verdict") or "")]
+    if promising:
+        print("  most promising:")
+        for attempt in promising[:5]:
+            print(f"    {attempt['body']}/{attempt['framing']}: "
+                  f"{attempt['verdict']}")
+        return
+    if answered:
+        print("  something answered, but nothing looked like XML. "
+              "Check the hexdumps in the report.")
+        return
+    print("  nothing answered. "
+          "Either the framing guesses are all wrong,")
+    print("  or nasd expects authentication first. "
+          "Fall back to Wireshark:")
+    print(f"    tcp port {STATUS_PORT} and host {host}")
+
+
+def _write_report(report: dict, report_path: str) -> None:
+    """Write the report as JSON and say where it went."""
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2)
+    print(f"\nWrote {report_path}")
+    print("Keep that file -- a driver can be written from what it recorded.")
+
+
+def main(argv=None) -> int:
+    """Probe the banner, then (unless --listen-only) every framing.
+
+    The command is checked against the read-only allow-list before the
+    first connection, so a typo never reaches the device.
+    """
+    args = _parse_arguments(argv)
 
     if args.command not in SAFE_COMMANDS:
         raise SystemExit(
@@ -314,34 +463,9 @@ def main(argv=None) -> int:
     else:
         report["framings"] = probe_framings(
             args.host, args.command, args.persistent)
+        _print_framing_summary(report["framings"], args.host)
 
-        answered = [attempt for attempt in report["framings"]
-                    if attempt.get("received_bytes")]
-        print("\n== summary ==")
-        print(f"  {len(answered)} of {len(report['framings'])} "
-              "attempts got a reply")
-        promising = [attempt for attempt in answered
-                     if "Error" in (attempt.get("text") or "")
-                     or "XML" in (attempt.get("verdict") or "")]
-        if promising:
-            print("  most promising:")
-            for attempt in promising[:5]:
-                print(f"    {attempt['body']}/{attempt['framing']}: "
-                      f"{attempt['verdict']}")
-        elif answered:
-            print("  something answered, but nothing looked like XML. "
-                  "Check the hexdumps in the report.")
-        else:
-            print("  nothing answered. "
-                  "Either the framing guesses are all wrong,")
-            print("  or nasd expects authentication first. "
-                  "Fall back to Wireshark:")
-            print(f"    tcp port {STATUS_PORT} and host {args.host}")
-
-    with open(args.out, "w", encoding="utf-8") as report_file:
-        json.dump(report, report_file, indent=2)
-    print(f"\nWrote {args.out}")
-    print("Keep that file -- a driver can be written from what it recorded.")
+    _write_report(report, args.out)
     return 0
 
 
