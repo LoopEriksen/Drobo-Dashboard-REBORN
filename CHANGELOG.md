@@ -256,6 +256,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     `main` are split into named steps. Every label, note, message, exit
     code, command-line option and the order of the accept rules are as
     they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/Assets/generate_icon.py`: the shape
+    builder and the renderer are split into named steps, and sizes are
+    named in pixels. Both icons it draws come out byte-identical; the
+    committed `.ico` files were not regenerated. (2026-10-29)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's
