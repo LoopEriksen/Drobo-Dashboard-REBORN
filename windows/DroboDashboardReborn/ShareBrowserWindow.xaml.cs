@@ -36,11 +36,11 @@ namespace DroboDashboardReborn;
 /// </summary>
 public partial class ShareBrowserWindow : Window
 {
-    private readonly string _root;        // the share's UNC root, e.g. \\host\Photos
+    private readonly string _shareRootUnc;   // the share's UNC root, e.g. \\host\Photos
     private readonly string _shareName;
-    private string _current;              // the folder being shown
+    private string _currentPath;             // the folder being shown
     private readonly ObservableCollection<Entry> _entries = new();
-    private int _generation;              // stale-read guard, same pattern as MainWindow
+    private int _generation;                 // stale-read guard, same pattern as MainWindow
 
     /// <summary>One row in the listing.</summary>
     public sealed class Entry
@@ -49,126 +49,149 @@ public partial class ShareBrowserWindow : Window
         public string FullPath { get; init; } = "";
         public bool IsDirectory { get; init; }
         public long? SizeBytes { get; init; }
-        public DateTime? Modified { get; init; }
+        public DateTime? ModifiedAt { get; init; }
 
         public string Glyph => IsDirectory ? "\u25B8" : "\u00B7";   // ▸ for folders, · for files
-        public string SizeText => IsDirectory ? "" : HumanSize(SizeBytes);
-        public string ModifiedText => Modified?.ToString("yyyy-MM-dd HH:mm") ?? "";
+        public string SizeText => IsDirectory ? "" : FormatSize(SizeBytes);
+        public string ModifiedText => ModifiedAt?.ToString("yyyy-MM-dd HH:mm") ?? "";
 
-        private static string HumanSize(long? bytes)
+        /// <summary>A file's size for the listing, blank when it could not be
+        /// read. It steps by 1024, while JsonHelpers.FormatBytes (the Status
+        /// tab) steps by 1000, so the two can show different figures for the
+        /// same number of bytes.</summary>
+        private static string FormatSize(long? sizeBytes)
         {
-            if (bytes is null) return "";
-            double b = bytes.Value;
+            if (sizeBytes is null) return "";
+            double scaledSize = sizeBytes.Value;
             string[] units = { "B", "KB", "MB", "GB", "TB" };
-            int i = 0;
-            while (b >= 1024 && i < units.Length - 1) { b /= 1024; i++; }
-            return i == 0 ? $"{b:0} {units[i]}" : $"{b:0.0} {units[i]}";
+            int unitIndex = 0;
+            while (scaledSize >= 1024 && unitIndex < units.Length - 1) { scaledSize /= 1024; unitIndex++; }
+            return unitIndex == 0 ? $"{scaledSize:0} {units[unitIndex]}" : $"{scaledSize:0.0} {units[unitIndex]}";
         }
     }
 
+    /// <summary>Opens on the share's root. A trailing backslash is trimmed
+    /// from <paramref name="uncPath"/> because the root guard in NavigateTo
+    /// and GoUp both compare paths against it as text, and Windows' own
+    /// paths for the folders inside never end in one.</summary>
     public ShareBrowserWindow(string shareName, string uncPath)
     {
         InitializeComponent();
         _shareName = shareName;
-        _root = uncPath.TrimEnd('\\');
-        _current = _root;
+        _shareRootUnc = uncPath.TrimEnd('\\');
+        _currentPath = _shareRootUnc;
         Header.Text = "Files on " + shareName;
         Entries.ItemsSource = _entries;
-        Loaded += async (_, _) => await NavigateTo(_root);
+        Loaded += async (_, _) => await NavigateTo(_shareRootUnc);
     }
 
     // ------------------------------------------------------------------
     // Navigation
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Shows the folder at <paramref name="path"/>. The read runs off the UI
+    /// thread and can take seconds on a sleeping NAS, so by the time it
+    /// returns the user may have clicked somewhere else: each call takes a
+    /// new generation number and a reply for an older one is dropped, so a
+    /// slow folder never overwrites the one now on screen.
+    /// </summary>
     private async Task NavigateTo(string path)
     {
         // Never allow navigation above the share root. A UNC path can be
         // walked up to \\host, which lists OTHER shares, and that is not what
         // "browse this share" means.
-        if (!path.StartsWith(_root, StringComparison.OrdinalIgnoreCase))
-            path = _root;
+        if (!path.StartsWith(_shareRootUnc, StringComparison.OrdinalIgnoreCase))
+            path = _shareRootUnc;
 
-        int gen = ++_generation;
-        _current = path;
+        int generation = ++_generation;
+        _currentPath = path;
         PathText.Text = path;
-        UpBtn.IsEnabled = !string.Equals(path, _root, StringComparison.OrdinalIgnoreCase);
+        UpBtn.IsEnabled = !string.Equals(path, _shareRootUnc, StringComparison.OrdinalIgnoreCase);
         RenderCrumbs();
         ShowState("Reading\u2026");
         _entries.Clear();
 
-        List<Entry> listing;
-        string? error = null;
-        try
-        {
-            listing = await Task.Run(() => ReadDirectory(path));
-        }
-        catch (UnauthorizedAccessException)
-        {
-            listing = new List<Entry>();
-            error = "Windows would not let this account read that folder. "
-                  + "The share may need a different login -- use Connect as\u2026 on the Shares tab.";
-        }
-        catch (DirectoryNotFoundException)
-        {
-            listing = new List<Entry>();
-            error = "That folder is not there any more.";
-        }
-        catch (IOException ex)
-        {
-            listing = new List<Entry>();
-            error = "Could not read the share right now: " + ex.Message;
-        }
+        var (listing, error) = await ReadListingOrError(path);
 
-        if (gen != _generation) return;   // the user moved on while we were reading
+        if (generation != _generation) return;   // the user moved on while we were reading
 
-        foreach (var e in listing) _entries.Add(e);
+        foreach (var entry in listing) _entries.Add(entry);
 
         if (error != null) ShowState(error);
         else if (listing.Count == 0) ShowState("This folder is empty.");
         else HideState();
     }
 
+    /// <summary>Reads the folder off the UI thread and turns the three
+    /// failures a share commonly gives into a sentence for the list area,
+    /// with an empty listing, instead of an exception.</summary>
+    private static async Task<(List<Entry> listing, string? error)> ReadListingOrError(string path)
+    {
+        try
+        {
+            return (await Task.Run(() => ReadDirectory(path)), null);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return (new List<Entry>(),
+                "Windows would not let this account read that folder. "
+                + "The share may need a different login -- use Connect as\u2026 on the Shares tab.");
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return (new List<Entry>(), "That folder is not there any more.");
+        }
+        catch (IOException ex)
+        {
+            return (new List<Entry>(), "Could not read the share right now: " + ex.Message);
+        }
+    }
+
     /// <summary>Runs OFF the UI thread. Folders first, then files, each A-Z.</summary>
     private static List<Entry> ReadDirectory(string path)
     {
-        var dir = new DirectoryInfo(path);
+        var directory = new DirectoryInfo(path);
         var result = new List<Entry>();
-        foreach (var d in dir.EnumerateDirectories().OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var subdirectory in directory.EnumerateDirectories().OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
         {
             result.Add(new Entry
             {
-                Name = d.Name, FullPath = d.FullName, IsDirectory = true,
-                Modified = SafeModified(d),
+                Name = subdirectory.Name, FullPath = subdirectory.FullName, IsDirectory = true,
+                ModifiedAt = SafeModified(subdirectory),
             });
         }
-        foreach (var f in dir.EnumerateFiles().OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var file in directory.EnumerateFiles().OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
         {
             result.Add(new Entry
             {
-                Name = f.Name, FullPath = f.FullName, IsDirectory = false,
-                SizeBytes = SafeLength(f), Modified = SafeModified(f),
+                Name = file.Name, FullPath = file.FullName, IsDirectory = false,
+                SizeBytes = SafeLength(file), ModifiedAt = SafeModified(file),
             });
         }
         return result;
     }
 
     // A single unreadable entry must not sink the whole listing.
-    private static DateTime? SafeModified(FileSystemInfo i) { try { return i.LastWriteTime; } catch { return null; } }
-    private static long? SafeLength(FileInfo f) { try { return f.Length; } catch { return null; } }
+    private static DateTime? SafeModified(FileSystemInfo info) { try { return info.LastWriteTime; } catch { return null; } }
+    private static long? SafeLength(FileInfo file) { try { return file.Length; } catch { return null; } }
 
+    /// <summary>Rebuilds the breadcrumb row for the current folder: the share
+    /// name, then one button per folder below it. Built from the path
+    /// relative to the root, so a crumb can never point above the
+    /// share.</summary>
     private void RenderCrumbs()
     {
         Crumbs.Children.Clear();
         // Root crumb is the share name; each deeper segment is one folder.
-        var rel = _current.Length > _root.Length ? _current.Substring(_root.Length).Trim('\\') : "";
-        var segments = rel.Length == 0 ? Array.Empty<string>() : rel.Split('\\');
+        var relativePath = _currentPath.Length > _shareRootUnc.Length ? _currentPath.Substring(_shareRootUnc.Length).Trim('\\') : "";
+        var segments = relativePath.Length == 0 ? Array.Empty<string>() : relativePath.Split('\\');
 
-        AddCrumb(_shareName, _root, isLast: segments.Length == 0);
-        var acc = _root;
-        for (int i = 0; i < segments.Length; i++)
+        AddCrumb(_shareName, _shareRootUnc, isLast: segments.Length == 0);
+        var crumbPath = _shareRootUnc;
+        for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
         {
-            acc = acc + "\\" + segments[i];
+            crumbPath = crumbPath + "\\" + segments[segmentIndex];
             Crumbs.Children.Add(new TextBlock
             {
                 Text = " \u203A ",   // the > separator
@@ -178,18 +201,23 @@ public partial class ShareBrowserWindow : Window
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                 FontSize = 12,
             });
-            AddCrumb(segments[i], acc, isLast: i == segments.Length - 1);
+            AddCrumb(segments[segmentIndex], crumbPath, isLast: segmentIndex == segments.Length - 1);
         }
     }
 
+    /// <summary>One clickable crumb that navigates to
+    /// <paramref name="target"/>. The last one is drawn white, to mark the
+    /// folder being shown.</summary>
     private void AddCrumb(string text, string target, bool isLast)
     {
-        var b = new Button { Content = text, Style = (Style)FindResource("Crumb"), Tag = target };
-        if (isLast) b.Foreground = System.Windows.Media.Brushes.White;
-        b.Click += async (_, _) => await NavigateTo((string)b.Tag);
-        Crumbs.Children.Add(b);
+        var crumbButton = new Button { Content = text, Style = (Style)FindResource("Crumb"), Tag = target };
+        if (isLast) crumbButton.Foreground = System.Windows.Media.Brushes.White;
+        crumbButton.Click += async (_, _) => await NavigateTo((string)crumbButton.Tag);
+        Crumbs.Children.Add(crumbButton);
     }
 
+    /// <summary>Shows a sentence in the list area (reading, empty, or why the
+    /// folder could not be read) so the list is never just blank.</summary>
     private void ShowState(string text) { StateText.Text = text; StateText.Visibility = Visibility.Visible; }
     private void HideState() => StateText.Visibility = Visibility.Collapsed;
 
@@ -205,6 +233,8 @@ public partial class ShareBrowserWindow : Window
         else if (e.Key == Key.Back) { e.Handled = true; await GoUp(); }
     }
 
+    /// <summary>Enter or a double-click: a folder opens in this window, a
+    /// file is handed to the program Windows has for it.</summary>
     private async Task ActivateSelected()
     {
         if (Entries.SelectedItem is not Entry entry) return;
@@ -229,18 +259,23 @@ public partial class ShareBrowserWindow : Window
 
     private async void Up_Click(object sender, RoutedEventArgs e) => await GoUp();
 
+    /// <summary>Up one folder, stopping at the share's root: above it is the
+    /// server's list of shares, which this window is not for.</summary>
     private async Task GoUp()
     {
-        if (string.Equals(_current, _root, StringComparison.OrdinalIgnoreCase)) return;
-        var parent = Path.GetDirectoryName(_current);
-        await NavigateTo(string.IsNullOrEmpty(parent) ? _root : parent);
+        if (string.Equals(_currentPath, _shareRootUnc, StringComparison.OrdinalIgnoreCase)) return;
+        var parent = Path.GetDirectoryName(_currentPath);
+        await NavigateTo(string.IsNullOrEmpty(parent) ? _shareRootUnc : parent);
     }
 
+    /// <summary>The escape hatch for anything this viewer deliberately does
+    /// not do (copy, move, rename, delete): the same folder in
+    /// Explorer.</summary>
     private void Explorer_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            Process.Start(new ProcessStartInfo(_current) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(_currentPath) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
