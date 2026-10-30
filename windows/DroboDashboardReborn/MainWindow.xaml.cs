@@ -368,13 +368,7 @@ public partial class MainWindow : Window
         {
             var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (handle == IntPtr.Zero) return;
-            int darkModeEnabled = 1;
-            foreach (int attribute in new[] { DWMWA_USE_IMMERSIVE_DARK_MODE,
-                                              DWMWA_USE_IMMERSIVE_DARK_MODE_PRE_20H1 })
-            {
-                if (DwmSetWindowAttribute(handle, attribute, ref darkModeEnabled, sizeof(int)) == 0)
-                    return;   // took effect; no need to try the older number
-            }
+            SetDarkModeAttribute(handle);
         }
         catch (DllNotFoundException)
         {
@@ -383,6 +377,20 @@ public partial class MainWindow : Window
         }
         catch (EntryPointNotFoundException)
         {
+        }
+    }
+
+    /// <summary>Tries the current attribute number, then the pre-20H1 one,
+    /// stopping at the first that takes. A DLL or entry point that is missing
+    /// throws to UseDarkTitleBar, which swallows it.</summary>
+    private static void SetDarkModeAttribute(IntPtr handle)
+    {
+        int darkModeEnabled = 1;
+        foreach (int attribute in new[] { DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                          DWMWA_USE_IMMERSIVE_DARK_MODE_PRE_20H1 })
+        {
+            if (DwmSetWindowAttribute(handle, attribute, ref darkModeEnabled, sizeof(int)) == 0)
+                return;   // took effect; no need to try the older number
         }
     }
 
@@ -492,12 +500,8 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(AgentUrl.Text))
                 AgentUrl.Text = $"http://127.0.0.1:{port}";
 
-            if (agent.TryGetProperty("token", out var tokenElement) &&
-                tokenElement.ValueKind == JsonValueKind.String)
-            {
-                var token = tokenElement.GetString();
-                if (!string.IsNullOrEmpty(token)) Token.Password = token;
-            }
+            var token = ReadAgentToken(agent);
+            if (!string.IsNullOrEmpty(token)) Token.Password = token;
             return true;
         }
         catch
@@ -507,6 +511,12 @@ public partial class MainWindow : Window
             return false;
         }
     }
+
+    /// <summary>The "token" string in a config.json's "agent" block, or null
+    /// when it is missing or not a string.</summary>
+    private static string? ReadAgentToken(JsonElement agent) =>
+        agent.TryGetProperty("token", out var tokenElement) && tokenElement.ValueKind == JsonValueKind.String
+            ? tokenElement.GetString() : null;
 
     /// <summary>
     /// Where a saved agent token might live, checked in order. The
@@ -1535,14 +1545,7 @@ public partial class MainWindow : Window
             // Distinct user names seen across every share, collected from the
             // same answer that fills the share box -- one fetch, never two.
             var users = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (sharesRoot.TryGetProperty("shares", out var sharesArray) && sharesArray.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var share in sharesArray.EnumerateArray())
-                {
-                    AccessShareBox.Items.Add(GetStringOr(share, "name", ""));
-                    AddUserNames(share, users);
-                }
-            }
+            AddShareChoices(sharesRoot, users);
             if (AccessShareBox.Items.Count > 0) AccessShareBox.SelectedIndex = 0;
 
             // "Everyone" leads regardless of what the device listed: every
@@ -1550,12 +1553,24 @@ public partial class MainWindow : Window
             // default the panel's own help text talks about.
             AccessUserBox.Items.Clear();
             AccessUserBox.Items.Add("Everyone");
-            foreach (var name in users)
-                if (!string.Equals(name, "Everyone", StringComparison.OrdinalIgnoreCase))
-                    AccessUserBox.Items.Add(name);
+            foreach (var name in users.Where(userName => !string.Equals(userName, "Everyone", StringComparison.OrdinalIgnoreCase)))
+                AccessUserBox.Items.Add(name);
             AccessUserBox.Text = "Everyone";
         }
         catch { /* the boxes stay as they were; Apply will say so */ }
+    }
+
+    /// <summary>Adds every share's name to the share box, and every user name
+    /// any share lists to <paramref name="users"/>.</summary>
+    private void AddShareChoices(JsonElement sharesRoot, SortedSet<string> users)
+    {
+        if (!sharesRoot.TryGetProperty("shares", out var sharesArray) || sharesArray.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var share in sharesArray.EnumerateArray())
+        {
+            AccessShareBox.Items.Add(GetStringOr(share, "name", ""));
+            AddUserNames(share, users);
+        }
     }
 
     /// <summary>Adds the non-empty user names one share lists to
@@ -1807,17 +1822,7 @@ public partial class MainWindow : Window
 
         var activeList = new List<AlertRow>();
         var resolvedList = new List<AlertRow>();
-
-        if (allRoot.TryGetProperty("alerts", out var allAlerts) && allAlerts.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var alert in allAlerts.EnumerateArray())
-            {
-                bool isActive = activeKeys.Contains(GetStringOr(alert, "key", ""));
-                var row = BuildAlertRow(alert, isActive);
-                if (isActive) activeList.Add(row);
-                else resolvedList.Add(row);
-            }
-        }
+        SplitAlerts(allRoot, activeKeys, activeList, resolvedList);
 
         SortBySeverityThenRecency(activeList);
         SortBySeverityThenRecency(resolvedList);
@@ -1838,6 +1843,24 @@ public partial class MainWindow : Window
         ResolvedAlertsEmpty.Visibility = resolvedList.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         UpdateAlertsTabIndicator(activeList);
+    }
+
+    /// <summary>Builds a row for every alert in the ?all=1 answer, into
+    /// <paramref name="activeList"/> when its key is still active and into
+    /// <paramref name="resolvedList"/> otherwise, in the answer's
+    /// order.</summary>
+    private static void SplitAlerts(JsonElement allRoot, HashSet<string> activeKeys,
+                                    List<AlertRow> activeList, List<AlertRow> resolvedList)
+    {
+        if (!allRoot.TryGetProperty("alerts", out var allAlerts) || allAlerts.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var alert in allAlerts.EnumerateArray())
+        {
+            bool isActive = activeKeys.Contains(GetStringOr(alert, "key", ""));
+            var row = BuildAlertRow(alert, isActive);
+            if (isActive) activeList.Add(row);
+            else resolvedList.Add(row);
+        }
     }
 
     /// <summary>The "key" of every alert in one /api/alerts answer.</summary>
@@ -2093,14 +2116,14 @@ public partial class MainWindow : Window
     /// </summary>
     private static string DescribeUserAccess(JsonElement share)
     {
+        if (!share.TryGetProperty("users", out var usersArray) || usersArray.ValueKind != JsonValueKind.Array)
+            return "";
+
         var userAccessParts = new List<string>();
-        if (share.TryGetProperty("users", out var usersArray) && usersArray.ValueKind == JsonValueKind.Array)
+        foreach (var user in usersArray.EnumerateArray())
         {
-            foreach (var user in usersArray.EnumerateArray())
-            {
-                if (user.ValueKind != JsonValueKind.Object) continue;
-                userAccessParts.Add(DescribeOneUserAccess(user));
-            }
+            if (user.ValueKind != JsonValueKind.Object) continue;
+            userAccessParts.Add(DescribeOneUserAccess(user));
         }
         return userAccessParts.Count == 0 ? "" : "Access: " + string.Join("  ·  ", userAccessParts);
     }
@@ -4038,15 +4061,7 @@ public partial class MainWindow : Window
                 new { name = row.Name, action = verb });
             if (okStatus && root.TryGetProperty("ok", out var okElement) && okElement.GetBoolean())
             {
-                var message = GetStringOr(root, "message", "Done.");
-                if (IsTrue(root, "simulated")) message += "  [simulated Drobo]";
-                ShowConfigResult(DroboAppsActionResult, true, message);
-                // "apps" is omitted when the agent's post-action re-read
-                // failed; its message already says "accepted, unconfirmed"
-                // then, and the stale rows stay put -- pressing Refresh is
-                // the user's call, not this handler's.
-                if (root.TryGetProperty("apps", out var apps) && apps.ValueKind == JsonValueKind.Array)
-                    RenderDroboApps(root);
+                ShowDroboAppActionAccepted(root);
             }
             else
             {
@@ -4065,6 +4080,22 @@ public partial class MainWindow : Window
             button.IsEnabled = true;
             button.Content = verb;
         }
+    }
+
+    /// <summary>An accepted Start/Stop: the agent's message (tagged when the
+    /// Drobo is simulated), and the rows rebuilt from the agent's post-action
+    /// re-read when it sent one.</summary>
+    private void ShowDroboAppActionAccepted(JsonElement root)
+    {
+        var message = GetStringOr(root, "message", "Done.");
+        if (IsTrue(root, "simulated")) message += "  [simulated Drobo]";
+        ShowConfigResult(DroboAppsActionResult, true, message);
+        // "apps" is omitted when the agent's post-action re-read
+        // failed; its message already says "accepted, unconfirmed"
+        // then, and the stale rows stay put -- pressing Refresh is
+        // the user's call, not this handler's.
+        if (root.TryGetProperty("apps", out var apps) && apps.ValueKind == JsonValueKind.Array)
+            RenderDroboApps(root);
     }
 
     private async void EventLogRefreshBtn_Click(object sender, RoutedEventArgs e) => await RefreshEventLog();
@@ -4112,15 +4143,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RenderEventLog(JsonElement root)
     {
-        var rows = new List<EventLogRow>();
-        if (root.TryGetProperty("events", out var eventsArray) && eventsArray.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var logEntry in eventsArray.EnumerateArray())
-            {
-                if (logEntry.ValueKind != JsonValueKind.Object) continue;
-                rows.Add(BuildEventLogRow(logEntry));
-            }
-        }
+        var rows = CollectEventLogRows(root);
         rows.Reverse();
 
         _eventLog.Clear();
@@ -4130,6 +4153,21 @@ public partial class MainWindow : Window
                            + "own log every few minutes, so right after it starts an empty list here "
                            + "is normal, not a fault -- try Refresh again shortly.";
         EventLogEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>A row for every object in the answer's "events", in the
+    /// answer's order (oldest first, as the log is written).</summary>
+    private static List<EventLogRow> CollectEventLogRows(JsonElement root)
+    {
+        var rows = new List<EventLogRow>();
+        if (!root.TryGetProperty("events", out var eventsArray) || eventsArray.ValueKind != JsonValueKind.Array)
+            return rows;
+        foreach (var logEntry in eventsArray.EnumerateArray())
+        {
+            if (logEntry.ValueKind != JsonValueKind.Object) continue;
+            rows.Add(BuildEventLogRow(logEntry));
+        }
+        return rows;
     }
 
     /// <summary>One log line's row.</summary>
