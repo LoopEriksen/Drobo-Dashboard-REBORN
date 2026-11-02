@@ -1487,6 +1487,11 @@ class Drobo5NDriver(DroboDriver):
         self._resolved_host: str = ""
         self._resolved_port: int = self.port
         self._known_esa_id: str = self.expected_esa_id
+        # Set when a poll's greeting named another serial, cleared when
+        # ours answers again. While it is set the agent's command routes
+        # refuse to send (api._command_target), because the address they
+        # would use belongs to a Drobo that is not ours.
+        self.answering_as_another_drobo: bool = False
 
     def _init_command_port_caches(self, drobo_config: dict) -> None:
         """The readings that come from the command port rather than the
@@ -1553,11 +1558,13 @@ class Drobo5NDriver(DroboDriver):
         The serial is filled only when empty: the first device reached
         becomes the one later discoveries must match, which is what
         stops a re-discovery from accepting whatever answers next. This
-        method does not compare serials itself; discovery and connect()
-        do.
+        method does not compare serials itself; discovery, connect() and
+        the poll do, and call it only for ours, so it also lifts the
+        refusal a stranger's greeting set.
         """
         self._resolved_host = host
         self._resolved_port = port
+        self.answering_as_another_drobo = False
         if not self._known_esa_id:
             self._known_esa_id = esa_id
 
@@ -1694,12 +1701,40 @@ class Drobo5NDriver(DroboDriver):
     def read_snapshot(self) -> Snapshot:
         """
         One poll: read the status greeting, re-discovering once if the
-        last address has stopped answering, then fill in the cached
-        command-port readings.
+        last address has stopped answering or now answers as another
+        Drobo, then fill in the cached command-port readings.
 
         The command-port top-ups run on their own slower clocks and
         never raise, so a poll fails only when the greeting itself
-        cannot be read.
+        cannot be read, or comes only from a Drobo that is not ours.
+        """
+        host, port, snapshot = self._read_greeting_from_our_drobo()
+        self._remember_working_address(snapshot.device.serial, host, port)
+        snapshot.device.ip = host
+        self._read_sysinfo(host)
+        snapshot.device.temperature_c = self._temperature_c
+        snapshot.device.temperature_at = self._temperature_read_at
+        self._apply_cached_uptime(snapshot)
+        self._apply_cached_performance(snapshot)
+        self._read_event_log(host)
+        snapshot.event_log = list(self._event_log)
+        return snapshot
+
+    def _read_greeting_from_our_drobo(self) -> tuple[str, int, Snapshot]:
+        """
+        The status greeting from the pinned Drobo, and where it
+        answered.
+
+        A greeting carrying another serial is treated like an address
+        that stopped answering: discovery runs again, identity-checked,
+        so the stranger is refused there. Until 2026-11-02 the serial
+        was never compared, so an address DHCP had handed to another
+        Drobo was trusted, and the command-port top-ups logged in to it
+        with our serial. A mismatch also sets
+        answering_as_another_drobo, so the API's command routes stop
+        sending to that address too. Raises
+        discovery.IdentityMismatchError, or DroboNotFoundError, when no
+        greeting from ours can be had.
         """
         host, port = self._resolved_host, self._resolved_port
         if not host:
@@ -1719,20 +1754,35 @@ class Drobo5NDriver(DroboDriver):
             # discovery finds. If discovery also comes up empty, that
             # exception (already framed clearly) is what the caller sees
             # -- this never masks a real outage as success.
-            verified = self._discover()
-            host, port = verified.candidate.host, verified.candidate.port
-            snapshot = esatm.read_snapshot(host, port, self.timeout_seconds)
+            return self._rediscover_and_read_greeting()
+        if self._is_pinned_drobo(snapshot):
+            return host, port, snapshot
+        self.answering_as_another_drobo = True
+        return self._rediscover_and_read_greeting()
 
-        self._remember_working_address(snapshot.device.serial, host, port)
-        snapshot.device.ip = host
-        self._read_sysinfo(host)
-        snapshot.device.temperature_c = self._temperature_c
-        snapshot.device.temperature_at = self._temperature_read_at
-        self._apply_cached_uptime(snapshot)
-        self._apply_cached_performance(snapshot)
-        self._read_event_log(host)
-        snapshot.event_log = list(self._event_log)
-        return snapshot
+    def _rediscover_and_read_greeting(self) -> tuple[str, int, Snapshot]:
+        """
+        Run discovery again and read the greeting where it found our
+        Drobo, refusing it if that greeting names another serial (a
+        device swapped in between discovery's read and this one).
+        """
+        verified = self._discover()
+        host, port = verified.candidate.host, verified.candidate.port
+        snapshot = esatm.read_snapshot(host, port, self.timeout_seconds)
+        if not self._is_pinned_drobo(snapshot):
+            self.answering_as_another_drobo = True
+            raise discovery.IdentityMismatchError(
+                f"refusing {host}:{port} -- it identifies as "
+                f"esa_id={snapshot.device.serial!r}, not the expected "
+                f"{self._known_esa_id!r}. "
+                f"This is not your Drobo; not reading it.")
+        return host, port, snapshot
+
+    def _is_pinned_drobo(self, snapshot: Snapshot) -> bool:
+        """True when no serial is pinned yet, or the greeting carries
+        the pinned one."""
+        return (not self._known_esa_id
+                or snapshot.device.serial == self._known_esa_id)
 
     def _apply_cached_uptime(self, snapshot: Snapshot) -> None:
         """

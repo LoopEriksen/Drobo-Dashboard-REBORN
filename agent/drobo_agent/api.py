@@ -2066,8 +2066,20 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         a fresh agent that hasn't polled yet genuinely cannot ask the
         Drobo anything. Returns (host, esa_id, error_dict); exactly one
         of esa_id / error is set.
+
+        A driver whose last poll found another Drobo at our address is
+        refused too. Clearing the address would not be enough: with a
+        typed IP the fallback below is that same address. Until
+        2026-11-02 the poll refused the stranger but these routes still
+        logged in to it with our serial.
         """
         driver = self.monitor.driver
+        if getattr(driver, "answering_as_another_drobo", False):
+            return "", "", {
+                "error": "the Drobo's address now answers as another "
+                         "Drobo -- nothing is sent to it until yours is "
+                         "found again"
+            }
         host = (getattr(driver, "_resolved_host", "")
                 or getattr(driver, "host", ""))
         esa_id = getattr(driver, "_known_esa_id", "")

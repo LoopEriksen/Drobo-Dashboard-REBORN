@@ -979,7 +979,8 @@ read (fixed 2026-11-02); one malformed mDNS reply aborts the whole search instea
 back to the other ways of finding the Drobo (fixed 2026-11-02); a request body that is valid
 JSON but not an object makes several agent routes drop the connection
 without an answer; the poller never checks that the Drobo it reads is still
-the one it found, so a reused address would be trusted; every event-log
+the one it found, so a reused address would be trusted (fixed
+2026-11-02); every event-log
 entry is served with a 1970 timestamp beside its not-decoded marker (fixed
 2026-11-02); and in
 the Windows app "Change Drobo" cancels its own search and leaves the picker

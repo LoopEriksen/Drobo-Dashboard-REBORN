@@ -29,9 +29,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from drobo_agent import api  # noqa: E402
 from drobo_agent import drivers  # noqa: E402
 from drobo_agent.models import DeviceInfo, Snapshot  # noqa: E402
 from drobo_nasd import config_cmd  # noqa: E402
+from drobo_nasd import discovery as nasd_discovery  # noqa: E402
 from drobo_nasd import esatm as nasd_esatm  # noqa: E402
 from drobo_nasd import eventlog as nasd_eventlog  # noqa: E402
 from drobo_nasd import sysinfo as nasd_sysinfo  # noqa: E402
@@ -688,6 +690,124 @@ finally:
     nasd_sysinfo.get_sysinfo_and_performance = (
         _original_get_sysinfo_and_performance
     )
+    nasd_esatm.read_snapshot = _original_read_snapshot
+
+# DHCP can hand the address the Drobo used to have to another Drobo.
+# Until 2026-11-02 read_snapshot trusted whatever answered there: it
+# never compared the serial it read with the one it had pinned, and the
+# command-port top-ups then logged in to the stranger with our serial.
+print("\n== a different Drobo at the remembered address is not trusted ==")
+STRANGER_ESA_ID = "drb000000OTHER1"
+NEW_HOST = "10.0.0.6"
+_original_resolve = nasd_discovery.resolve
+
+
+def _greeting_from(serial_by_host):
+    def fake_read_snapshot(host, port=None, timeout=8.0):
+        return Snapshot(
+            reachable=True, source="drobo5n",
+            device=DeviceInfo(name="TestDrobo", model="Drobo 5N",
+                              serial=serial_by_host[host]))
+    return fake_read_snapshot
+
+
+def _resolve_raising(error):
+    def fake_resolve(**kwargs):
+        raise error
+    return fake_resolve
+
+
+def _resolve_found_at(host):
+    def fake_resolve(**kwargs):
+        return nasd_discovery.VerificationResult(
+            candidate=nasd_discovery.Candidate(host, 5000, "mdns"),
+            identity={"esa_id": ESA_ID}, first_run=False)
+    return fake_resolve
+
+
+def _pinned_driver(top_up_calls, configured_host="auto"):
+    driver = drivers.Drobo5NDriver({"host": configured_host,
+                                    "expected_esa_id": ESA_ID})
+    driver._resolved_host = HOST
+    driver._resolved_port = 5000
+    driver._read_sysinfo = lambda host: top_up_calls.append(("sysinfo", host))
+    driver._read_event_log = (
+        lambda host: top_up_calls.append(("eventlog", host)))
+    return driver
+
+
+# The API's command routes (shares, config, DroboApps, Identify, the
+# writes) take their address from api._command_target, not from the
+# poll, so the refusal has to reach it as well.
+class _HandlerFor:
+    """Just enough of a request handler for _command_target."""
+
+    def __init__(self, driver):
+        self.monitor = type("Monitor", (), {"driver": driver})()
+
+
+def _command_target_of(driver):
+    return api._ApiRequestHandler._command_target(_HandlerFor(driver))
+
+
+def _refuses_commands(driver):
+    host, esa_id, unavailable_body = _command_target_of(driver)
+    return host == "" and unavailable_body is not None
+
+
+nasd_esatm.read_snapshot = _greeting_from(
+    {HOST: STRANGER_ESA_ID, NEW_HOST: ESA_ID})
+try:
+    for resolve_error, expected_type in (
+            (nasd_discovery.IdentityMismatchError("refusing: not ours"),
+             nasd_discovery.IdentityMismatchError),
+            (LookupError("nothing answered"), drivers.DroboNotFoundError)):
+        nasd_discovery.resolve = _resolve_raising(resolve_error)
+        top_up_calls = []
+        driver = _pinned_driver(top_up_calls)
+        try:
+            driver.read_snapshot()
+            raised = None
+        except Exception as exc:  # noqa: BLE001 - the type is the check
+            raised = exc
+        label = expected_type.__name__
+        check(f"a stranger at our address, nothing else found: raises "
+              f"{label}", isinstance(raised, expected_type), repr(raised))
+        check(f"-- {label}: the pinned serial is still ours",
+              driver._known_esa_id == ESA_ID, driver._known_esa_id)
+        check(f"-- {label}: no command-port top-up was sent to the stranger",
+              top_up_calls == [], top_up_calls)
+        check(f"-- {label}: the API's command routes refuse the address",
+              _refuses_commands(driver), _command_target_of(driver))
+
+    # With a typed IP, _command_target falls back to that address even
+    # when nothing is resolved, so forgetting the address would not do.
+    nasd_discovery.resolve = _resolve_raising(
+        nasd_discovery.IdentityMismatchError("refusing: not ours"))
+    driver = _pinned_driver([], configured_host=HOST)
+    try:
+        driver.read_snapshot()
+    except nasd_discovery.IdentityMismatchError:
+        pass
+    check("a stranger at a typed IP: the API's command routes refuse it",
+          _refuses_commands(driver), _command_target_of(driver))
+
+    nasd_discovery.resolve = _resolve_found_at(NEW_HOST)
+    top_up_calls = []
+    driver = _pinned_driver(top_up_calls)
+    moved_snapshot = driver.read_snapshot()
+    check("a stranger at our address, ours found elsewhere: that reading "
+          "is returned", moved_snapshot.device.serial == ESA_ID
+          and driver._resolved_host == NEW_HOST,
+          (moved_snapshot.device.serial, driver._resolved_host))
+    check("-- and the top-ups go to the new address only",
+          top_up_calls == [("sysinfo", NEW_HOST), ("eventlog", NEW_HOST)],
+          top_up_calls)
+    check("-- and the command routes use the new address again",
+          _command_target_of(driver) == (NEW_HOST, ESA_ID, None),
+          _command_target_of(driver))
+finally:
+    nasd_discovery.resolve = _original_resolve
     nasd_esatm.read_snapshot = _original_read_snapshot
 
 print("\n" + ("ALL PASS" if not failures

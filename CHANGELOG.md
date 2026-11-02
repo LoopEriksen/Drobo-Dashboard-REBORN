@@ -629,6 +629,20 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   chassis reading is shown only elsewhere. The `max_temp_c` key in
   `/api/history` keeps its name. `test_agent.py` gains three checks.
   (2026-11-02)
+- **The agent checks on every poll that it is still reading your Drobo.**
+  The serial was checked at startup and whenever discovery ran, but a
+  poll at the address that last worked never compared the serial it
+  read. If the network handed that address to another Drobo, the agent
+  would have shown that Drobo's status as yours and logged in to it
+  with your Drobo's serial. A greeting with another serial is now
+  treated like an address that stopped answering: discovery runs again,
+  which refuses the stranger, and the "cannot reach" alert names both
+  serials when your Drobo is not found elsewhere. Until your Drobo
+  answers again, nothing is sent to the stranger's command port: not by
+  the poll, and not by the dashboard's own requests (shares, settings,
+  DroboApps, Identify and every write), which answer 503 instead. What a
+  normal poll sends is unchanged. `test_drivers.py` gains twelve checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
