@@ -229,6 +229,22 @@ DESTRUCTIVE: frozenset[str] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
+# CREDENTIAL_READS: reads refused because of what they would hand back.
+#
+# Added 2026-11-02 at the maintainer's direction. Not a write, which is
+# why it is not in DESTRUCTIVE: eCmdGetNASUsernamePassword (102) is, by
+# its name, a read that returns share usernames and passwords. It was
+# sent once, by tools/sweep_remainder.py on 2026-07-27, and answered
+# empty on firmware 4.3.1 (docs/command-surface.md). One empty answer on
+# one firmware is not a promise for every firmware, and nothing in this
+# project needs what it would return, so it is refused from now on
+# rather than sent again on the hope that it stays empty.
+# ---------------------------------------------------------------------------
+CREDENTIAL_READS: frozenset[str] = frozenset({
+    "eCmdGetNASUsernamePassword",
+})
+
+# ---------------------------------------------------------------------------
 # SAFE_WRITES: commands that change something, but nothing that matters.
 #
 # This project was read-only against the hardware for its whole life,
@@ -287,7 +303,7 @@ VETTED_WRITES: frozenset[str] = frozenset({
 # SAFE_WRITES is deliberately NOT subtracted here, because it never
 # overlapped: a command is either in the refused set or in the safe set,
 # never both.
-DO_NOT_SEND: frozenset[str] = ESCAPE_HATCHES | DESTRUCTIVE
+DO_NOT_SEND: frozenset[str] = ESCAPE_HATCHES | DESTRUCTIVE | CREDENTIAL_READS
 
 
 def is_safe_write(command_name: str) -> bool:

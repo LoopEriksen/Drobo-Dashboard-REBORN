@@ -985,6 +985,16 @@ stuck on "Searching…". For the maintainer to decide:
 `eCmdGetNASUsernamePassword`, which by its name returns credentials, is not
 in `DO_NOT_SEND`, and the credential redaction misses tags such as `ApiKey`.
 
+The maintainer settled both on 2026-11-02, when the recorded faults were
+fixed one commit each: the redaction now catches CamelCase and snake_case
+key names, and `eCmdGetNASUsernamePassword` joined `DO_NOT_SEND` in a group
+of its own, credential reads, since it is not a write. It had been sent
+once, by the second sweep on 2026-07-27, and answered empty; that sweep's
+list drops it, or the sweep's own guard would now refuse to run. The same
+day the gate began counting any id or name the table does not hold as
+refused, and its integrity checks stopped being `assert`s that `python -O`
+removes. The refused count went from 53 names to 54.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

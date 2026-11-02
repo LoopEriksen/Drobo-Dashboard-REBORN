@@ -85,7 +85,7 @@ minimised window, then opens the app.
 ## What it will and will not do to your Drobo
 
 It never formats, repairs, flashes firmware, resets, or touches the disk
-pack; 53 of the 103 commands the firmware understands are refused in code.
+pack; 54 of the 103 commands the firmware understands are refused in code.
 The full list of what it *does* change -- lights, brightness, spin-down,
 share permissions, creating and deleting shares, starting and stopping
 DroboApps -- is in the README, with how each write is checked. **Deleting a

@@ -43,7 +43,7 @@ for d in snap.drives:
 
 Status of every capability, checked against the code, is kept in
 [`../docs/capabilities.md`](../docs/capabilities.md); the safety boundary
-(53 of 103 commands refused in code, one safe write, two vetted) is described
+(54 of 103 commands refused in code, one safe write, two vetted) is described
 there and enforced in [`drobo_nasd/commands.py`](drobo_nasd/commands.py).
 
 Two channels, both solved. **TCP 5000** pushes a complete status document the
@@ -55,10 +55,12 @@ login carrying the device serial twice.
 This talks to hardware holding somebody's only copy of their data, on a device
 that will never get another firmware update and has no vendor recovery tool.
 
-`commands.DO_NOT_SEND` refuses **53 of the 103 known commands** — six
-arbitrary-execution escape hatches and forty-seven destructive ones: format,
-firmware flash, reset, repair, every `eCmdSet*`. Fifty-one of those carry a
-confirmed id in the table; two are refused by name alone. Enforced in code.
+`commands.DO_NOT_SEND` refuses **54 of the 103 known commands** — six
+arbitrary-execution escape hatches, forty-seven destructive ones (format,
+firmware flash, reset, repair, every `eCmdSet*`), and since 2026-11-02 one
+read, `eCmdGetNASUsernamePassword`, refused for what its name says it returns.
+Fifty-two of those carry a confirmed id in the table; two are refused by name
+alone. Enforced in code.
 
 `commands.SAFE_WRITES` is the narrow exception, and holds exactly one entry:
 `eCmdIdentify`. A second tier, `commands.VETTED_WRITES` (`eCmdSetConfig`,

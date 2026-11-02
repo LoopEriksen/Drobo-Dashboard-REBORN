@@ -369,6 +369,13 @@ rather than assumed.
 
 Redaction ran on it regardless, as it does on everything.
 
+**Refused since 2026-11-02.** One empty answer on one firmware is not a promise
+for every firmware, and nothing in this project needs what the command would
+return, so at the maintainer's direction it joined `commands.DO_NOT_SEND`. It
+has left `sweep_remainder.REMAINDER` and is listed in
+`sweep_remainder.NOT_TESTED` with that reason, so the refused count this page
+gives below (51, at the time of the sweeps) is 52 with ids today.
+
 ## The configuration backup is still blocked
 
 The four file-content commands all answer empty rather than returning an error
@@ -410,7 +417,8 @@ information worth little; the sixth needs the maintainer in front of the hardwar
 
 "Have all the commands been tested?" now has a precise answer rather than a
 vague one: **yes, every one that should be** — and the six that should not be
-are listed with reasons, in code, in `sweep_remainder.NOT_TESTED`.
+are listed with reasons, in code, in `sweep_remainder.NOT_TESTED` (beside,
+since 2026-11-02, the credential read that the gate now refuses).
 
 The 51 refused commands are not untested work. Building them would be actively
 wrong; they format packs, flash firmware and factory-reset a device with no

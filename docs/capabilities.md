@@ -47,11 +47,14 @@ the same protocol and have not been tried; see the testers' task list.
 Everything below sits inside this, and it is enforced in code rather than by
 convention.
 
-- The firmware understands **103 commands**. **53 names are refused outright**
-  in `commands.DO_NOT_SEND`: six arbitrary-execution escape hatches and
+- The firmware understands **103 commands**. **54 names are refused outright**
+  in `commands.DO_NOT_SEND`: six arbitrary-execution escape hatches,
   forty-seven destructive ones (format, firmware flash, factory reset, repair,
-  and every raw `eCmdSet*`); 51 of them carry a confirmed id in the table and
-  two are refused by name alone. The send helpers check the block list
+  and every raw `eCmdSet*`), and, since 2026-11-02, one read that by its name
+  returns credentials (`eCmdGetNASUsernamePassword`, which answered empty the
+  one time it was sent, 2026-07-27); 52 of them carry a confirmed id in the
+  table and two are refused by name alone. An id or name the table does not
+  hold counts as refused too (since 2026-11-02). The send helpers check the block list
   themselves, so no code path reaches them by accident.
 - **One command is on the safe list** (`SAFE_WRITES`): Identify, which blinks
   the front lights and stops on its own. A command joins that list only if it

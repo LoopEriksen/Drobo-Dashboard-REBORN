@@ -418,6 +418,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   the same check before anything is sent. Stricter only: every command the
   software sends is in the table, so nothing it sends today changes.
   (2026-11-02)
+- **`eCmdGetNASUsernamePassword` is refused.** By its name this command
+  returns share usernames and passwords. It was sent once, by the second
+  command sweep on 2026-07-27, and answered empty, but one empty answer on
+  one firmware is no promise for another, and nothing here needs what it
+  would return. It is now in the list of commands that are never sent, in a
+  group of its own (it is a read, not a write), which takes that list from
+  53 names to 54. `tools/sweep_remainder.py` no longer lists it (its own
+  safety check would otherwise stop the sweep) and records why. Nothing the
+  software sends otherwise changes. (2026-11-02)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

@@ -90,10 +90,29 @@ expected_escape_hatches = {
 }
 check("the six escape hatches are exactly as documented",
       commands.ESCAPE_HATCHES == frozenset(expected_escape_hatches))
-check("DO_NOT_SEND is both groups combined",
-      commands.DO_NOT_SEND == commands.ESCAPE_HATCHES | commands.DESTRUCTIVE)
-check("the two groups don't overlap",
-      commands.ESCAPE_HATCHES.isdisjoint(commands.DESTRUCTIVE))
+check("DO_NOT_SEND is the three groups combined",
+      commands.DO_NOT_SEND == (commands.ESCAPE_HATCHES
+                               | commands.DESTRUCTIVE
+                               | commands.CREDENTIAL_READS))
+check("the groups don't overlap",
+      commands.ESCAPE_HATCHES.isdisjoint(commands.DESTRUCTIVE)
+      and commands.CREDENTIAL_READS.isdisjoint(
+          commands.ESCAPE_HATCHES | commands.DESTRUCTIVE))
+
+# Added 2026-11-02 at the maintainer's direction: by its name this
+# command returns credentials. It answered empty the one time it was
+# sent (2026-07-27), and it is refused from now on.
+check("eCmdGetNASUsernamePassword is refused by name",
+      commands.is_dangerous("eCmdGetNASUsernamePassword"))
+check("eCmdGetNASUsernamePassword is refused by id (102)",
+      commands.is_dangerous(102))
+check("...and is not a safe write",
+      not commands.is_safe_write("eCmdGetNASUsernamePassword"))
+check("DO_NOT_SEND holds 54 names, 52 of them with an id",
+      len(commands.DO_NOT_SEND) == 54
+      and len(commands.DO_NOT_SEND & set(commands.COMMANDS)) == 52,
+      (len(commands.DO_NOT_SEND),
+       len(commands.DO_NOT_SEND & set(commands.COMMANDS))))
 
 # The whole point of the destructive group. Before 2026-07-26 the guard
 # held only the escape hatches, so none of these were refused -- on a

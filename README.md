@@ -70,7 +70,7 @@ under [Running it by hand](#running-it-by-hand) below.
 
 ## What it will and will not do to your Drobo
 
-The command layer refuses 53 of the 103 commands the firmware understands.
+The command layer refuses 54 of the 103 commands the firmware understands.
 Format, repair, firmware flash, factory reset and every raw `eCmdSet*` are
 blocked in code, not by convention: the send helpers check the block list
 themselves, so no code path reaches them by accident. Nothing here writes to
@@ -295,7 +295,8 @@ Everything this software sends is either a query or one of a short, captured
 list of writes: Identify; LED brightness, spin-down, per-user share access, and
 share create/delete, each through a read-modify-write of the device's own
 configuration; and DroboApp start/stop. The dangerous commands in that table —
-53 of the 103: format, flash, reset, repair, every raw `eCmdSet*` — are listed
+54 of the 103: format, flash, reset, repair, every raw `eCmdSet*`, and one read
+that by its name returns credentials — are listed
 by name in `sdk/drobo_nasd/commands.py` specifically so they are recognised
 and refused.
 

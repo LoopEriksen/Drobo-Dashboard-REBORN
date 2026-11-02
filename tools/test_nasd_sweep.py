@@ -108,6 +108,21 @@ check("the near-miss eCmdForceSingleInitiator is simply not in ALLOWLIST",
 check("the near-miss eCmdGetNextUniqueLUNID is simply not in ALLOWLIST",
       "eCmdGetNextUniqueLUNID" not in nasd_sweep.ALLOWLIST)
 
+# The second sweep runs its list through the same guard before it sends
+# anything. When eCmdGetNASUsernamePassword joined DO_NOT_SEND
+# (2026-11-02) it had to leave that list, or the guard would stop the
+# whole sweep.
+import sweep_remainder  # noqa: E402
+
+try:
+    nasd_sweep.assert_allowlist_safe(sweep_remainder.REMAINDER)
+    check("sweep_remainder's list passes the allowlist guard", True)
+except nasd_sweep.SweepSafetyError as exc:
+    check("sweep_remainder's list passes the allowlist guard", False, exc)
+check("eCmdGetNASUsernamePassword is recorded as not tested, with why",
+      "eCmdGetNASUsernamePassword" in sweep_remainder.NOT_TESTED
+      and "eCmdGetNASUsernamePassword" not in sweep_remainder.REMAINDER)
+
 try:
     nasd_sweep.assert_allowlist_safe(["eCmdTotallyMadeUp"])
     check("guard rejects a name with no confirmed id", False)

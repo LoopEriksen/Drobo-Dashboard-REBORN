@@ -32,13 +32,14 @@ This talks to hardware holding somebody's only copy of their data, on a
 device that will never receive another firmware update and has no vendor
 recovery tool left.
 
-`commands.DO_NOT_SEND` refuses 53 of the 103 known commands -- six
-arbitrary-execution escape hatches and forty-seven destructive ones
-(format, firmware flash, reset, repair, every eCmdSet*); 51 of those
+`commands.DO_NOT_SEND` refuses 54 of the 103 known commands -- six
+arbitrary-execution escape hatches, forty-seven destructive ones
+(format, firmware flash, reset, repair, every eCmdSet*), and since
+2026-11-02 one credential read, eCmdGetNASUsernamePassword; 52 of those
 carry a confirmed id in the table and two are refused by name alone. The
 guard is enforced in code, not by convention. (An earlier version of
-this docstring said 54 and forty-eight; the sets themselves are the
-source of truth -- count them.)
+this docstring said 54 and forty-eight destructive, which was wrong at
+the time; the sets themselves are the source of truth -- count them.)
 
 `commands.SAFE_WRITES` is the narrow, explicitly-approved exception:
 commands that change something harmless. It currently holds exactly one

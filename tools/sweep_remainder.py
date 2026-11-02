@@ -7,16 +7,19 @@ WHY A SECOND SWEEP
 ------------------
 Of the 103 commands in the firmware table:
 
-    51  refused by commands.DO_NOT_SEND -- format, firmware flash,
-        reset, repair, every eCmdSet*. These are not "untested", they
-        are permanently excluded, and building them would be actively
+    52  refused by commands.DO_NOT_SEND -- format, firmware flash,
+        reset, repair, every eCmdSet*, and since 2026-11-02 the
+        credential read below. These are not "untested", they are
+        permanently excluded, and building them would be actively
         wrong.
     39  covered by tools/nasd_sweep.py
-    13  safe by the guard's reckoning, but never actually sent
+    12  safe by the guard's reckoning, but never sent by the first sweep
 
-This handles that last 13 -- or rather, the seven of them that can be
-tested without either risking the device or needing the maintainer
-standing in front of it.
+This handles those -- or rather, the six of them that can be tested
+without either risking the device or needing the maintainer standing in
+front of it. Until 2026-11-02 it was thirteen and seven: the seventh,
+eCmdGetNASUsernamePassword, was sent by this sweep on 2026-07-27 and
+answered empty, and it has been in DO_NOT_SEND since.
 
 WHAT IS TESTED HERE, AND WHY EACH IS SAFE
 -----------------------------------------
@@ -35,14 +38,14 @@ WHAT IS TESTED HERE, AND WHY EACH IS SAFE
       parameter format, which is the thing blocking a configuration
       backup. Reads only; none of them writes.
 
-  eCmdGetNASUsernamePassword
-      Included deliberately, and this one needs justifying. The name
-      says it hands back a credential, which is exactly why it matters:
-      if this answers on a plain login, then anyone on the LAN can read
-      the share passwords off this device, and the maintainer should
-      know that. Every response goes through the same redaction as
-      everything else BEFORE it is printed or stored, and no raw bytes
-      touch disk.
+  eCmdGetNASUsernamePassword -- NO LONGER SENT (since 2026-11-02)
+      Was included deliberately: the name says it hands back a
+      credential, which is exactly why it mattered. If it answered on a
+      plain login, anyone on the LAN could read the share passwords off
+      this device. Sent once, 2026-07-27, through the same redaction as
+      everything else: it answered empty. It is now in
+      commands.DO_NOT_SEND, so it has left this list (the guard below
+      would otherwise stop the whole sweep) and is in NOT_TESTED.
 
 DELIBERATELY NOT TESTED, WITH REASONS
 -------------------------------------
@@ -92,8 +95,8 @@ from drobo_nasd import esatm  # noqa: E402
 # Reuse its send/redact/report machinery.
 import nasd_sweep  # noqa: E402
 
-#: The seven. See the module docstring for why each one is safe, and why
-#: the other six of the thirteen are absent.
+#: The six. See the module docstring for why each one is safe, and why
+#: the others are absent.
 REMAINDER: list[str] = [
     "eCmdDeviceLogin",
     "eCmdDeviceLogout",
@@ -101,7 +104,6 @@ REMAINDER: list[str] = [
     "eCmdDownloadConfigFile",
     "eCmdDownloadAllConfigFiles",
     "eCmdGetAppDataFile",
-    "eCmdGetNASUsernamePassword",
 ]
 
 #: Excluded from this sweep on purpose, with the reason, so the list of
@@ -115,6 +117,8 @@ NOT_TESTED: dict[str, str] = {
     "eCmdCacheBattery": "name is not unambiguously a read; may be a self-test",
     "eCmdAuthenticateUser":
         "needs real credentials over an unencrypted protocol",
+    "eCmdGetNASUsernamePassword":
+        "now in DO_NOT_SEND; sent once 2026-07-27, answered empty",
 }
 
 
@@ -253,7 +257,7 @@ def _write_report(report_path: str, host: str, results: list[dict]) -> None:
 def main(argv=None) -> int:
     """Check the list, read the serial, sweep, check health, report.
 
-    The module docstring says why each of the seven is safe to send.
+    The module docstring says why each of the six is safe to send.
     """
     args = _parse_arguments(argv)
 
