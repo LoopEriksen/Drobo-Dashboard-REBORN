@@ -134,6 +134,18 @@ check(
 entry_dict = entries[0].to_dict()
 check("to_dict serves the same keys /api/eventlog already serves",
       set(entry_dict) == {"ts", "severity", "message", "ts_iso"}, entry_dict)
+# Found 2026-10-29, fixed 2026-11-02: the not-decoded marker (0.0) was
+# formatted like any other time, so every real entry was served with a
+# 1970 ts_iso beside it, and the Windows diagnostics report printed it.
+check("a not-decoded time is served as an empty ts_iso, not a 1970 date",
+      EventLogEntry(eventlog.TIMESTAMP_NOT_DECODED,
+                    eventlog.SEVERITY_NOT_DECODED, "x").to_dict()["ts_iso"]
+      == "", entry_dict)
+_decoded_ts_iso = EventLogEntry(1700000000.0, "info", "x").to_dict()["ts_iso"]
+check("a real time still formats as YYYY-MM-DDTHH:MM:SS",
+      len(_decoded_ts_iso) == 19 and _decoded_ts_iso[4] == "-"
+      and _decoded_ts_iso[10] == "T" and _decoded_ts_iso.startswith("2023"),
+      _decoded_ts_iso)
 check("an empty parse normalizes to an empty list",
       eventlog.entries_from_lines([]) == [])
 

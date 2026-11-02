@@ -810,9 +810,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *SDK — reads and discovery*
 
-- `models.EventLogEntry.to_dict` serves every real event-log entry with a
-  1970 `ts_iso` beside its not-decoded marker, and the Windows diagnostics
-  report prints it.
 - `esatm`: a present disk reporting `mDiskState` 0 is recorded as empty,
   not as a warning (plausible; depends on whether a populated bay can
   report 0). `Capacity.protection_bytes` is never filled from a real 5N,

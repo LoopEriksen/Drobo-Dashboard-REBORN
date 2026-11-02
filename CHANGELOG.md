@@ -576,6 +576,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   all. That peer is now skipped like any other device that is not a
   usable Drobo, and the rest of the list is returned. Nothing sent
   changes. `test_agent.py` gains two checks. (2026-11-02)
+- **Event-log entries no longer carry a 1970 date.** The Drobo's own
+  event log is fetched, but the time on each line is not decoded yet, so
+  each entry carries a "not decoded" marker. The agent still turned that
+  marker into a readable date, 1 January 1970, and served it beside the
+  marker; the Windows app's copied diagnostics printed that date under
+  RECENT EVENTS. The readable date (`ts_iso`) is now empty when the time
+  was not decoded, and the diagnostics leave that column blank. The JSON
+  keys are unchanged, and entries with a real time (the simulated Drobo's)
+  read as before. `test_eventlog.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

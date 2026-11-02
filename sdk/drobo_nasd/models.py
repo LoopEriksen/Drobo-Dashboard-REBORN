@@ -206,7 +206,21 @@ class EventLogEntry:
     message: str
 
     def to_dict(self) -> dict:
+        """
+        The entry as served, with `ts_iso` added: local time as
+        YYYY-MM-DDTHH:MM:SS, or "" when the time was not decoded.
+
+        "" rather than a formatted marker: formatting 0.0 gives
+        1970-01-01, which until 2026-11-02 was served beside every real
+        entry's not-decoded marker and printed by the Windows
+        diagnostics report as if it were the event's date. The test is
+        `<= 0` rather than a comparison with eventlog's constant because
+        eventlog imports this module; no real event predates 1970.
+        """
         serialized = asdict(self)
+        serialized["ts_iso"] = ""
+        if self.ts <= 0:
+            return serialized
         serialized["ts_iso"] = time.strftime(
             "%Y-%m-%dT%H:%M:%S", time.localtime(self.ts)
         )
