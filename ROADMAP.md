@@ -824,9 +824,9 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   `config_cmd.ConfigError` on a hang-up or a short frame (and
   `summary`'s own per-read catch lets it through), so such a read drops
   the connection with no answer. Both routes only read.
-- `notify`: `use_tls: "false"` means true, implicit TLS on 465 is not
-  supported, and an ntfy failure is printed, not raised, so callers cannot
-  see it; the ntfy topic is not quoted in the URL.
+- `notify`: implicit TLS on 465 is not supported, and an ntfy failure is
+  printed, not raised, so callers cannot see it; the ntfy topic is not
+  quoted in the URL.
 - `backup`: the same folder as both ends reports two refusals; planning
   holds the lock while it checks a UNC path, blocking the status route; an
   error other than `OSError` leaves a job showing "Running..."; robocopy's

@@ -145,6 +145,25 @@ check(
     == "me@example.invalid",
 )
 
+print("\n== use_tls written as text means what it says ==")
+# bool("false") is True, so until 2026-11-02 a config.json saying
+# "use_tls": "false" turned TLS on. Anything unrecognised keeps TLS on,
+# the safe direction, and says so.
+for written_value, expected_use_tls in (
+        ("false", False), ("0", False), ("no", False), ("OFF", False),
+        (False, False), ("true", True), (True, True), ("yes", True)):
+    built_backend = notify.build(
+        email_config(use_tls=written_value)).members[0]
+    check(f"use_tls {written_value!r} -> {expected_use_tls}",
+          built_backend.use_tls is expected_use_tls, built_backend.use_tls)
+captured_stdout = io.StringIO()
+with contextlib.redirect_stdout(captured_stdout):
+    unclear_backend = notify.build(email_config(use_tls="maybe")).members[0]
+check("an unrecognised use_tls keeps TLS on and says so",
+      unclear_backend.use_tls is True
+      and "use_tls" in captured_stdout.getvalue(),
+      (unclear_backend.use_tls, captured_stdout.getvalue()))
+
 print("\n== THE PASSWORD NEVER ESCAPES ==")
 # A rejected SMTP login habitually echoes the credentials back in the
 # server's response text. That text must never reach a log line or an

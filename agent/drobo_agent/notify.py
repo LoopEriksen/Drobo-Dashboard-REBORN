@@ -288,5 +288,32 @@ def _build_email(notify_config: dict) -> Notifier | None:
         password=email_config.get("password", ""),
         sender=email_config.get("from", ""),
         recipients=recipients,
-        use_tls=bool(email_config.get("use_tls", True)),
+        use_tls=_read_use_tls(email_config.get("use_tls", True)),
     )
+
+
+#: How use_tls may be written as text in config.json, either way round.
+_TRUE_WORDS = {"true", "yes", "on", "1"}
+_FALSE_WORDS = {"false", "no", "off", "0"}
+
+
+def _read_use_tls(use_tls_setting) -> bool:
+    """
+    The email backend's use_tls setting as a flag. A JSON true or false
+    is taken as it is; text is read as a word (true/yes/on/1 or
+    false/no/off/0, any case); anything else keeps TLS on, the safe
+    direction, and says so.
+
+    Until 2026-11-02 this was bool(...), and bool("false") is True, so
+    "use_tls": "false" turned TLS on.
+    """
+    if isinstance(use_tls_setting, bool):
+        return use_tls_setting
+    setting_word = str(use_tls_setting).strip().lower()
+    if setting_word in _TRUE_WORDS:
+        return True
+    if setting_word in _FALSE_WORDS:
+        return False
+    print(f"[notify] email use_tls {use_tls_setting!r} is not true or false "
+          "-- keeping TLS on", flush=True)
+    return True

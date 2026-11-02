@@ -764,6 +764,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   anything is fetched, and the manifest answers "could not check" with
   what was wrong with it. `test_updates.py` gains five checks.
   (2026-11-02)
+- **`"use_tls": "false"` in the email settings means false.** The
+  setting was read as a yes/no of whatever was written, and any text
+  counts as yes, so `"false"` written in quotes switched TLS on. Text is
+  now read as the word it is (true/yes/on/1 or false/no/off/0, in any
+  case); anything else keeps TLS on, the safe direction, and the agent's
+  console says so. That changes the meaning of the empty values that
+  used to switch TLS off, such as `null`, `""` and `[]`: they now keep
+  it on, with the console line. `test_notify.py` gains nine checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
