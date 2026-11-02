@@ -650,6 +650,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   critical and both warnings as warnings. Simulator only; a real Drobo's
   event log is untouched. `test_drivers.py` gains four checks.
   (2026-11-02)
+- **The simulated Drobo's settings reads are copies.** For testers who
+  drive the simulator from their own scripts: its DroboSync, network
+  and admin answers were tables shared by every simulated Drobo in the
+  process, so changing one answer changed it for all of them, and its
+  DroboApps and share answers were its own live tables, which changed
+  under whoever held them. Each read now returns a copy, as a real
+  device's answer is a fresh one each time; the simulator's own writes
+  are unchanged. `test_drivers.py` gains five checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

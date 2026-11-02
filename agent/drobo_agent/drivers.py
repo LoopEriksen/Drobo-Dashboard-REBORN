@@ -531,13 +531,20 @@ class MockDriver(DroboDriver):
     def get_droboapps(self) -> dict:
         """The stand-in for droboapps.get_droboapps: the simulated
         installed-apps list, in the shape the SDK returns, so the API
-        serves it through the same code it uses for a real device."""
-        return self._droboapps
+        serves it through the same code it uses for a real device.
+
+        A copy, like every read here, as a real device's reply is a
+        fresh parse each time: until 2026-11-02 the live table was
+        handed out, and changed under its holder at the next action."""
+        with self._lock:
+            return copy.deepcopy(self._droboapps)
 
     def get_drobosync(self) -> dict:
         """The stand-in for the DroboSync reads: the honest
-        no-partner reply described at _MOCK_DROBOSYNC."""
-        return self._MOCK_DROBOSYNC
+        no-partner reply described at _MOCK_DROBOSYNC. A copy, because
+        the table is shared by every MockDriver: until 2026-11-02 a
+        caller's change to it reached every later instance."""
+        return copy.deepcopy(self._MOCK_DROBOSYNC)
 
     def get_dimming(self) -> int:
         """The stand-in for droboapps.get_dimming: the simulated LED
@@ -1065,15 +1072,21 @@ class MockDriver(DroboDriver):
         ValueError, which /api/droboconfig answers with 400, where the
         SDK's ConfigError gets 502; and "general", which the SDK knows,
         is unknown here.
+
+        A copy, as a real reply is a fresh parse each time: until
+        2026-11-02 the live share table and the class-level network and
+        admin tables were handed out, so a caller's change reached the
+        simulator itself and every later MockDriver.
         """
-        try:
-            return {
+        with self._lock:
+            sections = {
                 "shares": self._shares,
                 "network": self._MOCK_NETWORK,
                 "admin": self._MOCK_ADMIN,
-            }[section]
-        except KeyError:
-            raise ValueError(f"unknown section {section!r}") from None
+            }
+            if section not in sections:
+                raise ValueError(f"unknown section {section!r}")
+            return copy.deepcopy(sections[section])
 
     def _record_event(self, severity: str, message: str) -> None:
         """Add one entry to the simulated device's event log, so every

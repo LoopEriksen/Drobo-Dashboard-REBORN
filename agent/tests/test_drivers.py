@@ -827,6 +827,34 @@ for inject_name in ("fail_battery", "fail_power"):
               f"{expected_severity}", logged_severity == expected_severity,
               logged_severity)
 
+# The simulator's reads handed out its state by reference: the
+# DroboSync, network and admin tables are class-level, so one caller's
+# change reached every later MockDriver, and the DroboApps and share
+# tables changed under whoever held them. Copies since 2026-11-02.
+print("\n== the simulator's reads are copies ==")
+first_mock = drivers.MockDriver({"simulate_config": True})
+first_mock.get_drobosync()["note"] = "CHANGED BY A CALLER"
+first_mock.get_config("network")["CHANGED BY A CALLER"] = True
+first_mock.get_config("admin")["CHANGED BY A CALLER"] = True
+first_mock.get_config("shares")["CHANGED BY A CALLER"] = True
+second_mock = drivers.MockDriver({"simulate_config": True})
+check("a change to one simulator's DroboSync reply does not reach another",
+      second_mock.get_drobosync()["note"] != "CHANGED BY A CALLER")
+check("-- nor to its network or admin settings",
+      "CHANGED BY A CALLER" not in second_mock.get_config("network")
+      and "CHANGED BY A CALLER" not in second_mock.get_config("admin"))
+check("-- and a change to a share table read does not reach the "
+      "simulator's own", "CHANGED BY A CALLER"
+      not in first_mock.get_config("shares"))
+apps_before = first_mock.get_droboapps()
+app_name = apps_before["apps"][0]["name"]
+was_running = apps_before["apps"][0]["running"]
+first_mock.droboapps_action(app_name, "Stop" if was_running else "Start")
+check("a DroboApps list read before an action keeps what it said",
+      apps_before["apps"][0]["running"] == was_running)
+check("-- and the simulator's next read shows the action",
+      first_mock.get_droboapps()["apps"][0]["running"] != was_running)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)
