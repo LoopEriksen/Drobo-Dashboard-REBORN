@@ -1597,6 +1597,16 @@ check("the last upload of a burst reaches the saved index without a flush",
       all(digest in _saved_index for digest in _burst_digests),
       sorted(_saved_index))
 
+# The chunked-upload ceiling was read from photos.max_file_gb with a
+# built-in 32, but the key was missing from the defaults, so it never
+# appeared in a generated config.json for anyone to find (until
+# 2026-11-02).
+_default_photo_store = PhotoStore(config.DEFAULTS["photos"])
+check("photos.max_file_gb is in the defaults, at 32 GB",
+      config.DEFAULTS["photos"].get("max_file_gb") == 32
+      and _default_photo_store.max_chunked_file_bytes == 32 * 1024 ** 3,
+      config.DEFAULTS["photos"])
+
 
 print("\n== the capture date reaches the file, not just the folder ==")
 # The resume itself is already covered end to end above ("video filed by

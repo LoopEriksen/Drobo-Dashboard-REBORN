@@ -741,6 +741,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   and the phone would send them again. The skipped save is now made as
   soon as the five seconds have passed. `test_agent.py` gains one check.
   (2026-11-02)
+- **The largest resumable photo upload is a setting you can see.** The
+  agent refuses a chunked upload over `photos.max_file_gb` (32 GB unless
+  set), but the key was missing from the defaults and from
+  `config.example.json`, so a generated `config.json` never showed it.
+  Both now carry it, at the same 32; what the agent accepts is
+  unchanged. `test_agent.py` gains one check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

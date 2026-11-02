@@ -85,7 +85,12 @@ DEFAULTS: dict = {
         "target_dir": "",
         # Files are filed as target_dir/YYYY/YYYY-MM/name
         "organize_by_date": True,
+        # The largest file sent in one request, and the largest sent in
+        # resumable chunks (a long 4K video). max_file_gb was read with
+        # this same 32 but missing here until 2026-11-02, so it never
+        # appeared in a generated config.json.
         "max_upload_mb": 512,
+        "max_file_gb": 32,
     },
 }
 
