@@ -16,12 +16,16 @@ at. The one CAPTURED byte-for-byte assertion here is the request.
 """
 import html
 import os
+import socket
+import struct
 import sys
+import threading
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
 from drobo_nasd import commands  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
 from drobo_nasd import eventlog  # noqa: E402
 from drobo_nasd.config_cmd import ConfigError  # noqa: E402
 from drobo_nasd.models import EventLogEntry  # noqa: E402
@@ -173,6 +177,77 @@ check("EventLogError is catchable as SysInfoError",
       issubclass(eventlog.EventLogError, SysInfoError))
 check("...and as ConfigError (callers already handle that)",
       issubclass(eventlog.EventLogError, ConfigError))
+
+print("\n== a connection lost after the request names the right cause ==")
+# Found 2026-10-29, fixed 2026-11-02: the error blamed "the teardown
+# eCmdGetUserEventLog is known for when sent without its Path", but the
+# request always carries the captured /uel.log Path. The fake below, on
+# 127.0.0.1, accepts the login, records the command and hangs up; no
+# device is contacted.
+
+
+def _receive_frame(connection):
+    """Read one whole DRINETTM frame from the client."""
+    received = b""
+    while len(received) < config_cmd.HEADER_BYTES:
+        chunk = connection.recv(config_cmd.HEADER_BYTES - len(received))
+        if not chunk:
+            return received
+        received += chunk
+    payload_bytes = struct.unpack(">I", received[12:16])[0]
+    while len(received) < config_cmd.HEADER_BYTES + payload_bytes:
+        chunk = connection.recv(65536)
+        if not chunk:
+            break
+        received += chunk
+    return received
+
+
+def _fake_drobo_hanging_up(port_holder, commands_received):
+    """Accept the login, record the command frame, then close."""
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(("127.0.0.1", 0))
+    port_holder.append(server_socket.getsockname()[1])
+    server_socket.listen(1)
+
+    def serve_one_connection():
+        try:
+            connection, _ = server_socket.accept()
+            connection.settimeout(5)
+            _receive_frame(connection)
+            connection.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_LOGIN_OK, b""))
+            commands_received.append(_receive_frame(connection))
+            connection.close()
+        except OSError:
+            pass
+        finally:
+            server_socket.close()
+
+    listener = threading.Thread(target=serve_one_connection, daemon=True)
+    listener.start()
+    return listener
+
+
+_ports, _commands_received = [], []
+_listener = _fake_drobo_hanging_up(_ports, _commands_received)
+try:
+    eventlog.get_event_log("127.0.0.1", "drb000000SAMPLE", port=_ports[0],
+                           timeout=5)
+    _lost_error = None
+except eventlog.EventLogError as exc:
+    _lost_error = exc
+_listener.join(5)
+check("a hang-up after the request raises EventLogError",
+      _lost_error is not None, _lost_error)
+check("the message does not blame a missing Path",
+      _lost_error is not None and "without its Path" not in str(_lost_error),
+      _lost_error)
+check("the request that went out carried the captured Path",
+      len(_commands_received) == 1
+      and b"<Path>/uel.log</Path>" in _commands_received[0],
+      _commands_received)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

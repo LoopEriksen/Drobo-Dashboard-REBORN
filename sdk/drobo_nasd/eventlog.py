@@ -247,9 +247,10 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
     the reply -- see both docstrings for what is and is not decoded.
 
     Raises EventLogError on refusal, teardown, or an unparseable reply.
-    A torn-down connection right after the command is the failure the
-    empty-params variant of 91 is known to cause, so it is named in the
-    error.
+    A torn-down connection is the failure the empty-Params variant of 91
+    is known to cause, but this request always carries the captured
+    /uel.log Path, so the error says the cause is something else. Until
+    2026-11-02 it blamed the missing Path, which cannot apply here.
     """
     if _commands.is_dangerous(COMMAND_NAME):
         raise EventLogError(f"{COMMAND_NAME} is on the do-not-send list")
@@ -262,9 +263,10 @@ def get_event_log(host: str, esa_id: str, port: int = DEFAULT_PORT,
             frame_type, body = _read_frame(sock)
         except (ConfigError, OSError) as exc:
             raise EventLogError(
-                f"connection lost while reading the event-log reply ({exc}); "
-                f"this is the teardown eCmdGetUserEventLog is known for when "
-                f"sent without its Path -- see docs/command-surface.md"
+                f"connection lost while reading the event-log reply ({exc}) "
+                f"after the request, with its /uel.log Path, had been sent; "
+                f"not the known empty-Params teardown -- the Drobo may be "
+                f"busy or the network may have dropped, so try again later"
             ) from exc
         if frame_type != TYPE_RESULT:
             raise EventLogError(f"unexpected reply type 0x{frame_type:02x}")

@@ -814,8 +814,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   not as a warning (plausible; depends on whether a populated bay can
   report 0). `Capacity.protection_bytes` is never filled from a real 5N,
   so both apps show a measured-looking 0 B (plausible; may be a known gap).
-- `eventlog`'s connection-lost message blames a missing Path the
-  function always sends.
 
 *Agent*
 

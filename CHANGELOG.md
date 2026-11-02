@@ -593,6 +593,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   disk was told the same. It now says a version number says nothing
   about how the unit's own disks are doing; the rest of the note is as
   it was. `test_firmware.py` gains one check. (2026-11-02)
+- **The event-log error no longer blames a cause that cannot apply.**
+  When the connection dropped while the agent read the Drobo's event
+  log, the message in the agent's console said this was the hang-up the
+  device gives a request sent without its log path. The request always
+  carries that path, so the message now says the connection was lost
+  after the request went out and that the Drobo may be busy or the
+  network may have dropped. Wording only: the request and the error type
+  are unchanged. `test_eventlog.py` gains three checks against a fake
+  device on this PC. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
