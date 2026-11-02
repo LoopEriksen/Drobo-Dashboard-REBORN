@@ -36,6 +36,7 @@ import tempfile
 import os
 
 import nasd_dissect
+import nasd_tap
 
 # Documentation-range addresses (RFC 5737 TEST-NET-1), deliberately not
 # a private 192.168.x range: fixtures written in that form are
@@ -321,6 +322,76 @@ def run_preview_checks() -> None:
           "a payload shorter than the limit is shown whole")
 
 
+def _hold_loopback_port() -> socket.socket:
+    """Bind an ephemeral 127.0.0.1 port that nasd_tap cannot take over.
+
+    On Windows a socket that sets SO_REUSEADDR, as nasd_tap's listener
+    does, may bind a port another socket of the same account holds,
+    unless the holder set SO_EXCLUSIVEADDRUSE; without it the "port in
+    use" path would never be reached there. CPython's own
+    socket_helper.bind_port sets it for the same reason.
+    """
+    port_holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        port_holder.setsockopt(socket.SOL_SOCKET,
+                               socket.SO_EXCLUSIVEADDRUSE, 1)
+    port_holder.bind(("127.0.0.1", 0))
+    port_holder.listen(1)
+    return port_holder
+
+
+def _run_tap_without_accepting(tap_arguments: list[str]) -> tuple[int, bool]:
+    """Run nasd_tap.main with its accept loop replaced; say if it ran.
+
+    The real loop waits for Dashboard with no timeout, so a bind that
+    unexpectedly succeeds would hang the suite (and the CI job) instead
+    of failing a check. The stand-in closes what the real loop closes.
+    """
+    accept_loop_ran = False
+    real_accept_loop = nasd_tap._accept_until_interrupted
+
+    def closing_stand_in(listener, tap) -> None:
+        nonlocal accept_loop_ran
+        accept_loop_ran = True
+        listener.close()
+        tap.close()
+
+    nasd_tap._accept_until_interrupted = closing_stand_in
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = nasd_tap.main(tap_arguments)
+    finally:
+        nasd_tap._accept_until_interrupted = real_accept_loop
+    return result, accept_loop_ran
+
+
+def run_tap_bind_failure_checks(temp_dir: str) -> None:
+    """nasd_tap leaves no empty capture files when it cannot listen.
+
+    nasd_tap is the capture tool that records what this dissector reads,
+    so its one failure that writes files is checked here. The port is
+    held by this test on loopback; the Drobo address is never contacted
+    on this path.
+    """
+    print("\n=== nasd_tap: a port it cannot bind leaves nothing behind ===")
+    capture_dir = os.path.join(temp_dir, "tap-captures")
+    os.makedirs(capture_dir)
+    port_holder = _hold_loopback_port()
+    try:
+        held_port = port_holder.getsockname()[1]
+        result, accept_loop_ran = _run_tap_without_accepting([
+            "--drobo", "127.0.0.1", "--listen", "127.0.0.1",
+            "--listen-port", str(held_port), "--outdir", capture_dir])
+    finally:
+        port_holder.close()
+    check(not accept_loop_ran,
+          "the held port is not bound, so no connection is awaited")
+    check(result == 1, f"a port already in use exits 1 (got {result!r})")
+    leftover_files = os.listdir(capture_dir)
+    check(leftover_files == [],
+          f"no capture files are created (found {leftover_files})")
+
+
 def main() -> int:
     # The synthetic captures go in a temp folder that is removed however
     # the run ends. Until 2026-09-16 every run left its folder behind in
@@ -372,6 +443,7 @@ def run_checks(temp_dir: str) -> int:
     run_against(pcapng_le_path, "pcapng (little-endian, as real tools write)")
     run_without_login_frame(temp_dir)
     run_preview_checks()
+    run_tap_bind_failure_checks(temp_dir)
 
     print()
     if failures:

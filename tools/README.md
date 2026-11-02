@@ -84,7 +84,7 @@ No Drobo needed. They run from any folder, for example
 | [`test_dashboard_strings.py`](test_dashboard_strings.py) | Checks that `dashboard_strings.py` hides keys, including one given with its field name, using made-up strings | No | Yes |
 | [`test_extract_commands.py`](test_extract_commands.py) | Checks `extract_commands.py` against a recording it builds itself | No | Yes |
 | [`test_fw_params.py`](test_fw_params.py) | Checks `fw_params.py`, and that `fwtool.py rootfs` keeps its output inside `-o` even for an empty image. Skips one check unless the firmware is on this PC | No | Yes |
-| [`test_nasd_dissect.py`](test_nasd_dissect.py) | Checks `nasd_dissect.py`. Prints `ok:` lines rather than `PASS` | No | Yes |
+| [`test_nasd_dissect.py`](test_nasd_dissect.py) | Checks `nasd_dissect.py`, and that `nasd_tap.py` leaves no capture files when its port is taken (on loopback; nothing is relayed). Prints `ok:` lines rather than `PASS` | No | Yes |
 | [`test_nasd_sweep.py`](test_nasd_sweep.py) | Checks `nasd_sweep.py`'s safety list and password hiding against a pretend Drobo, and that `nasd_sweep.py`, `sweep_last_six.py`, `sweep_remainder.py` and `access_codes.py` stop cleanly on a bad report path, a missing address or a greeting that cannot be read, with every device call replaced | No | Yes |
 
 ## Why this folder has no subfolders

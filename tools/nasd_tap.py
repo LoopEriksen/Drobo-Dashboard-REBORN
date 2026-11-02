@@ -345,12 +345,17 @@ def _capture_paths(output_dir_argument: str | None) -> tuple[str, str]:
 
 def _open_listener(listen_host: str, listen_port: int
                    ) -> socket.socket | None:
-    """Bind the port Dashboard connects to, or say why not (None)."""
+    """Bind the port Dashboard connects to, or say why not (None).
+
+    The socket is closed when the bind fails, rather than left for the
+    garbage collector.
+    """
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         listener.bind((listen_host, listen_port))
     except OSError as exc:
+        listener.close()
         print(f"Could not listen on {listen_host}:{listen_port} -- {exc}")
         print("If the agent is running on this port, stop it first.")
         return None
@@ -415,17 +420,25 @@ def main(argv=None) -> int:
     """Relay Dashboard's connections to the Drobo until Ctrl+C, logging.
 
     Returns 1 when the listening port cannot be bound (most often the
-    agent already holds it), else 0.
+    agent already holds it), else 0. The port is bound before the
+    capture files are made, so a run that cannot listen leaves nothing
+    behind; the files used to be opened first, and a failed bind left
+    two empty ones in the capture folder.
     """
     args = _parse_arguments(argv)
-    jsonl_path, client_bytes_path = _capture_paths(args.outdir)
-
-    tap = TrafficTap(args.drobo, args.drobo_port, jsonl_path,
-                     client_bytes_path)
-
     listener = _open_listener(args.listen, args.listen_port)
     if listener is None:
         return 1
+
+    try:
+        jsonl_path, client_bytes_path = _capture_paths(args.outdir)
+        tap = TrafficTap(args.drobo, args.drobo_port, jsonl_path,
+                         client_bytes_path)
+    except OSError:
+        # A capture folder or file that cannot be made: release the
+        # port before the error is reported.
+        listener.close()
+        raise
 
     _print_instructions(args, jsonl_path, client_bytes_path)
     _accept_until_interrupted(listener, tap)

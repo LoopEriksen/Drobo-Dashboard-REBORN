@@ -1005,6 +1005,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   they were; for testers who call `analyse_direction` by keyword, its
   `max_preview_bytes` parameter is now `max_preview_characters`.
   `tools/test_nasd_dissect.py` gains three checks. (2026-11-02)
+- **`tools/nasd_tap.py` leaves no empty capture files when it cannot
+  listen.** It made both capture files before binding its port, so a
+  port already in use (most often by the agent) left two empty
+  `nasd-tap-*` files behind in the capture folder. The port is now
+  bound first; the relay and what it records are unchanged.
+  `tools/test_nasd_dissect.py` gains three checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
