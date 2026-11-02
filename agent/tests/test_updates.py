@@ -784,6 +784,30 @@ check("-- and a scan that could not read a file is not called clean",
       (_report_exit, _report_output.getvalue()))
 
 
+# --path scans another checkout, but the private name list is this
+# machine's, so it comes from the scanner's own checkout. A list planted
+# in the scanned tree must not be the one used.
+_scanner_own_list = os.path.join(_repo_root, "scripts", "pii_patterns.local")
+with tempfile.TemporaryDirectory() as _other_checkout:
+    os.makedirs(os.path.join(_other_checkout, "scripts"))
+    _planted_marker = "zz" + "plantedmarker" + "zz"
+    with open(os.path.join(_other_checkout, "scripts", "pii_patterns.local"),
+              "w", encoding="utf-8") as _planted_list:
+        _planted_list.write(_planted_marker + "\n")
+    with open(os.path.join(_other_checkout, "notes.txt"), "w",
+              encoding="utf-8") as _notes_file:
+        _notes_file.write("a line naming " + _planted_marker + "\n")
+    _other_scan = subprocess.run(
+        [sys.executable, "-I", _scanner_path, "--path", _other_checkout,
+         "--all"], capture_output=True, text=True, timeout=60)
+check("--path does not take its private names from the scanned checkout",
+      "[private pattern]" not in _other_scan.stdout,
+      _other_scan.stdout[-300:])
+check("-- it says the list it used is the scanner's own",
+      _scanner_own_list in _other_scan.stdout,
+      _other_scan.stdout[:300])
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

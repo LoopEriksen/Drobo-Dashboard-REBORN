@@ -33,7 +33,11 @@ import re
 import subprocess
 import sys
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The checkout this script lives in. Never rebound: the private name
+# list belongs to this machine, so it is always read from here.
+SCANNER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The checkout being scanned; main() rebinds it for --path.
+REPO_ROOT = SCANNER_ROOT
 
 # Generic patterns — no hardcoded personal identifiers.
 # A real user-profile path, but not the placeholders documentation is
@@ -146,7 +150,19 @@ def _pattern_lines(path):
             yield line_number, line
 
 
-def load_local_patterns():
+def private_patterns_path():
+    """Where the private name list is read from: the scanner's own
+    checkout, whichever tree is being scanned.
+
+    It used to be read from the scanned checkout, because --path
+    rebinds REPO_ROOT first, so scanning another tree took that tree's
+    list -- none at all, usually, which turned name detection off, or
+    whatever list that tree happened to carry.
+    """
+    return os.path.join(SCANNER_ROOT, "scripts", "pii_patterns.local")
+
+
+def load_local_patterns(path=None):
     """User-private regexes
     from scripts/pii_patterns.local (gitignored).
 
@@ -162,9 +178,11 @@ def load_local_patterns():
     said so. Two real share names had been sitting in tracked test
     fixtures for a fortnight. A guard that cannot tell you it is not
     guarding is worse than no guard, because it is trusted.
+
+    `path` defaults to private_patterns_path(), this machine's list.
     """
     private_patterns, notes = [], []
-    path = os.path.join(REPO_ROOT, "scripts", "pii_patterns.local")
+    path = path or private_patterns_path()
     if not os.path.exists(path):
         notes.append(
             "NAME DETECTION IS OFF: scripts/pii_patterns.local is missing, so "
@@ -590,6 +608,7 @@ def _load_private_patterns(generic_only):
     names on every clone that has the list.
     """
     if not generic_only:
+        print(f"  private pattern list: {private_patterns_path()}")
         return load_local_patterns()
     print("  name detection skipped (--generic-only): the private pattern "
           "list is per-machine and never present in CI")
@@ -667,8 +686,10 @@ def main():
     --generic-only), 1 is a hit or a category that could not be
     checked, and 2 is a scan that could not start: a --path that is
     not a directory, or --tracked outside a checkout. REPO_ROOT is
-    rebound for --path before anything reads it, so every helper
-    (including the pattern loaders) works on the repo being scanned.
+    rebound for --path before anything reads it, so the file lists and
+    the reviewed exceptions (committed with the tree they review) come
+    from the repo being scanned; the private name list does not, since
+    it belongs to this machine (see private_patterns_path).
     """
     global REPO_ROOT
     args = _parse_arguments()

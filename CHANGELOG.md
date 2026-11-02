@@ -1039,6 +1039,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   not be read is listed with the reason; a scan that missed any is not
   called clean (exit 1). Every other file is read exactly as before.
   `agent/tests/test_updates.py` gains six checks. (2026-11-02)
+- **`scripts/scan_for_pii.py --path` uses this machine's private name
+  list.** Scanning another checkout took the private list from that
+  checkout, so name detection was off (the list is never committed, so
+  there usually is none) or used whatever list that tree carried. The
+  list is now always read from the scanner's own checkout, and the scan
+  prints which file it used; the reviewed exceptions in
+  `scripts/pii_allow.txt` still come from the tree being scanned, which
+  is the tree they were reviewed for. `agent/tests/test_updates.py`
+  gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
