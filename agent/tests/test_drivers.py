@@ -855,6 +855,26 @@ check("a DroboApps list read before an action keeps what it said",
 check("-- and the simulator's next read shows the action",
       first_mock.get_droboapps()["apps"][0]["running"] != was_running)
 
+# The "cannot reach" alert lists what discovery tried. Until 2026-11-02
+# it put mDNS ahead of the typed addresses, which discovery tries first.
+print("\n== the not-found message lists the search in discovery's order ==")
+ordered_driver = drivers.Drobo5NDriver({
+    "host": "auto", "hostname": "drobo.local",
+    "manual_discovery_ips": ["192.0.2.8"], "discovery_sweep": True})
+not_found_text = ordered_driver._not_found_message(
+    "192.0.2.7", LookupError("x"))
+tried_positions = [not_found_text.find(step) for step in (
+    "manually-added", "mDNS", "hostname", "last-known", "subnet sweep")]
+check("typed addresses, mDNS, hostname, last-known IP, sweep, in that order",
+      -1 not in tried_positions and tried_positions == sorted(tried_positions),
+      not_found_text.split(")")[0])
+plain_driver = drivers.Drobo5NDriver({"host": "auto"})
+plain_text = plain_driver._not_found_message("", LookupError("x"))
+check("-- and with nothing extra configured it says it tried mDNS",
+      plain_text.startswith(
+          "Could not find the Drobo automatically (tried mDNS). x"),
+      plain_text.split("\n")[0])
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

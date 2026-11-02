@@ -1650,14 +1650,8 @@ class Drobo5NDriver(DroboDriver):
         is for a network that blocks mDNS, which is the rarer case.
         """
         return (
-            "Could not find the Drobo automatically (tried mDNS"
-            + (f", {len(self.manual_discovery_ips)} "
-               f"manually-added address(es)"
-               if self.manual_discovery_ips else "")
-            + (f", hostname {self.hostname!r}" if self.hostname else "")
-            + (f", last-known IP {last_known_host!r}"
-               if last_known_host else "")
-            + (", subnet sweep" if self.discovery_sweep_enabled else "")
+            "Could not find the Drobo automatically (tried "
+            + ", ".join(self._discovery_steps_tried(last_known_host))
             + f"). {exc}\n"
             "Check the Drobo is switched on and this PC is on the same "
             "network. If both are true and this network blocks mDNS, set "
@@ -1665,6 +1659,26 @@ class Drobo5NDriver(DroboDriver):
             "config.json, or find the IP with:  "
             "py tools/drobo_probe.py mdns"
         )
+
+    def _discovery_steps_tried(self, last_known_host: str) -> list[str]:
+        """
+        What discovery tried, in the order discovery tries it
+        (discovery._gather_candidates): typed addresses, mDNS, hostname,
+        last-known IP, subnet sweep. Until 2026-11-02 the message put
+        mDNS ahead of the typed addresses.
+        """
+        steps = []
+        if self.manual_discovery_ips:
+            steps.append(f"{len(self.manual_discovery_ips)} "
+                         "manually-added address(es)")
+        steps.append("mDNS")
+        if self.hostname:
+            steps.append(f"hostname {self.hostname!r}")
+        if last_known_host:
+            steps.append(f"last-known IP {last_known_host!r}")
+        if self.discovery_sweep_enabled:
+            steps.append("subnet sweep")
+        return steps
 
     @staticmethod
     def _print_first_run_pairing(

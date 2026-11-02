@@ -658,6 +658,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   under whoever held them. Each read now returns a copy, as a real
   device's answer is a fresh one each time; the simulator's own writes
   are unchanged. `test_drivers.py` gains five checks. (2026-11-02)
+- **"Could not find the Drobo" lists the search in the order it ran.**
+  The message put mDNS first and the addresses typed into `config.json`
+  second, though the typed addresses are tried first. It now names each
+  step in the order discovery takes them: typed addresses, mDNS,
+  hostname, last-known address, subnet sweep. Wording only.
+  `test_drivers.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
