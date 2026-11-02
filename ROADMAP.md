@@ -864,9 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- Connect-as: a share that connected but whose login could not be saved
-  leaves the dialog open, Cancel then reports it not connected, and a second
-  Connect fails against the connection that worked.
 - `DroboSettings`: one malformed port resets every later setting to its
   default, which the next save writes back; the file is written in place,
   not replaced atomically.

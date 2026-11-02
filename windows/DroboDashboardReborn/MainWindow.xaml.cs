@@ -2303,7 +2303,9 @@ public partial class MainWindow : Window
         {
             Owner = this,
         };
-        bool ok = dialog.ShowDialog() == true;
+        // Connected-but-not-saved counts as connected however the dialog was
+        // closed, its title-bar button included -- see ConnectShareDialog.
+        bool ok = dialog.ShowDialog() == true || dialog.ConnectedButLoginNotSaved;
         if (ok) await RefreshShares();
         return ok;
     }

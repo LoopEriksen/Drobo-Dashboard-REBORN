@@ -857,6 +857,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   text (`"port": "7420"`), which the agent itself runs with, no longer
   makes the app skip that file and miss its token. The Windows test
   program gains 24 checks for this. (2026-11-02)
+- **Connect as... no longer reports a connected share as not connected
+  when only saving the login failed.** The dialog said the login could not
+  be saved and stayed open, as it should; but Cancel then told the app the
+  share was not connected, so the Shares tab was not refreshed and Open
+  gave up, and pressing Connect again tried a second connection, which
+  Windows refuses while the first one stands. Now the share counts as
+  connected however the dialog is closed, Cancel reads Close, the button
+  reads "Try saving again" and only retries the save, and the fields are
+  locked so the login saved is the one that connected. How and where the
+  password is stored is unchanged. Checked by reading and by the Windows
+  build; see `docs/testers-tasks.md` section 7. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

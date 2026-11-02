@@ -121,3 +121,11 @@ for each step, what you saw if it differs from what it says.
    change at most once every 10 seconds, never several times at once.
    Resume the process: within 20 seconds the footer must go back to a
    normal reading.
+4. **A share that connected stays connected when its login cannot be
+   saved** (fixed 2026-11-02). Real Drobo only, because the simulator
+   switches saving off, and only if Windows ever refuses to save a login
+   for you: there is no safe way to make it refuse on purpose. If **Connect
+   as...** with **Save this login on this PC** ticked shows a saving error,
+   the buttons must read **Close** and **Try saving again**; **Close** must
+   leave the share listed as connected, and **Try saving again** must not
+   show a connection error. Report the saving error's exact words.

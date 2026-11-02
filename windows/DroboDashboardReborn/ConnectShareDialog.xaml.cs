@@ -204,9 +204,20 @@ public partial class ConnectShareDialog : Window
     /// Checks the fields, connects, and closes with DialogResult true only
     /// once the share is connected and any requested save has worked. One
     /// attempt per click: the buttons are disabled while it runs.
+    ///
+    /// Once the share is connected and only the save failed, the button
+    /// retries the save alone: connecting again would meet the connection
+    /// that already worked, and Windows refuses that (ERROR_ALREADY_ASSIGNED
+    /// for a drive letter, or a credential conflict).
     /// </summary>
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
+        if (ConnectedButLoginNotSaved)
+        {
+            RetrySavingLogin();
+            return;
+        }
+
         var username = UsernameBox.Text.Trim();
         var password = PasswordInput.Password;
 
@@ -314,14 +325,56 @@ public partial class ConnectShareDialog : Window
         // The share IS connected; only the saving failed. Say exactly that
         // and stay open, rather than reporting a failure that did not happen.
         ShowError(saveFailureMessage);
-        ConnectedButLoginNotSaved = true;
+        ShowConnectedButNotSaved();
         return false;
     }
 
     /// <summary>True when the share connected but the login could not be
-    /// saved. The dialog stays open showing why; the caller can still treat
-    /// the share as connected.</summary>
+    /// saved. The dialog stays open showing why, and closing it reports the
+    /// share as connected (see Cancel_Click); the caller checks this too, for
+    /// a dialog closed with its title-bar button.</summary>
     public bool ConnectedButLoginNotSaved { get; private set; }
+
+    /// <summary>
+    /// The connected-but-not-saved state: the button offers the save again
+    /// and Cancel becomes Close. The fields are locked, so a retry can only
+    /// save the login that just connected, never one that was edited
+    /// afterwards and never tried.
+    ///
+    /// Until 2026-11-02 nothing changed here: Cancel reported the share as
+    /// not connected, so the Shares tab was not refreshed and the Open flow
+    /// gave up, and Connect tried to connect again.
+    /// </summary>
+    private void ShowConnectedButNotSaved()
+    {
+        ConnectedButLoginNotSaved = true;
+        UsernameBox.IsEnabled = false;
+        PasswordInput.IsEnabled = false;
+        MountCheck.IsEnabled = false;
+        DriveLetterBox.IsEnabled = false;
+        RememberCheck.IsEnabled = false;
+        ForgetLink.Visibility = Visibility.Collapsed;
+        CancelBtn.Content = "Close";
+    }
+
+    /// <summary>The Connect button in the connected-but-not-saved state:
+    /// one more try at saving the login that connected, and no second
+    /// connection.</summary>
+    private void RetrySavingLogin()
+    {
+        if (_credentialHost is null) return;
+        SetBusy(true);
+        var saveFailureMessage = CredentialStore.Save(_credentialHost, UsernameBox.Text.Trim(), PasswordInput.Password);
+        SetBusy(false);
+        if (saveFailureMessage is not null)
+        {
+            ShowError(saveFailureMessage);
+            return;
+        }
+
+        DialogResult = true;
+        Close();
+    }
 
     /// <summary>Disables both buttons while a connection is in progress, so a
     /// second click cannot start a second attempt, and hides the last error.</summary>
@@ -329,7 +382,9 @@ public partial class ConnectShareDialog : Window
     {
         ConnectBtn.IsEnabled = !busy;
         CancelBtn.IsEnabled = !busy;
-        ConnectBtn.Content = busy ? "Connecting…" : "Connect";
+        ConnectBtn.Content = busy
+            ? (ConnectedButLoginNotSaved ? "Saving…" : "Connecting…")
+            : (ConnectedButLoginNotSaved ? "Try saving again" : "Connect");
         if (busy) ErrorText.Visibility = Visibility.Collapsed;
     }
 
@@ -341,11 +396,13 @@ public partial class ConnectShareDialog : Window
         ErrorText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>Closes with DialogResult false: the caller then skips its
-    /// share refresh.</summary>
+    /// <summary>Closes with DialogResult false, so the caller skips its
+    /// share refresh -- unless the share is already connected and only the
+    /// save failed, when it closes with true: the share is connected, and
+    /// the caller must refresh and treat it so.</summary>
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        DialogResult = ConnectedButLoginNotSaved;
         Close();
     }
 }
