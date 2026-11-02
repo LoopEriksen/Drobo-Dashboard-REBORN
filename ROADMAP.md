@@ -834,9 +834,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `tools/extract_commands.py` (confirmed): files replies under commands
-  sent and counts a phantom document per reply; text after `<Params>`
-  crashes the whole run.
 - `tools/fwtool.py` writes the rootfs listing outside the output folder
   and crashes when nothing was extracted. `tools/dashboard_strings.py`
   drops every letters-only tag of 24 characters or more.

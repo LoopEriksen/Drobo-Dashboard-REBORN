@@ -1312,6 +1312,14 @@ and the counts merely double. It does make "how many commands were sent"
 wrong, and direction is already known per stream, so classification should
 prefer direction and fall back to content.
 
+**Fixed 2026-11-02.** The extractor now files by direction alone, since the
+stream reader always knows it (the side that owns port 5001 is the device):
+what went to the port is a request, what came back is a response. It also
+scans once for whichever root opens first, so the `<Result>` inside a reply
+is no longer counted again as a document of its own. The counts in this
+file's dated sections were taken before the fix and are left as they were
+measured.
+
 ---
 
 ## Identify is called "Blink Lights" `CONFIRMED` 2026-08-06

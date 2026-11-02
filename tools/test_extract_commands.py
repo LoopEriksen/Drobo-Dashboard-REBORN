@@ -219,6 +219,53 @@ check("a number is not a document",
 check("malformed XML is declined rather than crashing",
       extract_commands.unwrap_escaped("<broken") is None)
 
+print("\n== replies are filed as replies, and counted once ==")
+# The device answers in the same TMCmd/CmdID root as the command, with a
+# <Result> child. A real 2026-08-06 capture came out as 564 "requests"
+# and 0 responses that way, and the <Result> inside each reply was
+# counted again as a document of its own.
+REPLY = (b"DRINETTM" + bytes([0x0A, 0x02, 0, 0, 0, 0, 0, 0])
+         + b"<TMCmd><CmdID>9</CmdID><Result>8589934592</Result>"
+         b"<ResultDetails></ResultDetails></TMCmd>")
+check("one reply is one document, not a second one for its <Result>",
+      len(extract_commands.find_xml_documents(REPLY)) == 1,
+      [document["root"].tag
+       for document in extract_commands.find_xml_documents(REPLY)])
+
+reply_capture_path = os.path.join(temp_dir, "with-replies.pcapng")
+reply_frames = frames + [
+    builders.ethernet_frame(builders.ipv4_packet(
+        builders.SERVER_IP, builders.CLIENT_IP,
+        builders.tcp_segment(5001, 51000, 7000, 0x18, REPLY + REPLY)))]
+builders.write_pcapng(reply_capture_path, reply_frames)
+reply_result = extract_commands.extract_from_capture(reply_capture_path,
+                                                     port=5001)
+check("the device's two replies are responses, not commands sent",
+      len(reply_result["requests"]) == 5
+      and len(reply_result["responses"]) == 2,
+      (len(reply_result["requests"]), len(reply_result["responses"])))
+check("-- and a reply keeps its command and result",
+      [(response["command"], response["result"])
+       for response in reply_result["responses"]]
+      == [("eCmdGetDimming", "8589934592")] * 2,
+      reply_result["responses"])
+
+print("\n== text after </Params> does not end the run ==")
+PARAMS_WITH_TAIL = extract_commands.ElementTree.fromstring(
+    "<TMCmd><CmdID>30</CmdID><Params><A>1</A></Params>tail"
+    "<ESAID>X</ESAID></TMCmd>")
+try:
+    tail_entry = extract_commands.describe_document(PARAMS_WITH_TAIL)
+except extract_commands.ElementTree.ParseError as exc:
+    tail_entry = {"params_xml": f"ParseError: {exc}"}
+check("a <Params> followed by text is described, parameters intact",
+      "<A>1</A>" in tail_entry["params_xml"]
+      and "tail" not in tail_entry["params_xml"],
+      tail_entry["params_xml"])
+check("-- and the parsed document itself is left untouched",
+      PARAMS_WITH_TAIL.find("Params").tail == "tail")
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

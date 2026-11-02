@@ -51,6 +51,7 @@ docs/captures/README.md.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -168,35 +169,10 @@ def unwrap_escaped(text: str) -> str | None:
 _DOCUMENT_ROOT_TAGS = (b"TMCmd", b"Result")
 
 
-def _documents_with_root(stream_bytes: bytes, root_tag: bytes) -> list[dict]:
-    """Every parseable document in `stream_bytes` that opens with
-    `root_tag`, in stream order.
-
-    A stretch that does not parse is skipped rather than ending the
-    scan, because one damaged frame should not hide the rest.
-    """
-    documents: list[dict] = []
-    opening = b"<" + root_tag
-    closing = b"</" + root_tag + b">"
-    search_from = 0
-    while True:
-        start = stream_bytes.find(opening, search_from)
-        if start < 0:
-            break
-        end = stream_bytes.find(closing, start)
-        if end < 0:
-            break
-        end += len(closing)
-        raw_document = stream_bytes[start:end]
-        search_from = end
-        try:
-            root = ElementTree.fromstring(
-                raw_document.decode("utf-8", "replace"))
-        except ElementTree.ParseError:
-            continue
-        documents.append({"offset": start, "root": root,
-                          "raw": raw_document})
-    return documents
+#: The opening tag of either root, and only of a root: the lookahead
+#: stops "<Result" matching the "<ResultDetails" a reply also carries.
+_DOCUMENT_OPENING_RE = re.compile(
+    b"<(" + b"|".join(_DOCUMENT_ROOT_TAGS) + rb")(?=[\s/>])")
 
 
 def find_xml_documents(stream_bytes: bytes) -> list[dict]:
@@ -209,12 +185,35 @@ def find_xml_documents(stream_bytes: bytes) -> list[dict]:
     the tag means a header variant we have not seen costs us nothing
     here, where depending on the inferred framing would make this tool
     fail on exactly the novel captures it exists to read.
+
+    One scan, for whichever root opens first, resuming after that
+    document's end. The roots used to be scanned for separately, so the
+    <Result> child inside every reply was found again as a document of
+    its own -- a phantom command per reply. A stretch that does not
+    parse is skipped rather than ending the scan, because one damaged
+    frame should not hide the rest.
     """
     documents: list[dict] = []
-    for root_tag in _DOCUMENT_ROOT_TAGS:
-        documents.extend(_documents_with_root(stream_bytes, root_tag))
-    documents.sort(key=lambda document: document["offset"])
-    return documents
+    search_from = 0
+    while True:
+        opening = _DOCUMENT_OPENING_RE.search(stream_bytes, search_from)
+        if opening is None:
+            return documents
+        closing = b"</" + opening.group(1) + b">"
+        end = stream_bytes.find(closing, opening.start())
+        if end < 0:
+            # Never closed (a capture cut short): look past it.
+            search_from = opening.end()
+            continue
+        search_from = end + len(closing)
+        raw_document = stream_bytes[opening.start():search_from]
+        try:
+            root = ElementTree.fromstring(
+                raw_document.decode("utf-8", "replace"))
+        except ElementTree.ParseError:
+            continue
+        documents.append({"offset": opening.start(), "root": root,
+                          "raw": raw_document})
 
 
 def _first_child_text(root: ElementTree.Element, *tag_names: str) -> str:
@@ -247,9 +246,13 @@ def _describe_params(
     document nested inside it.
 
     It works on a copy, so redacting never alters the parsed
-    document a caller still holds.
+    document a caller still holds. The copy drops the element's tail:
+    it used to be made by a tostring/fromstring round trip, which
+    carries the tail, so text after </Params> raised ParseError
+    ("junk after document element") and ended the whole run.
     """
-    params_copy = ElementTree.fromstring(ElementTree.tostring(params_element))
+    params_copy = copy.deepcopy(params_element)
+    params_copy.tail = None
     _redact_secret_elements(params_copy)
     params_xml = _pretty_xml(params_copy)
     escaped_documents = []
@@ -338,16 +341,14 @@ def extract_from_capture(path: str,
     requests: list[dict] = []
     responses: list[dict] = []
     for stream in streams.values():
-        stream_entries = (_entries_for_direction(stream, "to_server")
-                          + _entries_for_direction(stream, "to_client"))
-        # A request carries a Command the client chose; a reply carries
-        # a Result. Classified on CONTENT rather than on which side of
-        # the socket it came from, so a capture whose directions were
-        # guessed the wrong way round still reads correctly.
-        for document_entry in stream_entries:
-            (responses if document_entry["result"]
-             and document_entry["command"] == "(none)"
-             else requests).append(document_entry)
+        # Filed by direction: what went to the port is a request, what
+        # came back is a response. collect_streams always knows which,
+        # since the side that owns the port is the device. Content
+        # cannot tell them apart -- a reply has the same TMCmd/CmdID
+        # root as its command -- and classifying on it filed every
+        # reply as a request (564 requests, 0 responses on 2026-08-06).
+        requests.extend(_entries_for_direction(stream, "to_server"))
+        responses.extend(_entries_for_direction(stream, "to_client"))
     return {"port": port, "requests": requests, "responses": responses,
             "streams": len(streams)}
 

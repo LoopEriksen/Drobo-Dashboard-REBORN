@@ -965,6 +965,19 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   the reason after it. Only what is caught and what is printed change;
   nothing sent changes.
   `tools/test_nasd_sweep.py` gains eleven checks. (2026-11-02)
+- **`tools/extract_commands.py` counts what was sent, and survives text
+  after `<Params>`.** The device's replies have the same root as the
+  commands, so they were all filed as commands sent (a 2026-08-06
+  capture read as 564 requests and 0 responses), and the `<Result>`
+  inside each reply was counted again as a phantom command. Documents
+  are now filed by direction, what went to the Drobo against what came
+  back, and a reply is one document. The printed "N command(s) sent"
+  and the `--json` request and response lists change for any capture
+  that holds replies, on purpose. Text between `</Params>` and the next
+  element used to end the whole run with a `ParseError`; the parameters
+  are now read as usual. `tools/test_extract_commands.py` gains five
+  checks; `docs/protocol-map.md`'s tooling note says it is fixed.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
