@@ -754,6 +754,16 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   dropped the connection. It is now the same "Could not check for
   updates" answer as an unreachable server. Update checking stays off
   by default. `test_updates.py` gains two checks. (2026-11-02)
+- **A malformed update setting or manifest is explained, not a crash.**
+  With update checking switched on, an `updates` block in `config.json`
+  that is not a block, a `manifest_url` or `channel` that is not text,
+  or a manifest whose channel entry is not an object raised an error out
+  of the check, so `/api/update` dropped the connection and the "Check
+  for Updates" shortcut printed a traceback. The settings now answer
+  "switched off" with the setting that is wrong, checked before
+  anything is fetched, and the manifest answers "could not check" with
+  what was wrong with it. `test_updates.py` gains five checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

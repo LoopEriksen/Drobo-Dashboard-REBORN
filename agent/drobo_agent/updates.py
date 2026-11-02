@@ -288,21 +288,26 @@ def check(config: dict, current_version: str,
     immediately and touches nothing. `fetch` is injectable so the tests
     can prove exactly that, and can exercise the parsing without a
     server.
+
+    A block, setting or manifest entry of the wrong JSON type is
+    answered with a reason; until 2026-11-02 it reached .get or .strip
+    and raised AttributeError out of here.
     """
-    config = config or {}
+    if not isinstance(config, dict):
+        config = {}
     if not config.get("enabled", False):
         return UpdateStatus(
             STATE_DISABLED, current_version,
             reason="Update checking is switched off. Nothing is contacted.")
 
-    url = (config.get("manifest_url") or "").strip()
-    manifest_url_problem = _url_problem(url)
-    if manifest_url_problem:
+    settings_problem = _settings_problem(config)
+    if settings_problem:
         # Enabled but unusable is a configuration mistake worth
         # surfacing, not a silent no-op -- somebody turned this on and
         # expects it to work.
         return UpdateStatus(STATE_DISABLED, current_version,
-                            reason=manifest_url_problem)
+                            reason=settings_problem)
+    url = (config.get("manifest_url") or "").strip()
 
     try:
         manifest = (fetch or _fetch_manifest)(url, timeout)
@@ -315,16 +320,30 @@ def check(config: dict, current_version: str,
         return UpdateStatus(STATE_ERROR, current_version,
                             reason=f"Could not check for updates: {exc}")
 
+    channel = (config.get("channel") or "stable").strip()
+    return _status_from_manifest(manifest, channel, current_version)
+
+
+def _status_from_manifest(manifest, channel: str,
+                          current_version: str) -> UpdateStatus:
+    """
+    What a fetched manifest says for `channel`: an update, up to date,
+    or an error naming what was wrong with the manifest.
+    """
     if not isinstance(manifest, dict):
         return UpdateStatus(STATE_ERROR, current_version,
                             reason="Update manifest was not a JSON object.")
 
-    channel = (config.get("channel") or "stable").strip()
     manifest = _channel_manifest(manifest, channel)
     if manifest is None:
         return UpdateStatus(
             STATE_ERROR, current_version,
             reason=f"No {channel!r} channel in the update manifest.")
+    if not isinstance(manifest, dict):
+        return UpdateStatus(
+            STATE_ERROR, current_version,
+            reason=f"The {channel!r} channel in the update manifest was "
+                   f"not a JSON object.")
 
     release = _read_release(manifest)
     if release is None:
@@ -335,6 +354,20 @@ def check(config: dict, current_version: str,
         return UpdateStatus(STATE_CURRENT, current_version, latest=release,
                             reason="You are on the latest version.")
     return _newer_release_status(release, current_version)
+
+
+def _settings_problem(config: dict) -> str:
+    """
+    Why an enabled updates block cannot be used, or "" when it can:
+    manifest_url and channel must be text, and the URL must pass
+    _url_problem. Checked before anything is fetched.
+    """
+    for setting_name in ("manifest_url", "channel"):
+        setting_value = config.get(setting_name)
+        if setting_value is not None and not isinstance(setting_value, str):
+            return (f'"{setting_name}" in the updates block of config.json '
+                    f"must be text, not {type(setting_value).__name__}")
+    return _url_problem((config.get("manifest_url") or "").strip())
 
 
 def _channel_manifest(manifest: dict, channel: str):

@@ -396,6 +396,49 @@ for http_error in (http.client.IncompleteRead(b"{\"vers"),
         repr(broken_reply_status),
     )
 
+# A config entry or manifest of the wrong JSON type reached .get or
+# .strip and raised AttributeError out of check() (until 2026-11-02).
+# Each is now an answer with a reason, and a bad config fetches
+# nothing.
+_unexpected_fetches = []
+
+
+def _fetch_recording(url, timeout):
+    _unexpected_fetches.append(url)
+    return manifest()
+
+
+for label, updates_block, expected_state in (
+        ("an updates block that is not an object", True,
+         updates.STATE_DISABLED),
+        ("a manifest_url that is not text",
+         {"enabled": True, "manifest_url": 5}, updates.STATE_DISABLED),
+        ("a channel that is not text", {**ENABLED_CONFIG, "channel": 7},
+         updates.STATE_DISABLED)):
+    try:
+        malformed_status = updates.check(updates_block, CURRENT,
+                                         fetch=_fetch_recording)
+    except Exception as escaped_error:  # noqa: BLE001 - the check
+        malformed_status = escaped_error
+    check(f"{label} is {expected_state} with a reason, not an exception",
+          isinstance(malformed_status, updates.UpdateStatus)
+          and malformed_status.state == expected_state
+          and bool(malformed_status.reason),
+          repr(malformed_status))
+check("-- and none of them fetched the manifest", _unexpected_fetches == [],
+      _unexpected_fetches)
+try:
+    text_channel_status = updates.check(
+        ENABLED_CONFIG, CURRENT,
+        fetch=lambda url, timeout: {"channels": {"stable": "1.3.0"}})
+except Exception as escaped_error:  # noqa: BLE001 - the check
+    text_channel_status = escaped_error
+check("a channel entry that is not an object is an error",
+      isinstance(text_channel_status, updates.UpdateStatus)
+      and text_channel_status.state == updates.STATE_ERROR
+      and "not a JSON object" in text_channel_status.reason,
+      repr(text_channel_status))
+
 
 # ---------------------------------------------------------------------------
 print(
