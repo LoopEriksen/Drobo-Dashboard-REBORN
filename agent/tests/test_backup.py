@@ -17,6 +17,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -178,6 +179,69 @@ except backup.BackupError as exc:
     check("a refused plan raises BackupError", True)
     check("-- and the message says why", "same folder" in str(exc), str(exc))
 check("nothing was recorded as a job", runner.job is None)
+
+print("\n== planning does not hold up the status route ==")
+# start() used to plan under the lock /api/backup/status reads through,
+# and planning checks the source exists: on a UNC path that can sit in
+# an SMB timeout, so the status route waited behind it. Since 2026-11-02
+# the plan is made first and only recording the job takes the lock.
+# robocopy is never run here: _run is replaced.
+_real_isdir = os.path.isdir
+
+
+def _isdir_slow_on_unc(path):
+    # A UNC path is answered here and never looked up: on Windows the
+    # real isdir would go out onto the network to find the server.
+    if str(path).startswith("\\\\"):
+        time.sleep(1.0)
+        return False
+    return _real_isdir(path)
+
+
+def _start_in_thread(start_runner, source, destination, outcomes):
+    def start_and_record():
+        try:
+            outcomes.append(start_runner.start(source, destination))
+        except backup.BackupError as exc:
+            outcomes.append(exc)
+    start_thread = threading.Thread(target=start_and_record, daemon=True)
+    start_thread.start()
+    return start_thread
+
+
+os.path.isdir = _isdir_slow_on_unc
+try:
+    unc_runner = backup.BackupRunner()
+    unc_runner._run = lambda job: None
+    unc_start = _start_in_thread(unc_runner, "\\\\server\\share",
+                                 destination_dir, [])
+    time.sleep(0.1)
+    status_read_started_at = time.time()
+    unc_runner.job
+    status_read_seconds = time.time() - status_read_started_at
+    unc_start.join(5)
+finally:
+    os.path.isdir = _real_isdir
+check("reading the job while a UNC source is being checked does not wait",
+      status_read_seconds < 0.2, round(status_read_seconds, 2))
+
+release_copy = threading.Event()
+concurrent_outcomes = []
+paired_runner = backup.BackupRunner()
+paired_runner._run = lambda job: release_copy.wait(5)
+paired_starts = [_start_in_thread(paired_runner, source_dir,
+                                  destination_dir, concurrent_outcomes)
+                 for _ in range(2)]
+for paired_start in paired_starts:
+    paired_start.join(5)
+release_copy.set()
+started_jobs = [outcome for outcome in concurrent_outcomes
+                if isinstance(outcome, backup.BackupJob)]
+refused_starts = [str(outcome) for outcome in concurrent_outcomes
+                  if isinstance(outcome, backup.BackupError)]
+check("-- and two starts at once still make one job",
+      len(started_jobs) == 1 and len(refused_starts) == 1
+      and "already running" in refused_starts[0], concurrent_outcomes)
 
 print("\n== a real backup, into a real temp folder ==")
 if os.name != "nt":

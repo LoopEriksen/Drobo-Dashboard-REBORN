@@ -802,6 +802,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   "the destination is inside the source", which it is not. It now gets
   the first reason only; every other refusal is unchanged.
   `test_backup.py` gains one check. (2026-11-02)
+- **Starting a backup from a network path no longer freezes its status.**
+  Before a backup starts, the agent checks that the source folder
+  exists, and on a network path that can wait out a network timeout.
+  It did that while holding the lock the backup-status route reads
+  through, so the apps' backup progress stopped answering for as long
+  as the check took. The check now happens first, and two starts at
+  once still make only one backup. `test_backup.py` gains two checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

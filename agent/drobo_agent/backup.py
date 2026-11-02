@@ -379,12 +379,22 @@ class BackupRunner:
         Deliberately separate from plan(): getting here requires a
         caller to have decided, explicitly, that writing is what they
         want.
+
+        The plan is made before the lock is taken: it checks the source
+        exists, and on a UNC path that can sit in an SMB timeout. Until
+        2026-11-02 it ran under the lock, so /api/backup/status, which
+        reads `job` through the same lock, waited behind it. "Already
+        running" is still decided under the lock, and still first, so
+        two starts at once make one job. The cost is that a start
+        refused as "already running" now waits for its plan first,
+        which on a UNC source can mean an SMB timeout; plan() is
+        read-only, so the wait changes nothing but how long the refusal
+        takes.
         """
+        backup_plan = plan(source, destination, mirror)
         with self._lock:
             if self._job is not None and self._job.running:
                 raise BackupError("A backup is already running.")
-
-            backup_plan = plan(source, destination, mirror)
             if not backup_plan.allowed:
                 raise BackupError(" ".join(backup_plan.refusals))
 
