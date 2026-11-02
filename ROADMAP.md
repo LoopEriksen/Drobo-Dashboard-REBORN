@@ -796,8 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `commands`: the import-time integrity checks are `assert`s, so
-  `python -O` skips them; `is_dangerous` treats an id missing from the
+- `commands`: `is_dangerous` treats an id missing from the
   table (103, 200, -1) as safe, and `NasdClient` would send it.
   **For the maintainer:** `eCmdGetNASUsernamePassword` (102), which by its
   name returns credentials, is not in `DO_NOT_SEND`.

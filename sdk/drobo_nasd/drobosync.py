@@ -41,7 +41,7 @@ Three sibling commands are WRITES and stay refused by
 commands.DO_NOT_SEND: eCmdSetDroboSyncSettings (36), eCmdSyncNow (40),
 eCmdStopSync (41). Triggering a replication run between two arrays is
 emphatically not a safe write -- it moves real data -- and it could not
-be tested here even if it were allowed. The assertion at the bottom of
+be tested here even if it were allowed. The check at the bottom of
 this module holds us to that.
 """
 from __future__ import annotations
@@ -72,8 +72,8 @@ READ_COMMANDS = {
 }
 
 #: The write half, listed so this module's refusal is visible rather
-#: than implied by their absence. Every one is in DO_NOT_SEND; see the
-#: assertion.
+#: than implied by their absence. Every one is in DO_NOT_SEND; see
+#: _check_writes_refused.
 WRITE_COMMANDS = ("eCmdSetDroboSyncSettings", "eCmdSyncNow", "eCmdStopSync")
 
 
@@ -283,7 +283,20 @@ def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
 # Setting up or starting a replication run moves real data between two
 # arrays. It is not a safe write, it could not be tested here, and it
 # stays refused.
-assert all(_commands.is_dangerous(name) for name in WRITE_COMMANDS), (
-    "DroboSync's write commands must stay in DO_NOT_SEND: "
-    f"{[n for n in WRITE_COMMANDS if not _commands.is_dangerous(n)]}"
-)
+def _check_writes_refused() -> None:
+    """
+    Refuse to load if any DroboSync write has left DO_NOT_SEND.
+
+    A RuntimeError rather than an assert, because python -O strips
+    asserts: until 2026-11-02 this check was one, and under -O a gate
+    that had lost a DroboSync write loaded without a word.
+    """
+    writes_not_refused = [command_name for command_name in WRITE_COMMANDS
+                          if not _commands.is_dangerous(command_name)]
+    if writes_not_refused:
+        raise RuntimeError(
+            "DroboSync's write commands must stay in DO_NOT_SEND: "
+            f"{writes_not_refused}")
+
+
+_check_writes_refused()

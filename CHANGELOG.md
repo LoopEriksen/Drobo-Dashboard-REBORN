@@ -454,6 +454,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   Such a serial is now refused before the login goes out. A real serial
   (letters, digits, dashes) sends exactly the bytes it always did.
   (2026-11-02)
+- **The command gate's own integrity checks run under `python -O`.** When
+  the SDK loads, it checks that the command table is whole and that no
+  command is both refused and allowed, and the DroboSync module checks that
+  its three write commands are still refused. These were `assert`
+  statements, which `python -O` removes, so under it a damaged gate would
+  have loaded without a word. They now raise an error whatever the Python
+  options. The gate's members are unchanged. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

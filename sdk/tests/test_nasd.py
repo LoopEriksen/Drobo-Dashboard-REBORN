@@ -9,6 +9,7 @@ Run this after changing anything under drobo_nasd/.
 """
 import os
 import socket
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.abspath(
@@ -193,6 +194,49 @@ check(
     "eCmdRouter is still flagged dangerous by name",
     commands.is_dangerous("eCmdRouter"),
 )
+
+
+print("\n== the gate's own integrity checks survive python -O ==")
+# Until 2026-11-02 these checks were assert statements, which python -O
+# strips, so a corrupted gate would have loaded silently. Each case
+# below corrupts the gate in a fresh interpreter run with -O and
+# expects the check to refuse it with RuntimeError.
+SDK_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
+def _run_optimised(code):
+    """Run `code` under python -O with the SDK importable."""
+    return subprocess.run(
+        [sys.executable, "-O", "-c",
+         f"import sys; sys.path.insert(0, {SDK_ROOT!r}); {code}"],
+        capture_output=True, text=True, timeout=60)
+
+
+untouched_run = _run_optimised("import drobo_nasd.commands, "
+                               "drobo_nasd.drobosync")
+check("an untouched gate loads under -O", untouched_run.returncode == 0,
+      untouched_run.stderr)
+for label, corruption in (
+        ("a dropped command entry",
+         "del commands.COMMANDS['eCmdGetVersion']; commands._self_check()"),
+        ("a renumbered command",
+         "commands.COMMANDS['eCmdGetVersion'] = 8; commands._self_check()"),
+        ("a refused name that is no command",
+         "commands.DO_NOT_SEND = commands.DO_NOT_SEND | {'eCmdTypo'}; "
+         "commands._self_check()"),
+        ("a command both refused and a safe write",
+         "commands.DO_NOT_SEND = commands.DO_NOT_SEND | {'eCmdIdentify'}; "
+         "commands._self_check()"),
+        ("a DroboSync write missing from DO_NOT_SEND",
+         "commands.DO_NOT_SEND = commands.DO_NOT_SEND - {'eCmdSyncNow'}; "
+         "from drobo_nasd import drobosync")):
+    corrupted_run = _run_optimised(
+        f"from drobo_nasd import commands; {corruption}")
+    check(f"{label} is refused under -O",
+          corrupted_run.returncode != 0
+          and "RuntimeError" in corrupted_run.stderr,
+          (corrupted_run.returncode, corrupted_run.stderr[-300:]))
 
 
 # ---------------------------------------------------------------------------

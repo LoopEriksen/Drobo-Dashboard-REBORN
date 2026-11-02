@@ -289,11 +289,6 @@ VETTED_WRITES: frozenset[str] = frozenset({
 # never both.
 DO_NOT_SEND: frozenset[str] = ESCAPE_HATCHES | DESTRUCTIVE
 
-assert DO_NOT_SEND.isdisjoint(SAFE_WRITES), (
-    "a command cannot be both refused and a safe write: "
-    f"{sorted(DO_NOT_SEND & SAFE_WRITES)}"
-)
-
 
 def is_safe_write(command_name: str) -> bool:
     """True if `command_name` is one of the narrow,
@@ -331,15 +326,25 @@ def _self_check() -> None:
     Cheap internal consistency check, run at import time. This is NOT a
     substitute for test_nasd.py -- it just guarantees the module never
     loads in a silently-corrupted state (dropped entry, typo'd id,
-    duplicate id).
-    """
-    assert len(COMMANDS) == _COMMAND_COUNT, (
-        f"expected {_COMMAND_COUNT} commands, got {len(COMMANDS)}")
+    duplicate id, a gate that names no command, a command both refused
+    and approved).
 
-    sorted_ids = sorted(COMMANDS.values())
-    assert sorted_ids == list(range(_COMMAND_COUNT)), (
-        "command ids must be exactly 0..102, each used once"
-    )
+    Each failure raises RuntimeError rather than failing an assert.
+    Until 2026-11-02 these were assert statements, and python -O strips
+    asserts, so under -O a corrupted gate loaded without a word.
+    """
+    _check_ids()
+    _check_gates()
+
+
+def _check_ids() -> None:
+    """The table holds ids 0..102 once each, as protocol-map.md says."""
+    if len(COMMANDS) != _COMMAND_COUNT:
+        raise RuntimeError(
+            f"expected {_COMMAND_COUNT} commands, got {len(COMMANDS)}")
+    if sorted(COMMANDS.values()) != list(range(_COMMAND_COUNT)):
+        raise RuntimeError(
+            "command ids must be exactly 0..102, each used once")
 
     # spot-check a handful of ids against docs/protocol-map.md by hand
     spot_checks = {
@@ -353,17 +358,24 @@ def _self_check() -> None:
         "eCmdGetNASUsernamePassword": 102,
     }
     for command_name, expected_id in spot_checks.items():
-        assert COMMANDS[command_name] == expected_id, (
-            f"{command_name} expected id {expected_id}, "
-            f"got {COMMANDS.get(command_name)}"
-        )
+        if COMMANDS.get(command_name) != expected_id:
+            raise RuntimeError(
+                f"{command_name} expected id {expected_id}, "
+                f"got {COMMANDS.get(command_name)}")
 
+
+def _check_gates() -> None:
+    """Every refused name is a command, and none is a safe write too."""
     for command_name in DO_NOT_SEND:
-        assert (command_name in COMMANDS
-                or command_name in NAMES_WITHOUT_CONFIRMED_ID), (
-            f"DO_NOT_SEND entry {command_name!r} is neither a known command "
-            f"nor a documented no-id exception"
-        )
+        if (command_name not in COMMANDS
+                and command_name not in NAMES_WITHOUT_CONFIRMED_ID):
+            raise RuntimeError(
+                f"DO_NOT_SEND entry {command_name!r} is neither a known "
+                f"command nor a documented no-id exception")
+    if not DO_NOT_SEND.isdisjoint(SAFE_WRITES):
+        raise RuntimeError(
+            "a command cannot be both refused and a safe write: "
+            f"{sorted(DO_NOT_SEND & SAFE_WRITES)}")
 
 
 _self_check()
