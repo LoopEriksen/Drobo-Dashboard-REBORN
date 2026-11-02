@@ -10,12 +10,19 @@ the real binary IS available locally -- additionally runs the tool's own
 
     py test_fw_params.py
 """
+import argparse
+import atexit
+import contextlib
+import io
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fw_params  # noqa: E402
+import fwtool  # noqa: E402
 
 failures = []
 
@@ -126,6 +133,49 @@ check("a tag near several markers outranks one seen once",
       result["candidates"] and result["candidates"][0] == "Iops",
       result["candidates"])
 check("the command id is carried", result["id"] == 62, result["id"])
+
+print("\n== fwtool rootfs keeps its output inside -o, even when empty ==")
+# fwtool.py is the firmware unpacker that feeds this tool (it writes
+# vendor/extracted/rootfs/), so its one sub-command that writes a tree
+# is checked here. 64 zero bytes are not JFFS2: nothing is extracted.
+fwtool_scratch = tempfile.mkdtemp(prefix="fwtool-rootfs-")
+atexit.register(shutil.rmtree, fwtool_scratch, ignore_errors=True)
+empty_image_path = os.path.join(fwtool_scratch, "empty.bin")
+with open(empty_image_path, "wb") as empty_image:
+    empty_image.write(bytes(64))
+rootfs_out = os.path.join(fwtool_scratch, "extracted", "rootfs")
+try:
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
+        rootfs_outcome = fwtool.rebuild_rootfs(argparse.Namespace(
+            file=empty_image_path, out=rootfs_out))
+except OSError as exc:
+    rootfs_outcome = exc
+check("an image with nothing to extract is not an error",
+      rootfs_outcome == 0, repr(rootfs_outcome))
+check("the listing is written inside the -o folder",
+      os.path.isfile(os.path.join(rootfs_out, "rootfs-listing.txt")),
+      os.listdir(os.path.dirname(rootfs_out))
+      if os.path.isdir(os.path.dirname(rootfs_out)) else "no folder")
+check("-- and nothing is written beside or above it",
+      sorted(os.listdir(fwtool_scratch)) == ["empty.bin", "extracted"]
+      and os.listdir(os.path.join(fwtool_scratch, "extracted"))
+      == ["rootfs"],
+      sorted(os.listdir(fwtool_scratch)))
+
+mistyped_out = os.path.join(fwtool_scratch, "mistyped", "rootfs")
+try:
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
+        mistyped_outcome = fwtool.rebuild_rootfs(argparse.Namespace(
+            file=os.path.join(fwtool_scratch, "no-such-image.bin"),
+            out=mistyped_out))
+except OSError as exc:
+    mistyped_outcome = exc
+check("a mistyped image path makes no output folder",
+      isinstance(mistyped_outcome, FileNotFoundError)
+      and not os.path.exists(os.path.join(fwtool_scratch, "mistyped")),
+      repr(mistyped_outcome))
 
 print("\n== validation against the real binary, when it is present ==")
 # vendor/** is gitignored, so this is conditional by necessity. When the

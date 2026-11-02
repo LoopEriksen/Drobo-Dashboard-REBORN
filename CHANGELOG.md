@@ -978,6 +978,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   are now read as usual. `tools/test_extract_commands.py` gains five
   checks; `docs/protocol-map.md`'s tooling note says it is fixed.
   (2026-11-02)
+- **`tools/fwtool.py rootfs` keeps everything inside the `-o` folder,
+  and an image with nothing in it is not a crash.** The file listing,
+  `rootfs-listing.txt`, was written one folder above the one named with
+  `-o`, so with `-o .` or a top-level folder it landed in the parent
+  folder or the drive's root; it is now written inside it
+  (`vendor/README.md`'s layout says so). An image from which nothing
+  could be extracted crashed writing that listing into a folder that
+  had never been made; the folder is now made once the image has been
+  read (so a mistyped image path makes none), and such an image reports
+  0 paths and exits 0. `tools/test_fw_params.py` gains four checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

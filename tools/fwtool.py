@@ -498,8 +498,13 @@ def _write_files(paths: dict, fragments_by_inode: dict, out_dir: str) -> int:
 
 def _write_listing(paths: dict, out_dir: str) -> str:
     """Write rootfs-listing.txt (type and path of everything, sorted)
-    next to `out_dir`, and return its path."""
-    listing_path = os.path.join(out_dir, "..", "rootfs-listing.txt")
+    inside `out_dir`, and return its path.
+
+    Inside, not beside: it used to go to `out_dir`/.., so with `-o .`
+    or a top-level folder it landed in the parent folder or the drive's
+    root, outside the folder the user named.
+    """
+    listing_path = os.path.join(out_dir, "rootfs-listing.txt")
     with open(listing_path, "w", encoding="utf-8") as listing_file:
         for path, dirent_type in sorted(paths.values()):
             listing_file.write(
@@ -530,9 +535,15 @@ def rebuild_rootfs(args) -> int:
     JFFS2 is log-structured, so a file is the newest version of its
     directory entry plus its data fragments in version order; the
     image is scanned once, then the tree is rebuilt from the root.
+    The output folder is made as soon as the image has been read,
+    because it was only ever made per file written: an image with
+    nothing to extract crashed writing the listing into a folder that
+    did not exist. Not before the read, so a mistyped image path leaves
+    no empty folder behind.
     """
     with open(args.file, "rb") as image_file:
         image = image_file.read()
+    os.makedirs(args.out, exist_ok=True)
     if image[:2] != b"\x85\x19":
         print("warning: this does not start "
               "with the JFFS2 magic; trying anyway", file=sys.stderr)

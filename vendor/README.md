@@ -17,9 +17,11 @@ vendor/
   extracted/                      what tools/fwtool.py unpacks from that .tdf:
                                   fw-*.bin sections, rootfs/ (the device's own
                                   files; tools/test_fw_params.py looks for
-                                  rootfs/sbin/nasd) and rootfs-listing.txt,
-                                  plus text files of strings pulled from the
-                                  firmware and the installer
+                                  rootfs/sbin/nasd) with rootfs-listing.txt
+                                  inside it (beside it, from extractions made
+                                  before 2026-11-02), plus text files of
+                                  strings pulled from the firmware and the
+                                  installer
 ```
 
 The original Dashboard's own programs (`Drobo Dashboard.exe`, `DDService.exe`)
