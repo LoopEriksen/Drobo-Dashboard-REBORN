@@ -409,6 +409,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     string and message is as it was. (2026-10-29)
   - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: no method nests
     more than two levels deep. (2026-10-29)
+- **The command gate refuses anything it does not know.** The SDK's
+  check for a command that must never be sent answered "not refused" for
+  an id the firmware's table does not hold (such as 200 or -1) and for a
+  misspelt name, and the older experimental client would have framed and
+  sent such an id. Now an unknown id, an unknown name, or a value that is
+  neither a name nor a plain number counts as refused, and that client asks
+  the same check before anything is sent. Stricter only: every command the
+  software sends is in the table, so nothing it sends today changes.
+  (2026-11-02)
 
 ### Fixed
 - **Identify no longer credits the original Dashboard with this app's

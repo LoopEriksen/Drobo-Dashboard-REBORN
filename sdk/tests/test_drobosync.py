@@ -119,7 +119,9 @@ print("\n== the writes stay refused, permanently ==")
 # not a safe write, it cannot be tested with one Drobo, and it is not
 # going in.
 for name in drobosync.WRITE_COMMANDS:
-    check(f"{name} is in DO_NOT_SEND", commands.is_dangerous(name), name)
+    # DO_NOT_SEND itself, not is_dangerous(), which also answers True
+    # for a misspelt name the table does not know.
+    check(f"{name} is in DO_NOT_SEND", name in commands.DO_NOT_SEND, name)
     check(f"{name} is not a safe write",
           not commands.is_safe_write(name), name)
 check("no DroboSync write ever became a SAFE_WRITE",

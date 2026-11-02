@@ -290,9 +290,14 @@ def _check_writes_refused() -> None:
     A RuntimeError rather than an assert, because python -O strips
     asserts: until 2026-11-02 this check was one, and under -O a gate
     that had lost a DroboSync write loaded without a word.
+
+    Membership of DO_NOT_SEND itself, not commands.is_dangerous():
+    is_dangerous also answers True for a name the table does not know,
+    so a misspelt entry in WRITE_COMMANDS would pass it even after the
+    real command had left DO_NOT_SEND.
     """
     writes_not_refused = [command_name for command_name in WRITE_COMMANDS
-                          if not _commands.is_dangerous(command_name)]
+                          if command_name not in _commands.DO_NOT_SEND]
     if writes_not_refused:
         raise RuntimeError(
             "DroboSync's write commands must stay in DO_NOT_SEND: "

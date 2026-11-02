@@ -796,9 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `commands`: `is_dangerous` treats an id missing from the
-  table (103, 200, -1) as safe, and `NasdClient` would send it.
-  **For the maintainer:** `eCmdGetNASUsernamePassword` (102), which by its
+- `commands`: **For the maintainer:** `eCmdGetNASUsernamePassword` (102), which by its
   name returns credentials, is not in `DO_NOT_SEND`.
 - `droboapps.set_dimming`, `set_spindown`, `disable_spindown`: when the
   write is accepted and the confirming read then fails, the error comes out

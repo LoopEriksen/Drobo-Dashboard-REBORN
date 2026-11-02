@@ -304,21 +304,29 @@ def is_safe_write(command_name: str) -> bool:
 
 def is_dangerous(name_or_id) -> bool:
     """True if `name_or_id` (a command name or numeric id) is
-    in DO_NOT_SEND.
+    in DO_NOT_SEND, or is not a command this table knows.
 
     Takes either form because callers hold either: the SDK's senders
-    check by eCmd name, and an id is what goes in <CmdID>. Note that
-    this answers only "is it on the refused list". False does not mean
-    a command is known to be safe (eCmdGetNASUsernamePassword, for one,
-    is not refused), and a numeric id that is not in ID_TO_NAME at all
-    gets the same False as any command that is not refused.
+    check by eCmd name, and an id is what goes in <CmdID>. False does
+    not mean a command is known to be safe, only that it is a known
+    command that is not on the refused list.
+
+    Anything the table does not know counts as dangerous: an id outside
+    it (103, 200, -1), a name that is neither a command nor one of the
+    documented names without an id (a typo), and any value that is not
+    a str or a plain int (True, None, 30.0). Until 2026-11-02 an unknown
+    id answered False, the same as an ordinary read, and NasdClient
+    framed and sent it; nothing can be known about what an id the
+    firmware's table does not hold would do.
     """
     if isinstance(name_or_id, str):
-        return name_or_id in DO_NOT_SEND
+        is_known_name = (name_or_id in COMMANDS
+                         or name_or_id in NAMES_WITHOUT_CONFIRMED_ID)
+        return not is_known_name or name_or_id in DO_NOT_SEND
+    if isinstance(name_or_id, bool) or not isinstance(name_or_id, int):
+        return True
     command_name = ID_TO_NAME.get(name_or_id)
-    if not command_name:
-        return False
-    return command_name in DO_NOT_SEND
+    return command_name is None or command_name in DO_NOT_SEND
 
 
 def _self_check() -> None:

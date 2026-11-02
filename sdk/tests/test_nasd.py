@@ -230,7 +230,14 @@ for label, corruption in (
          "commands._self_check()"),
         ("a DroboSync write missing from DO_NOT_SEND",
          "commands.DO_NOT_SEND = commands.DO_NOT_SEND - {'eCmdSyncNow'}; "
-         "from drobo_nasd import drobosync")):
+         "from drobo_nasd import drobosync"),
+        # is_dangerous() answers True for a name the table does not
+        # know, so a check built on it would pass a misspelt entry.
+        ("a misspelt DroboSync write, the real one not refused",
+         "from drobo_nasd import drobosync; "
+         "drobosync.WRITE_COMMANDS = ('eCmdSyncNoww',); "
+         "commands.DO_NOT_SEND = commands.DO_NOT_SEND - {'eCmdSyncNow'}; "
+         "drobosync._check_writes_refused()")):
     corrupted_run = _run_optimised(
         f"from drobo_nasd import commands; {corruption}")
     check(f"{label} is refused under -O",
@@ -504,6 +511,64 @@ except client.DangerousCommandError:
     check("send_command() refuses DO_NOT_SEND commands", True)
 finally:
     nasd_client._sock.close()
+
+
+print("\n== an id or name missing from the table is refused, not sent ==")
+# Until 2026-11-02 is_dangerous answered False for an id the table does
+# not hold, and send_command refused only a name it could resolve, so
+# NasdClient framed and sent ids such as 200 to whatever answered.
+for unknown_command in (103, 200, -1, True, None, 30.0, "eCmdGetConfg"):
+    check(f"{unknown_command!r} counts as dangerous",
+          commands.is_dangerous(unknown_command))
+check("eCmdGetConfig (30) is still not refused, by id",
+      not commands.is_dangerous(30))
+check("eCmdGetConfig is still not refused, by name",
+      not commands.is_dangerous("eCmdGetConfig"))
+check("eCmdGetiSCSIAdmin, a name with no id, is judged by DO_NOT_SEND",
+      not commands.is_dangerous("eCmdGetiSCSIAdmin"))
+
+
+class RecordingSocket:
+    """Stands in for a connected socket and records what is sent."""
+
+    def __init__(self):
+        self.sent_bytes = b""
+
+    def sendall(self, data):
+        self.sent_bytes += data
+
+
+for unknown_id in (200, 103, -1):
+    nasd_client._sock = RecordingSocket()
+    try:
+        nasd_client.send_command(unknown_id)
+        check(f"send_command({unknown_id}) is refused", False)
+    except client.DangerousCommandError:
+        check(f"send_command({unknown_id}) is refused", True)
+    except Exception as exc:
+        check(f"send_command({unknown_id}) is refused", False,
+              f"{type(exc).__name__}: {exc}")
+    check(f"...and nothing was sent for {unknown_id}",
+          nasd_client._sock.sent_bytes == b"", nasd_client._sock.sent_bytes)
+
+# A refused id the table knows is named in the refusal, as it was
+# before the gate moved to is_dangerous(); an unknown one is quoted.
+for refused_command, expected_label in ((33, "eCmdFormatDevice"),
+                                        ("eCmdFormatDevice",
+                                         "eCmdFormatDevice"),
+                                        (200, "200"), (True, "True")):
+    nasd_client._sock = RecordingSocket()
+    try:
+        nasd_client.send_command(refused_command)
+        refusal_message = ""
+    except client.DangerousCommandError as exc:
+        refusal_message = str(exc)
+    except Exception as exc:
+        refusal_message = f"not refused: {type(exc).__name__}: {exc}"
+    check(f"the refusal of {refused_command!r} names {expected_label}",
+          refusal_message.startswith(
+              f"refusing to send {expected_label}:"), refusal_message)
+nasd_client._sock = None
 
 
 # ---------------------------------------------------------------------------

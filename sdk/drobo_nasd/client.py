@@ -59,11 +59,29 @@ class NasdError(Exception):
 
 
 class DangerousCommandError(NasdError):
-    """Raised when asked to send a command in commands.DO_NOT_SEND.
+    """Raised when asked to send a command in commands.DO_NOT_SEND,
+    or an id or name the command table does not hold.
 
     Its own type, so a refusal by the safety guard can never be
     mistaken for (or retried like) a connection problem.
     """
+
+
+def _command_label(command) -> str:
+    """
+    How a refusal names `command`: a name as given, an id by the name
+    the table holds for it, and anything else by its repr.
+
+    The refusal used to say "refusing to send eCmdFormatDevice" for id
+    33; when the guard moved to commands.is_dangerous it printed the
+    bare 33, which tells a reader nothing. A bool is not taken for an
+    id, because True would otherwise be named after command 1.
+    """
+    if isinstance(command, str):
+        return command
+    if type(command) is int and command in commands.ID_TO_NAME:
+        return commands.ID_TO_NAME[command]
+    return repr(command)
 
 
 class NotConnectedError(NasdError):
@@ -229,13 +247,13 @@ class NasdClient:
 
         # Safety guard comes before the socket check, deliberately:
         # refusing a dangerous command must not depend on how far
-        # connection setup got.
-        command_name = (command if isinstance(command, str)
-                        else commands.ID_TO_NAME.get(command))
-        if command_name is not None and command_name in commands.DO_NOT_SEND:
+        # connection setup got. commands.is_dangerous also refuses an
+        # id or name the table does not know; until 2026-11-02 this
+        # checked only a name it could resolve, and sent the rest.
+        if commands.is_dangerous(command):
             raise DangerousCommandError(
-                f"refusing to send {command_name}: "
-                f"it is in commands.DO_NOT_SEND"
+                f"refusing to send {_command_label(command)}: it is in "
+                f"commands.DO_NOT_SEND or is not in the command table"
             )
 
         if self._sock is None:
