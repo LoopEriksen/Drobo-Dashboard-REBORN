@@ -218,10 +218,8 @@ def main(argv=None) -> int:
     if not host:
         host = _host_from_agent_config()
     if not host or host == "auto":
-        # print() returns None, so this exits 0, unlike every other
-        # failure here; left as it was, since this pass changes no
-        # behaviour.
-        return int(bool(print("No Drobo address. Pass --host <address>.")))
+        print("No Drobo address. Pass --host <address>.")
+        return 1
 
     try:
         codes = read_share_access_codes(host)

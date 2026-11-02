@@ -583,6 +583,24 @@ check("a host that reports no serial stops before any command is sent",
       outcome == 1 and not sends, (repr(outcome), len(sends)))
 
 
+# ---------------------------------------------------------------------------
+# 7. access_codes.py: a failure exits non-zero.
+# ---------------------------------------------------------------------------
+print("\n== access_codes: failures exit non-zero ==")
+
+import access_codes  # noqa: E402
+
+_saved_host_lookup = access_codes._host_from_agent_config
+access_codes._host_from_agent_config = lambda: ""
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        outcome = access_codes.main(["show"])
+finally:
+    access_codes._host_from_agent_config = _saved_host_lookup
+check("no Drobo address (no --host, none configured) exits 1",
+      outcome == 1, outcome)
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

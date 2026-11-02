@@ -834,9 +834,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `tools/access_codes.py` exits 0 on "no Drobo address". It, and the two
-  sweeps, catch only `OSError`, so a framing or XML error ends in a
-  traceback.
+- `tools/access_codes.py` and the two sweeps catch only `OSError`, so a
+  framing or XML error ends in a traceback.
 - `tools/extract_commands.py` (confirmed): files replies under commands
   sent and counts a phantom document per reply; text after `<Params>`
   crashes the whole run.

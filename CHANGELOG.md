@@ -942,6 +942,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   command. For the ordinary `sweep_last_six.py HOST` run the six
   commands, their order, the guard check and their bytes are unchanged.
   `tools/test_nasd_sweep.py` gains five checks. (2026-11-02)
+- **`tools/access_codes.py` exits 1 when it has no Drobo address.**
+  With no `--host` and no address in `agent/config.json` it said
+  "No Drobo address" and exited 0, so a script running it took the
+  failure for success. Nothing is sent on this path.
+  `tools/test_nasd_sweep.py` gains a check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
