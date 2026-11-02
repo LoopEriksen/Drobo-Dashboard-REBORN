@@ -446,6 +446,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   it held; it now always is. Only what is read and shown changes: write
   baselines are read unmasked, as before, and nothing sent to the Drobo
   changes. (2026-11-02)
+- **A serial the Drobo could not have sent is refused before anything is
+  sent.** The login carries the device serial, and every request repeats it.
+  A non-ASCII character in it was dropped without a word, so a mistyped
+  serial logged in as a different one, and a character XML gives a meaning
+  to (`<`, `>`, `&`, quotes) or a space went into the request as it was.
+  Such a serial is now refused before the login goes out. A real serial
+  (letters, digits, dashes) sends exactly the bytes it always did.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

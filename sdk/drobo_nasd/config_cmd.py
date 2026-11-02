@@ -98,6 +98,9 @@ _RECEIVE_CHUNK_BYTES = 65536
 # slots, then padding to 220. Confirmed on the wire.
 LOGIN_PAYLOAD_BYTES = 220
 _LOGIN_SLOT_BYTES = 20
+# Printable ASCII a serial may still not contain, because XML gives each
+# a meaning inside the <ESAID> every request carries.
+_SERIAL_REFUSED = frozenset("<>&\"'")
 
 # Sections eCmdGetConfig understands. "admin" is deliberately last and
 # deliberately noisy in the docs -- see the credentials note above.
@@ -179,15 +182,37 @@ def _login_payload(esa_id: str) -> bytes:
     device has never been seen accepting any other shape. A serial
     longer than one slot is refused rather than truncated, because a
     cut-down serial is a login for a different device.
+
+    Every sender logs in with this before its request goes out, so the
+    checks in _validated_serial_bytes also guard the <ESAID> each
+    request carries.
     """
-    serial_bytes = esa_id.encode("ascii", "ignore")
-    if not serial_bytes or len(serial_bytes) > _LOGIN_SLOT_BYTES:
-        raise ConfigError(f"implausible device serial {esa_id!r}")
+    serial_bytes = _validated_serial_bytes(esa_id)
     login_bytes = bytearray(LOGIN_PAYLOAD_BYTES)
     login_bytes[0:len(serial_bytes)] = serial_bytes
     login_bytes[_LOGIN_SLOT_BYTES:
                 _LOGIN_SLOT_BYTES + len(serial_bytes)] = serial_bytes
     return bytes(login_bytes)
+
+
+def _validated_serial_bytes(esa_id: str) -> bytes:
+    """
+    The serial as the ASCII bytes the login carries, or ConfigError.
+
+    Refused rather than repaired. Until 2026-11-02 the serial was
+    encoded with errors="ignore", which drops a non-ASCII character
+    silently: "drb\u00e9SAMPLE" logged in as "drbSAMPLE", a login for a
+    different serial. The same text goes unescaped into every request's
+    <ESAID>, so whitespace, a control character or one of < > & " '
+    would change what the request says; escaping it instead would change
+    the bytes, and a real serial has none of them. Dashes stay allowed.
+    """
+    if not 0 < len(esa_id) <= _LOGIN_SLOT_BYTES:
+        raise ConfigError(f"implausible device serial {esa_id!r}")
+    if any(not "!" <= character <= "~" or character in _SERIAL_REFUSED
+           for character in esa_id):
+        raise ConfigError(f"implausible device serial {esa_id!r}")
+    return esa_id.encode("ascii")
 
 
 def _receive_exactly(

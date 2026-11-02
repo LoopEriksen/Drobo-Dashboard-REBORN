@@ -279,6 +279,26 @@ try:
 except config_cmd.ConfigError:
     check("over-long serial rejected", True)
 
+# Until 2026-11-02 the serial was encoded with errors="ignore", so a
+# non-ASCII character was dropped and "drbéSAMPLE" logged in as
+# "drbSAMPLE" -- a login for a different serial. The same serial goes
+# into every request's <ESAID> unescaped, so a character XML gives a
+# meaning to would change the request. Both are refused, not repaired:
+# escaping would change the bytes a real serial sends.
+for implausible_serial in ("drbéSAMPLE", "drb<x>", "drb&1", "drb 1",
+                           'drb"1', "drb'1", "drb\t1", "drb\x001"):
+    try:
+        config_cmd._login_payload(implausible_serial)
+        check(f"serial {implausible_serial!r} rejected", False)
+    except config_cmd.ConfigError:
+        check(f"serial {implausible_serial!r} rejected", True)
+check("a plain serial's login is unchanged byte for byte",
+      config_cmd._login_payload("drb000000SAMPLE")
+      == b"drb000000SAMPLE" + bytes(5) + b"drb000000SAMPLE" + bytes(185))
+check("a serial with dashes is still accepted",
+      config_cmd._login_payload("drb-not-the-real-one")[:20]
+      == b"drb-not-the-real-one")
+
 print("\n== safety guards ==")
 check(
     "eCmdGetConfig has a confirmed id",

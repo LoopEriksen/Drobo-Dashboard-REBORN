@@ -796,9 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `config_cmd._login_payload` drops non-ASCII characters from the serial
-  silently, and the serial goes into the request XML unescaped; only its
-  length is checked.
 - `commands`: the import-time integrity checks are `assert`s, so
   `python -O` skips them; `is_dangerous` treats an id missing from the
   table (103, 200, -1) as safe, and `NasdClient` would send it.
