@@ -174,11 +174,15 @@ def _withdrawn_advisory(version: str,
             f"into bankruptcy the month after -- so no fix was ever "
             f"shipped and none ever will be. The last version nobody "
             f"reported trouble with was {LAST_KNOWN_GOOD}. "
-            # The honest half, and the reason this is not an alarm:
+            # The honest half, and the reason this is not an alarm. It
+            # says nothing about this unit's array: assess() sees only
+            # the version, and until 2026-11-02 this called the array
+            # healthy, which a degraded unit was told too.
             f"That is worth knowing rather than worth acting on: what was "
             f"actually wrong with it was never published, plenty of units "
-            f"have run this build for years, and this one is reporting a "
-            f"healthy array right now. Changing firmware means writing an "
+            f"have run this build for years, and a version number says "
+            f"nothing about how this unit's own disks are doing. Changing "
+            f"firmware means writing an "
             f"unsigned image to hardware with no recovery tool, so this "
             f"software will not do it and does not suggest you do. Keep "
             f"good backups -- which is true on any firmware."

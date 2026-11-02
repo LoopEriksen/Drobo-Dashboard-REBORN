@@ -87,6 +87,12 @@ check(
 )
 check("it ends on advice true regardless of firmware",
       "backups" in lowered_detail, assessment.detail)
+# Found 2026-10-29, fixed 2026-11-02: the detail said this unit "is
+# reporting a healthy array right now", but assess() sees only the
+# version string and the agent attaches the advisory whatever the pack
+# status, so a degraded unit was told its array was healthy.
+check("it makes no claim about an array it has not read",
+      "healthy" not in lowered_detail, assessment.detail)
 
 print("\n== everything else stays quiet ==")
 # A dashboard that comments on healthy firmware teaches people

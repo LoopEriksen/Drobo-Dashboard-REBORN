@@ -585,6 +585,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   was not decoded, and the diagnostics leave that column blank. The JSON
   keys are unchanged, and entries with a real time (the simulated Drobo's)
   read as before. `test_eventlog.py` gains two checks. (2026-11-02)
+- **The firmware note no longer calls every 4.3.x unit's array healthy.**
+  On a Drobo running the withdrawn 4.3.0 or 4.3.1 firmware, both apps
+  show a note about it, and the note said "this one is reporting a
+  healthy array right now". It was written from the firmware version
+  alone and shown whatever the array's state, so a unit with a failed
+  disk was told the same. It now says a version number says nothing
+  about how the unit's own disks are doing; the rest of the note is as
+  it was. `test_firmware.py` gains one check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
