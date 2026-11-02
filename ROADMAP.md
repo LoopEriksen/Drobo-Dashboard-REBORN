@@ -796,8 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `drobosync.summary`: when the settings read failed, the note still says
-  the Drobo has no DroboSync partner, which was not measured.
 
 *SDK — reads and discovery*
 

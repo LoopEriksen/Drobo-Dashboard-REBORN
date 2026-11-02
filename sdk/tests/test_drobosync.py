@@ -11,6 +11,7 @@ matter most are about behaving correctly when there is nothing to report
 """
 
 import os
+import socket
 import sys
 
 sys.path.insert(0, os.path.abspath(
@@ -216,8 +217,34 @@ try:
           sync_summary["reads"]["settings"])
     check("a failure is not mistaken for 'configured'",
           sync_summary["configured"] is False, sync_summary)
+    # Until 2026-11-02 the note then said the Drobo has no partner set
+    # up, which nothing had measured.
+    check("the note does not claim there is no partner",
+          "has no DroboSync partner" not in sync_summary["note"],
+          sync_summary["note"])
+    check("the note says the settings could not be read, and why",
+          "could not be read" in sync_summary["note"]
+          and "device stopped answering" in sync_summary["note"],
+          sync_summary["note"])
 finally:
     drobosync.read = _original_read
+
+# The same against a port with nothing listening: the real read, the
+# real OSError, and still only the one connection attempt.
+closed_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+closed_listener.bind(("127.0.0.1", 0))
+closed_port = closed_listener.getsockname()[1]
+closed_listener.close()
+unreachable_summary = drobosync.summary("127.0.0.1", "drbTEST",
+                                        port=closed_port, timeout=5)
+check("an unreachable settings read does not claim there is no partner",
+      "has no DroboSync partner" not in unreachable_summary["note"]
+      and "could not be read" in unreachable_summary["note"],
+      unreachable_summary["note"])
+check("...and the three logs are still not asked",
+      all(unreachable_summary["reads"][read_name]["asked"] is False
+          for read_name in ("summary_log", "detailed_log", "log")),
+      unreachable_summary["reads"])
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

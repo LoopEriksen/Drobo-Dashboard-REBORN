@@ -541,6 +541,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `Bob` and `bob` came out in whatever order Python happened to hold them,
   which could change each time the agent started. They now always come out
   in the same order. (2026-11-02)
+- **DroboSync no longer claims there is no partner when it could not ask.**
+  When the DroboSync settings could not be read (the Drobo did not answer,
+  for instance), the explanation shown in its place still said the Drobo had
+  no DroboSync partner set up, which nothing had measured. It now says the
+  settings could not be read, why, and that whether a partner is set up is
+  not known. A Drobo that answers with no partner gets the same explanation
+  as before. The same reads are made as before. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

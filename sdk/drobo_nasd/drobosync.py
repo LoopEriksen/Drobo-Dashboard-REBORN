@@ -270,14 +270,34 @@ def summary(host: str, esa_id: str, port: int = DEFAULT_PORT,
         sync_read.get("configured")
         for sync_read in sync_summary["reads"].values())
     if not sync_summary["configured"]:
-        sync_summary["note"] = (
-            "This Drobo has no DroboSync partner set up. DroboSync copied one "
-            "Drobo's shares to a second Drobo on a schedule, so it needs two "
-            "units -- with one, there is nothing for it to do and the device "
-            "correctly reports nothing. Everything needed to display it is "
-            "built and waiting."
-        )
+        sync_summary["note"] = _not_configured_note(
+            sync_summary["reads"]["settings"])
     return sync_summary
+
+
+def _not_configured_note(settings_read: dict) -> str:
+    """
+    What to tell somebody when no read showed a partner configured.
+
+    Two different facts reach here, and the note must not blur them. A
+    settings read that answered unconfigured is a measurement: the
+    Drobo has no partner. A settings read that failed measured nothing,
+    so whether a partner is set up is unknown. Until 2026-11-02 both got
+    the "no partner" note.
+    """
+    read_error = settings_read.get("error")
+    if read_error:
+        return (
+            f"The DroboSync settings could not be read ({read_error}), so "
+            "whether a partner is set up is not known. The log reads were "
+            "not attempted.")
+    return (
+        "This Drobo has no DroboSync partner set up. DroboSync copied one "
+        "Drobo's shares to a second Drobo on a schedule, so it needs two "
+        "units -- with one, there is nothing for it to do and the device "
+        "correctly reports nothing. Everything needed to display it is "
+        "built and waiting."
+    )
 
 
 # Setting up or starting a replication run moves real data between two
