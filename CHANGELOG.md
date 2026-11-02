@@ -620,6 +620,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   happens). Nothing visible changes today, because no driver holds a
   connection open between readings. `test_agent.py` gains three
   checks. (2026-11-02)
+- **The browser dashboard's 24-hour graph shows a temperature on a 5N.**
+  The graph plotted the warmest drive, and a Drobo 5N reports no drive
+  temperatures, so on real hardware it stayed empty while the chassis
+  temperature went unplotted. It now plots the warmest of the drive and
+  chassis readings, its heading says "temperature" rather than
+  "warmest drive", and the note under an empty graph no longer says the
+  chassis reading is shown only elsewhere. The `max_temp_c` key in
+  `/api/history` keeps its name. `test_agent.py` gains three checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

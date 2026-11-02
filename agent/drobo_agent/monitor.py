@@ -333,6 +333,24 @@ def _pack_health_rules(
         )
 
 
+def _warmest_temperature_c(snapshot: Snapshot) -> float | None:
+    """
+    The warmest temperature one reading holds, drives and chassis
+    together, or None when it holds none.
+
+    The chassis counts because a Drobo 5N reports no drive
+    temperatures at all (every bay reads 0, which the driver turns into
+    "no reading"). Until 2026-11-02 the history graph used the drives
+    alone, so on real hardware it stayed empty while the chassis
+    reading, the one real temperature, went unplotted.
+    """
+    temperatures = [drive.temperature_c for drive in snapshot.drives
+                    if drive.temperature_c is not None]
+    if snapshot.device.temperature_c is not None:
+        temperatures.append(snapshot.device.temperature_c)
+    return max(temperatures) if temperatures else None
+
+
 class Monitor:
     """
     The agent's one watcher of the Drobo, shared by every route.
@@ -867,9 +885,6 @@ class Monitor:
             recent_snapshots = list(self.history)[-max_points:]
         points = []
         for snapshot in recent_snapshots:
-            drive_temperatures = [
-                drive.temperature_c for drive in snapshot.drives
-                if drive.temperature_c is not None]
             points.append(
                 {
                     "t": round(snapshot.taken_at, 1),
@@ -877,8 +892,7 @@ class Monitor:
                     "state": snapshot.overall_state,
                     "used_bytes": snapshot.capacity.used_bytes,
                     "free_bytes": snapshot.capacity.free_bytes,
-                    "max_temp_c": (max(drive_temperatures)
-                                   if drive_temperatures else None),
+                    "max_temp_c": _warmest_temperature_c(snapshot),
                     "read_mb_per_s": snapshot.performance.read_mb_per_s,
                     "write_mb_per_s": snapshot.performance.write_mb_per_s,
                 }

@@ -444,7 +444,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     </section>
 
     <section class="panel">
-      <h2>Last 24 hours &mdash; warmest drive</h2>
+      <h2>Last 24 hours &mdash; temperature</h2>
       <svg class="spark" id="sparkTemp" viewBox="0 0 600 70" preserveAspectRatio="none"></svg>
       <div class="sub" id="sparkLabel">&nbsp;</div>
     </section>
@@ -1068,13 +1068,13 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     var vals = points.map(function (p) { return p.max_temp_c; })
                      .filter(function (v) { return v != null; });
     if (vals.length < 2) {
-      // Distinguish "no data yet" from "this device never reports it". A real
-      // Drobo 5N sends mTemperature=0 for every bay, so a permanently blank
-      // graph is expected and shouldn't look like a fault.
+      // Distinguish "no data yet" from "this device has not reported it".
+      // max_temp_c is the warmest of the drive and chassis readings, so a
+      // real Drobo 5N (no per-drive readings) is graphed from its chassis;
+      // only a Drobo answering neither leaves this blank.
       var haveReadings = points.length >= 2;
       $("sparkLabel").textContent = haveReadings
-        ? "This Drobo doesn't measure each drive separately. Its chassis "
-          + "temperature is shown beside the device name above."
+        ? "This Drobo has not reported a temperature in these readings."
         : "Not enough readings yet.";
       return;
     }

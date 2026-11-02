@@ -2147,6 +2147,36 @@ check("-- the poll thread closes it once the read is over, exactly once",
 check("-- and never while reading",
       not _slow_monitor.driver.closed_during_read)
 
+# The history graph plotted drive temperatures only. A 5N reports none
+# (every bay reads 0, which the driver turns into "no reading"), so on
+# real hardware the graph stayed empty while the chassis temperature,
+# the one real reading, went unplotted. Since 2026-11-02 it plots the
+# warmest of the two.
+print("\n== the history graph's temperature includes the chassis ==")
+_graph_monitor = Monitor(_write_agent_config("graph", {"driver": "mock"}),
+                         _RecordingNotifier())
+_graph_monitor.history.append(Snapshot(
+    reachable=True, source="test",
+    device=DeviceInfo(name="Test", model="Drobo 5N", temperature_c=41),
+    drives=[DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1)]))
+_graph_point = _graph_monitor.history_points()[-1]
+check("a chassis reading with no drive readings is graphed",
+      _graph_point["max_temp_c"] == 41, _graph_point["max_temp_c"])
+_graph_monitor.history.append(Snapshot(
+    reachable=True, source="test",
+    device=DeviceInfo(name="Test", model="Drobo 5N"),
+    drives=[DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1,
+                      temperature_c=35),
+            DriveSlot(bay=2, present=True, state="ok", capacity_bytes=1,
+                      temperature_c=38)]))
+_graph_point = _graph_monitor.history_points()[-1]
+check("-- drive readings with no chassis reading graph the warmest drive",
+      _graph_point["max_temp_c"] == 38, _graph_point["max_temp_c"])
+_graph_monitor.history.append(Snapshot(reachable=False, source="test"))
+_graph_point = _graph_monitor.history_points()[-1]
+check("-- and a poll with neither graphs nothing",
+      _graph_point["max_temp_c"] is None, _graph_point["max_temp_c"])
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)
