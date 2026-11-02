@@ -747,6 +747,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `config.example.json`, so a generated `config.json` never showed it.
   Both now carry it, at the same 32; what the agent accepts is
   unchanged. `test_agent.py` gains one check. (2026-11-02)
+- **A broken reply from the update server is reported, not a crash.**
+  When update checking is switched on and the server's reply broke off
+  part-way or made no sense as HTTP, the error escaped the check, so the
+  "Check for Updates" shortcut ended in a traceback and `/api/update`
+  dropped the connection. It is now the same "Could not check for
+  updates" answer as an unreachable server. Update checking stays off
+  by default. `test_updates.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

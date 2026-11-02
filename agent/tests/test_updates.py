@@ -10,6 +10,7 @@ something that fails the test if it is called at all.
 
     py test_updates.py
 """
+import http.client
 import importlib.util
 import json
 import os
@@ -372,6 +373,28 @@ check(
     oversized_status.state == updates.STATE_ERROR,
     oversized_status,
 )
+
+# A connection that breaks mid-reply raises http.client.HTTPException
+# (IncompleteRead, BadStatusLine), which is neither an OSError nor a
+# URLError, so until 2026-11-02 it escaped check() and /api/update
+# dropped the connection.
+for http_error in (http.client.IncompleteRead(b"{\"vers"),
+                   http.client.BadStatusLine("garbage")):
+    def _fetch_breaking(url, timeout, error=http_error):
+        raise error
+    try:
+        broken_reply_status = updates.check(ENABLED_CONFIG, CURRENT,
+                                            fetch=_fetch_breaking)
+    except Exception as escaped_error:  # noqa: BLE001 - the check
+        broken_reply_status = escaped_error
+    check(
+        f"a broken reply ({type(http_error).__name__}) is an error status, "
+        "not an exception",
+        isinstance(broken_reply_status, updates.UpdateStatus)
+        and broken_reply_status.state == updates.STATE_ERROR
+        and "Could not check" in broken_reply_status.reason,
+        repr(broken_reply_status),
+    )
 
 
 # ---------------------------------------------------------------------------

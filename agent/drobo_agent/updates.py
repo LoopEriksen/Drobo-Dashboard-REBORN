@@ -65,6 +65,7 @@ Anything unparseable is treated as "cannot tell", never as "newer".
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -305,7 +306,12 @@ def check(config: dict, current_version: str,
 
     try:
         manifest = (fetch or _fetch_manifest)(url, timeout)
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+    # http.client.HTTPException is a reply that broke off or made no
+    # sense (IncompleteRead, BadStatusLine): neither an OSError nor a
+    # URLError, so until 2026-11-02 it escaped and /api/update dropped
+    # the connection.
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError,
+            http.client.HTTPException) as exc:
         return UpdateStatus(STATE_ERROR, current_version,
                             reason=f"Could not check for updates: {exc}")
 
