@@ -928,8 +928,11 @@ the write gates. Neither were the private SDK names that tests and `api.py`
 reach into (apart from `eventlog._command_xml`, renamed with its test in the
 shared renames), `set_spindown`'s `delay` (the device's unit for it is still
 unconfirmed, so a unit in the name would be a guess), or any XAML binding
-path or `x:Name` in the Windows app, since a missed binding fails silently
-and Windows CI is the only build. A few modules were left as they were
+path in the Windows app, since a missed binding fails silently and Windows
+CI is the only build. The only `x:Name` renames, `Sub` -> `SubtitleText`
+and `Remember` -> `RememberCheck` in three dialogs, moved with their
+code-behind; the compiler checks those names at every use, and no binding
+refers to them. A few modules were left as they were
 because there was nothing to improve or nothing that could be touched: the
 two package `__init__.py` files (the agent's `__version__` must stay a plain
 literal for `scripts/check_versions.py`), `webui.py` (its only content
@@ -945,8 +948,9 @@ skip counts and exit codes; a recording of every byte the SDK sends to a
 simulated Drobo on loopback, 239 frames from 74 calls, byte-identical; the
 fingerprints of the browser dashboard's page, the pairing QR code's SVG and
 matrices, the API's notes and the robocopy command; the version check and
-the privacy scan; the JSON key set of each of the agent's 37 read-only
-routes, run against the simulated driver with and without simulated settings
+the privacy scan; the status, content type and JSON key set the agent's
+29 read-only routes answer with, over 37 requests including their query
+variants, run against the simulated driver with and without simulated settings
 and with no network at all; and the `--help` output of all 14 command-line
 programs and their 9 sub-commands. flake8 stayed at zero findings. Several
 modules were also run side by side, old code against new, over the same

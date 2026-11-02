@@ -878,6 +878,16 @@ the rest come from reading the code.
   non-numeric `check_seconds` breaks every `/api/update` (these four
   confirmed). Errors on the event-stream route never reach the console; a
   manual `?host=` search holds up every other `/api/discover` caller.
+- `api._serve_droboapps_action` (confirmed, on a simulated device over
+  loopback): when the Drobo takes a DroboApps Start or Stop and then hangs
+  up without a result frame, the pattern measured on share create,
+  `droboapps_action` raises `config_cmd.ConfigError`, which the route does
+  not catch, so the agent drops the connection with no answer and the
+  Windows app reports in red that it could not reach the agent, for an
+  action the device received. An `OSError` after the send, such as a
+  timeout waiting for the result, is answered 502 "could not reach the
+  command port", which reads as if nothing was sent. The SDK's own
+  docstring says either error means the action may have been taken.
 - `photos`: a rescan drops files it could not read from the index (the
   comment promises the opposite) and loses uploads that finish during it;
   the throttled index save loses the last uploads of a burst on a crash;
@@ -938,6 +948,16 @@ the rest come from reading the code.
 - `DroboSettings`: one malformed port resets every later setting to its
   default, which the next save writes back; the file is written in place,
   not replaced atomically.
+- The app gives up on any agent request after 8 seconds, the same as the
+  agent's own wait for the device's answer (`COMMAND_TIMEOUT_SECONDS`).
+  When the device takes a write and then stays silent with the connection
+  open, the agent waits those 8 seconds before the read-back that settles
+  the write (measured at 8.04 seconds on a simulated device over loopback;
+  on real hardware the reads before and after add to it), so the app has
+  already shown "Could not reach the agent" as a failure, in the red kept
+  for "nothing happened", and the create and delete dialogs are ready to
+  send again, while the agent goes on to classify the write correctly with
+  nobody listening.
 - The diagnostics report says "just started" when uptime is unknown, and
   loses the "why it could not be reached" section when `device` is
   missing. The in-app file browser counts sizes in 1024s where the Status
