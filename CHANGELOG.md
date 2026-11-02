@@ -602,6 +602,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   network may have dropped. Wording only: the request and the error type
   are unchanged. `test_eventlog.py` gains three checks against a fake
   device on this PC. (2026-11-02)
+- **A network blip no longer tells you a failed drive was fixed.** When
+  the agent could not reach the Drobo, it cleared every standing drive,
+  capacity, temperature, battery and pack alert and sent each one as
+  "Resolved", then sent them all again as new when the Drobo answered.
+  A poll that cannot reach the Drobo now leaves those alerts exactly as
+  they stand and raises only "cannot reach"; when the Drobo answers
+  again, "cannot reach" clears, anything that was really fixed meanwhile
+  clears, and what still holds stays without being sent again.
+  `test_agent.py` gains five checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

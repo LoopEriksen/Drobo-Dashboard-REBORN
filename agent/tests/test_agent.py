@@ -2057,6 +2057,50 @@ check("-- and no poll loop was started",
 (discovery.resolve, esatm.read_snapshot, sysinfo.get_sysinfo_and_performance,
  eventlog.get_event_log) = _saved_sdk_functions
 
+# An unreachable Drobo says nothing about its drives. Until 2026-11-02
+# every poll that failed cleared each standing drive, capacity,
+# temperature, battery and pack alert and sent it as "Resolved", and the
+# next good poll sent each one again as new: a failed drive was
+# reported fixed, then failed again, every time the network blinked.
+print("\n== an unreachable poll leaves the device's alerts standing ==")
+
+
+def _fired_alert_keys(subscriber_queue):
+    fired_keys = []
+    while not subscriber_queue.empty():
+        event = subscriber_queue.get_nowait()
+        if event["type"] == "alert":
+            fired_keys.append(event["data"]["key"])
+    return fired_keys
+
+
+_flap_monitor = Monitor(_write_agent_config("flap", {"driver": "mock"}),
+                        _RecordingNotifier())
+_flap_events = _flap_monitor.subscribe()
+_flap_monitor.driver.fail_bay(3)
+_flap_monitor.poll_once()
+_fired_keys = _fired_alert_keys(_flap_events)
+check("a failed drive raises its alert",
+      "drive-failed-3" in _fired_keys, _fired_keys)
+
+_working_read_snapshot = _flap_monitor.driver.read_snapshot
+_flap_monitor.driver.read_snapshot = _must_not_reach("mock read_snapshot")
+_flap_monitor.poll_once()
+_fired_keys = _fired_alert_keys(_flap_events)
+check("-- an unreachable poll sends only 'unreachable'",
+      _fired_keys == ["unreachable"], _fired_keys)
+check("-- and the drive alert is still active, not 'Resolved'",
+      _flap_monitor.alerts["drive-failed-3"].active)
+
+_flap_monitor.driver.read_snapshot = _working_read_snapshot
+_flap_monitor.poll_once()
+_fired_keys = _fired_alert_keys(_flap_events)
+check("-- when it answers again, only 'unreachable' clears; the drive "
+      "alert is not sent again as new",
+      _fired_keys == ["unreachable-cleared"], _fired_keys)
+check("-- and the drive alert is still active",
+      _flap_monitor.alerts["drive-failed-3"].active)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

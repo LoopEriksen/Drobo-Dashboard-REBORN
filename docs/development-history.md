@@ -972,7 +972,8 @@ disagree with their code, dead checks and unused names (`sysinfo.get_sysinfo`,
 called nowhere in the repository, among them). The ones that matter
 most to someone using the software: the agent clears every active alert as
 "Resolved" when the Drobo drops off the network and fires them again when it
-comes back, so a network blip tells the user a failed drive was resolved; a
+comes back, so a network blip tells the user a failed drive was resolved
+(fixed 2026-11-02); a
 truncated performance reply throws away the temperature and uptime already
 read (fixed 2026-11-02); one malformed mDNS reply aborts the whole search instead of falling
 back to the other ways of finding the Drobo (fixed 2026-11-02); a request body that is valid

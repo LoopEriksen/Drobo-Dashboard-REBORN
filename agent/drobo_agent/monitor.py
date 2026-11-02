@@ -636,7 +636,8 @@ class Monitor:
 
         if not snapshot.reachable:
             _unreachable_rule(seen, snapshot, network_hint)
-            return self._reconcile_alerts(seen, alert_config)
+            return self._reconcile_alerts(
+                seen, alert_config, device_was_read=False)
 
         _drive_rules(seen, snapshot.drives, alert_config)
         _chassis_temperature_rule(
@@ -650,7 +651,8 @@ class Monitor:
         return self._reconcile_alerts(seen, alert_config)
 
     def _reconcile_alerts(
-        self, seen: dict[str, tuple[str, str]], alert_config: dict
+        self, seen: dict[str, tuple[str, str]], alert_config: dict,
+        device_was_read: bool = True,
     ) -> list[Alert]:
         """
         Fold this poll's findings into the standing alerts. Returns
@@ -658,6 +660,13 @@ class Monitor:
         whose resend interval has passed, and a "-cleared" alert for
         each one that has gone away, so a user who was told about a
         problem is also told when it ends.
+
+        device_was_read is False for a poll that could not reach the
+        Drobo. Such a poll learns nothing about the drives, capacity,
+        temperature or pack, so their alerts are left exactly as they
+        stand. Until 2026-11-02 they were cleared like any other alert
+        missing from `seen`: every network blink sent each one as
+        "Resolved" and the next good poll sent it again as new.
         """
         now = time.time()
         fired_alerts: list[Alert] = []
@@ -677,21 +686,29 @@ class Monitor:
                     >= alert_config["resend_seconds"]):
                 fired_alerts.append(existing)
 
-        # Anything that was active but isn't in `seen` any more
-        # has cleared.
+        if device_was_read:
+            fired_alerts.extend(self._clear_alerts_not_seen(seen, now))
+        return fired_alerts
+
+    def _clear_alerts_not_seen(
+        self, seen: dict[str, tuple[str, str]], now: float
+    ) -> list[Alert]:
+        """
+        Mark every active alert missing from `seen` as cleared, and
+        return a "-cleared" alert for each, to be sent.
+        """
+        cleared_alerts: list[Alert] = []
         for key, alert in self.alerts.items():
             if not alert.active or key in seen:
                 continue
             alert.cleared_at = now
             self._last_sent_at_by_key.pop(key, None)
-            cleared = Alert(
+            cleared_alerts.append(Alert(
                 key=key + "-cleared",
                 severity=SEVERITY_INFO,
                 message=f"Resolved: {alert.message}",
-            )
-            fired_alerts.append(cleared)
-
-        return fired_alerts
+            ))
+        return cleared_alerts
 
     def _dispatch(self, alert: Alert) -> None:
         """
