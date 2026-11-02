@@ -11,7 +11,9 @@ something that fails the test if it is called at all.
     py test_updates.py
 """
 import http.client
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import secrets
@@ -666,6 +668,33 @@ if os.path.exists(_checker_path):
         and "fourth field" in _four_part_problems[0],
         _four_part_problems,
     )
+
+    # Its command line: --help is help, not a run of the check, and a
+    # misspelt flag is refused rather than ignored.
+
+    def _run_checker(argv):
+        """(exit code, printed output) of check_versions.main(argv)."""
+        printed = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(printed), \
+                    contextlib.redirect_stderr(printed):
+                exit_code = _version_checker.main(argv)
+        except SystemExit as exc:
+            exit_code = exc.code
+        return exit_code, printed.getvalue()
+
+    _help_exit, _help_output = _run_checker(["--help"])
+    check("check_versions --help prints usage and does not run the check",
+          _help_exit == 0 and "usage:" in _help_output
+          and "PASS" not in _help_output,
+          (_help_exit, _help_output[:120]))
+    _bogus_exit, _ = _run_checker(["--quite"])
+    check("-- a misspelt flag (--quite) is refused with exit 2",
+          _bogus_exit == 2, _bogus_exit)
+    _quiet_exit, _quiet_output = _run_checker(["--quiet"])
+    check("-- and --quiet still passes in silence",
+          _quiet_exit == 0 and _quiet_output == "",
+          (_quiet_exit, _quiet_output[:120]))
 
 
 print("\n" + ("ALL PASS" if not failures

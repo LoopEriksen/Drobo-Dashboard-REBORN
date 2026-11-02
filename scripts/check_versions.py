@@ -28,6 +28,7 @@ The four-part places (AssemblyVersion, FileVersion) are checked as the
 three-part number plus a fourth field, which is how MSBuild and Windows
 express the same release.
 """
+import argparse
 import io
 import os
 import re
@@ -197,6 +198,24 @@ def _print_version_table(version_by_label):
     print("")
 
 
+def _parse_arguments(argv):
+    """The command line, parsed; the module docstring is the --help.
+
+    It used to look only for "--quiet" among the arguments, so --help
+    ran the check and printed the table, and a misspelt flag (--quite)
+    was ignored without a word. argparse prints help for --help and
+    refuses anything else it does not know (exit 2).
+    """
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="print nothing when every place agrees; a disagreement is "
+             "always printed")
+    return parser.parse_args(argv)
+
+
 def main(argv=None):
     """Print the table and the verdict; 0 when every place agrees.
 
@@ -205,8 +224,7 @@ def main(argv=None):
     wrong; the FAIL report is always printed, because a silent failure
     would leave nobody knowing what to fix.
     """
-    argv = sys.argv[1:] if argv is None else argv
-    quiet = "--quiet" in argv
+    quiet = _parse_arguments(argv).quiet
 
     version_by_label, _ = collect_versions()
     problems = find_problems()

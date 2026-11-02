@@ -1011,6 +1011,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `nasd-tap-*` files behind in the capture folder. The port is now
   bound first; the relay and what it records are unchanged.
   `tools/test_nasd_dissect.py` gains three checks. (2026-11-02)
+- **`scripts/check_versions.py --help` prints help.** The script only
+  looked for `--quiet` among its arguments, so `--help` ran the check
+  and printed the version table, and a misspelt flag such as `--quite`
+  was ignored without a word. It now reads its arguments properly:
+  `--help` prints usage, an unknown flag is refused (exit 2), and runs
+  with no arguments (how `windows/README.md` says to run it before a
+  release) or with `--quiet` behave as before.
+  `agent/tests/test_updates.py` gains three checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
