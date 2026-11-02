@@ -12,6 +12,8 @@ still exactly where we put it".
 
 Runs entirely offline against a fake device. No hardware, no network.
 """
+import contextlib
+import io
 import os
 import html
 import socket
@@ -236,6 +238,70 @@ try:
     check("an unexpected reply type raises", False)
 except identify.IdentifyError:
     check("an unexpected reply type raises IdentifyError", True)
+
+
+print("\n== the command line: usage errors are caught before any contact ==")
+# Until 2026-11-02 --compare ignored --interval and always sent 15 as
+# its second half, and a negative --gap ended in a traceback after the
+# first Identify had already gone out.
+
+
+def run_identify_cli(argv):
+    """_main(argv) with the status read and the send replaced by
+    recorders: (exit code or exception name, hosts fetched, intervals
+    sent). Nothing touches a network."""
+    fetched_hosts, sent_intervals = [], []
+
+    def record_fetch(host):
+        fetched_hosts.append(host)
+        return "drb000000SAMPLE"
+
+    def record_send(host, esa_id, interval=None, **_):
+        sent_intervals.append(interval)
+        return {"interval": interval, "device_replied": False,
+                "reply_bytes": 0}
+
+    real_fetch, real_send = identify._fetch_esa_id, identify.identify
+    identify._fetch_esa_id, identify.identify = record_fetch, record_send
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            outcome = identify._main(argv)
+    except Exception as exc:
+        outcome = type(exc).__name__
+    finally:
+        identify._fetch_esa_id, identify.identify = real_fetch, real_send
+    return outcome, fetched_hosts, sent_intervals
+
+
+for argv, label in (
+        (["192.0.2.1", "--compare", "--interval", "900"],
+         "--compare with --interval"),
+        (["192.0.2.1", "--compare", "--none"], "--compare with --none"),
+        (["192.0.2.1", "--compare", "--gap", "-1"], "a negative --gap"),
+        (["192.0.2.1", "--compare", "--gap", "nan"], "a NaN --gap"),
+        (["192.0.2.1", "--compare", "--gap", "inf"], "an infinite --gap"),
+        # time.sleep raised OverflowError from about 1e10.
+        (["192.0.2.1", "--compare", "--gap", "1e10"], "an enormous --gap"),
+        (["192.0.2.1", "--compare", "--gap", "86401"],
+         "a --gap over a day")):
+    check(f"{label} is a usage error, with nothing fetched or sent",
+          run_identify_cli(argv) == (2, [], []), run_identify_cli(argv))
+check("--compare alone still sends the empty form, then 15",
+      run_identify_cli(["192.0.2.1", "--compare", "--gap", "0"])
+      == (0, ["192.0.2.1"], [None, identify.DEFAULT_INTERVAL]))
+# Asked of _usage_problem directly: run in full, it would sleep a day.
+day_gap_args = identify._build_parser().parse_args(
+    ["192.0.2.1", "--compare", "--gap", "86400"])
+check("--compare with a day's --gap is still accepted",
+      identify._usage_problem(day_gap_args) is None)
+check("--interval 900 alone still sends 900",
+      run_identify_cli(["192.0.2.1", "--interval", "900"])
+      == (0, ["192.0.2.1"], [900]))
+check("no option still sends the default, 15",
+      run_identify_cli(["192.0.2.1"])
+      == (0, ["192.0.2.1"], [identify.DEFAULT_INTERVAL]))
+check("--none still sends the empty form",
+      run_identify_cli(["192.0.2.1", "--none"]) == (0, ["192.0.2.1"], [None]))
 
 
 # ---------------------------------------------------------------------------

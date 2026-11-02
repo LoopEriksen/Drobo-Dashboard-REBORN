@@ -796,8 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `identify`: `--compare` ignores `--interval` and always sends 15; a
-  negative `--gap` ends in a traceback, not the usage exit code.
 - `shares.link_health`: at full speed but half duplex the note starts with
   a stray space; `user_accounts` orders names that differ only by case
   differently from run to run.

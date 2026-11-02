@@ -522,6 +522,16 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   four-gigabyte frame kept it waiting and buffering without end. Frames are
   now capped at 4 MiB, the limit the working command channel already uses,
   and a larger one is reported at once. (2026-11-02)
+- **The Identify command line refuses options it would have ignored, and a
+  bad pause, before contacting the Drobo.** `py -m drobo_nasd.identify
+  <ip> --compare` sends the empty form and then 15, whatever `--interval`
+  said, so `--compare --interval 900` quietly sent 15. That combination,
+  and `--compare --none`, is now a usage error (exit code 2) instead of
+  being ignored. A negative, NaN, infinite or enormous `--gap` used to end
+  in a traceback after the first Identify had already gone out; a pause
+  outside 0 to 86400 seconds (a day) is now a usage error too, before
+  anything is sent. Every other command line that was valid sends exactly
+  what it did. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

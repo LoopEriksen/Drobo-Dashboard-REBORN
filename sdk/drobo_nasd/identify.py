@@ -156,6 +156,13 @@ STOP_INTERVAL = 0
 #: minutes, far longer than anyone means to ask for.
 MAX_INTERVAL = 86_400
 
+#: The longest --compare pause accepted, in seconds: a day. A typo
+#: guard like MAX_INTERVAL, since somebody is meant to stand by the unit
+#: for the whole gap. It also keeps the value inside what time.sleep
+#: accepts: from about 1e10 seconds it raised OverflowError, after the
+#: first Identify had already been sent.
+MAX_GAP_SECONDS = 86_400
+
 
 class IdentifyError(Exception):
     """
@@ -421,6 +428,9 @@ def _main(argv: list[str] | None = None) -> int:
     next is `--interval 900`, the value the original Dashboard was
     captured sending on 2026-07-25 (noted 2026-09-26).
 
+    `--compare` always sends the empty form and then DEFAULT_INTERVAL,
+    so it refuses `--interval` and `--none` rather than ignoring them.
+
     Exit codes: 0 sent, 1 refused, 2 bad usage.
     """
     args = _build_parser().parse_args(argv)
@@ -429,13 +439,12 @@ def _main(argv: list[str] | None = None) -> int:
     # instantly and locally, not after a connection attempt to storage
     # hardware -- and certainly not reported as "could not reach the
     # Drobo", which is what this printed until the CLI was smoke-tested.
-    requested_interval = None if args.none else args.interval
-    if not args.compare:
-        try:
-            validate_interval(requested_interval)
-        except IdentifyParameterError as exc:
-            print(exc)
-            return 2
+    usage_problem = _usage_problem(args)
+    if usage_problem:
+        print(usage_problem)
+        return 2
+    requested_interval = (None if args.none
+                          else _interval_or_default(args.interval))
 
     esa_id = _fetch_esa_id(args.host)
     if esa_id is None:
@@ -447,6 +456,49 @@ def _main(argv: list[str] | None = None) -> int:
     label = f"sending interval={requested_interval!r}"
     return 0 if _send_and_report(args.host, esa_id, requested_interval,
                                  label) else 1
+
+
+def _interval_or_default(interval: int | None) -> int:
+    """
+    The --interval given, or DEFAULT_INTERVAL when none was.
+
+    The option's default is None rather than DEFAULT_INTERVAL so that
+    _usage_problem can tell "--compare --interval 15" from a plain
+    "--compare"; this puts the default back for every other use.
+    """
+    return DEFAULT_INTERVAL if interval is None else interval
+
+
+def _usage_problem(args) -> str | None:
+    """
+    Why this command line cannot be run, or None. Asked before anything
+    is fetched or sent.
+
+    Two holes were closed here on 2026-11-02. --compare ignored
+    --interval and --none and always sent DEFAULT_INTERVAL, while
+    saying so, even beside --interval 900, the value its own docstring
+    says is worth trying next; it is now refused rather than quietly
+    ignored, since honouring it would change what --compare sends. And
+    a negative, NaN, infinite or enormous --gap reached time.sleep,
+    which raised a traceback only after the first Identify had gone
+    out; it is now held to 0..MAX_GAP_SECONDS.
+    """
+    if not args.compare:
+        try:
+            validate_interval(
+                None if args.none else _interval_or_default(args.interval))
+        except IdentifyParameterError as exc:
+            return str(exc)
+        return None
+    if args.interval is not None or args.none:
+        return ("--compare always sends the empty form and then "
+                f"{DEFAULT_INTERVAL}; it cannot be combined with "
+                "--interval or --none. Run those on their own.")
+    # The chained comparison is False for NaN and for either infinity.
+    if not 0 <= args.gap <= MAX_GAP_SECONDS:
+        return (f"--gap must be 0 to {MAX_GAP_SECONDS} seconds, "
+                f"not {args.gap!r}")
+    return None
 
 
 def _build_parser():
@@ -465,7 +517,7 @@ def _build_parser():
                      "and watch what happens."))
     parser.add_argument("host", help="the Drobo's address")
     parser.add_argument(
-        "--interval", type=int, default=DEFAULT_INTERVAL,
+        "--interval", type=int, default=None,
         help=f"value for <{INTERVAL_TAG}> (default {DEFAULT_INTERVAL})")
     parser.add_argument(
         "--none", action="store_true",
