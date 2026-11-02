@@ -1758,8 +1758,36 @@ for _request_line, _description in (
           TOKEN not in _logged_output and "<redacted>" in _logged_output,
           _logged_output.replace(TOKEN, "<THE TOKEN>"))
 _logged_output = _capture_access_log(f"GET /api/events?token={TOKEN} HTTP/1.1")
-check("the event stream is not access-logged at all", _logged_output == "",
-      _logged_output.replace(TOKEN, "<THE TOKEN>"))
+check("the event stream's routine 200 is not access-logged",
+      _logged_output == "", _logged_output.replace(TOKEN, "<THE TOKEN>"))
+
+
+# Until 2026-11-02 the event stream was left out of the log entirely,
+# errors included: a refused or failing stream left no trace in the
+# console a tester is asked to copy into an issue. Only its routine 200
+# is skipped now, and the token is still scrubbed from what prints.
+def _capture_event_stream_log(write_log_line):
+    handler = object.__new__(api._ApiRequestHandler)
+    handler.client_address = ("127.0.0.1", 0)
+    handler.requestline = f"GET /api/events?token={TOKEN} HTTP/1.1"
+    handler.path = f"/api/events?token={TOKEN}"
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        write_log_line(handler)
+    return captured.getvalue()
+
+
+for _description, _write_log_line in (
+        ("a refused (401) event stream",
+         lambda handler: handler.log_request(401)),
+        ("an error on the event stream",
+         lambda handler: handler.log_error(
+             "stream failed for %s: %s", handler.requestline, "reset"))):
+    _logged_output = _capture_event_stream_log(_write_log_line)
+    check(f"{_description} is logged, with the token scrubbed",
+          "/api/events" in _logged_output and TOKEN not in _logged_output
+          and "<redacted>" in _logged_output,
+          _logged_output.replace(TOKEN, "<THE TOKEN>"))
 
 # The startup banner lands in the console Run-Agent.bat tells testers to
 # paste. It printed ?token=<the real token> until 2026-09-14.

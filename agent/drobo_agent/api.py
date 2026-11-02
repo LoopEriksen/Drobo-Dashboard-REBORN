@@ -138,6 +138,7 @@ accepts ?token= because browser EventSource can't set headers.
 from __future__ import annotations
 
 import functools
+import http
 import json
 import math
 import queue
@@ -477,20 +478,36 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     #: log_message.
     _TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s\"]*", re.I)
 
-    def log_message(self, message_format: str, *args) -> None:
+    def log_request(self, code="-", size="-") -> None:
         """
-        A quieter access log than http.server's, with any token in the
-        URL scrubbed out and the event stream left out entirely.
+        The access-log line for one answer, except the event stream's
+        routine 200, which would otherwise print once per open
+        dashboard tab.
+
+        Until 2026-11-02 log_message left /api/events out entirely, so
+        a refused stream (401) or an error on it never reached the
+        console a tester is asked to copy into an issue.
         """
+        if isinstance(code, http.HTTPStatus):
+            code = code.value
         # getattr, not self.path: http.server logs a timeout BEFORE it
         # has read a request line, and at that point the handler has no
         # path attribute at all. A client that opens a spare keep-alive
         # connection and never sends on it reaches the 60-second timeout
-        # above, and this line used to raise AttributeError there: a
-        # traceback in the operator's console for a connection nobody
-        # used. Seen against the simulator, 2026-09-14.
-        if (getattr(self, "path", "") or "").startswith("/api/events"):
+        # above, and the old check in log_message raised AttributeError
+        # there: a traceback in the operator's console for a connection
+        # nobody used. Seen against the simulator, 2026-09-14.
+        if (str(code) == "200" and (getattr(self, "path", "") or "")
+                .startswith("/api/events")):
             return
+        super().log_request(code, size)
+
+    def log_message(self, message_format: str, *args) -> None:
+        """
+        A quieter access log than http.server's, with any token in the
+        URL scrubbed out. Every line passes through here, errors
+        included; log_request leaves out the event stream's routine 200.
+        """
         # The access log prints the whole request line, query string
         # included, and a token still reaches us in the URL on the two
         # routes that need it that way -- /api/events, and `/?token=`

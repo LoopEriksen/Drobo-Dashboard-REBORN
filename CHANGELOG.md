@@ -692,6 +692,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   negative value now means the default of one day, and a malformed
   block reads as switched off. `test_agent.py` gains one check.
   (2026-11-02)
+- **Errors on the live event stream reach the agent's console.** The
+  stream the browser dashboard listens on was left out of the console
+  log entirely, so a refused stream (a wrong token) or an error on it
+  left no line in the window testers copy into an issue. Only its
+  ordinary successful line is left out now, and the token is still
+  scrubbed from every line printed. `test_agent.py` gains two checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
