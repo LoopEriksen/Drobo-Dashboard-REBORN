@@ -33,6 +33,7 @@ from xml.etree import ElementTree
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from drobo_agent import api, config, drivers, notify, qr  # noqa: E402
+from drobo_agent import photos  # noqa: E402
 from drobo_agent.models import (  # noqa: E402
     Capacity, DeviceInfo, DriveSlot, PackHealth, SEVERITY_CRITICAL, Snapshot)
 from drobo_agent.monitor import Monitor, _PACK_STATUS_BASELINE  # noqa: E402
@@ -1571,6 +1572,30 @@ check("an upload that finishes during a rescan stays in the index",
       _unreadable_store.missing([_late_result["sha256"]]) == []
       and _late_result["sha256"] in _saved_index,
       (_late_result, sorted(_saved_index)))
+
+# The index save is throttled, and a save it skipped waited for the next
+# upload or a clean shutdown, however long that took: a crash after a
+# burst lost the burst's last uploads from the saved index. Since
+# 2026-11-02 a skipped save is made once the interval has passed.
+_saved_save_interval = photos.INDEX_SAVE_MIN_INTERVAL_SECONDS
+photos.INDEX_SAVE_MIN_INTERVAL_SECONDS = 0.2
+try:
+    _burst_store = PhotoStore({"enabled": True,
+                               "target_dir": os.path.join(temp_dir, "Burst"),
+                               "organize_by_date": False})
+    _burst_store.load()
+    _burst_digests = [
+        _burst_store.ingest(f"burst{number}.jpg",
+                            b"\xff\xd8\xff burst " + bytes([number]))
+        ["sha256"] for number in (1, 2)]
+    time.sleep(0.6)
+    with open(_burst_store.index_path, encoding="utf-8") as _index_file:
+        _saved_index = json.load(_index_file)
+finally:
+    photos.INDEX_SAVE_MIN_INTERVAL_SECONDS = _saved_save_interval
+check("the last upload of a burst reaches the saved index without a flush",
+      all(digest in _saved_index for digest in _burst_digests),
+      sorted(_saved_index))
 
 
 print("\n== the capture date reaches the file, not just the folder ==")

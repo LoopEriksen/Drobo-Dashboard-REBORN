@@ -733,6 +733,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   library. A photo it cannot read now stays in the index and counts as
   unchanged, and an upload that lands during the rescan is kept.
   `test_agent.py` gains two checks. (2026-11-02)
+- **The photo index is saved soon after a burst of uploads, not only at
+  the next upload.** The index of received photos is saved at most every
+  five seconds, and a save that fell inside that window waited for the
+  next upload or a clean shutdown, however long that took, so a crash
+  after a burst could lose the burst's last uploads from the saved index
+  and the phone would send them again. The skipped save is now made as
+  soon as the five seconds have passed. `test_agent.py` gains one check.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

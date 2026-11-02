@@ -144,6 +144,9 @@ class PhotoStore:
         self._index: dict[str, str] = {}  # sha256 -> relative path
         self._index_dirty = False
         self._last_index_save_at = 0.0
+        # The one save armed for when a throttled save may run; see
+        # _save_index.
+        self._deferred_save_timer: threading.Timer | None = None
         self._loaded = False
 
     # -- index ---------------------------------------------------------
@@ -364,12 +367,20 @@ class PhotoStore:
 
     def _save_index(self, force: bool = False) -> None:
         """Throttled so a burst of uploads doesn't rewrite the index
-        every time.
+        every time. Caller holds the lock.
+
+        A save the throttle skips is made once the interval has passed,
+        by a timer armed here. Until 2026-11-02 it waited for the next
+        upload or a clean shutdown, however long that took, so a crash
+        after a burst lost the burst's last uploads from the saved
+        index.
         """
         if not self._index_dirty:
             return
-        if (not force and time.time() - self._last_index_save_at
-                < INDEX_SAVE_MIN_INTERVAL_SECONDS):
+        seconds_since_save = time.time() - self._last_index_save_at
+        if not force and seconds_since_save < INDEX_SAVE_MIN_INTERVAL_SECONDS:
+            self._arm_deferred_save(
+                INDEX_SAVE_MIN_INTERVAL_SECONDS - seconds_since_save)
             return
         temporary_path = self.index_path + ".tmp"
         try:
@@ -382,6 +393,26 @@ class PhotoStore:
             # A sync-client or SMB lock is transient -- keep the
             # in-memory index and try again on the next upload.
             print(f"[photos] could not write index: {exc}", flush=True)
+
+    def _arm_deferred_save(self, delay_seconds: float) -> None:
+        """
+        Make one save in `delay_seconds`, unless one is armed already.
+        Caller holds the lock. A daemon timer, so it never holds up the
+        agent's exit, where flush() saves anyway; a save made sooner
+        leaves it nothing to write.
+        """
+        if self._deferred_save_timer is not None:
+            return
+        self._deferred_save_timer = threading.Timer(
+            delay_seconds, self._run_deferred_save)
+        self._deferred_save_timer.daemon = True
+        self._deferred_save_timer.start()
+
+    def _run_deferred_save(self) -> None:
+        """The armed save: write the index if it still has changes."""
+        with self._lock:
+            self._deferred_save_timer = None
+            self._save_index(force=True)
 
     def flush(self) -> None:
         """
