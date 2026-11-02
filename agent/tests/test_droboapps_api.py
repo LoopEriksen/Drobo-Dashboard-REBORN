@@ -237,6 +237,62 @@ try:
         reply,
     )
 
+    # The two app-list reads around a real Start/Stop, with the SDK
+    # replaced so nothing is contacted. droboapps.get_droboapps raises a
+    # plain ConfigError, not SysInfoError, when the Drobo hangs up
+    # without a reply (_read_frame's short header), and until 2026-11-02
+    # both reads caught only SysInfoError and OSError: the agent dropped
+    # the connection with no answer, after an ACCEPTED action in the
+    # read-back's case.
+    print("\n== a hang-up on the app-list reads is answered ==")
+    saved_app_calls = (droboapps.get_droboapps, droboapps.droboapps_action)
+    saved_target = (driver.simulate_config,
+                    getattr(driver, "_resolved_host", None),
+                    getattr(driver, "_known_esa_id", None))
+    driver.simulate_config = False
+    driver._resolved_host = "192.0.2.50"
+    driver._known_esa_id = "drb000000SAMPLE"
+    app_list_reads = []
+
+    def app_list_hanging_up_after(good_reads):
+        def fake_get_droboapps(host, esa_id, **kwargs):
+            app_list_reads.append(host)
+            if len(app_list_reads) > good_reads:
+                raise config_cmd.ConfigError("short header: 0 of 16 bytes")
+            return {"apps": [{"name": "AlphaApp", "running": False}]}
+        return fake_get_droboapps
+
+    def lost_answer_call(body):
+        try:
+            return call("/api/droboapps/action", body=body)
+        except Exception as connection_error:  # noqa: BLE001 - checked
+            return None, {"error": repr(connection_error)}
+
+    try:
+        droboapps.droboapps_action = (
+            lambda *args, **kwargs: {"result_code": 0})
+        droboapps.get_droboapps = app_list_hanging_up_after(0)
+        status, reply = lost_answer_call(
+            {"name": "AlphaApp", "action": "Start"})
+        check("a hang-up on the installed check is a 502 with a reason",
+              status == 502 and "could not read the app list"
+              in reply.get("error", ""), (status, reply))
+
+        app_list_reads.clear()
+        droboapps.get_droboapps = app_list_hanging_up_after(1)
+        status, reply = lost_answer_call(
+            {"name": "AlphaApp", "action": "Start"})
+        check("an accepted action whose re-read hangs up is still a 200",
+              status == 200 and reply.get("ok") is True, (status, reply))
+        check("-- with no read-back, so it reads accepted, unconfirmed",
+              reply.get("read_back", "absent") is None, reply)
+        check("-- after exactly two list reads (check and re-read)",
+              len(app_list_reads) == 2, app_list_reads)
+    finally:
+        droboapps.get_droboapps, droboapps.droboapps_action = saved_app_calls
+        (driver.simulate_config, driver._resolved_host,
+         driver._known_esa_id) = saved_target
+
     print("\n== auth: 401s are clean even with a request body ==")
     # The 401 path must DRAIN the body before answering (see do_POST) --
     # without that, Windows aborts the keep-alive socket and the client

@@ -2110,6 +2110,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         (refusal_body, http_status) when `name` cannot be acted on --
         the app list would not read, or does not carry it -- else
         (None, None).
+
+        ConfigError, not only SysInfoError (its subclass): a Drobo that
+        hangs up without replying makes the SDK's frame read raise a
+        plain ConfigError, and until 2026-11-02 that escaped and the
+        agent dropped the connection with no answer.
         """
         try:
             installed_apps = droboapps.get_droboapps(
@@ -2131,6 +2136,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         The 200 body for an accepted action, with a best-effort re-read
         of the app list as its read-back.
+
+        A re-read that fails in any way the SDK reports, a hang-up's
+        plain ConfigError included, leaves the action accepted and
+        unconfirmed. Until 2026-11-02 only SysInfoError and OSError were
+        caught, so a hang-up here dropped the connection after the
+        device had ACCEPTED the action -- the failure that tempts a
+        retry.
         """
         app_listing = None
         try:

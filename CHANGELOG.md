@@ -881,6 +881,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   moved over it in one step. The file's name and contents are unchanged.
   The Windows test program gains 18 checks, working in a temporary
   folder. (2026-11-02)
+- **A DroboApps Start or Stop is answered even when the app-list read
+  around it is cut off.** The agent reads the Drobo's app list before an
+  action (to check the app is installed) and after it (to show whether it
+  took). When the Drobo hung up during either read without replying, the
+  agent dropped the connection with no answer, and after the device had
+  accepted the action that read as a failure inviting a second try. A
+  hang-up on the first read is now answered 502 "could not read the app
+  list", with nothing sent, and on the second the action is reported
+  accepted, unconfirmed, as any other failed re-read already was. Nothing
+  sent to the Drobo changes. `test_droboapps_api.py` gains four checks,
+  45 to 49. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
