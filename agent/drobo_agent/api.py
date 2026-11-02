@@ -647,14 +647,22 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 f"{max_body_bytes} byte limit")
         return self.rfile.read(content_length_bytes)
 
-    def _read_json_body(self):
+    def _read_json_body(self) -> dict:
         """
-        The request body parsed as JSON, an empty body counting as {}.
-        Raises ValueError (bad JSON, or a body over
-        MAX_JSON_BODY_BYTES), which every caller answers with
-        _send_bad_json.
+        The request body parsed as a JSON object, an empty body counting
+        as {}. Raises ValueError (bad JSON, a body over
+        MAX_JSON_BODY_BYTES, or JSON that is not an object), which every
+        caller answers with _send_bad_json.
+
+        Every route reads its fields with .get, so a body that is valid
+        JSON but not an object ([], 1, null) used to raise
+        AttributeError there, and the route dropped the connection with
+        no answer (until 2026-11-02).
         """
-        return json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
+        body = json.loads(self._read_body(MAX_JSON_BODY_BYTES) or b"{}")
+        if not isinstance(body, dict):
+            raise ValueError("the request body must be a JSON object")
+        return body
 
     def _drain_request_body(self) -> None:
         """
@@ -2452,8 +2460,6 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(driver, MockDriver):
             return self._send_json(
                 {"error": "sign-in simulation needs the mock driver"}, 409)
-        if not isinstance(body, dict):
-            return self._send_json({"error": "expected a JSON object"}, 400)
         share = str(body.get("share", "")).strip()
         username = str(body.get("username", "")).strip()
         password = body.get("password", "")

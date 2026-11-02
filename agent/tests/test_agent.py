@@ -1736,6 +1736,32 @@ check("-- and that line does not print the token",
           for line in _banner_lines),
       _banner_lines)
 
+# Valid JSON that is not an object -- [], 1, null -- used to reach
+# body.get(...) and raise AttributeError, so the route dropped the
+# connection with no answer. Since 2026-11-02 _read_json_body refuses
+# it as the 400 every bad body gets. Nothing is sent to a Drobo: every
+# one of these is refused before its route does anything.
+print("\n== a JSON body that is not an object is a 400, not a dropped "
+      "connection ==")
+_JSON_BODY_ROUTES = (
+    "/api/backup/plan", "/api/backup/start", "/api/photos/have",
+    "/api/photos/begin", "/api/config/brightness", "/api/config/spindown",
+    "/api/config/share-access", "/api/shares/create", "/api/shares/delete",
+    "/api/droboapps/action", "/api/mock/sign-in")
+_bad_body_answers = {}
+for _route in _JSON_BODY_ROUTES:
+    for _body in (b"[]", b"1", b"null"):
+        try:
+            status, reply = call(_route, data=_body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+            _answer = (status, "error" in reply)
+        except Exception as _connection_error:  # noqa: BLE001 - the check
+            _answer = repr(_connection_error)
+        if _answer != (400, True):
+            _bad_body_answers[f"{_route} {_body.decode()}"] = _answer
+check("every JSON-body route answers [], 1 and null with a 400 and an "
+      "error", _bad_body_answers == {}, _bad_body_answers)
+
 print("\n== 404 ==")
 status, reply = call("/api/nope")
 check("unknown path 404s", status == 404, status)

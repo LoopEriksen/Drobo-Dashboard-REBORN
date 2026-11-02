@@ -817,13 +817,11 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api`: a JSON body that is not an object (`[]`, `1`, `null`) makes the
-  backup, photo, config-write and DroboApps routes drop the connection
-  with no answer; a bracketed IPv6 `Host` breaks the pairing link; a
-  non-ASCII digit in the simulator's bay route drops the connection; a
-  non-numeric `check_seconds` breaks every `/api/update` (these four
-  confirmed). Errors on the event-stream route never reach the console; a
-  manual `?host=` search holds up every other `/api/discover` caller.
+- `api`: a bracketed IPv6 `Host` breaks the pairing link; a non-ASCII
+  digit in the simulator's bay route drops the connection; a non-numeric
+  `check_seconds` breaks every `/api/update` (these three confirmed).
+  Errors on the event-stream route never reach the console; a manual
+  `?host=` search holds up every other `/api/discover` caller.
 - `api._serve_droboapps_action` (confirmed, on a simulated device over
   loopback): when the Drobo takes a DroboApps Start or Stop and then hangs
   up without a result frame, the pattern measured on share create,

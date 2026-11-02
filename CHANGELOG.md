@@ -664,6 +664,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   step in the order discovery takes them: typed addresses, mDNS,
   hostname, last-known address, subnet sweep. Wording only.
   `test_drivers.py` gains two checks. (2026-11-02)
+- **A request body that is JSON but not an object gets an answer.** A
+  body of `[]`, `1` or `null` sent to the backup, photo, settings-write,
+  share create and delete, or DroboApps routes made the agent drop the
+  connection with no answer. Each now answers 400 with an `error` that
+  says the body must be a JSON object, like any other unreadable body.
+  Nothing reached the Drobo before or after. `test_agent.py` gains one
+  check covering eleven routes. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
