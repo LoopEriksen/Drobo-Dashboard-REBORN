@@ -268,10 +268,15 @@ def _collect_mdns_replies(sock: socket.socket,
     Every reply that arrives in the window is read, not just the first:
     more than one Drobo can be on the LAN, and one Drobo can answer
     from more than one interface.
+
+    The window is measured on the monotonic clock. On the wall clock,
+    as it was until 2026-11-02, a clock step during the browse (an NTP
+    or daylight-saving sync, a manual change) could stretch the window
+    without bound or cut it to nothing.
     """
     candidates_by_host: dict[str, Candidate] = {}
-    listen_deadline = time.time() + timeout
-    while time.time() < listen_deadline:
+    listen_deadline = time.monotonic() + timeout
+    while time.monotonic() < listen_deadline:
         try:
             packet, sender_address = sock.recvfrom(
                 _MDNS_RECEIVE_BUFFER_BYTES)
@@ -291,18 +296,27 @@ def _candidates_from_packet(packet: bytes,
     A-record address in it, all on the SRV record's port (or the nasd
     default when the reply has no SRV). [] for a packet with no
     records.
+
+    An A record of the wrong length or an SRV record too short for its
+    port is listed by parse_mdns_response with no "value" or "port", and
+    is skipped here. Until 2026-11-02 it was indexed anyway, and the
+    KeyError aborted the whole browse, so the hostname and last-known
+    candidates were never tried. The sender still counts: whoever
+    answers a _nasd._tcp query is advertising nasd.
     """
     records = parse_mdns_response(packet)
     if not records:
         return []
     port = esatm.DEFAULT_PORT
     for record in records:
-        if record["type"] == RECORD_TYPE_SRV:
-            port = record["port"]
+        if record["type"] != RECORD_TYPE_SRV or "port" not in record:
+            continue
+        port = record["port"]
     candidates = [Candidate(sender_address[0], port, "mdns")]
     for record in records:
-        if record["type"] == RECORD_TYPE_A:
-            candidates.append(Candidate(record["value"], port, "mdns"))
+        if record["type"] != RECORD_TYPE_A or "value" not in record:
+            continue
+        candidates.append(Candidate(record["value"], port, "mdns"))
     return candidates
 
 

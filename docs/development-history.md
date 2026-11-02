@@ -975,7 +975,7 @@ most to someone using the software: the agent clears every active alert as
 comes back, so a network blip tells the user a failed drive was resolved; a
 truncated performance reply throws away the temperature and uptime already
 read (fixed 2026-11-02); one malformed mDNS reply aborts the whole search instead of falling
-back to the other ways of finding the Drobo; a request body that is valid
+back to the other ways of finding the Drobo (fixed 2026-11-02); a request body that is valid
 JSON but not an object makes several agent routes drop the connection
 without an answer; the poller never checks that the Drobo it reads is still
 the one it found, so a reused address would be trusted; every event-log

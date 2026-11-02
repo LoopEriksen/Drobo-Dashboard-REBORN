@@ -810,11 +810,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *SDK — reads and discovery*
 
-- `discovery`: an mDNS A record of the wrong length or a short SRV record
-  raises `KeyError` and aborts the whole browse, so the hostname and
-  last-known candidates are never tried; the listen window uses the wall
-  clock. `/api/discover` does not catch the `ParseError` a peer sending
-  malformed XML causes in `verify_candidate`.
+- `/api/discover` does not catch the `ParseError` a peer sending
+  malformed XML causes in `discovery.verify_candidate`.
 - `models.EventLogEntry.to_dict` serves every real event-log entry with a
   1970 `ts_iso` beside its not-decoded marker, and the Windows diagnostics
   report prints it.

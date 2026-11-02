@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import warnings
 
 sys.path.insert(0, os.path.abspath(
@@ -289,6 +290,96 @@ check(
 # a short/garbage packet must not raise
 check("garbage packet yields no records, no crash",
       discovery.parse_mdns_response(b"\x00" * 4) == [])
+
+# Found 2026-10-29, fixed 2026-11-02: an A record of the wrong length or
+# an SRV record too short for its port gives a record with no "value" or
+# no "port", and reading it raised KeyError, which aborted the whole
+# browse -- so the hostname and last-known candidates were never tried.
+# The sender is still a candidate: whoever answers a _nasd._tcp query is
+# advertising nasd.
+_MALFORMED_SENDER = ("127.0.0.9", discovery.MDNS_PORT)
+
+
+def _one_record_packet(name: str, record_type: int,
+                       record_data: bytes) -> bytes:
+    return (struct.pack("!HHHHHH", 0, 0x8400, 0, 1, 0, 0)
+            + _dns_resource_record(name, record_type, record_data))
+
+
+_bad_a_packet = _one_record_packet(
+    "MyDrobo.local", discovery.RECORD_TYPE_A, b"\x0a\x00\x00\x32\x00")
+_short_srv_packet = _one_record_packet(
+    "MyDrobo._nasd._tcp.local", discovery.RECORD_TYPE_SRV, b"\x00" * 4)
+for _label, _malformed_packet in (
+        ("an A record of 5 bytes", _bad_a_packet),
+        ("an SRV record of 4 bytes", _short_srv_packet)):
+    try:
+        _found = discovery._candidates_from_packet(_malformed_packet,
+                                                   _MALFORMED_SENDER)
+    except KeyError as exc:
+        _found = f"raised KeyError {exc}"
+    check(f"{_label} leaves only the sender as a candidate",
+          _found == [discovery.Candidate("127.0.0.9",
+                                         esatm.DEFAULT_PORT, "mdns")],
+          _found)
+
+
+def _udp_pair() -> tuple[socket.socket, socket.socket]:
+    """A receiver bound on 127.0.0.1 and a sender; nothing leaves this
+    PC."""
+    receiver_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver_socket.bind(("127.0.0.1", 0))
+    receiver_socket.settimeout(0.05)
+    sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return receiver_socket, sender_socket
+
+
+_receiver_socket, _sender_socket = _udp_pair()
+try:
+    _receiver_address = _receiver_socket.getsockname()
+    _sender_socket.sendto(_bad_a_packet, _receiver_address)
+    _sender_socket.sendto(
+        _one_record_packet("MyDrobo.local", discovery.RECORD_TYPE_A,
+                           socket.inet_aton("10.0.0.51")),
+        _receiver_address)
+    try:
+        _collected = discovery._collect_mdns_replies(_receiver_socket, 0.6)
+    except KeyError as exc:
+        _collected = f"raised KeyError {exc}"
+    check("one malformed reply does not stop the replies after it",
+          isinstance(_collected, dict) and "10.0.0.51" in _collected,
+          _collected)
+finally:
+    _receiver_socket.close()
+    _sender_socket.close()
+
+
+# The listen window is measured on the monotonic clock. Until 2026-11-02
+# it used the wall clock, so a clock step during the browse (an NTP or
+# daylight-saving sync, a manual change) could stretch the window
+# without bound or cut it to nothing. Here the wall clock is frozen at
+# 0.0, as if it had stepped back, and the browse must still end.
+# time as discovery sees it, with time() stuck at 0.0.
+_FrozenWallClock = types.SimpleNamespace(
+    time=lambda: 0.0, monotonic=time.monotonic, sleep=time.sleep)
+_receiver_socket, _sender_socket = _udp_pair()
+_original_discovery_time = discovery.time
+discovery.time = _FrozenWallClock
+try:
+    _listener = threading.Thread(
+        target=discovery._collect_mdns_replies,
+        args=(_receiver_socket, 0.3), daemon=True)
+    _listener.start()
+    _listener.join(3)
+    check("a wall clock that stands still does not stretch the listen "
+          "window", not _listener.is_alive())
+finally:
+    # Restored even if the listener is still running: with the real
+    # wall clock back, the old code's loop ends on its own.
+    discovery.time = _original_discovery_time
+    _listener.join(3)
+    _receiver_socket.close()
+    _sender_socket.close()
 
 # ---------------------------------------------------------------------------
 print("\n== discovery ordering: mDNS, hostname, last-known, sweep (opt-in) ==")

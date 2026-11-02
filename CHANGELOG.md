@@ -557,6 +557,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   left empty, as the code always said it would be. Nothing sent to the
   Drobo changes. `test_sysinfo.py` gains four checks against a fake
   device on this PC. (2026-11-02)
+- **One malformed mDNS reply no longer stops the search for the Drobo.**
+  A reply on the network carrying an address record of the wrong length,
+  or a service record too short to hold its port, raised an error that
+  ended the whole mDNS browse, so the hostname and last-known address
+  were never tried and the Drobo could go unfound. Such a record is now
+  skipped and the search carries on; the replying address itself is
+  still tried. The browse's listen window is also timed on the
+  monotonic clock instead of the wall clock, so a clock change during a
+  search can no longer stretch it without end or cut it short. The query
+  sent is unchanged. `test_discovery.py` gains four checks, run on this
+  PC only. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
