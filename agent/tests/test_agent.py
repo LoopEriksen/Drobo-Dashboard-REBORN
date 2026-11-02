@@ -15,6 +15,7 @@ switching the driver over to the real Drobo 5N.
 import atexit
 import contextlib
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -26,6 +27,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1120,6 +1122,40 @@ try:
     check("the unreachable candidate is silently skipped",
           "10.0.0.8" not in hosts, hosts)
     check("the one that answered is still listed", "10.0.0.9" in hosts, hosts)
+finally:
+    discovery.discover_mdns = _original_discover_mdns
+    discovery.verify_candidate = _original_verify_candidate
+
+print("\n== shares/discovery: /api/discover (a peer sending malformed XML "
+      "is skipped, not fatal) ==")
+# Found 2026-10-29, fixed 2026-11-02: a peer whose greeting carries
+# malformed XML makes verify_candidate raise ElementTree.ParseError,
+# which the route did not catch, so the agent dropped the connection
+# with no answer at all.
+api._ApiRequestHandler._discover_cache = None
+
+
+def _fake_discover_mdns_one(timeout=3.0):
+    return [discovery.Candidate("10.0.0.9", 5000, "mdns")]
+
+
+def _fake_verify_malformed_xml(candidate, timeout=5.0, **kwargs):
+    raise ElementTree.ParseError("simulated: mismatched tag")
+
+
+discovery.discover_mdns = _fake_discover_mdns_one
+discovery.verify_candidate = _fake_verify_malformed_xml
+try:
+    try:
+        status, reply = call("/api/discover")
+    except (OSError, http.client.HTTPException) as exc:
+        status, reply = None, f"{type(exc).__name__}: {exc}"
+    check("discover still answers 200 when a peer sends malformed XML",
+          status == 200, (status, reply))
+    hosts = ([d["host"] for d in reply.get("devices", [])]
+             if isinstance(reply, dict) else [])
+    check("the peer that sent malformed XML is not listed",
+          status == 200 and "10.0.0.9" not in hosts, hosts)
 finally:
     discovery.discover_mdns = _original_discover_mdns
     discovery.verify_candidate = _original_verify_candidate

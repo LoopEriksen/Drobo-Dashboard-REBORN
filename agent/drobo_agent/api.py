@@ -147,6 +147,7 @@ import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from xml.etree import ElementTree
 
 from . import backup, drivers, notify, qr, updates, webui
 from drobo_nasd import shares as nasd_shares
@@ -2252,6 +2253,12 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         The device entry of every candidate that answers as a Drobo,
         each host probed once.
+
+        A candidate whose greeting carries malformed XML raises
+        ElementTree.ParseError from verify_candidate, and is skipped
+        like any other peer that is not a usable Drobo. Until 2026-11-02
+        it was not caught, and the agent dropped the /api/discover
+        connection without an answer.
         """
         devices_found: list[dict] = []
         hosts_seen: set[str] = set()
@@ -2266,7 +2273,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 verified_candidate = discovery.verify_candidate(
                     candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
             except (OSError, discovery.IdentityMismatchError,
-                    esatm.FrameError):
+                    esatm.FrameError, ElementTree.ParseError):
                 # answered badly or not at all;
                 # not a Drobo we can use
                 continue

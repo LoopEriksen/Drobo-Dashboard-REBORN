@@ -568,6 +568,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   search can no longer stretch it without end or cut it short. The query
   sent is unchanged. `test_discovery.py` gains four checks, run on this
   PC only. (2026-11-02)
+- **A device that answers the Drobo search with malformed XML no longer
+  breaks it.** When something on the network answered on the Drobo's
+  status port with a greeting the agent could not parse, the search the
+  apps run to list Drobos (`/api/discover`, behind "Change Drobo" and
+  typing an address) ended with the agent hanging up and no answer at
+  all. That peer is now skipped like any other device that is not a
+  usable Drobo, and the rest of the list is returned. Nothing sent
+  changes. `test_agent.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

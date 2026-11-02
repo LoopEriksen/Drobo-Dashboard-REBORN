@@ -810,8 +810,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *SDK — reads and discovery*
 
-- `/api/discover` does not catch the `ParseError` a peer sending
-  malformed XML causes in `discovery.verify_candidate`.
 - `models.EventLogEntry.to_dict` serves every real event-log entry with a
   1970 `ts_iso` beside its not-decoded marker, and the Windows diagnostics
   report prints it.
