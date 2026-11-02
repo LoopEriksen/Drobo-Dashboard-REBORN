@@ -796,6 +796,16 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
+All fixed on 2026-11-02, one commit per fault (except that the
+`config_cmd` redaction fix and the Identify command-line fix each cover
+two), with a test that failed before the fix where one was possible; what
+changed is in `CHANGELOG.md` under Unreleased. Two of them made the write
+gate stricter, at the maintainer's direction: `eCmdGetNASUsernamePassword`
+(102) is refused, and an id or name missing from the command table counts
+as refused. Nothing new is sent to a Drobo, and everything still sent is
+byte-identical; some sends are now refused instead: a serial the login
+would mangle, Identify's `--compare` with `--interval` or `--none` (and a
+`--gap` over a day), command 102, and any id the table does not hold.
 
 *SDK — reads and discovery*
 
