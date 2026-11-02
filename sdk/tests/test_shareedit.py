@@ -239,6 +239,53 @@ check("an unchanged document describes nothing",
       shareedit.describe_change(DEVICE_CONFIG, copy.deepcopy(DEVICE_CONFIG))
       == [])
 
+print("\n== duplicates are refused, as sharewrite refuses them ==")
+# Until 2026-11-02 set_user_access edited the first of two shares with
+# the identical name, and the first of two user rows folding to the same
+# name, where sharewrite refuses both.
+
+
+def _config_with_shares(*shares):
+    return {"DRINASConfig": {"DRIShareConfig": {
+        "ConfigVersionBasis": "14", "Shares": {"Share": list(shares)}}}}
+
+
+def _share(name, *users):
+    rows = [{"ShareUsername": user, "ShareUserAccess": "0"}
+            for user in users]
+    return {"ShareName": name, "ShareState": "0",
+            "ShareUsers": {"ShareUser": rows[0] if len(rows) == 1
+                           else rows}}
+
+
+def _refused(config, share_name, username):
+    try:
+        shareedit.set_user_access(config, share_name, username, "1")
+        return False
+    except shareedit.ShareEditError as exc:
+        return "refusing" in str(exc)
+
+
+check("two shares named exactly 'Dup' are refused",
+      _refused(_config_with_shares(_share("Dup", "Everyone"),
+                                   _share("Dup", "Everyone")),
+               "Dup", "Everyone"))
+case_colliding_rows = _config_with_shares(_share("Docs", "bob", "Bob"))
+check("rows 'bob' and 'Bob' are refused for 'BOB'",
+      _refused(case_colliding_rows, "Docs", "BOB"))
+check("...and for 'Bob', as sharewrite refuses any rows that fold together",
+      _refused(case_colliding_rows, "Docs", "Bob"))
+single_row_edit = shareedit.set_user_access(
+    _config_with_shares(_share("Docs", "bob"), _share("Other", "bob")),
+    "Docs", "BOB", "1")
+check("one row folding to the name is still edited, on that share only",
+      shareedit.describe_change(
+          _config_with_shares(_share("Docs", "bob"), _share("Other", "bob")),
+          single_row_edit) == ["bob is given access to Docs (code 1)"],
+      shareedit.describe_change(
+          _config_with_shares(_share("Docs", "bob"), _share("Other", "bob")),
+          single_row_edit))
+
 print("\n== this module cannot reach the network, by construction ==")
 shareedit_source = open(
     os.path.join(os.path.dirname(os.path.abspath(__file__)),

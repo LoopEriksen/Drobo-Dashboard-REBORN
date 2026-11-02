@@ -192,26 +192,50 @@ def _allowed_access_codes(config: dict) -> set[str]:
 
 
 def _find_share_entry(share_block: dict, share_name: str) -> dict:
-    """The first share whose stripped name is exactly `share_name`,
+    """The one share whose stripped name is exactly `share_name`,
     or raise.
+
+    Two shares with that exact name are refused, as
+    sharewrite._resolve_share refuses them: editing the first and
+    leaving the other is a change to whichever share the device happened
+    to list first. Until 2026-11-02 this took the first.
     """
-    for share in _share_entries(share_block):
-        if (share.get("ShareName") or "").strip() == share_name:
-            return share
-    raise ShareEditError(f"no share named {share_name!r} on this device")
+    matching_shares = [share for share in _share_entries(share_block)
+                       if (share.get("ShareName") or "").strip()
+                       == share_name]
+    if len(matching_shares) > 1:
+        raise ShareEditError(
+            f"{len(matching_shares)} shares are named exactly "
+            f"{share_name!r}; ambiguous -- refusing rather than editing the "
+            f"first one and hoping.")
+    if not matching_shares:
+        raise ShareEditError(f"no share named {share_name!r} on this device")
+    return matching_shares[0]
 
 
 def _set_or_append_user(users: list, username: str,
                         access_code: str) -> None:
     """
-    Change the first row folding to `username`, or append a new row
-    when there is none.
+    Change the one row folding to `username`, or append a new row when
+    there is none.
+
+    Several rows folding to the same name are refused, whichever of
+    them matches exactly, as sharewrite._find_single_user_row refuses
+    them: changing one and leaving the others is how a revoke half
+    succeeds. Until 2026-11-02 this changed the first.
     """
-    for user in users:
-        if ((user.get("ShareUsername") or "").strip().lower()
-                == username.strip().lower()):
-            user["ShareUserAccess"] = str(access_code)
-            return
+    folded_username = username.strip().lower()
+    matching_users = [user for user in users
+                      if (user.get("ShareUsername") or "").strip().lower()
+                      == folded_username]
+    if len(matching_users) > 1:
+        raise ShareEditError(
+            f"{len(matching_users)} user entries fold to {username!r}; "
+            f"ambiguous -- refusing rather than changing one and leaving "
+            f"the others. Resolve the duplicates on the device first.")
+    if matching_users:
+        matching_users[0]["ShareUserAccess"] = str(access_code)
+        return
     users.append({"ShareUsername": username.strip(),
                   "ShareUserAccess": str(access_code)})
 

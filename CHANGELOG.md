@@ -502,6 +502,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   which was the opposite of the problem. It now says that several shares
   carry exactly that name. The refusal and its answer from the agent are as
   before, and nothing is sent to the Drobo. (2026-11-02)
+- **The SDK's offline share-edit helper refuses duplicates the way the real
+  write does.** `shareedit.set_user_access`, which builds an edited share
+  document without sending anything, changed the first of two shares with
+  the same name, and the first of two user entries whose names differ only
+  by case. The write that actually reaches the Drobo already refused both;
+  the helper now does too. Only scripts that call the helper directly see a
+  difference: the software itself does not use it to write. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
