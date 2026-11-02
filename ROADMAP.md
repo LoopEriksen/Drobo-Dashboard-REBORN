@@ -824,10 +824,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   `config_cmd.ConfigError` on a hang-up or a short frame (and
   `summary`'s own per-read catch lets it through), so such a read drops
   the connection with no answer. Both routes only read.
-- `photos`: a rescan drops files it could not read from the index (the
-  comment promises the opposite) and loses uploads that finish during it;
-  the throttled index save loses the last uploads of a burst on a crash;
-  `photos.max_file_gb` is missing from the defaults.
+- `photos`: the throttled index save loses the last uploads of a burst
+  on a crash; `photos.max_file_gb` is missing from the defaults.
 - `updates.check` does not catch `http.client.HTTPException`, and a
   malformed manifest or config entry raises `AttributeError`.
 - `notify`: `use_tls: "false"` means true, implicit TLS on 465 is not

@@ -279,37 +279,75 @@ class PhotoStore:
 
         Returns {"found", "added", "dropped", "unchanged"} so a caller
         can say what actually changed rather than just "done".
+
+        Two things it keeps, both lost until 2026-11-02: an indexed file
+        it could not read (counted unchanged, since "I could not open
+        it" is not evidence of absence), and an upload that finished
+        while it was hashing (the rebuilt index used to replace the
+        live one wholesale).
+        """
+        with self._lock:
+            index_before_walk = dict(self._index)
+        rebuilt, found_file_count, unreadable_paths = self._hash_library()
+        with self._lock:
+            return self._merge_rescan(index_before_walk, rebuilt,
+                                      found_file_count, unreadable_paths)
+
+    def _hash_library(self) -> tuple[dict[str, str], int, set[str]]:
+        """
+        (sha256 -> relative path for every readable photo, how many
+        were read, the relative paths that could not be read).
+        Runs without the lock, so uploads carry on while it hashes.
         """
         rebuilt: dict[str, str] = {}
         found_file_count = 0
+        unreadable_paths: set[str] = set()
         for full_path in self._library_files():
+            relative_path = os.path.relpath(
+                full_path, self.target_dir).replace("\\", "/")
             try:
                 digest = self._hash_file(full_path)
             except OSError:
                 # Unreadable right now (SMB hiccup, a lock). Skip it
-                # rather than treat it as absent -- see the merge below,
-                # which is why a skipped file does not get dropped from
-                # the index.
+                # rather than treat it as absent -- see _merge_rescan,
+                # which keeps its index entry.
+                unreadable_paths.add(relative_path)
                 continue
             found_file_count += 1
-            rebuilt[digest] = os.path.relpath(
-                full_path, self.target_dir).replace("\\", "/")
+            rebuilt[digest] = relative_path
+        return rebuilt, found_file_count, unreadable_paths
 
-        with self._lock:
-            indexed_digests = set(self._index)
-            found_digests = set(rebuilt)
-            # A hash we already knew whose file is genuinely gone gets
-            # dropped; one we simply could not read stays, because "I
-            # could not open it" is not evidence of absence.
-            added = found_digests - indexed_digests
-            dropped = indexed_digests - found_digests
-            self._index = rebuilt
-            self._index_dirty = True
-            self._save_index(force=True)
-
-        return {"found": found_file_count, "added": len(added),
-                "dropped": len(dropped),
-                "unchanged": len(indexed_digests & found_digests)}
+    def _merge_rescan(self, index_before_walk: dict[str, str],
+                      rebuilt: dict[str, str], found_file_count: int,
+                      unreadable_paths: set[str]) -> dict:
+        """
+        Make the rebuilt index the live one, keeping what the walk could
+        not vouch for, save it, and return rescan()'s summary. Caller
+        holds the lock.
+        """
+        # A hash we already knew whose file is genuinely gone gets
+        # dropped; one we simply could not read stays, because "I
+        # could not open it" is not evidence of absence.
+        kept_unreadable = {
+            digest: relative_path
+            for digest, relative_path in index_before_walk.items()
+            if relative_path in unreadable_paths}
+        uploaded_during_walk = {
+            digest: relative_path
+            for digest, relative_path in self._index.items()
+            if digest not in index_before_walk}
+        indexed_digests = set(index_before_walk)
+        found_digests = set(rebuilt)
+        kept_digests = set(kept_unreadable) - found_digests
+        self._index = {**rebuilt, **kept_unreadable, **uploaded_during_walk}
+        self._index_dirty = True
+        self._save_index(force=True)
+        return {"found": found_file_count,
+                "added": len(found_digests - indexed_digests),
+                "dropped": len(indexed_digests - found_digests
+                               - kept_digests),
+                "unchanged": len(indexed_digests & found_digests)
+                + len(kept_digests)}
 
     @staticmethod
     def _hash_file(path: str) -> str:

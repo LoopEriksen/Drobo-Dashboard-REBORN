@@ -1516,6 +1516,62 @@ status, reply = call("/api/photos/rescan", data=b"", method="POST")
 check("rescan is reachable over the API", status == 200 and "found" in reply,
       (status, reply))
 
+# Two ways a rescan lost what it should have kept (fixed 2026-11-02).
+# A file it could not read was dropped from the index, though "I could
+# not open it" is not evidence it is gone; and an upload that finished
+# while the rescan was hashing vanished, because the rebuilt index
+# replaced the live one wholesale.
+_unreadable_dir = os.path.join(temp_dir, "UnreadablePhotos")
+_unreadable_store = PhotoStore({"enabled": True,
+                                "target_dir": _unreadable_dir,
+                                "organize_by_date": False})
+_unreadable_store.load()
+_locked_result = _unreadable_store.ingest("locked.jpg",
+                                          b"\xff\xd8\xff locked one")
+_unreadable_store.ingest("open.jpg", b"\xff\xd8\xff open one")
+_real_hash_file = PhotoStore._hash_file
+
+
+def _hash_failing_for_locked(path):
+    if os.path.basename(path) == "locked.jpg":
+        raise PermissionError("simulated: the file is locked")
+    return _real_hash_file(path)
+
+
+_unreadable_store._hash_file = _hash_failing_for_locked
+_unreadable_summary = _unreadable_store.rescan()
+check("a rescan does not drop a file it could not read",
+      _unreadable_summary["dropped"] == 0
+      and _unreadable_store.missing([_locked_result["sha256"]]) == [],
+      _unreadable_summary)
+
+_late_upload_bytes = b"\xff\xd8\xff arrived during the rescan"
+_unreadable_store._hash_file = _real_hash_file
+_hashing_started = threading.Event()
+_release_hashing = threading.Event()
+
+
+def _hash_slowly(path):
+    _hashing_started.set()
+    _release_hashing.wait(5)
+    return _real_hash_file(path)
+
+
+_unreadable_store._hash_file = _hash_slowly
+_slow_rescan = threading.Thread(target=_unreadable_store.rescan, daemon=True)
+_slow_rescan.start()
+_hashing_started.wait(5)
+_late_result = _unreadable_store.ingest("late.jpg", _late_upload_bytes)
+_release_hashing.set()
+_slow_rescan.join(10)
+_unreadable_store._hash_file = _real_hash_file
+with open(_unreadable_store.index_path, encoding="utf-8") as _index_file:
+    _saved_index = json.load(_index_file)
+check("an upload that finishes during a rescan stays in the index",
+      _unreadable_store.missing([_late_result["sha256"]]) == []
+      and _late_result["sha256"] in _saved_index,
+      (_late_result, sorted(_saved_index)))
+
 
 print("\n== the capture date reaches the file, not just the folder ==")
 # The resume itself is already covered end to end above ("video filed by

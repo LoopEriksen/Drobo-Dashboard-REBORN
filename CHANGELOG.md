@@ -725,6 +725,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   do: "could not read the app list", "accepted, unconfirmed", and a 502
   with no apps. Nothing sent to the Drobo changes, and nothing is ever
   re-sent. `test_droboapps_api.py` gains eight checks. (2026-11-02)
+- **A photo-library rescan keeps what it cannot vouch for.** For the
+  photo-upload API, which waits for a phone app: a rescan dropped from
+  its index any photo it could not open at that moment (a share
+  hiccup, a file in use), so the phone would have been asked to send it
+  again, and it lost any upload that finished while it was reading the
+  library. A photo it cannot read now stays in the index and counts as
+  unchanged, and an upload that lands during the rescan is kept.
+  `test_agent.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
