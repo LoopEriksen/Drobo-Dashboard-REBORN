@@ -733,13 +733,24 @@ def _walk_frames(stream_bytes: bytes, frame_signature: Optional[bytes],
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
-def _preview(payload: bytes, max_bytes: int = 300) -> str:
-    """The start of a payload as text for the report.
+#: The most bytes UTF-8 spends on one character.
+_MAX_UTF8_BYTES_PER_CHARACTER = 4
 
-    It slices bytes before decoding, so the limit counts bytes, and an
-    invalid sequence shows as U+FFFD rather than stopping the report.
+
+def _preview(payload: bytes, max_characters: int = 300) -> str:
+    """The first `max_characters` characters of a payload, as text.
+
+    Decoded first and cut second, so the limit counts characters, as
+    --max-preview's help says. It used to cut the bytes first, so a
+    non-ASCII payload came out short and could end in a character
+    split in half (U+FFFD). Only the bytes that can hold that many
+    characters are decoded, so a large payload costs nothing extra: if
+    that cut splits a character, at least `max_characters` whole ones
+    come before it. An invalid sequence still shows as U+FFFD rather
+    than stopping the report.
     """
-    return payload[:max_bytes].decode("utf-8", "replace")
+    leading_bytes = payload[:max_characters * _MAX_UTF8_BYTES_PER_CHARACTER]
+    return leading_bytes.decode("utf-8", "replace")[:max_characters]
 
 
 def _format_login_layout(login: dict) -> str:
@@ -790,14 +801,14 @@ def _format_command_layout(command_framing: dict) -> str:
 
 
 def _report_login_frame(direction_label: str, login: dict,
-                        max_preview_bytes: int) -> dict:
+                        max_preview_characters: int) -> dict:
     """Print the inferred login frame and return its JSON report
     entry."""
     print(f"  INFERRED login-frame header shape (score {login['score']}, "
           f"reasons: {'; '.join(login['reasons'])}):")
     print(_format_login_layout(login))
     print(f"  first decoded XML payload ({direction_label}, login frame):")
-    print("    " + _preview(login["payload"], max_preview_bytes).replace(
+    print("    " + _preview(login["payload"], max_preview_characters).replace(
         "\n", "\n    "))
     return {
         "signature": login["signature"].decode("ascii"),
@@ -806,12 +817,12 @@ def _report_login_frame(direction_label: str, login: dict,
         "endian": login["endian"],
         "includes_header": login["includes_header"],
         "length_value": login["length_value"],
-        "payload_preview": _preview(login["payload"], max_preview_bytes),
+        "payload_preview": _preview(login["payload"], max_preview_characters),
     }
 
 
 def _report_command_frames(direction_label: str, remainder: bytes,
-                           max_preview_bytes: int) -> Optional[dict]:
+                           max_preview_characters: int) -> Optional[dict]:
     """Infer the framing of the bytes after the login frame, print it,
     and return its JSON report entry (None when no framing fits)."""
     command_framing = infer_command_frames(remainder)
@@ -827,8 +838,8 @@ def _report_command_frames(direction_label: str, remainder: bytes,
     for frame_index, frame in enumerate(command_framing["frames"][:3]):
         print(f"  first decoded XML payload ({direction_label}, "
               f"command frame {frame_index}):")
-        print("    " + _preview(frame["payload"], max_preview_bytes).replace(
-            "\n", "\n    "))
+        preview = _preview(frame["payload"], max_preview_characters)
+        print("    " + preview.replace("\n", "\n    "))
     return {
         "signature": (command_framing["signature"].decode("ascii")
                       if command_framing["signature"] else None),
@@ -838,13 +849,14 @@ def _report_command_frames(direction_label: str, remainder: bytes,
         "includes_header": command_framing["includes_header"],
         "frame_count": len(command_framing["frames"]),
         "payload_previews": [
-            _preview(frame["payload"], max_preview_bytes)
+            _preview(frame["payload"], max_preview_characters)
             for frame in command_framing["frames"][:5]],
     }
 
 
 def analyse_direction(direction_label: str, stream_bytes: bytes,
-                      stream_report: dict, max_preview_bytes: int) -> None:
+                      stream_report: dict,
+                      max_preview_characters: int) -> None:
     """Infer and print the framing of one direction of a stream, and
     file what was found under `stream_report["directions"]`.
 
@@ -874,10 +886,10 @@ def analyse_direction(direction_label: str, stream_bytes: bytes,
         direction_report["login_frame"] = None
     else:
         direction_report["login_frame"] = _report_login_frame(
-            direction_label, login, max_preview_bytes)
+            direction_label, login, max_preview_characters)
         direction_report["command_frames"] = _report_command_frames(
             direction_label, stream_bytes[login["frame_end_absolute"]:],
-            max_preview_bytes)
+            max_preview_characters)
 
     stream_report.setdefault("directions", {})[direction_label] = (
         direction_report)
@@ -989,7 +1001,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _analyse_stream(stream: dict, port: int,
-                    max_preview_bytes: int) -> dict:
+                    max_preview_characters: int) -> dict:
     """Reassemble and analyse both directions of one connection, print
     the header they suggest, and return the stream's report."""
     client = stream["client"]
@@ -1003,9 +1015,9 @@ def _analyse_stream(stream: dict, port: int,
     to_server = reassemble(stream["to_server"])
     to_client = reassemble(stream["to_client"])
     analyse_direction(f"{client}->{server} (client->server)",
-                      to_server, stream_report, max_preview_bytes)
+                      to_server, stream_report, max_preview_characters)
     analyse_direction(f"{server}->{client} (server->client)",
-                      to_client, stream_report, max_preview_bytes)
+                      to_client, stream_report, max_preview_characters)
     print_proposed_header(stream_report, port)
     return stream_report
 

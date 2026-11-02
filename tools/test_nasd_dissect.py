@@ -307,6 +307,20 @@ def run_without_login_frame(temp_dir: str) -> None:
           "an empty capture says which port it looked on")
 
 
+def run_preview_checks() -> None:
+    """--max-preview counts characters, as its help says, not bytes."""
+    print("\n=== payload previews are cut by characters ===")
+    accented = "\u00e9" * 10
+    preview = nasd_dissect._preview(accented.encode("utf-8"), 5)
+    check(preview == "\u00e9" * 5,
+          f"five characters of a two-byte script are five characters "
+          f"(got {preview!r})")
+    check("\ufffd" not in preview,
+          "a preview never ends in a character cut in half")
+    check(nasd_dissect._preview(b"<TMCmd/>", 400) == "<TMCmd/>",
+          "a payload shorter than the limit is shown whole")
+
+
 def main() -> int:
     # The synthetic captures go in a temp folder that is removed however
     # the run ends. Until 2026-09-16 every run left its folder behind in
@@ -357,6 +371,7 @@ def run_checks(temp_dir: str) -> int:
     # while the tool is useless on every real file.
     run_against(pcapng_le_path, "pcapng (little-endian, as real tools write)")
     run_without_login_frame(temp_dir)
+    run_preview_checks()
 
     print()
     if failures:

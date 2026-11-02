@@ -997,6 +997,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   that same rule, so such tags are listed, in narrow and wide strings
   alike; a long run with a digit or symbol in it is still left out.
   `tools/test_dashboard_strings.py` gains three checks. (2026-11-02)
+- **`tools/nasd_dissect.py --max-preview` counts characters, as its
+  help says.** It cut the payload's bytes before decoding them, so a
+  preview of non-ASCII text came out short and could end in a character
+  split in half (shown as `�`). Previews of ASCII payloads are
+  unchanged. The flag, its default and the report's JSON keys are as
+  they were; for testers who call `analyse_direction` by keyword, its
+  `max_preview_bytes` parameter is now `max_preview_characters`.
+  `tools/test_nasd_dissect.py` gains three checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
