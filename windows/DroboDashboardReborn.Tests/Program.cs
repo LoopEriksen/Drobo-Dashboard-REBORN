@@ -509,6 +509,36 @@ var eventLine = eventReport.Split('\n').FirstOrDefault(line => line.Contains("M1
 Check("an empty ts_iso prints as not decoded", eventLine.StartsWith("time not decoded"), eventLine);
 
 
+// ---------------------------------------------------------------------------
+// The in-app file browser's rules (SharePaths, and the sizes it shows).
+//
+// Until 2026-11-02 the browser's root check was a bare StartsWith, so
+// \\host\Photos2 passed for \\host\Photos, and it counted sizes in 1024s
+// where the Status tab counts in 1000s.
+Console.WriteLine("\n== SharePaths: inside the share means inside it ==");
+const string photosRoot = @"\\host\Photos";
+foreach (var (candidatePath, expectedInside) in new (string, bool)[]
+{
+    (@"\\host\Photos", true),
+    (@"\\HOST\photos\2024", true),
+    (@"\\host\Photos\2024\June", true),
+    (@"\\host\Photos2", false),
+    (@"\\host\Photos\..\Other", false),
+    (@"\\host\Photos\.\2024", false),
+    (@"\\host", false),
+    ("", false),
+})
+{
+    var inside = Attempt(() => SharePaths.IsWithinShareRoot(candidatePath, photosRoot));
+    Check($"{(candidatePath.Length > 0 ? candidatePath : "(empty)")} inside {photosRoot}: {expectedInside}",
+          object.Equals(inside, expectedInside), inside);
+}
+
+Console.WriteLine("\n== the file browser shows sizes as the Status tab does ==");
+var browserSize = JsonHelpers.FormatBytes(1_500_000);
+Check("1,500,000 bytes is 1.50 MB (the browser showed 1.4 MB)", browserSize == "1.50 MB", browserSize);
+
+
 Console.WriteLine();
 Console.WriteLine(fails.Count == 0 ? "ALL PASS" : $"{fails.Count} FAILURES: {string.Join(", ", fails)}");
 return fails.Count == 0 ? 0 : 1;

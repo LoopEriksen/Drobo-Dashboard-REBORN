@@ -18,7 +18,7 @@ dashboard. All Drobo logic stays in `agent/` and `sdk/`.
 | | |
 |---|---|
 | [`DroboDashboardReborn/`](DroboDashboardReborn/) | The app's source code. What each file is: [The app's source files](#the-apps-source-files), below |
-| [`DroboDashboardReborn.Tests/`](DroboDashboardReborn.Tests/) | Tests for the app's notification rules, saved-login handling, and how it reads the agent's JSON and write answers, its own settings file and its diagnostics report. Run them from the repository's top folder: `dotnet run --project windows/DroboDashboardReborn.Tests` |
+| [`DroboDashboardReborn.Tests/`](DroboDashboardReborn.Tests/) | Tests for the app's notification rules, saved-login handling, settings file, diagnostics report and file-browser path rule, and for how it reads the agent's JSON and write answers. Run them from the repository's top folder: `dotnet run --project windows/DroboDashboardReborn.Tests` |
 | [`installer/`](installer/README.md) | Everything the `.msi` installer is built from. **Testers: open [`installer/TESTING.md`](installer/TESTING.md) first** |
 | [`build-installer.ps1`](build-installer.ps1) | Builds the installer. Run it from the repository's top folder |
 | [`test-installer.ps1`](test-installer.ps1) | Installs, runs and uninstalls the built `.msi` to prove it works. Needs an administrator window |
@@ -65,6 +65,7 @@ share) and `VolumeRow` (a volume).
 | `TrayIconManager.cs` | The icon in the notification area, by the clock |
 | `WriteOutcome.cs` | The four ways a settings change can end |
 | `JsonHelpers.cs` | Small helpers for reading the agent's answers |
+| `SharePaths.cs` | The file browser's rule for which folders are inside the share it was opened on |
 | `AssemblyInfo.cs` | Standard WPF boilerplate |
 | `Assets/` | The two app icons (normal, and with an alert badge) and the script that draws them |
 | `DroboDashboardReborn.csproj` | Build settings and the version number |

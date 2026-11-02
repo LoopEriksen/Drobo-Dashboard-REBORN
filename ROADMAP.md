@@ -864,9 +864,7 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- The in-app file browser counts sizes in 1024s where the Status
-  tab uses 1000s, and its root check accepts `\\host\Photos2` for
-  `\\host\Photos`.
+All fixed on 2026-11-02; see `CHANGELOG.md` under Unreleased.
 
 ---
 

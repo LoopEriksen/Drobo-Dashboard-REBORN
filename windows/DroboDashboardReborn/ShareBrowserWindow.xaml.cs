@@ -52,22 +52,14 @@ public partial class ShareBrowserWindow : Window
         public DateTime? ModifiedAt { get; init; }
 
         public string Glyph => IsDirectory ? "\u25B8" : "\u00B7";   // ▸ for folders, · for files
-        public string SizeText => IsDirectory ? "" : FormatSize(SizeBytes);
+        /// <summary>A file's size for the listing, blank for a folder or when
+        /// it could not be read. In 1000s, by JsonHelpers.FormatBytes, the
+        /// same as the Status tab and the Drobo's own capacity figures; until
+        /// 2026-11-02 this stepped by 1024 under the same KB/MB/GB labels,
+        /// so one app showed two figures for one number of bytes. Explorer
+        /// counts in 1024s, so its column can read differently.</summary>
+        public string SizeText => IsDirectory || SizeBytes is null ? "" : JsonHelpers.FormatBytes(SizeBytes.Value);
         public string ModifiedText => ModifiedAt?.ToString("yyyy-MM-dd HH:mm") ?? "";
-
-        /// <summary>A file's size for the listing, blank when it could not be
-        /// read. It steps by 1024, while JsonHelpers.FormatBytes (the Status
-        /// tab) steps by 1000, so the two can show different figures for the
-        /// same number of bytes.</summary>
-        private static string FormatSize(long? sizeBytes)
-        {
-            if (sizeBytes is null) return "";
-            double scaledSize = sizeBytes.Value;
-            string[] units = { "B", "KB", "MB", "GB", "TB" };
-            int unitIndex = 0;
-            while (scaledSize >= 1024 && unitIndex < units.Length - 1) { scaledSize /= 1024; unitIndex++; }
-            return unitIndex == 0 ? $"{scaledSize:0} {units[unitIndex]}" : $"{scaledSize:0.0} {units[unitIndex]}";
-        }
     }
 
     /// <summary>Opens on the share's root. A trailing backslash is trimmed
@@ -100,8 +92,8 @@ public partial class ShareBrowserWindow : Window
     {
         // Never allow navigation above the share root. A UNC path can be
         // walked up to \\host, which lists OTHER shares, and that is not what
-        // "browse this share" means.
-        if (!path.StartsWith(_shareRootUnc, StringComparison.OrdinalIgnoreCase))
+        // "browse this share" means. See SharePaths for what counts as inside.
+        if (!SharePaths.IsWithinShareRoot(path, _shareRootUnc))
             path = _shareRootUnc;
 
         int generation = ++_generation;

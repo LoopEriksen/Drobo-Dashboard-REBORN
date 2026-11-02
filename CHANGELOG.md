@@ -919,6 +919,16 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   booted; it now reads "unknown". An event whose time the agent could not
   decode prints "time not decoded" rather than a blank. The Windows test
   program gains 8 checks. (2026-11-02)
+- **The Windows app's file browser shows sizes as the Status tab does,
+  and its share-root check means the share.** The browser counted file
+  sizes in 1024s under the same KB, MB and GB labels the Status tab uses
+  for 1000s, so one app showed two figures for the same number of bytes;
+  it now uses the Status tab's figures (Explorer counts in 1024s, so its
+  column can read differently). Its guard against leaving the share
+  accepted any path that began with the share's, so `\\host\Photos2` passed
+  for `\\host\Photos`, as did a path with `..` in it; nothing navigated
+  that way, but the guard now requires the share's own folder and refuses
+  `.` and `..`. The Windows test program gains 9 checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
