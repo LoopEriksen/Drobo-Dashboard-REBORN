@@ -791,7 +791,8 @@ renamed. How it went, and what was left alone and why, is in
 what it found was recorded instead. Below are the faults that change what
 someone sees or gets; docstrings that disagree with their code, dead checks
 and unused names were noted too and wait on the same decisions. Each fix is
-its own decision; none has been made. Confirmed means it was reproduced;
+its own decision. Those fixed since (from 2026-11-02) are gone from this
+list and recorded in `CHANGELOG.md`. Confirmed means it was reproduced;
 the rest come from reading the code.
 
 *SDK — writes and their gates*
@@ -809,10 +810,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *SDK — reads and discovery*
 
-- `sysinfo.get_sysinfo_and_performance`: a truncated or dropped
-  performance reply raises `ConfigError` out of the function, and the
-  driver throws away the temperature and uptime already read, contrary to
-  its docstring.
 - `discovery`: an mDNS A record of the wrong length or a short SRV record
   raises `KeyError` and aborts the whole browse, so the hostname and
   last-known candidates are never tried; the listen window uses the wall

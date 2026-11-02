@@ -12,7 +12,10 @@ this command look broken for weeks.
 """
 import html
 import os
+import socket
+import struct
 import sys
+import threading
 import warnings
 
 sys.path.insert(0, os.path.abspath(
@@ -354,6 +357,88 @@ check(
     "a non-numeric reading is None",
     droboapps.parse_dimming(_result_reply("bright")) is None,
 )
+
+print("\n== a lost performance reply keeps the temperature ==")
+# Found 2026-10-29 and fixed 2026-11-02: a performance frame cut short,
+# or never sent, raised ConfigError out of get_sysinfo_and_performance,
+# and the driver threw away the temperature and uptime it already had.
+# Everything here is a fake on 127.0.0.1; no device is contacted.
+_SHORT_SYSINFO_REPLY = (
+    b"<TMCmd><CmdID>61</CmdID><ResultDetails>"
+    + html.escape("<SysInfo><UpTime>42</UpTime>"
+                  "<Temperature>31</Temperature></SysInfo>").encode()
+    + b"</ResultDetails></TMCmd>\x00"
+)
+
+
+def _receive_frame(connection):
+    """Read one whole DRINETTM frame from the client, however it
+    arrives."""
+    received = b""
+    while len(received) < config_cmd.HEADER_BYTES:
+        chunk = connection.recv(config_cmd.HEADER_BYTES - len(received))
+        if not chunk:
+            return received
+        received += chunk
+    payload_bytes = struct.unpack(">I", received[12:16])[0]
+    while len(received) < config_cmd.HEADER_BYTES + payload_bytes:
+        chunk = connection.recv(65536)
+        if not chunk:
+            break
+        received += chunk
+    return received
+
+
+def _fake_drobo_losing_performance(port_holder, performance_bytes):
+    """Answer login and sysinfo, then send `performance_bytes` (a cut
+    frame, or nothing) and hang up."""
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(("127.0.0.1", 0))
+    port_holder.append(server_socket.getsockname()[1])
+    server_socket.listen(1)
+
+    def serve_one_connection():
+        try:
+            connection, _ = server_socket.accept()
+            connection.settimeout(5)
+            _receive_frame(connection)
+            connection.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_LOGIN_OK, b""))
+            _receive_frame(connection)
+            connection.sendall(config_cmd._build_frame(
+                config_cmd.TYPE_RESULT, _SHORT_SYSINFO_REPLY))
+            _receive_frame(connection)
+            connection.sendall(performance_bytes)
+            connection.close()
+        except OSError:
+            pass
+        finally:
+            server_socket.close()
+
+    threading.Thread(target=serve_one_connection, daemon=True).start()
+
+
+_whole_performance_frame = config_cmd._build_frame(
+    config_cmd.TYPE_RESULT, _performance_reply("<ReadThroughout>1"
+                                               "</ReadThroughout>"))
+for _label, _performance_bytes in (
+        ("a performance frame cut short", _whole_performance_frame[:30]),
+        ("no performance frame at all", b"")):
+    _ports = []
+    _fake_drobo_losing_performance(_ports, _performance_bytes)
+    try:
+        _readings = sysinfo.get_sysinfo_and_performance(
+            "127.0.0.1", "drb000000SAMPLE", port=_ports[0], timeout=5)
+    except config_cmd.ConfigError as exc:
+        _readings = f"raised {type(exc).__name__}: {exc}"
+    check(f"{_label}: temperature and uptime are still returned",
+          isinstance(_readings, dict)
+          and _readings["temperature_c"] == 31
+          and _readings["uptime_seconds"] == 42, _readings)
+    check(f"{_label}: performance is None",
+          isinstance(_readings, dict) and _readings["performance"] is None,
+          _readings)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

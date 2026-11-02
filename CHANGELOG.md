@@ -548,6 +548,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   settings could not be read, why, and that whether a partner is set up is
   not known. A Drobo that answers with no partner gets the same explanation
   as before. The same reads are made as before. (2026-11-02)
+- **A lost performance reading no longer throws away the temperature.**
+  The agent asks for temperature, uptime and throughput over one
+  connection. When the throughput reply was cut short or never came, the
+  frame reader's error escaped, and the temperature and uptime already
+  read were dropped with it, so the chassis temperature and its alert
+  went stale for that poll. They are now kept and only throughput is
+  left empty, as the code always said it would be. Nothing sent to the
+  Drobo changes. `test_sysinfo.py` gains four checks against a fake
+  device on this PC. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

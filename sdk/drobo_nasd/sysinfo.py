@@ -354,7 +354,10 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
     Performance failing does NOT lose the temperature. The sysinfo
     reading is taken first and returned even if the performance command
     then errors, since temperature is the one with an alert rule
-    attached to it.
+    attached to it. That includes a performance reply cut short or never
+    sent: the frame reader reports those as ConfigError, not
+    SysInfoError, and until 2026-11-02 they escaped this function and
+    the driver dropped the temperature and uptime it already had.
     """
     with _logged_in_connection(host, esa_id, port, timeout) as sock:
         readings = dict(parse_sysinfo(
@@ -363,6 +366,8 @@ def get_sysinfo_and_performance(host: str, esa_id: str,
         try:
             readings["performance"] = parse_performance(
                 _send_and_read_result(sock, "eCmdGetPerformance", esa_id))
-        except (SysInfoError, OSError):
-            pass  # keep the temperature we already have
+        except (ConfigError, OSError):
+            # ConfigError covers SysInfoError and a lost or truncated
+            # frame alike; keep the temperature we already have.
+            pass
         return readings
