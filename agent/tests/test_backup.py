@@ -102,6 +102,11 @@ check(
 check("source == destination is refused",
       any("same folder" in refusal
           for refusal in backup.check_destination(source_dir, source_dir)))
+# A folder is not inside itself: until 2026-11-02 the same folder at
+# both ends was also refused as "the destination is inside the source".
+same_folder_refusals = backup.check_destination(source_dir, source_dir)
+check("-- with that one reason only", len(same_folder_refusals) == 1,
+      same_folder_refusals)
 check("backing up into a parent of the source is refused",
       any("parent of" in refusal
           for refusal in backup.check_destination(nested_dir, source_dir)),

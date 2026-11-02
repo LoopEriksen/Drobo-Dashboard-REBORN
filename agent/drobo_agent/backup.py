@@ -190,9 +190,12 @@ def _overlap_problems(
     if normalised_source == normalised_destination:
         problems.append("The source and the destination are the same folder.")
 
-    # Copying a folder into itself makes robocopy
-    # walk its own output forever.
-    if _is_within(normalised_destination, normalised_source):
+    # Copying a folder into itself makes robocopy walk its own output
+    # forever. A folder is not inside itself: until 2026-11-02 the same
+    # folder at both ends was refused for this too, so it got two
+    # reasons for one mistake.
+    if (_is_within(normalised_destination, normalised_source)
+            and normalised_source != normalised_destination):
         problems.append(
             "The destination is inside the source. Copying a folder "
             "into itself never finishes -- it keeps finding the "

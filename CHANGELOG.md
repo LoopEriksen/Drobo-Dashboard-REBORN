@@ -797,6 +797,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   characters sent the push somewhere else. It is now quoted into the
   address whole; an ordinary topic of letters, digits, `-` and `_` is
   unchanged. `test_notify.py` gains three checks. (2026-11-02)
+- **A backup from a folder to itself gives one reason, not two.** The
+  same folder at both ends was refused as "the same folder" and also as
+  "the destination is inside the source", which it is not. It now gets
+  the first reason only; every other refusal is unchanged.
+  `test_backup.py` gains one check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

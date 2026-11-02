@@ -195,7 +195,7 @@ the same commit.
 | Start and stop installed Drobo apps | **Built, unverified** | Wire format captured in both directions and validated against the list the device itself reports. No record shows this project ever sending it to a device; graded Working until 2026-09-26. See Working on now. |
 | The device's own event log | **Partial** | Fetching works; the per-line format does not decode. See Working on now. |
 | Create and delete a share | **Built, unverified** | See Working on now. |
-| Back up the Drobo to an external drive | **Built, unverified** | Plans the copy, asks for confirmation, then copies with robocopy, with bounded retries and progress, only on a separate explicit call. Nothing in it speaks the Drobo's protocol: it copies between two folders, and its own test suite runs a real copy end to end on the Windows runner on every push (44 checks there). What has never been recorded is a copy from a real Drobo share, the source it is built for, let alone a whole array. Graded Working here until 2026-10-29, while `docs/capabilities.md` said Built, unverified, a split left by the 88bedd2 merge; settled as Built, unverified, because Working means working against the real 5N. See Working on now. |
+| Back up the Drobo to an external drive | **Built, unverified** | Plans the copy, asks for confirmation, then copies with robocopy, with bounded retries and progress, only on a separate explicit call. Nothing in it speaks the Drobo's protocol: it copies between two folders, and its own test suite runs a real copy end to end on the Windows runner on every push (45 checks there). What has never been recorded is a copy from a real Drobo share, the source it is built for, let alone a whole array. Graded Working here until 2026-10-29, while `docs/capabilities.md` said Built, unverified, a split left by the 88bedd2 merge; settled as Built, unverified, because Working means working against the real 5N. See Working on now. |
 | Photo upload service for a future phone app | **Dormant** | Pairing by QR code, duplicate detection by hash before any bytes move, resumable chunked upload for long videos — all three covered by tests against a running agent, including the attempts to write outside the target folder. Capture dates survive a resume as well — the test resumes without resending the date and still finds the video filed under it; only setting the stored file's own timestamp is untested. Nothing connects to any of it until the iPhone app exists. |
 | Drobo-to-Drobo replication status | **Dormant** | Reports "not configured" honestly. Needs a second Drobo to do anything at all. |
 | Update check | **Dormant** | On demand only, never automatic, and off until a release address is configured. Verifies a checksum. The Windows app shows the answer on its Preferences panel; the Start Menu "Check for Updates" shortcut the installer creates is the only way to ask for one deliberately. That shortcut failed in every installed copy from 2026-09-02 until its fix on 2026-09-26, and the fix was proven in the elevated installer run of 2026-10-08, which ran the installed shortcut (see Working on now). |
@@ -831,10 +831,10 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   can sit between this PC and the mail server. **For the maintainer:**
   checking it is the obvious fix, but it would stop a server with a
   self-signed certificate that works today.
-- `backup`: the same folder as both ends reports two refusals; planning
-  holds the lock while it checks a UNC path, blocking the status route; an
-  error other than `OSError` leaves a job showing "Running..."; robocopy's
-  output is decoded as UTF-8 rather than its code page.
+- `backup`: planning holds the lock while it checks a UNC path, blocking
+  the status route; an error other than `OSError` leaves a job showing
+  "Running..."; robocopy's output is decoded as UTF-8 rather than its
+  code page.
 
 *Tools and scripts*
 
