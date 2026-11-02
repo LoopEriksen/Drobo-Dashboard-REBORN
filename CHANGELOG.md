@@ -671,6 +671,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   says the body must be a JSON object, like any other unreadable body.
   Nothing reached the Drobo before or after. `test_agent.py` gains one
   check covering eleven routes. (2026-11-02)
+- **The pairing link works when the dashboard is opened over IPv6.** The
+  address the phone is given was cut at the first colon of the address
+  the browser used, so `http://[fd00::5]:7431` became
+  `http://[fd00:7431`, in the link and in its QR code. The address is
+  now read whole, and IPv6 loopback falls back to this PC's network
+  address the way `127.0.0.1` does. `test_agent.py` gains three checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -19,6 +19,7 @@ import http.client
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import sys
@@ -631,6 +632,24 @@ check("pair returns url and token",
 check("pair url is not loopback",
       "127.0.0.1" not in reply["url"] or True,
       reply["url"])
+
+# The pairing link is built from the Host the browser used. It was cut
+# at the first colon, so a bracketed IPv6 address lost all but its
+# first group ("http://[fd00:7431"); fixed 2026-11-02.
+_pair_urls_by_host = {}
+for _host_header in ("[fd00::5]:7431", "[::1]:7431", "192.0.2.4:7431"):
+    status, reply = call("/api/pair", headers={"Host": _host_header})
+    _pair_urls_by_host[_host_header] = reply.get("url", "")
+check("a bracketed IPv6 Host gives a pairing link with the whole address",
+      _pair_urls_by_host["[fd00::5]:7431"] == "http://[fd00::5]:7431",
+      _pair_urls_by_host)
+check("-- IPv6 loopback falls back to this PC's address, as 127.0.0.1 does",
+      re.fullmatch(r"http://\d+\.\d+\.\d+\.\d+:7431",
+                   _pair_urls_by_host["[::1]:7431"]) is not None,
+      _pair_urls_by_host)
+check("-- and an IPv4 Host is used as it was",
+      _pair_urls_by_host["192.0.2.4:7431"] == "http://192.0.2.4:7431",
+      _pair_urls_by_host)
 
 check("qr generator poly nsym=10 matches spec",
       qr._generator_polynomial(10) == [

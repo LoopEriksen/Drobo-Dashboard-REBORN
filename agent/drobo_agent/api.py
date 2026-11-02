@@ -605,14 +605,34 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         return self._send_json(
             {"error": f"could not reach the command port: {exc}"}, 502)
 
+    def _request_host_name(self) -> str:
+        """
+        The host name or address in the request's Host header, without
+        its port or IPv6 brackets and in lower case (urlsplit lowercases
+        it; host names are case-blind); "" when there is none or it
+        cannot be parsed.
+
+        Parsed as a URL authority rather than cut at the first colon:
+        the cut left a bracketed IPv6 address as its first group alone,
+        so the pairing link read "http://[fd00:7431" (until 2026-11-02).
+        """
+        host_header = self.headers.get("Host", "") or ""
+        try:
+            return urllib.parse.urlsplit("//" + host_header).hostname or ""
+        except ValueError:
+            # An unclosed "[" -- nothing trustworthy to build a link on.
+            return ""
+
     def _pair_url(self) -> str:
         """
         The address the phone should use. Prefer whatever host the
         browser reached us on, but if that's loopback the phone can't
         use it -- fall back to this machine's LAN address.
         """
-        host = (self.headers.get("Host", "") or "").split(":")[0]
-        if host in ("", "localhost", "127.0.0.1", "::1", "[::1]"):
+        host = self._request_host_name()
+        if ":" in host:
+            host = f"[{host}]"
+        if host in ("", "localhost", "127.0.0.1", "[::1]"):
             udp_route_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
                 udp_route_probe.connect(_ROUTE_PROBE_ADDRESS)

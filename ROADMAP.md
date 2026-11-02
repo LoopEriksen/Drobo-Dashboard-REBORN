@@ -817,9 +817,9 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api`: a bracketed IPv6 `Host` breaks the pairing link; a non-ASCII
-  digit in the simulator's bay route drops the connection; a non-numeric
-  `check_seconds` breaks every `/api/update` (these three confirmed).
+- `api`: a non-ASCII digit in the simulator's bay route drops the
+  connection; a non-numeric `check_seconds` breaks every `/api/update`
+  (these two confirmed).
   Errors on the event-stream route never reach the console; a manual
   `?host=` search holds up every other `/api/discover` caller.
 - `api._serve_droboapps_action` (confirmed, on a simulated device over
