@@ -834,10 +834,9 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `tools/dashboard_strings.py` drops every letters-only tag of 24
-  characters or more. `tools/nasd_dissect.py`'s `--max-preview` counts
-  bytes, not characters. `tools/nasd_tap.py` leaves two empty capture
-  files when the port cannot be bound.
+- `tools/nasd_dissect.py`'s `--max-preview` counts bytes, not
+  characters. `tools/nasd_tap.py` leaves two empty capture files when the
+  port cannot be bound.
 - `scripts/check_versions.py` ignores every argument but `--quiet`, so
   `--help` runs the check. `scripts/scan_for_pii.py` prints an email's
   domain in full, cannot see into a UTF-16 file, skips an unreadable file

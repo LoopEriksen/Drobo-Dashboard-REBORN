@@ -989,6 +989,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   read (so a mistyped image path makes none), and such an image reports
   0 paths and exits 0. `tools/test_fw_params.py` gains four checks.
   (2026-11-02)
+- **`tools/dashboard_strings.py` keeps long tags in its vocabulary.**
+  Every letters-only tag of 24 characters or more (a long CamelCase
+  name such as a share-limit setting) was dropped from the tag counts
+  and from `--gaps` as if it were a key, although the redaction applied
+  to everything printed lets pure letters through. The counts now use
+  that same rule, so such tags are listed, in narrow and wide strings
+  alike; a long run with a digit or symbol in it is still left out.
+  `tools/test_dashboard_strings.py` gains three checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

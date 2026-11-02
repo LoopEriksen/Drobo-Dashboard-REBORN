@@ -126,6 +126,26 @@ check("-- it shows the redaction in its place",
 check("endpoints() keeps a URL whose path says /token",
       "https://example.invalid/oauth/token" in found, found)
 
+print("\n== count_tags() keeps long CamelCase tags ==")
+# redact() lets pure letters through, so the vocabulary must too: a tag
+# of 24 or more letters is still a tag, in either encoding. A run of
+# that length with a digit in it is still dropped.
+LONG_ASCII_TAG = "ShareMaxTMSizeGBExtendedLimit"
+LONG_WIDE_TAG = "DroboSyncScheduleWindowEnded"
+KEY_SHAPED = "AbCdEf1234567890GhIjKl1234"
+# The wide literal goes first: after a narrow one, the narrow string's
+# last character and its NUL read as one more wide character.
+long_tag_counts = dashboard_strings.count_tags(
+    utf16_blob(LONG_WIDE_TAG)
+    + ascii_blob(LONG_ASCII_TAG, "ShareName", KEY_SHAPED))
+check("a 29-letter ASCII tag is counted",
+      long_tag_counts.get(LONG_ASCII_TAG) == 1, long_tag_counts)
+check("a 28-letter UTF-16 tag is counted",
+      long_tag_counts.get(LONG_WIDE_TAG) == 1, long_tag_counts)
+check("a key-shaped run of letters and digits is still left out",
+      KEY_SHAPED not in long_tag_counts, long_tag_counts)
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

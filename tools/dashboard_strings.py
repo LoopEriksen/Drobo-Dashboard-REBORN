@@ -161,11 +161,14 @@ def count_tags(binary_bytes: bytes) -> dict[str, int]:
     """Every tag-shaped string, with how many times it appears.
 
     A credential-shaped string is dropped from the counts, because the
-    vocabulary list is printed and must never carry a key.
+    vocabulary list is printed and must never carry a key. "Credential-
+    shaped" is redact()'s own rule, pure letters exempt: testing the
+    long-run pattern alone dropped every CamelCase tag of 24 letters or
+    more from the vocabulary and from --gaps.
     """
     tag_counts: dict[str, int] = {}
     for _offset, text, _encoding in extract_printable_strings(binary_bytes):
-        if is_protocol_tag(text) and not _CREDENTIAL_SHAPED_RE.match(text):
+        if is_protocol_tag(text) and redact(text) == text:
             tag_counts[text] = tag_counts.get(text, 0) + 1
     return tag_counts
 
