@@ -2101,6 +2101,52 @@ check("-- when it answers again, only 'unreachable' clears; the drive "
 check("-- and the drive alert is still active",
       _flap_monitor.alerts["drive-failed-3"].active)
 
+# stop() gives the poll thread a bounded time to finish, and until
+# 2026-11-02 then closed the driver whether or not a read was still in
+# flight. Every driver's close() does nothing today, so this was latent;
+# a driver that holds a connection open would have had it shut under a
+# read.
+print("\n== stop() never closes the driver under a read ==")
+
+
+class _SlowReadDriver(drivers.DroboDriver):
+    name = "slow-read"
+
+    def __init__(self):
+        self.release_read = threading.Event()
+        self.reading = False
+        self.close_calls = 0
+        self.closed_during_read = False
+
+    def read_snapshot(self):
+        self.reading = True
+        self.release_read.wait(10)
+        self.reading = False
+        return Snapshot(reachable=False, source=self.name, error="slow")
+
+    def close(self):
+        self.close_calls += 1
+        self.closed_during_read = self.closed_during_read or self.reading
+
+
+_slow_monitor = Monitor(_write_agent_config("slow", {"driver": "mock"}),
+                        _RecordingNotifier())
+_slow_monitor.driver = _SlowReadDriver()
+_slow_monitor.POLL_THREAD_JOIN_TIMEOUT_SECONDS = 0.1
+_start_monitor(_slow_monitor)
+_wait_for(lambda: _slow_monitor.driver.reading, 5)
+_slow_monitor.stop()
+check("stop() with a read in flight does not close the driver yet",
+      _slow_monitor.driver.close_calls == 0,
+      _slow_monitor.driver.close_calls)
+_slow_monitor.driver.release_read.set()
+_slow_monitor._poll_thread.join(5)
+check("-- the poll thread closes it once the read is over, exactly once",
+      _slow_monitor.driver.close_calls == 1,
+      _slow_monitor.driver.close_calls)
+check("-- and never while reading",
+      not _slow_monitor.driver.closed_during_read)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

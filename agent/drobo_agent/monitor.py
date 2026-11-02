@@ -371,6 +371,13 @@ class Monitor:
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._poll_thread: threading.Thread | None = None
+        # Who closes the driver at shutdown: stop(), or the poll thread
+        # on its way out when a read outlives stop()'s bounded wait.
+        # Both flags are read and written under _close_handoff_lock so
+        # the driver is closed exactly once. See stop().
+        self._close_handoff_lock = threading.Lock()
+        self._poll_loop_exited = False
+        self._close_when_poll_loop_exits = False
 
         self.latest: Snapshot | None = None
         self.history: deque[Snapshot] = deque(
@@ -499,23 +506,48 @@ class Monitor:
         """
         Ask the poll thread to finish, give it a bounded time to do so,
         then close the driver's connection to the Drobo.
+
+        When a read outlives that wait, the driver is closed by the
+        poll thread itself once the read is over, not here. Until
+        2026-11-02 stop() closed it regardless, under a read still in
+        flight; every driver's close() does nothing today, so that was
+        latent, but a driver holding a connection would have had it
+        shut mid-read.
+
+        The hand-off needs the process to outlive the read: the poll
+        thread is a daemon, so if the agent exits first the driver is
+        not closed at all. That is harmless while close() does nothing,
+        and a driver that one day holds a connection open has that case
+        to handle.
         """
         self._stop_requested.set()
         if self._poll_thread:
             self._poll_thread.join(
                 timeout=self.POLL_THREAD_JOIN_TIMEOUT_SECONDS)
+        with self._close_handoff_lock:
+            if self._poll_thread and not self._poll_loop_exited:
+                self._close_when_poll_loop_exits = True
+                return
         self.driver.close()
 
     def _poll_loop(self) -> None:
         """
         Poll, then wait. The wait is on the stop event rather than a
         sleep, so stop() ends the loop at once instead of after up to
-        a whole poll interval.
+        a whole poll interval. On its way out it closes the driver if
+        stop() has handed that over (see stop()).
         """
         poll_seconds = float(self.config["agent"]["poll_seconds"])
-        while not self._stop_requested.is_set():
-            self.poll_once()
-            self._stop_requested.wait(poll_seconds)
+        try:
+            while not self._stop_requested.is_set():
+                self.poll_once()
+                self._stop_requested.wait(poll_seconds)
+        finally:
+            with self._close_handoff_lock:
+                self._poll_loop_exited = True
+                close_driver = self._close_when_poll_loop_exits
+            if close_driver:
+                self.driver.close()
 
     # -- polling -------------------------------------------------------
 

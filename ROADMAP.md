@@ -817,9 +817,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `monitor`: `stop()` can close the driver under a read still in flight.
-  The history graph's temperature comes from drive temperatures only,
-  which a 5N never reports.
+- `monitor`: the history graph's temperature comes from drive
+  temperatures only, which a 5N never reports.
 - `drivers`: `read_snapshot` never compares the serial it reads with the
   one it found, so an address DHCP hands to another Drobo would be trusted.
   The simulator logs a failed battery more mildly than a warning one, hands

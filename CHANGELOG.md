@@ -611,6 +611,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   again, "cannot reach" clears, anything that was really fixed meanwhile
   clears, and what still holds stays without being sent again.
   `test_agent.py` gains five checks. (2026-11-02)
+- **Stopping the agent no longer closes the Drobo connection under a
+  reading.** Shutdown gives the poll a few seconds to finish and then
+  closed the driver whether or not a reading was still in progress. It
+  now leaves the close to the poll itself when the reading outlasts
+  that wait, so the driver is closed once, after the reading, provided
+  the agent is still running then (if it exits first, the close never
+  happens). Nothing visible changes today, because no driver holds a
+  connection open between readings. `test_agent.py` gains three
+  checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
