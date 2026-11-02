@@ -643,6 +643,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   DroboApps, Identify and every write), which answer 503 instead. What a
   normal poll sends is unchanged. `test_drivers.py` gains twelve checks.
   (2026-11-02)
+- **The simulated Drobo logs a failure as critical.** Injecting a failed
+  cache battery into the simulator wrote an info line to its event log,
+  milder than the warning line a battery warning wrote, and a failed PSU
+  was logged only as a warning. Both failures are now logged as
+  critical and both warnings as warnings. Simulator only; a real Drobo's
+  event log is untouched. `test_drivers.py` gains four checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -31,7 +31,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from drobo_agent import api  # noqa: E402
 from drobo_agent import drivers  # noqa: E402
-from drobo_agent.models import DeviceInfo, Snapshot  # noqa: E402
+from drobo_agent.models import (  # noqa: E402
+    SEVERITY_CRITICAL, SEVERITY_WARNING, STATE_FAILED, STATE_WARNING,
+    DeviceInfo, Snapshot)
 from drobo_nasd import config_cmd  # noqa: E402
 from drobo_nasd import discovery as nasd_discovery  # noqa: E402
 from drobo_nasd import esatm as nasd_esatm  # noqa: E402
@@ -809,6 +811,21 @@ try:
 finally:
     nasd_discovery.resolve = _original_resolve
     nasd_esatm.read_snapshot = _original_read_snapshot
+
+# The simulator's event log is what the event-log viewers show for an
+# injected fault. Until 2026-11-02 a failed cache battery was logged as
+# info, milder than a warning one, and a failed PSU only as a warning.
+print("\n== the simulator logs a failure more severely than a warning ==")
+for inject_name in ("fail_battery", "fail_power"):
+    for injected_state, expected_severity in (
+            (STATE_FAILED, SEVERITY_CRITICAL),
+            (STATE_WARNING, SEVERITY_WARNING)):
+        mock_driver = drivers.MockDriver({})
+        getattr(mock_driver, inject_name)(injected_state)
+        logged_severity = mock_driver.read_snapshot().event_log[-1].severity
+        check(f"{inject_name}({injected_state!r}) is logged as "
+              f"{expected_severity}", logged_severity == expected_severity,
+              logged_severity)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

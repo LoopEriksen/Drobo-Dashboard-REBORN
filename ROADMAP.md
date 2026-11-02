@@ -817,9 +817,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `drivers`: the simulator logs a failed battery more mildly than a
-  warning one and hands out shared state by reference; the real driver's
-  not-found message lists the search order wrongly.
+- `drivers`: the simulator hands out shared state by reference; the real
+  driver's not-found message lists the search order wrongly.
 - `api`: a JSON body that is not an object (`[]`, `1`, `null`) makes the
   backup, photo, config-write and DroboApps routes drop the connection
   with no answer; a bracketed IPv6 `Host` breaks the pairing link; a

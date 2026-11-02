@@ -31,6 +31,7 @@ import time
 from collections import deque
 
 from .models import (
+    SEVERITY_CRITICAL,
     SEVERITY_INFO,
     SEVERITY_WARNING,
     STATE_EMPTY,
@@ -1108,7 +1109,7 @@ class MockDriver(DroboDriver):
         with self._lock:
             self._battery_override = state
             self._record_event(
-                SEVERITY_WARNING if state == STATE_WARNING else SEVERITY_INFO,
+                self._severity_for_injected_state(state),
                 f"Cache battery reports {state} (mock driver)",
             )
 
@@ -1118,8 +1119,22 @@ class MockDriver(DroboDriver):
         one. Sticky until reset()."""
         with self._lock:
             self._power_override = state
-            self._record_event(SEVERITY_WARNING,
+            self._record_event(self._severity_for_injected_state(state),
                                f"PSU reports {state} (mock driver)")
+
+    @staticmethod
+    def _severity_for_injected_state(state: str) -> str:
+        """
+        How the simulated event log rates an injected battery or PSU
+        state: a failure as critical, a warning as a warning.
+
+        Until 2026-11-02 a failed battery was logged as info, milder
+        than a warning one, and a failed PSU only as a warning, so the
+        event-log viewers ranked a failure below the warning it follows.
+        """
+        if state == STATE_FAILED:
+            return SEVERITY_CRITICAL
+        return SEVERITY_WARNING
 
     def fail_write(self, write_fault: str = WRITE_FAULT_HANGS_UP) -> None:
         """
