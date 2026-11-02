@@ -34,7 +34,61 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `set_share_access(share_name, username, access_code)`. A rename only:
   every check, its order, every error message and every byte sent to the
   Drobo are as they were. (2026-10-29)
-- **Readability pass: names with units, guard clauses, shallow nesting, short functions; no behaviour changes**
+- **Readability pass: names with units, guard clauses, shallow nesting, short functions; no behaviour changes.**
+  The code is now written to the rules in `CLAUDE.md`, one module per
+  commit, with nothing the software does changed. Each commit was held
+  to the 31 Python suites with the same counts, the same bytes sent to
+  a simulated Drobo, the same dashboard and QR fingerprints, the same
+  JSON keys on every read-only route and the same `--help` from every
+  program. Faults found along the way were recorded, not fixed: they are
+  listed under Phase 6 in `ROADMAP.md`. For testers whose own scripts
+  use them, every public name and keyword parameter that changed, here
+  and in the earlier entries above, in one place. Renamed names:
+  `api.serve` -> `build_http_server`; `Monitor.history_dicts` ->
+  `history_points`; `Drobo5NDriver.timeout` -> `timeout_seconds` and
+  `try_sweep` -> `discovery_sweep_enabled`; `BackupJob.plan` ->
+  `backup_plan`; `extract_commands.extract` -> `extract_from_capture`
+  and `DEFAULT_PORT` -> `DEFAULT_COMMAND_PORT`; `fw_params.analyse` ->
+  `analyse_command`; `drobo_probe.SWEEP_RANGE` -> `SWEEP_PORT_RANGE`
+  and `PROBES` -> `FINGERPRINT_PROBES`; `fwtool.Section`'s `offset`,
+  `size`, `build` and `kind` -> `absolute_offset`, `size_bytes`,
+  `build_number` and `payload_format`; `nasd_tap.Tap` -> `TrafficTap`;
+  `generate_icon.ICON_SIZES`, `PLATE` and `WORDMARK` ->
+  `ICON_SIZES_PIXELS`, `PLATE_COLOUR` and `WORDMARK_COLOUR`. Renamed
+  keyword parameters (positional calls are unaffected):
+  `droboapps.set_dimming(value)` and `MockDriver.set_dimming(value)` ->
+  `brightness`; `sharewrite.create_share(name)` and
+  `delete_share(name)` -> `share_name`;
+  `MockDriver.set_share_access(share, user, access)` ->
+  `(share_name, username, access_code)`;
+  `config_cmd.set_config_raw(edit)` -> `edit_section`;
+  `commands.is_safe_write(name)` -> `command_name`;
+  `framing.decode_frame(data)` -> `buffered_bytes` and
+  `FrameAssembler.feed(data)` -> `received_bytes`;
+  `discovery.parse_mdns_response(data)` -> `packet`;
+  `Monitor.history_points(limit)` -> `max_points`;
+  `PhotoStore.ingest(data)` -> `file_bytes`;
+  `drobo_probe.is_tcp_port_open(timeout)` and
+  `fingerprint_port(timeout)` -> `timeout_seconds`,
+  `mdns_discover(wait)` -> `wait_seconds`, `port_sweep(workers)` and
+  `scan_subnet(workers)` -> `worker_count`, `hexdump(limit)` ->
+  `max_bytes`; `fw_params.analyse_command`, `extract_strings` and
+  `validate`'s `blob` -> `binary_bytes`;
+  `dashboard_strings.strings_near(span)` -> `neighbour_count`;
+  `nasd_dissect.read_pcap_classic(data)` and `read_pcapng(data)` ->
+  `capture_bytes`, and `analyse_direction(label, report, max_preview)`
+  -> `(direction_label, stream_report, max_preview_bytes)`;
+  `nasd_probe.read_available(first_timeout, idle_timeout)` ->
+  `(first_timeout_seconds, idle_timeout_seconds)`,
+  `connect_to_status_port(timeout)` -> `timeout_seconds`,
+  `classify_response(data)` -> `reply_bytes` and `hexdump(limit)` ->
+  `limit_bytes`; `nasd_tap.TrafficTap(bin_path)` ->
+  `client_bytes_path`, `handle_connection(client)` -> `client_socket`
+  and `hexdump(limit)` -> `limit_bytes`; `generate_icon.build_shapes`
+  and `render`'s `size` -> `size_pixels`, `word_width` and
+  `word_predicate`'s `dot_size` -> `dot_size_pixels`. `set_spindown`
+  keeps its `delay`. The sub-lines below say what changed in each
+  module. (2026-10-29)
   - Private helpers that scripts of your own may reach into:
     `eventlog._command_xml` -> `_build_request_payload`. A rename only:
     every byte sent to the Drobo is unchanged. (2026-10-29)
@@ -67,7 +121,7 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
     element sent to the Drobo is unchanged. (2026-10-29)
   - `sdk/drobo_nasd/framing.py`: frame decoding names its lengths and
     offsets; for testers who call it by keyword, `decode_frame(data)`
-    -> `decode_frame(buffered_bytes)` and `FrameReader.feed(data)` ->
+    -> `decode_frame(buffered_bytes)` and `FrameAssembler.feed(data)` ->
     `feed(received_bytes)` (positional calls are unaffected).
     (2026-10-29)
   - `sdk/drobo_nasd/client.py`: the speculative client says why its

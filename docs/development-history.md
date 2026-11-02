@@ -896,6 +896,91 @@ sent are unchanged: 900 is sent only once someone is watching the unit, and
 the default moves only if the lights blink. The reply's "should be blinking
 now", which nobody has seen on this unit, is left for its own decision.
 
+## Code written to be read (2026-10-29)
+
+**10-29.** The PEP 8 pass had given every name a proper form; it had not
+made the code easy to check. The people who read this code are checking it
+against a device they cannot replace, so the maintainer wrote down the rules
+the code should follow (the readability section of `CLAUDE.md`) and asked
+for a pass that applies them without changing anything the software does:
+names that carry their unit (`timeout_seconds`, `size_bytes`), guard clauses
+in place of nested branches, at most two levels of nesting inside a
+function, functions of about 40 lines split into helpers whose names say
+what each part does, and docstrings that say why.
+
+It went in as 80 commits after the one that wrote the rules down. Six shared
+renames came first, because a name that crosses files has to move everywhere
+at once: the SDK's write-path parameters, the event log's request builder,
+the agent names other modules reach, the tools' entry points, and two sets
+of names in the Windows app. Then each area went module by module: the SDK's
+protocol core, its write features and its read side, the agent's driver, its
+API and the rest of the agent, two groups of tools, the repository's scripts
+and the icon generator, and the Windows app in two halves
+(`MainWindow.xaml.cs` took six commits on its own, so each stayed small
+enough to review). In the SDK's write path the rule was to split, never
+reorder: every `except` clause, its order, and the read-back that decides an
+unacknowledged write are where they were, now inside named helpers.
+
+Some names were deliberately not touched, because something outside the code
+reads them: routes, JSON and config keys, command-line flags, environment
+variables, file names, the bytes and XML sent to a Drobo, and the members of
+the write gates. Neither were the private SDK names that tests and `api.py`
+reach into (apart from `eventlog._command_xml`, renamed with its test in the
+shared renames), `set_spindown`'s `delay` (the device's unit for it is still
+unconfirmed, so a unit in the name would be a guess), or any XAML binding
+path or `x:Name` in the Windows app, since a missed binding fails silently
+and Windows CI is the only build. A few modules were left as they were
+because there was nothing to improve or nothing that could be touched: the
+two package `__init__.py` files (the agent's `__version__` must stay a plain
+literal for `scripts/check_versions.py`), `webui.py` (its only content
+besides the docstring is the page, which is fingerprinted), the WPF
+template's `AssemblyInfo.cs`, `VolumeRow.cs` (already clear, every property
+a binding target), and the Windows test project, whose two compiled files
+kept the names the tests use. A handful of methods that came out at 42 to 44
+lines were not split further.
+
+Nothing the software does was allowed to change, and each commit was held to
+that by the same gate: all 31 Python suites with the same pass, fail and
+skip counts and exit codes; a recording of every byte the SDK sends to a
+simulated Drobo on loopback, 239 frames from 74 calls, byte-identical; the
+fingerprints of the browser dashboard's page, the pairing QR code's SVG and
+matrices, the API's notes and the robocopy command; the version check and
+the privacy scan; the JSON key set of each of the agent's 37 read-only
+routes, run against the simulated driver with and without simulated settings
+and with no network at all; and the `--help` output of all 14 command-line
+programs and their 9 sub-commands. flake8 stayed at zero findings. Several
+modules were also run side by side, old code against new, over the same
+inputs. No C# compiler was available where the pass was made, so each C#
+commit was checked by a syntax parse and by comparing the identifiers each
+member uses before and after; the Windows CI build is still the only real
+compile of the app.
+
+Docstrings that were wrong were corrected where that was the readability
+work itself: Identify's duplicated "Raises" paragraph, a helper that said it
+left retries to its caller in a module that does not retry, discovery's
+claim that the agent never writes to the device (untrue since 2026-07-27),
+and the stray spaces an earlier rewrap had left inside words and addresses
+(`127. 0.0.1` among them). Everything else found on the way was **recorded,
+not fixed**, because fixing it would change behaviour, and each fix is a
+decision of its own. The faults that change what someone sees or gets are
+listed by area in the roadmap under Phase 6; the rest were docstrings that
+disagree with their code, dead checks and unused names (`sysinfo.get_sysinfo`,
+called nowhere in the repository, among them). The ones that matter
+most to someone using the software: the agent clears every active alert as
+"Resolved" when the Drobo drops off the network and fires them again when it
+comes back, so a network blip tells the user a failed drive was resolved; a
+truncated performance reply throws away the temperature and uptime already
+read; one malformed mDNS reply aborts the whole search instead of falling
+back to the other ways of finding the Drobo; a request body that is valid
+JSON but not an object makes several agent routes drop the connection
+without an answer; the poller never checks that the Drobo it reads is still
+the one it found, so a reused address would be trusted; every event-log
+entry is served with a 1970 timestamp beside its not-decoded marker; and in
+the Windows app "Change Drobo" cancels its own search and leaves the picker
+stuck on "Searching…". For the maintainer to decide:
+`eCmdGetNASUsernamePassword`, which by its name returns credentials, is not
+in `DO_NOT_SEND`, and the credential redaction misses tags such as `ApiKey`.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -935,7 +1020,9 @@ give the remaining command-channel reads the whole-frame deadline the
 settings reads already have; one elevated install of the
 fallback scripts into the real Program Files;
 record the original Dashboard creating and deleting a user, which user
-management now waits on; and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
+management now waits on; decide which of the faults the readability pass
+recorded (2026-10-29) get fixed, starting with the alerts a network blip
+reports as resolved; and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
 redundant pack to degrade for the status codes. The licence is no longer
 open: it was settled as GPL-3.0-or-later on 2026-10-19.
 

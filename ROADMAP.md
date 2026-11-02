@@ -770,6 +770,180 @@ installer copies `LICENSE` into the program folder the way it already copies
 `TESTING.md`. The README states plainly that this is unaffiliated with
 Drobo, StorCentric, or their successors.
 
+### Code a tester can read — readability pass, 2026-10-29
+
+A public repository is read by testers checking the code against a device
+they cannot replace, so on 2026-10-29 the maintainer set down how the code
+is written (the readability section of `CLAUDE.md`) and had a pass apply it
+with **no change in behaviour**: names that carry their units, guard
+clauses, at most two levels of nesting, functions of about 40 lines, and
+docstrings that say why. It landed as 80 commits, six shared renames and
+then one per module, across the SDK, the agent, the tools, the scripts and
+the Windows app. Each was held to the same proof: the 31 Python suites with
+the same counts, every byte sent to a simulated Drobo identical, the
+dashboard and QR fingerprints, the JSON key set of every read-only route
+and every program's `--help`. Routes, JSON and config keys, flags, file
+names, the bytes sent to a Drobo and the write gates' members were not
+renamed. How it went, and what was left alone and why, is in
+`docs/development-history.md`.
+
+**Found while reading, not fixed.** The pass changes no behaviour, so
+what it found was recorded instead. Below are the faults that change what
+someone sees or gets; docstrings that disagree with their code, dead checks
+and unused names were noted too and wait on the same decisions. Each fix is
+its own decision; none has been made. Confirmed means it was reproduced;
+the rest come from reading the code.
+
+*SDK — writes and their gates*
+
+- `config_cmd.get_config_element`: malformed reply XML raises `ParseError`,
+  not `ConfigError`. `set_config_raw` makes this read before it writes, so
+  `sharewrite`'s `except (OSError, ConfigError)` misses it and it reaches
+  the agent (nothing has been sent by then). `get_config` does wrap it.
+  `get_config_element` also skips the `DO_NOT_SEND` check `get_config`
+  makes.
+- Credential redaction: `\bkey\b` does not match CamelCase tags such as
+  `ApiKey`, `PrivateKey`, `SSHKey` or `KeyData`, and an unparseable
+  XML-shaped blob with no credential-looking word passes through, though
+  the docstring says it is replaced wholesale.
+- `config_cmd._login_payload` drops non-ASCII characters from the serial
+  silently, and the serial goes into the request XML unescaped; only its
+  length is checked.
+- `commands`: the import-time integrity checks are `assert`s, so
+  `python -O` skips them; `is_dangerous` treats an id missing from the
+  table (103, 200, -1) as safe, and `NasdClient` would send it.
+  **For the maintainer:** `eCmdGetNASUsernamePassword` (102), which by its
+  name returns credentials, is not in `DO_NOT_SEND`.
+- `droboapps.set_dimming`, `set_spindown`, `disable_spindown`: when the
+  write is accepted and the confirming read then fails, the error comes out
+  as an ordinary failure or a refusal, not as accepted-but-unverified, which
+  invites a retry of a write that probably applied. `sharewrite` raises
+  `ShareWriteOutcomeUnknownError` in exactly this case. The docstrings of
+  `droboapps_action` and `get_spindown` name errors and returns they do not
+  produce.
+- `sharewrite._resolve_share`: two shares with the identical name are
+  refused (safe) with a message saying none matches exactly (wrong).
+  `create_share` and `delete_share` name the wrong exception for a write
+  that did not apply. `shareedit.set_user_access` is weaker than
+  `sharewrite` on the same rules (latent: only tests use it).
+- `envelope.parse` lets `ValueError` and `IndexError` escape
+  `EnvelopeError`; `framing` has no maximum frame length (speculative path
+  only).
+- `identify`: `--compare` ignores `--interval` and always sends 15; a
+  negative `--gap` ends in a traceback, not the usage exit code.
+- `shares.link_health`: at full speed but half duplex the note starts with
+  a stray space; `user_accounts` orders names that differ only by case
+  differently from run to run.
+- `drobosync.summary`: when the settings read failed, the note still says
+  the Drobo has no DroboSync partner, which was not measured.
+
+*SDK — reads and discovery*
+
+- `sysinfo.get_sysinfo_and_performance`: a truncated or dropped
+  performance reply raises `ConfigError` out of the function, and the
+  driver throws away the temperature and uptime already read, contrary to
+  its docstring.
+- `discovery`: an mDNS A record of the wrong length or a short SRV record
+  raises `KeyError` and aborts the whole browse, so the hostname and
+  last-known candidates are never tried; the listen window uses the wall
+  clock. `/api/discover` does not catch the `ParseError` a peer sending
+  malformed XML causes in `verify_candidate`.
+- `models.EventLogEntry.to_dict` serves every real event-log entry with a
+  1970 `ts_iso` beside its not-decoded marker, and the Windows diagnostics
+  report prints it.
+- `esatm`: a present disk reporting `mDiskState` 0 is recorded as empty,
+  not as a warning (plausible; depends on whether a populated bay can
+  report 0). `Capacity.protection_bytes` is never filled from a real 5N,
+  so both apps show a measured-looking 0 B (plausible; may be a known gap).
+- `firmware.assess` tells a 4.3.x unit its array is healthy without ever
+  seeing the array's state. `eventlog`'s connection-lost message blames a
+  missing Path the function always sends.
+
+*Agent*
+
+- `monitor`: when the Drobo becomes unreachable, every active drive,
+  capacity, temperature, battery and pack alert is cleared and sent as
+  "Resolved", then fires again as new when the Drobo returns. `stop()` can
+  close the driver under a read still in flight. The history graph's
+  temperature comes from drive temperatures only, which a 5N never reports.
+- `drivers`: `read_snapshot` never compares the serial it reads with the
+  one it found, so an address DHCP hands to another Drobo would be trusted.
+  The simulator logs a failed battery more mildly than a warning one, hands
+  out shared state by reference, and its not-found message lists the
+  search order wrongly.
+- `api`: a JSON body that is not an object (`[]`, `1`, `null`) makes the
+  backup, photo, config-write and DroboApps routes drop the connection
+  with no answer; a bracketed IPv6 `Host` breaks the pairing link; a
+  non-ASCII digit in the simulator's bay route drops the connection; a
+  non-numeric `check_seconds` breaks every `/api/update` (these four
+  confirmed). Errors on the event-stream route never reach the console; a
+  manual `?host=` search holds up every other `/api/discover` caller.
+- `photos`: a rescan drops files it could not read from the index (the
+  comment promises the opposite) and loses uploads that finish during it;
+  the throttled index save loses the last uploads of a burst on a crash;
+  `photos.max_file_gb` is missing from the defaults.
+- `updates.check` does not catch `http.client.HTTPException`, and a
+  malformed manifest or config entry raises `AttributeError`.
+- `notify`: `use_tls: "false"` means true, implicit TLS on 465 is not
+  supported, and an ntfy failure is printed, not raised, so callers cannot
+  see it; the ntfy topic is not quoted in the URL.
+- `backup`: the same folder as both ends reports two refusals; planning
+  holds the lock while it checks a UNC path, blocking the status route; an
+  error other than `OSError` leaves a job showing "Running..."; robocopy's
+  output is decoded as UTF-8 rather than its code page.
+
+*Tools and scripts*
+
+- `tools/nasd_sweep.py`: `-o` with a bare file name fails only after the
+  whole sweep has been sent, so the report is lost; the first greeting read
+  is not wrapped.
+- `tools/sweep_last_six.py` reads the serial from `sys.argv` by hand before
+  parsing its arguments, so it can log in with one host's serial while
+  sending to another, or with an empty one, and contacts the device even
+  for `--help`; importing it and calling `main()` raises `NameError`.
+- `tools/access_codes.py` exits 0 on "no Drobo address". It, and the two
+  sweeps, catch only `OSError`, so a framing or XML error ends in a
+  traceback.
+- `tools/extract_commands.py` (confirmed): files replies under commands
+  sent and counts a phantom document per reply; text after `<Params>`
+  crashes the whole run.
+- `tools/fwtool.py` writes the rootfs listing outside the output folder
+  and crashes when nothing was extracted. `tools/dashboard_strings.py`
+  drops every letters-only tag of 24 characters or more.
+  `tools/nasd_dissect.py`'s `--max-preview` counts bytes, not characters.
+  `tools/nasd_tap.py` leaves two empty capture files when the port cannot
+  be bound.
+- `scripts/check_versions.py` ignores every argument but `--quiet`, so
+  `--help` runs the check. `scripts/scan_for_pii.py` prints an email's
+  domain in full, cannot see into a UTF-16 file, skips an unreadable file
+  without saying so, and with `--path` takes its private patterns from the
+  scanned checkout.
+- The committed icons do not match what `generate_icon.py` produces with a
+  different zlib, so its "reproduces identically on any machine" does not
+  hold.
+
+*Windows app*
+
+- **Confirmed:** "Change Drobo" starts a search and then cancels it, so the
+  picker stays on "Searching…" (or, with auto-discovery off, never shows
+  the manual entries).
+- A late reply for the Drobo just left can still paint its shares, alerts
+  or token error, and a failed older search can wipe the newer list; the
+  10-second status poll and the backup poll can overlap themselves.
+- A JSON `null` where a number or flag is expected reads as "Cannot reach
+  the agent"; a `port` saved as text skips the whole agent config.
+- Connect-as: a share that connected but whose login could not be saved
+  leaves the dialog open, Cancel then reports it not connected, and a second
+  Connect fails against the connection that worked.
+- `DroboSettings`: one malformed port resets every later setting to its
+  default, which the next save writes back; the file is written in place,
+  not replaced atomically.
+- The diagnostics report says "just started" when uptime is unknown, and
+  loses the "why it could not be reached" section when `device` is
+  missing. The in-app file browser counts sizes in 1024s where the Status
+  tab uses 1000s, and its root check accepts `\\host\Photos2` for
+  `\\host\Photos`.
+
 ---
 
 ## Parked — not possible on what we know today
