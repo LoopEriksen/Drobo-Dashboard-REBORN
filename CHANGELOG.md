@@ -1048,6 +1048,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `scripts/pii_allow.txt` still come from the tree being scanned, which
   is the tree they were reviewed for. `agent/tests/test_updates.py`
   gains two checks. (2026-11-02)
+- **`generate_icon.py` no longer claims byte-identical output.** Its
+  docstring said the icons it writes reproduce identically on any
+  machine. The pixels do; the compressed PNG bytes inside the `.ico`
+  files depend on the zlib build, and with zlib 1.3 the larger frames
+  come out a few bytes different from the committed ones while decoding
+  to the same image. The docstring now says so. The icons are unchanged
+  and were not regenerated. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

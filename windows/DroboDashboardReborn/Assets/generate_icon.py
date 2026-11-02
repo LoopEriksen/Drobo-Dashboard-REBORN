@@ -30,8 +30,14 @@ actually identify an icon at a glance: its colour and its silhouette.
 
 Pure Python standard library only (zlib for PNG compression/CRC32,
 struct for binary packing) -- no Pillow, no third-party packages, so
-this reproduces identically on any machine with plain Python 3
-installed. Re-run this script any time the design changes:
+it runs on any machine with plain Python 3 installed, and the pixels
+it draws are identical on every one. The compressed PNG bytes, and so
+the .ico files, are not: they depend on the zlib build, so a
+regenerated icon can differ byte for byte from the committed one
+without looking any different. (Checked 2026-11-02: with zlib 1.3
+every frame decodes to the committed pixels, while the larger frames'
+compressed bytes differ.) Re-run this script any time the design
+changes:
 
     python windows/DroboDashboardReborn/Assets/generate_icon.py"""
 from __future__ import annotations

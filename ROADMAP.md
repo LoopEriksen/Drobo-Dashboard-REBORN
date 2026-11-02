@@ -834,9 +834,16 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- The committed icons do not match what `generate_icon.py` produces with a
-  different zlib, so its "reproduces identically on any machine" does not
-  hold.
+All fixed on 2026-11-02, one commit each (faults in one module that share
+a cause shared a commit), with a test that failed before the fix wherever
+a test was possible; what changed is in `CHANGELOG.md` under Unreleased.
+No tool contacts a Drobo where it did not before, `sweep_last_six.py
+--help` now contacts none, and no byte sent on an ordinary run changed.
+The one intended difference is that fix's own: `sweep_last_six.py
+--timeout N HOST` logs in with HOST's own serial, not the configured
+host's, and sends nothing to a host whose greeting gives none. The icon
+claim was corrected in `generate_icon.py`'s docstring; the icons were not
+regenerated.
 
 *Windows app*
 
