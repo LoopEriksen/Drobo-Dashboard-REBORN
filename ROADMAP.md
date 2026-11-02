@@ -834,9 +834,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `tools/nasd_sweep.py`: `-o` with a bare file name fails only after the
-  whole sweep has been sent, so the report is lost; the first greeting read
-  is not wrapped.
 - `tools/sweep_last_six.py` reads the serial from `sys.argv` by hand before
   parsing its arguments, so it can log in with one host's serial while
   sending to another, or with an empty one, and contacts the device even

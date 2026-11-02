@@ -919,6 +919,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   for `\\host\Photos`, as did a path with `..` in it; nothing navigated
   that way, but the guard now requires the share's own folder and refuses
   `.` and `..`. The Windows test program gains 9 checks. (2026-11-02)
+- **`tools/nasd_sweep.py` checks its report path and the greeting
+  before it sends anything.** `-o report.json`, a bare file name, failed
+  only after every command had been sent, so the report of the whole
+  sweep was lost; the report's folder is now made and its file opened
+  first, so a path that cannot be written (a folder's own name, or a
+  folder without write access) stops the run (exit 2) before the Drobo
+  is contacted. A first greeting that could not be read (a refused
+  connection, a frame that is not a Drobo's, XML that does not parse)
+  ended in a traceback; it now stops with a plain message, as an empty
+  serial already did. The commands sent and their bytes are unchanged.
+  `tools/test_nasd_sweep.py` gains seven checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

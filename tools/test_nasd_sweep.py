@@ -26,10 +26,15 @@ abort rule.
 
 from __future__ import annotations
 
+import atexit
+import contextlib
+import io
 import os
+import shutil
 import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
 
@@ -40,6 +45,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(
 import nasd_sweep  # noqa: E402
 from drobo_nasd import commands  # noqa: E402
 from drobo_nasd import config_cmd  # noqa: E402
+from drobo_nasd import esatm  # noqa: E402
 
 failures: list[str] = []
 
@@ -358,6 +364,114 @@ check("sweep reports aborted=True", outcome["aborted"] is True, outcome)
 check("all 3 recorded attempts are timeouts",
       all(r["status"] == "timeout" for r in outcome["results"]),
       outcome["results"])
+
+
+# ---------------------------------------------------------------------------
+# 5. main() settles everything local before the sweep sends a byte.
+# ---------------------------------------------------------------------------
+print("\n== main() checks the report path and the greeting first ==")
+
+
+class _CallSpy:
+    """Stands in for a function, records each call, returns `result`."""
+
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.result
+
+
+def _run_main_offline(argv, fetch_esa_id=None):
+    """nasd_sweep.main(argv) with every device contact replaced.
+
+    Returns (exit code or the exception raised, run_sweep spy,
+    _fetch_esa_id spy). fetch_esa_id, when given, replaces the stub so
+    the real greeting read can be exercised against a patched esatm.
+    """
+    sweep_spy = _CallSpy({"results": [], "aborted": False, "sent": 0,
+                          "planned": 0})
+    fetch_spy = _CallSpy(TEST_ESA_ID)
+    saved = (nasd_sweep._fetch_esa_id, nasd_sweep.run_sweep,
+             nasd_sweep.verify_device_healthy)
+    nasd_sweep._fetch_esa_id = fetch_esa_id or fetch_spy
+    nasd_sweep.run_sweep = sweep_spy
+    nasd_sweep.verify_device_healthy = _CallSpy(
+        {"healthy": True, "detail": "stubbed"})
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            outcome = nasd_sweep.main(argv)
+    except (SystemExit, Exception) as exc:
+        # SystemExit is the intended stop; anything else is the fault
+        # (a traceback), kept as the outcome so the check can say so.
+        outcome = exc
+    finally:
+        (nasd_sweep._fetch_esa_id, nasd_sweep.run_sweep,
+         nasd_sweep.verify_device_healthy) = saved
+    return outcome, sweep_spy, fetch_spy
+
+
+_main_scratch_dir = tempfile.mkdtemp(prefix="nasd-sweep-main-")
+atexit.register(shutil.rmtree, _main_scratch_dir, ignore_errors=True)
+_saved_working_dir = os.getcwd()
+os.chdir(_main_scratch_dir)
+try:
+    outcome, sweep_spy, _ = _run_main_offline(
+        ["127.0.0.1", "-o", "bare.json"])
+    check("-o with a bare file name writes the report and exits 0",
+          outcome == 0 and os.path.isfile("bare.json"), outcome)
+finally:
+    os.chdir(_saved_working_dir)
+
+_regular_file_path = os.path.join(_main_scratch_dir, "a-file")
+with open(_regular_file_path, "w", encoding="utf-8") as regular_file:
+    regular_file.write("not a folder")
+outcome, sweep_spy, fetch_spy = _run_main_offline(
+    ["127.0.0.1", "-o", os.path.join(_regular_file_path, "x.json")])
+check("an -o whose folder cannot exist stops before contacting anything",
+      outcome not in (0, None) and not sweep_spy.calls
+      and not fetch_spy.calls,
+      (outcome, sweep_spy.calls, fetch_spy.calls))
+
+outcome, sweep_spy, fetch_spy = _run_main_offline(
+    ["127.0.0.1", "-o", _main_scratch_dir])
+check("an -o that names a folder stops before contacting anything",
+      outcome == 2 and not sweep_spy.calls and not fetch_spy.calls,
+      (outcome, sweep_spy.calls, fetch_spy.calls))
+
+
+def _greeting_raising(error):
+    """A stand-in for esatm.fetch_greeting that raises `error`."""
+    def fetch_greeting(*args, **kwargs):
+        raise error
+    return fetch_greeting
+
+
+_greeting_failures = [
+    ("a refused connect", _greeting_raising(ConnectionRefusedError(
+        111, "Connection refused"))),
+    ("a frame with a bad signature", _greeting_raising(
+        esatm.FrameError("bad signature"))),
+    ("a greeting that is not XML", lambda *args, **kwargs: b"<broken\x00"),
+]
+_saved_fetch_greeting = esatm.fetch_greeting
+for failure_label, fake_fetch_greeting in _greeting_failures:
+    esatm.fetch_greeting = fake_fetch_greeting
+    try:
+        outcome, sweep_spy, _ = _run_main_offline(
+            ["127.0.0.1", "-o",
+             os.path.join(_main_scratch_dir, "greeting.json")],
+            fetch_esa_id=nasd_sweep._fetch_esa_id)
+    finally:
+        esatm.fetch_greeting = _saved_fetch_greeting
+    check(f"{failure_label} on the first greeting ends in a plain message",
+          isinstance(outcome, SystemExit) and isinstance(outcome.code, str)
+          and "greeting" in outcome.code and not sweep_spy.calls,
+          repr(outcome))
+check("a run stopped at the greeting leaves no empty report behind",
+      not os.path.exists(os.path.join(_main_scratch_dir, "greeting.json")))
 
 
 print("\n" + ("ALL PASS" if not failures

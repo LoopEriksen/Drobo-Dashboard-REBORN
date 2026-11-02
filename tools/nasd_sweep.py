@@ -520,13 +520,21 @@ def _fetch_esa_id(host: str, status_port: int) -> str:
     """Read the device serial from the status greeting (no login).
 
     The command channel's login carries the serial, so the sweep cannot
-    start without it; an empty one aborts rather than log in blind.
+    start without it; an empty one aborts rather than log in blind. A
+    greeting that cannot be read -- a refused connect, a frame that is
+    not a Drobo's, XML that does not parse -- stops the run with a plain
+    message, where it used to end in a traceback. Nothing has been sent
+    to the command port at this point.
     """
     print(f"Fetching identity from {host}:{status_port} "
           "(no login needed) ...")
-    greeting = esatm.fetch_greeting(
-        host, port=status_port, timeout=GREETING_TIMEOUT_SECONDS)
-    identity = esatm.parse_identity(greeting)
+    try:
+        greeting = esatm.fetch_greeting(
+            host, port=status_port, timeout=GREETING_TIMEOUT_SECONDS)
+        identity = esatm.parse_identity(greeting)
+    except (OSError, esatm.FrameError, ElementTree.ParseError) as exc:
+        raise SystemExit(f"could not read the Drobo's greeting at "
+                         f"{host}:{status_port}: {exc}")
     esa_id = identity.get("esa_id", "")
     if not esa_id:
         raise SystemExit(
@@ -553,8 +561,51 @@ def _print_summary(sweep: dict) -> None:
               f"{sweep['planned']} commands")
 
 
+def _probe_report_file(report_path: str) -> None:
+    """Open the report file for writing once, so a refusal comes now.
+
+    A file made only by this probe is removed again, so a run that
+    stops before the report is written leaves nothing behind; a file
+    that was already there is opened for appending and left as it was.
+    Raises OSError (IsADirectoryError, PermissionError, ...) when the
+    path cannot be written.
+    """
+    existed_before = os.path.exists(report_path)
+    with open(report_path, "a", encoding="utf-8"):
+        pass
+    if not existed_before:
+        os.remove(report_path)
+
+
+def _prepare_report_path(requested_path: str | None) -> str | None:
+    """The report's absolute path, proven writable; None (said why).
+
+    Settled before the device is contacted, because the report is the
+    sweep's only record. It used to be settled only after every command
+    had been sent, so a folder that could not be made lost the whole
+    run -- and a bare file name (`-o report.json`) did too, since its
+    folder name is "" and os.makedirs("") fails. Making the folder was
+    not enough on its own: an -o that names a folder, or a folder that
+    cannot be written, failed the same way after the sweep, so the
+    file itself is opened here too.
+    """
+    report_path = os.path.abspath(requested_path or _default_report_path())
+    try:
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        _probe_report_file(report_path)
+    except OSError as exc:
+        print(f"Cannot write the report to {report_path}: {exc}")
+        return None
+    return report_path
+
+
 def _write_report(report_path: str, report: dict) -> None:
-    """Write the redacted report as JSON and say where it went."""
+    """Write the redacted report as JSON and say where it went.
+
+    `report_path` comes from _prepare_report_path, so it is absolute
+    and its folder exists; the makedirs here only covers a folder
+    removed while the sweep ran.
+    """
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as report_file:
         json.dump(report, report_file, indent=2)
@@ -567,12 +618,15 @@ def main(argv: list[str] | None = None) -> int:
 
     The health check runs after the sweep whatever happened, because a
     device that stopped greeting is the one thing a sweep must report.
+    The report's folder is made and its file opened before the device
+    is contacted, so a path that cannot be written costs nothing (exit
+    2).
     """
     args = _parse_arguments(argv)
 
-    report_path = args.out
+    report_path = _prepare_report_path(args.out)
     if report_path is None:
-        report_path = _default_report_path()
+        return 2
 
     esa_id = _fetch_esa_id(args.host, args.status_port)
 
