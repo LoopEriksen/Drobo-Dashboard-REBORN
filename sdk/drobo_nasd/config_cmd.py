@@ -131,12 +131,11 @@ class ConfigError(Exception):
     or answered with something unusable.
 
     Protocol failures -- a refused login, a bad or short frame, a reply
-    with no <ResultDetails> -- are this type. Transport errors are NOT
-    wrapped: a refused connect, a send or receive timeout or a reset
-    passes through get_config and get_config_element as OSError, and
-    get_config_element lets ElementTree.ParseError out for a reply
-    whose XML is malformed. That split is relied on, which is why the
-    callers that report a failure handle OSError as well as
+    with no <ResultDetails> or with malformed XML -- are this type.
+    Transport errors are NOT wrapped: a refused connect, a send or
+    receive timeout or a reset passes through get_config and
+    get_config_element as OSError. That split is relied on, which is
+    why the callers that report a failure handle OSError as well as
     ConfigError: most catch the tuple (OSError, ConfigError), and
     api.py catches them apart and reads a bare OSError as "the command
     port could not be reached, nothing applied". Wrapping OSError in
@@ -510,6 +509,25 @@ def _build_read_request_payload(command_id: int, esa_id: str,
         f"</Params></TMCmd>").encode() + b"\x00"
 
 
+def _gated_read_command_id() -> int:
+    """
+    eCmdGetConfig's command id, once the gate has been asked.
+
+    Shared by get_config and get_config_element so both reads go through
+    the same check. Until 2026-11-02 only get_config asked DO_NOT_SEND;
+    get_config_element, the read every share write starts from, skipped
+    it. No difference today, since eCmdGetConfig is not refused, but a
+    gate one read path ignores is not a gate.
+    """
+    command_name = "eCmdGetConfig"
+    if command_name in _commands.DO_NOT_SEND:
+        raise ConfigError(f"{command_name} is on the do-not-send list")
+    command_id = _commands.COMMANDS.get(command_name)
+    if command_id is None:
+        raise ConfigError(f"{command_name} has no confirmed command id")
+    return command_id
+
+
 def get_config(host: str, esa_id: str, section: str = "network",
                port: int = DEFAULT_PORT, timeout: float = 10.0,
                redact: bool = True) -> dict:
@@ -531,15 +549,8 @@ def get_config(host: str, esa_id: str, section: str = "network",
         raise ConfigError(
             f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
-    command_name = "eCmdGetConfig"
-    if command_name in _commands.DO_NOT_SEND:
-        raise ConfigError(f"{command_name} is on the do-not-send list")
-    command_id = _commands.COMMANDS.get(command_name)
-    if command_id is None:
-        raise ConfigError(f"{command_name} has no confirmed command id")
-
-    request_payload = _build_read_request_payload(command_id, esa_id,
-                                                  SECTIONS[section])
+    request_payload = _build_read_request_payload(
+        _gated_read_command_id(), esa_id, SECTIONS[section])
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -1088,13 +1099,9 @@ def get_config_element(host: str, esa_id: str, section: str,
         raise ConfigError(
             f"unknown section {section!r}; choose from {sorted(SECTIONS)}")
 
-    command_name = "eCmdGetConfig"
-    command_id = _commands.COMMANDS.get(command_name)
-    if command_id is None:
-        raise ConfigError(f"{command_name} has no confirmed command id")
     section_tag = SECTIONS[section]
-    request_payload = _build_read_request_payload(command_id, esa_id,
-                                                  section_tag)
+    request_payload = _build_read_request_payload(
+        _gated_read_command_id(), esa_id, section_tag)
 
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
@@ -1129,8 +1136,15 @@ def _find_section_element(body: bytes, section: str,
     the escaped case is handled below. An earlier version used
     details.find(tag), which only searches direct children and so
     missed the wrapper the device actually uses.
+
+    Malformed XML, in the reply or in its escaped inner document, is a
+    ConfigError with the wording parse_config_result uses. It was a bare
+    ElementTree.ParseError until 2026-11-02, which no caller catches:
+    set_config_raw reads through here before every share write, so a
+    garbled baseline read dropped the agent's connection instead of
+    being reported.
     """
-    root = ElementTree.fromstring(body.rstrip(b"\x00").rstrip())
+    root = _parse_reply_xml(body.rstrip(b"\x00").rstrip())
     result_details_element = root.find("ResultDetails")
     if result_details_element is None:
         raise ConfigError("result carried no <ResultDetails>")
@@ -1140,7 +1154,7 @@ def _find_section_element(body: bytes, section: str,
         return section_element
     escaped_text = (result_details_element.text or "").strip()
     if escaped_text and "<" in html.unescape(escaped_text):
-        inner_root = ElementTree.fromstring(html.unescape(escaped_text))
+        inner_root = _parse_reply_xml(html.unescape(escaped_text))
         escaped_section_element = (
             inner_root if inner_root.tag == section_tag
             else next(iter(inner_root.iter(section_tag)), None))
@@ -1148,6 +1162,17 @@ def _find_section_element(body: bytes, section: str,
             return escaped_section_element
     raise ConfigError(
         f"reply for {section!r} contained no <{section_tag}> element")
+
+
+def _parse_reply_xml(document) -> ElementTree.Element:
+    """
+    Parse reply XML (bytes or text), as a ConfigError when it is
+    malformed.
+    """
+    try:
+        return ElementTree.fromstring(document)
+    except ElementTree.ParseError as exc:
+        raise ConfigError(f"malformed result XML: {exc}") from exc
 
 
 def set_config_raw(host: str, esa_id: str, section: str, edit_section,

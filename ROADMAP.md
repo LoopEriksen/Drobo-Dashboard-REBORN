@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-10-29_
+_Last updated: 2026-11-02_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded
@@ -796,12 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `config_cmd.get_config_element`: malformed reply XML raises `ParseError`,
-  not `ConfigError`. `set_config_raw` makes this read before it writes, so
-  `sharewrite`'s `except (OSError, ConfigError)` misses it and it reaches
-  the agent (nothing has been sent by then). `get_config` does wrap it.
-  `get_config_element` also skips the `DO_NOT_SEND` check `get_config`
-  makes.
 - Credential redaction: `\bkey\b` does not match CamelCase tags such as
   `ApiKey`, `PrivateKey`, `SSHKey` or `KeyData`, and an unparseable
   XML-shaped blob with no credential-looking word passes through, though

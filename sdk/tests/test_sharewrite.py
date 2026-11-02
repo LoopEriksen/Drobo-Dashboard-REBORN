@@ -612,6 +612,45 @@ except config_cmd.ConfigError as exc:
         str(exc),
     )
 
+print("\n== a malformed read reply is a ConfigError; nothing is written ==")
+
+# Until 2026-11-02 get_config_element let ElementTree.ParseError out,
+# which is neither OSError nor ConfigError, so every share write's
+# baseline read escaped the callers' handlers and the agent dropped the
+# connection. Nothing has been sent at that point, and the error must
+# say so in a type the callers catch.
+MALFORMED_READ_REPLY = b"<TMCmd><ResultDetails><oops></TMCmd>\x00"
+ESCAPED_MALFORMED_READ_REPLY = (
+    b"<TMCmd><ResultDetails>&lt;DRIShareConfig&gt;&lt;Shares&gt;"
+    b"</ResultDetails></TMCmd>\x00")
+for label, malformed_reply in (("malformed reply XML", MALFORMED_READ_REPLY),
+                               ("an escaped inner document that does not "
+                                "parse", ESCAPED_MALFORMED_READ_REPLY)):
+    fake_drobo = FakeDrobo([malformed_reply])
+    try:
+        config_cmd.get_config_element("127.0.0.1", SAMPLE_ESA_ID, "shares",
+                                      port=fake_drobo.port, timeout=5)
+        check(f"{label} raises", False)
+    except config_cmd.ConfigError as exc:
+        check(f"{label} is a ConfigError", "malformed" in str(exc), str(exc))
+    except Exception as exc:
+        check(f"{label} is a ConfigError", False,
+              f"{type(exc).__name__}: {exc}")
+
+fake_drobo = FakeDrobo([MALFORMED_READ_REPLY, _accepted_reply()])
+try:
+    sharewrite.set_share_user_access("127.0.0.1", SAMPLE_ESA_ID, "Locked",
+                                     "Everyone", "1", port=fake_drobo.port,
+                                     timeout=5)
+    check("a share write over a malformed read raises", False)
+except config_cmd.ConfigError:
+    check("a share write over a malformed read raises ConfigError", True)
+except Exception as exc:
+    check("a share write over a malformed read raises ConfigError", False,
+          f"{type(exc).__name__}: {exc}")
+check("only the read went out -- no write followed the malformed read",
+      len(fake_drobo.sent) == 1, fake_drobo.sent)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

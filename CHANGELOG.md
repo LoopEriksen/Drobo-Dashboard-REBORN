@@ -421,6 +421,19 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   minutes comes from the original Dashboard's own warning. The default
   stays 15 and nothing sent to the Drobo changes; it moves to 900 only if
   900 is seen to blink the lights. (2026-10-29)
+- **A garbled configuration read before a share write is reported
+  instead of dropping the connection.** Every share write (access, create,
+  delete) reads the share section first. When that reply was not valid
+  XML, the SDK let a parser error out that neither the SDK's callers nor
+  the agent catch, so the agent hung up without answering. It is now the
+  SDK's ordinary configuration error, the one the brightness and
+  spin-down writes already gave for the same garbled read, and the agent
+  answers it the same way: the change may have applied, so look before
+  trying again (the agent cannot tell this read apart from a write the
+  device took and then hung up on). In fact nothing is sent to the Drobo
+  in this case, before or after the fix. The same read now also asks the
+  do-not-send list first, as the other configuration read always did.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
