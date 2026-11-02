@@ -4065,7 +4065,10 @@ public partial class MainWindow : Window
             }
             else
             {
-                ShowConfigResult(DroboAppsActionResult, false,
+                // The agent labels a Start/Stop whose answer was lost
+                // "outcome": "unknown" (it may have been taken): amber, not
+                // the red of a refusal. An answer without "outcome" stays red.
+                ShowConfigResult(DroboAppsActionResult, WriteOutcomes.FromAgentAnswer(okStatus, root),
                     GetStringOr(root, "error", "The Drobo did not accept that."));
             }
         }

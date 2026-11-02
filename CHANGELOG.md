@@ -707,6 +707,24 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   automatic search shares one look at the network among the callers
   that arrive together, as before. `test_agent.py` gains one check.
   (2026-11-02)
+- **A DroboApps Start or Stop whose answer was lost says it may have
+  happened.** When the Drobo took a Start or Stop and then hung up
+  without answering, the pattern seen on share create, the agent
+  dropped the connection and the Windows app said in red that it could
+  not reach the agent; a timeout waiting for the answer was reported as
+  "could not reach the command port". Both read as if nothing had been
+  sent, for an action the Drobo may have carried out. The agent now
+  answers that the action may have been taken and to refresh the app
+  list before sending it again, labelled `"outcome": "unknown"`, and
+  both the Windows app and the browser dashboard show it in amber. A
+  refusal the Drobo answered stays red. The same hang-up while the app
+  list was being read dropped the connection too: on the check before
+  the action, on the read-back after an accepted one (so an action the
+  Drobo had taken was reported as the agent being unreachable), and on
+  the app list itself. These now answer as their other read failures
+  do: "could not read the app list", "accepted, unconfirmed", and a 502
+  with no apps. Nothing sent to the Drobo changes, and nothing is ever
+  re-sent. `test_droboapps_api.py` gains eight checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

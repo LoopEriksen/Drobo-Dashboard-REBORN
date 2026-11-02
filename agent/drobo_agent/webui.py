@@ -918,7 +918,9 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     sendJson("/api/droboapps/action", { name: name, action: action })
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
-          setResult("appsResult", false,
+          // Amber for a Start/Stop whose answer was lost (it may have been
+          // taken), red for a refusal.
+          setResult("appsResult", writeProblemState(res.j),
                     res.j.error || "The Drobo did not accept that.");
           return;
         }

@@ -817,16 +817,13 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api._serve_droboapps_action` (confirmed, on a simulated device over
-  loopback): when the Drobo takes a DroboApps Start or Stop and then hangs
-  up without a result frame, the pattern measured on share create,
-  `droboapps_action` raises `config_cmd.ConfigError`, which the route does
-  not catch, so the agent drops the connection with no answer and the
-  Windows app reports in red that it could not reach the agent, for an
-  action the device received. An `OSError` after the send, such as a
-  timeout waiting for the result, is answered 502 "could not reach the
-  command port", which reads as if nothing was sent. The SDK's own
-  docstring says either error means the action may have been taken.
+- `api` (found 2026-11-02, while fixing the DroboApps reads):
+  `/api/leds` catches only `SysInfoError` and `OSError` around its two
+  reads, and `/api/drobosync` only `DroboSyncError` and `OSError` around
+  `drobosync.summary`, but the frame reader raises a bare
+  `config_cmd.ConfigError` on a hang-up or a short frame (and
+  `summary`'s own per-read catch lets it through), so such a read drops
+  the connection with no answer. Both routes only read.
 - `photos`: a rescan drops files it could not read from the index (the
   comment promises the opposite) and loses uploads that finish during it;
   the throttled index save loses the last uploads of a burst on a crash;

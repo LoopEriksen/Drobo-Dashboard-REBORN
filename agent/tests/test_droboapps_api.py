@@ -46,6 +46,7 @@ from drobo_agent import api, config, notify  # noqa: E402
 from drobo_agent.drivers import MockDriver  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
+from drobo_nasd import config_cmd, droboapps  # noqa: E402
 
 failures = []
 
@@ -315,6 +316,112 @@ try:
     check("the class-level pristine table is untouched",
           [app["running"] for app in MockDriver._MOCK_DROBOAPPS["apps"]
            if app["name"] == "AlphaApp"] == [False])
+
+    # The real-device path, with the two SDK calls replaced so nothing
+    # is contacted. When the connection fails after it was opened --
+    # the device hanging up with no result frame, the pattern measured
+    # on share create, or a timeout waiting for the result -- the
+    # action may have been taken. Until 2026-11-02 a hang-up
+    # (ConfigError) dropped the connection with no answer and a timeout
+    # (OSError) was answered "could not reach the command port", which
+    # reads as nothing sent.
+    print("\n== a Start/Stop whose answer was lost is outcome unknown ==")
+    saved_sdk_calls = (droboapps.get_droboapps, droboapps.droboapps_action)
+    saved_driver_state = (driver.simulate_config,
+                          getattr(driver, "_resolved_host", None),
+                          getattr(driver, "_known_esa_id", None))
+    driver.simulate_config = False
+    driver._resolved_host = "192.0.2.50"
+    driver._known_esa_id = "drb000000SAMPLE"
+    droboapps.get_droboapps = lambda host, esa_id, **kwargs: {
+        "apps": [{"name": "AlphaApp", "running": False}]}
+
+    def _call_or_dropped(path, body=None):
+        """The answer, or (None, ...) when the agent dropped the
+        connection without one."""
+        try:
+            return call(path, body=body)
+        except Exception as connection_error:  # noqa: BLE001 - checked
+            return None, {"error": repr(connection_error)}
+
+    def _action_raising(error):
+        def fake_droboapps_action(*args, **kwargs):
+            raise error
+        return fake_droboapps_action
+
+    try:
+        for error_label, error in (
+                ("a hang-up with no result frame",
+                 config_cmd.ConfigError("short header: 0 of 16 bytes")),
+                ("a timeout waiting for the result",
+                 TimeoutError("timed out"))):
+            droboapps.droboapps_action = _action_raising(error)
+            try:
+                status, reply = call("/api/droboapps/action", body={
+                    "name": "AlphaApp", "action": "Start"})
+            except Exception as connection_error:  # noqa: BLE001 - checked
+                status, reply = None, {"error": repr(connection_error)}
+            check(f"{error_label}: 502, outcome unknown",
+                  status == 502 and reply.get("outcome") == "unknown",
+                  (status, reply))
+            check(f"-- {error_label}: it says the action may have been "
+                  "taken and to refresh the list first",
+                  "may have been taken" in reply.get("error", "")
+                  and "refresh" in reply.get("error", "").lower(),
+                  reply.get("error"))
+        droboapps.droboapps_action = _action_raising(
+            droboapps.DroboAppsActionError("the device did not accept Start"))
+        status, reply = call("/api/droboapps/action", body={
+            "name": "AlphaApp", "action": "Start"})
+        check("a refusal the device answered stays a plain 502 failure",
+              status == 502 and reply.get("outcome") != "unknown",
+              (status, reply))
+
+        # The app-list reads raise a bare ConfigError on a hang-up too,
+        # not only SysInfoError. Until 2026-11-02 the read-back after an
+        # ACCEPTED action caught only the latter, so the agent dropped
+        # the connection for an action that had been taken.
+        hang_up = config_cmd.ConfigError("short header: 0 of 16 bytes")
+        list_reads = []
+
+        def _list_then_hang_up(host, esa_id, **kwargs):
+            list_reads.append(host)
+            if len(list_reads) > 1:
+                raise hang_up
+            return {"apps": [{"name": "AlphaApp", "running": False}]}
+
+        actions_sent = []
+
+        def _action_accepted(host, esa_id, name, action, **kwargs):
+            actions_sent.append(action)
+            return {"result_code": 0}
+
+        droboapps.get_droboapps = _list_then_hang_up
+        droboapps.droboapps_action = _action_accepted
+        status, reply = _call_or_dropped("/api/droboapps/action", body={
+            "name": "AlphaApp", "action": "Start"})
+        check("an accepted action whose read-back hangs up: 200, "
+              "accepted and unconfirmed",
+              status == 200 and reply.get("ok") is True
+              and reply.get("read_back") is None, (status, reply))
+
+        def _list_hanging_up(host, esa_id, **kwargs):
+            raise hang_up
+
+        droboapps.get_droboapps = _list_hanging_up
+        status, reply = _call_or_dropped("/api/droboapps/action", body={
+            "name": "AlphaApp", "action": "Start"})
+        check("a list read that hangs up before the action: 502, "
+              "nothing sent", status == 502
+              and "could not read the app list" in reply.get("error", "")
+              and actions_sent == ["Start"], (status, reply, actions_sent))
+        status, reply = _call_or_dropped("/api/droboapps")
+        check("GET /api/droboapps whose read hangs up: 502 with no apps",
+              status == 502 and reply.get("apps") == [], (status, reply))
+    finally:
+        droboapps.get_droboapps, droboapps.droboapps_action = saved_sdk_calls
+        (driver.simulate_config, driver._resolved_host,
+         driver._known_esa_id) = saved_driver_state
 finally:
     http_server.shutdown()
     monitor.stop()

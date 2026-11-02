@@ -961,7 +961,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 droboapps.get_droboapps(
                     host, esa_id,
                     timeout=self.COMMAND_TIMEOUT_SECONDS))
-        except (sysinfo.SysInfoError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             return self._send_json({"error": str(exc), "apps": []}, 502)
 
     def _serve_update(self) -> None:
@@ -2054,10 +2054,39 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             # the device refusing, unreachable, or answering with the
             # wrong code.
             return self._send_json({"error": str(exc)}, 502)
-        except OSError as exc:
-            return self._send_command_port_unreachable(exc)
+        except (config_cmd.ConfigError, OSError) as exc:
+            # After the clause above, which it must stay after.
+            return self._droboapps_action_unsettled(name, action, exc)
         return self._send_json(self._droboapps_action_body(
             host, esa_id, name, action, result))
+
+    def _droboapps_action_unsettled(self, name: str, action: str,
+                                    exc: Exception) -> None:
+        """
+        The 502 for a Start or Stop that may have been taken: the
+        connection failed after it opened, so nothing can say whether
+        the action went out. Labelled WRITE_UNKNOWN, so both apps show a
+        warning rather than a failure.
+
+        The SDK wraps a failed connect as DroboAppsActionError, so the
+        ConfigError or OSError handled here comes after the session
+        opened, when the action frame may already be on the wire.
+        DroboAppsActionError is a ConfigError too (through
+        SysInfoError), so the caller catches it first.
+
+        Until 2026-11-02 a hang-up with no result frame (ConfigError,
+        the pattern measured on share create) was not caught, so the
+        agent dropped the connection and the Windows app said in red
+        that it could not reach the agent; a timeout (OSError) was
+        answered "could not reach the command port". Both read as if
+        nothing had been sent.
+        """
+        return self._send_json({
+            "error": (f"The connection to the Drobo failed after it opened "
+                      f"({exc}), so {action} {name!r} may have been taken. "
+                      f"Refresh the app list to see whether {name!r} is "
+                      f"running before sending it again."),
+            "outcome": WRITE_UNKNOWN}, 502)
 
     def _simulated_droboapps_action(self, driver, name: str,
                                     action: str) -> None:
@@ -2086,7 +2115,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             installed_apps = droboapps.get_droboapps(
                 host, esa_id,
                 timeout=self.COMMAND_TIMEOUT_SECONDS).get("apps", [])
-        except (sysinfo.SysInfoError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             return ({"error": f"could not read the app list to check "
                               f"{name!r} against: {exc}"}, 502)
         if name not in {app["name"] for app in installed_apps}:
@@ -2107,7 +2136,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         try:
             app_listing = droboapps.get_droboapps(
                 host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS)
-        except (sysinfo.SysInfoError, OSError):
+        except (config_cmd.ConfigError, OSError):
             pass  # accepted, unconfirmed -- the message says exactly that
         read_back = (self._app_read_back(app_listing, name) if app_listing
                      else None)
