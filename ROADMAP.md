@@ -864,9 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- A late reply for the Drobo just left can still paint its shares, alerts
-  or token error, and a failed older search can wipe the newer list; the
-  10-second status poll and the backup poll can overlap themselves.
 - A JSON `null` where a number or flag is expected reads as "Cannot reach
   the agent"; a `port` saved as text skips the whole agent config.
 - Connect-as: a share that connected but whose login could not be saved

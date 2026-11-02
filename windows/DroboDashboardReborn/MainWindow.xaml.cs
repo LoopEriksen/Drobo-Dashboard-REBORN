@@ -97,6 +97,15 @@ public partial class MainWindow : Window
     /// </summary>
     private int _generation;
 
+    /// <summary>
+    /// True while a status tick's requests are out. A DispatcherTimer fires
+    /// on time whether or not the last handler finished, and one tick can
+    /// take up to four times AgentRequestTimeoutSeconds (32 s) against an
+    /// agent that does not answer, so without this, ticks piled up on each
+    /// other every 10 s. See PollStatusOnce.
+    /// </summary>
+    private bool _statusPollInFlight;
+
     /// <summary>The notification switches shown on the Settings panel,
     /// generated from AlertNotifier.Categories.</summary>
     private readonly ObservableCollection<NotificationCategoryRow> _notificationRows = new();
@@ -198,7 +207,7 @@ public partial class MainWindow : Window
         DroboAppsList.ItemsSource = _droboApps;
         EventLogList.ItemsSource = _eventLog;
 
-        _statusPollTimer.Tick += async (_, _) => await RefreshStatus();
+        _statusPollTimer.Tick += async (_, _) => await PollStatusOnce();
 
         TryAutoFillFromAgentConfig();
 
@@ -627,6 +636,12 @@ public partial class MainWindow : Window
             using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/discover");
             request.Headers.Add("X-Agent-Token", Token.Password);
             using var response = await _agentHttpClient.SendAsync(request);
+            // A newer search started while this request was out: its answer,
+            // a token refusal included, is about a search nobody is waiting
+            // for. Until 2026-11-02 a refusal or failure here still reached
+            // ShowDiscoverError, which empties the picker -- the newer
+            // search's list with it.
+            if (generation != _generation) return;
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -649,6 +664,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (generation != _generation) return;   // superseded: see above
             ShowDiscoverError("Could not search the network. Is the agent running?  (" + ex.Message + ")");
         }
         finally
@@ -1394,6 +1410,30 @@ public partial class MainWindow : Window
     // ---------------------------------------------------------------
 
     /// <summary>
+    /// The status timer's tick: one RefreshStatus, unless the last tick's is
+    /// still out, in which case this tick is skipped rather than stacked on
+    /// it. Until 2026-11-02 the timer awaited RefreshStatus directly, so
+    /// against an agent that did not answer a new tick started every 10 s
+    /// while the earlier ones were still waiting out their timeouts, and
+    /// the footer's "Last attempt failed" came in bursts.
+    /// ConnectAndShowDashboard stops the timer and calls RefreshStatus
+    /// itself, so it is not held back by this.
+    /// </summary>
+    private async Task PollStatusOnce()
+    {
+        if (_statusPollInFlight) return;
+        _statusPollInFlight = true;
+        try
+        {
+            await RefreshStatus();
+        }
+        finally
+        {
+            _statusPollInFlight = false;
+        }
+    }
+
+    /// <summary>
     /// One status tick: /api/status, then alerts and shares. Returns
     /// (ok, error) rather than throwing, because ConnectAndShowDashboard
     /// uses the first tick to decide whether to show the dashboard at all,
@@ -1403,10 +1443,12 @@ public partial class MainWindow : Window
     /// have overtaken the request -- after the status read, in the failure
     /// path, and before the alerts and shares fetches -- so a status reading
     /// that lands after the user has left that Drobo is dropped rather than
-    /// painted, and a stale tick returns (false, null). Two places are not
-    /// covered: the 401 "Token rejected" branch reports at once, without a
-    /// generation check, and RefreshAlerts and RefreshShares do not check it
-    /// themselves.
+    /// painted, and a stale tick returns (false, null). RefreshAlerts and
+    /// RefreshShares are handed the same generation and check it after each
+    /// of their own requests. Until 2026-11-02 neither did, and the 401
+    /// "Token rejected" branch reported without a check, so a tick that had
+    /// passed the last check here could still paint the old Drobo's alerts
+    /// and shares -- and feed its alerts to the notifier.
     /// </summary>
     private async Task<(bool ok, string? error)> RefreshStatus()
     {
@@ -1419,6 +1461,7 @@ public partial class MainWindow : Window
             using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
             request.Headers.Add("X-Agent-Token", Token.Password);
             using var response = await _agentHttpClient.SendAsync(request);
+            if (generation != _generation) return (false, null);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -1452,8 +1495,9 @@ public partial class MainWindow : Window
         // same HttpClient/timer/token -- but a failure in either must not
         // disturb the status/capacity/bays panels that already rendered
         // successfully.
-        await RefreshAlerts();
-        await RefreshShares();
+        await RefreshAlerts(generation);
+        await RefreshShares(generation);
+        if (generation != _generation) return (false, null);
 
         // Tray tooltip/badge, from data this same tick already fetched --
         // see TrayIconManager.UpdateStatus. _alerts is the active-only list
@@ -1772,18 +1816,27 @@ public partial class MainWindow : Window
     /// <summary>Fetches the active alerts and the full list (two requests,
     /// because comparing them is how RenderAlerts tells active from
     /// resolved). A failure leaves the last alerts on screen with a small
-    /// note, rather than blanking the tab.</summary>
-    private async Task RefreshAlerts()
+    /// note, rather than blanking the tab.
+    ///
+    /// <paramref name="generation"/> is the status tick's: when the user
+    /// leaves the Drobo while a request is out, the answer is dropped
+    /// rather than painted, and above all is not handed to the notifier,
+    /// which would otherwise learn the old Drobo's alerts as the new
+    /// one's (see _generation).</summary>
+    private async Task RefreshAlerts(int generation)
     {
         try
         {
             var activeRoot = await FetchJson("/api/alerts");
+            if (generation != _generation) return;
             var allRoot = await FetchJson("/api/alerts?all=1");
+            if (generation != _generation) return;
             RenderAlerts(activeRoot, allRoot);
             AlertsError.Visibility = Visibility.Collapsed;
         }
         catch
         {
+            if (generation != _generation) return;   // about a Drobo left behind
             // Degrade gracefully: leave whatever alerts were last shown (or
             // the empty state) in place, and note that the fetch failed
             // without blanking anything else in the window.
@@ -1960,20 +2013,29 @@ public partial class MainWindow : Window
     /// <summary>Fetches /api/shares for the Shares tab on the status tick. A
     /// failure keeps the rows already shown and says so, for the same reason
     /// as RefreshAlerts.</summary>
-    private async Task RefreshShares()
+    private Task RefreshShares() => RefreshShares(_generation);
+
+    /// <summary>RefreshShares for the work of one generation -- the status
+    /// tick's, or the current one for a refresh after a share action. An
+    /// answer that lands after the user has left that Drobo is dropped, for
+    /// the reason RefreshAlerts gives.</summary>
+    private async Task RefreshShares(int generation)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/shares");
             request.Headers.Add("X-Agent-Token", Token.Password);
             using var response = await _agentHttpClient.SendAsync(request);
+            if (generation != _generation) return;
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
+            if (generation != _generation) return;
             RenderShares(JsonDocument.Parse(json).RootElement);
         }
         catch
         {
+            if (generation != _generation) return;   // about a Drobo left behind
             // Same rule as alerts: a failed shares fetch must not blank
             // whatever was showing before, and must not disturb the Status tab.
             SharesError.Text = "Shares unavailable.";
@@ -3416,6 +3478,11 @@ public partial class MainWindow : Window
     /// <summary>Polls /api/backup/status while a backup runs. Null when idle.</summary>
     private DispatcherTimer? _backupPollTimer;
 
+    /// <summary>True while a backup status read is out, so a slow one (up to
+    /// AgentRequestTimeoutSeconds) is not overlapped by the next 2-second
+    /// tick. See PollBackupOnce.</summary>
+    private bool _backupPollInFlight;
+
     /// <summary>The backup poll's interval -- see StartBackupPolling for why it
     /// is shorter than the status poll's.</summary>
     private const int BackupPollIntervalSeconds = 2;
@@ -3644,12 +3711,35 @@ public partial class MainWindow : Window
     /// first answer that says the job is over -- and on a failed read too,
     /// since a poll loop that keeps going after it has lost the agent would
     /// only repeat the error.
+    ///
+    /// One read at a time, and only for the timer that asked: a tick is
+    /// skipped while the last read is out, and an answer that lands after
+    /// polling stopped (or restarted for a new job) is dropped. Until
+    /// 2026-11-02 reads could overlap, and a late one could repaint the
+    /// finished or lost message with an older reading.
     /// </summary>
     private async Task PollBackupOnce()
+    {
+        if (_backupPollInFlight) return;
+        _backupPollInFlight = true;
+        try
+        {
+            await ReadBackupStatusOnce(_backupPollTimer);
+        }
+        finally
+        {
+            _backupPollInFlight = false;
+        }
+    }
+
+    /// <summary>The body of PollBackupOnce: one read, rendered only while
+    /// <paramref name="pollTimer"/> is still the poll that is running.</summary>
+    private async Task ReadBackupStatusOnce(DispatcherTimer? pollTimer)
     {
         try
         {
             var root = await FetchJson("/api/backup/status");
+            if (pollTimer is null || pollTimer != _backupPollTimer) return;
             bool running = root.TryGetProperty("running", out var runningElement)
                            && runningElement.ValueKind == JsonValueKind.True;
 
@@ -3671,6 +3761,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (pollTimer is null || pollTimer != _backupPollTimer) return;
             StopBackupPolling();
             BackupStatus.Text = "Lost contact with the agent while backing up: " + ex.Message
                                 + "  The copy may still be running -- press Check to look again.";

@@ -106,3 +106,18 @@ for each step, what you saw if it differs from what it says.
    search the network for Drobos**, open a Drobo and press **Change
    Drobo** again: the picker must show the address you added, not
    "Searching...".
+2. **Answers that arrive late stay with the Drobo they were for** (fixed
+   2026-11-02). The fault itself needs an agent that answers some
+   requests and stalls on others, which a tester cannot arrange, so this
+   checks that the guard does no harm. Open the simulated Drobo. In
+   Resource Monitor's CPU tab, right-click the agent's `python` process
+   and choose **Suspend Process**, press **Change Drobo**, then **Resume
+   Process** within five seconds. The picker must list the simulated
+   Drobo, without "Could not search the network", and opening it again
+   must show its shares and alerts as before.
+3. **Polling resumes after a stall** (fixed 2026-11-02). With the
+   simulated Drobo open, suspend the agent's process as in step 2 for
+   40 seconds, watching the footer: "Last attempt failed at ..." may
+   change at most once every 10 seconds, never several times at once.
+   Resume the process: within 20 seconds the footer must go back to a
+   normal reading.

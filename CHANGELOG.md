@@ -834,6 +834,18 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   last. There is no automated check for this (the window is not in the
   Windows test program); `docs/testers-tasks.md` section 7 has the steps.
   (2026-11-02)
+- **The Windows app no longer paints a Drobo you have left, and its polls
+  no longer pile up.** An answer that arrived after "Change Drobo" could
+  still fill the Shares and Alerts tabs with the old Drobo's rows, hand
+  its alerts to the notifier, or show its "Token rejected"; and a device
+  search that failed after a newer one had started emptied the newer
+  one's list. Each of those answers is now dropped once the user has
+  moved on. The 10-second status poll and the 2-second backup poll each
+  run one at a time, skipping a tick while the last one is still out,
+  where before a slow agent let them stack up; a backup reading that
+  lands after the backup finished no longer repaints its message.
+  Checked by reading and by the Windows build, not by a test (see
+  `docs/testers-tasks.md` section 7). (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
