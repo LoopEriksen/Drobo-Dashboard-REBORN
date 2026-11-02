@@ -796,11 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `droboapps.set_dimming`, `set_spindown`, `disable_spindown`: when the
-  write is accepted and the confirming read then fails, the error comes out
-  as an ordinary failure or a refusal, not as accepted-but-unverified, which
-  invites a retry of a write that probably applied. `sharewrite` raises
-  `ShareWriteOutcomeUnknownError` in exactly this case. The docstrings of
+- `droboapps`: the docstrings of
   `droboapps_action` and `get_spindown` name errors and returns they do not
   produce.
 - `sharewrite._resolve_share`: two shares with the identical name are

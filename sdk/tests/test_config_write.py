@@ -694,6 +694,85 @@ check(
     and "eCmdDroboAppsAction" in commands.DO_NOT_SEND,
 )
 
+print("\n== accepted, then the confirming read fails: outcome unknown ==")
+# Until 2026-11-02 the read-back's own error escaped. A refused
+# connection came out as OSError, which the agent answers 502 "could
+# not reach the command port", as if nothing was sent; a reply without
+# the setting in it came out as GeneralWriteError "refusing ...", which
+# the agent answers 400, blaming the request. Either way the caller was
+# invited to retry a write the device had accepted. (A garbled reply
+# was a plain ConfigError, already answered "unsettled".) It is
+# outcome-unknown, as sharewrite has it.
+GARBLED_REPLY = b"<TMCmd><ResultDetails>\x00"
+NO_GENERAL_BLOCK_REPLY = (b"<TMCmd><CmdID>30</CmdID><ResultDetails>"
+                          b"<DRINASConfig><Other>1</Other></DRINASConfig>"
+                          b"</ResultDetails></TMCmd>\x00")
+for label, write, confirming_replies in (
+        ("set_dimming(10), read-back refused",
+         lambda port: droboapps.set_dimming(
+             "127.0.0.1", SAMPLE_ESA_ID, 10, port=port, timeout=5), []),
+        ("set_dimming(10), read-back garbled",
+         lambda port: droboapps.set_dimming(
+             "127.0.0.1", SAMPLE_ESA_ID, 10, port=port, timeout=5),
+         [GARBLED_REPLY]),
+        ("set_spindown(10), read-back refused",
+         lambda port: droboapps.set_spindown(
+             "127.0.0.1", SAMPLE_ESA_ID, 10, port=port, timeout=5), []),
+        ("set_spindown(10), read-back has no General block",
+         lambda port: droboapps.set_spindown(
+             "127.0.0.1", SAMPLE_ESA_ID, 10, port=port, timeout=5),
+         [NO_GENERAL_BLOCK_REPLY]),
+        ("disable_spindown(), read-back refused",
+         lambda port: droboapps.disable_spindown(
+             "127.0.0.1", SAMPLE_ESA_ID, port=port, timeout=5), []),
+        ("disable_spindown(), read-back garbled",
+         lambda port: droboapps.disable_spindown(
+             "127.0.0.1", SAMPLE_ESA_ID, port=port, timeout=5),
+         [_general_reply(feature_states="seven")]),
+        # isdigit() passes "²" and int() refuses it: until 2026-11-02
+        # that escaped as a bare ValueError, which the agent re-raises.
+        ("disable_spindown(), read-back FeatureStates '²'",
+         lambda port: droboapps.disable_spindown(
+             "127.0.0.1", SAMPLE_ESA_ID, port=port, timeout=5),
+         [_general_reply(feature_states="²")])):
+    fake_drobo = FakeDrobo(
+        [_general_reply(),
+         _write_result_reply(config_cmd.RESULT_ACCEPTED)]
+        + confirming_replies)
+    try:
+        write(fake_drobo.port)
+        check(f"{label}: raises", False)
+    except config_cmd.ConfigWriteOutcomeUnknownError as exc:
+        check(f"{label}: outcome unknown",
+              "ACCEPTED" in str(exc) and "do NOT simply retry" in str(exc),
+              str(exc))
+    except Exception as exc:
+        check(f"{label}: outcome unknown", False,
+              f"{type(exc).__name__}: {exc}")
+    check(f"{label}: the write went out once and was not re-sent",
+          len(fake_drobo.sent) == 2 + len(confirming_replies),
+          fake_drobo.sent)
+    check(f"{label}: exactly one write frame",
+          sum("<CmdID>31</CmdID>" in payload
+              for payload in fake_drobo.sent) == 1, fake_drobo.sent)
+
+# The same "²", read BEFORE the write, is refused like any other
+# FeatureStates that is not a number, and nothing is written.
+fake_drobo = FakeDrobo([_general_reply(feature_states="²")])
+try:
+    droboapps.disable_spindown("127.0.0.1", SAMPLE_ESA_ID,
+                               port=fake_drobo.port, timeout=5)
+    check("FeatureStates '²' before the write: refused", False)
+except droboapps.SpindownWriteError as exc:
+    check("FeatureStates '²' before the write: refused",
+          "not a number" in str(exc), str(exc))
+except Exception as exc:
+    check("FeatureStates '²' before the write: refused", False,
+          f"{type(exc).__name__}: {exc}")
+check("FeatureStates '²' before the write: no write frame sent",
+      not any("<CmdID>31</CmdID>" in payload
+              for payload in fake_drobo.sent), fake_drobo.sent)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

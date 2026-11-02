@@ -479,6 +479,22 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   statements, which `python -O` removes, so under it a damaged gate would
   have loaded without a word. They now raise an error whatever the Python
   options. The gate's members are unchanged. (2026-11-02)
+- **A brightness or spin-down change the Drobo accepted is no longer
+  reported as failed when the check afterwards cannot be made.** After the
+  Drobo accepts one of these writes, the software reads the setting back to
+  confirm it. When that read failed, the read's own error came out, and
+  two of those answers were wrong: a Drobo that stopped answering got a
+  502 saying the command port could not be reached, as if nothing had been
+  sent, and a reply without the setting in it (no General block, or a
+  FeatureStates that is not a number) got a 400 "refusing", which blames
+  the request. Both invite sending the change again. (A reply that could
+  not be read at all was already answered "unsettled".) It is now
+  reported the way an unconfirmed share write already was: the Drobo took
+  the change, it most likely applied, look before trying again. A
+  FeatureStates that only looks like a number, such as "²", is refused
+  with the same message as any other instead of escaping as an error the
+  agent does not answer. Nothing sent to the Drobo changes, and nothing is
+  ever sent twice. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -454,6 +454,42 @@ def _validate_brightness(brightness: int) -> None:
             f"more likely a mistake than an intention")
 
 
+def _confirming_read(write_summary: dict, setting_description: str,
+                     read_setting):
+    """
+    The value `read_setting()` returns: the read that confirms a write
+    the device ACCEPTED. ConfigWriteOutcomeUnknownError when that read
+    cannot be completed.
+
+    By the time this runs the device has answered RESULT_ACCEPTED, so
+    the write most likely applied, and a read that then fails (a
+    refused connection, a garbled reply, a block that does not parse)
+    says nothing about it. Until 2026-11-02 the read's own error
+    escaped, and the agent answered two of them wrongly: an OSError got
+    a 502 "could not reach the command port", as though nothing had
+    been sent, and a GeneralWriteError (no General block in the reply,
+    or a FeatureStates that is not a number) got a 400 "refusing",
+    which blames the request. Both invite a retry of a write that has
+    probably landed. (A reply too garbled to read already came out as
+    a plain ConfigError, which the agent answers "unsettled".)
+    sharewrite reports the same case as outcome-unknown; this is that
+    answer, in the type the agent already files as unsettled.
+    "verified" is set to None, as sharewrite sets it, for a caller that
+    holds on to the summary.
+    """
+    from .config_cmd import ConfigError, ConfigWriteOutcomeUnknownError
+    try:
+        return read_setting()
+    except (OSError, ConfigError, SysInfoError) as exc:
+        write_summary["verified"] = None
+        raise ConfigWriteOutcomeUnknownError(
+            f"the device ACCEPTED the {setting_description} write, but the "
+            f"read-back to confirm it could not be completed "
+            f"({type(exc).__name__}: {exc}). It most likely applied. "
+            "Re-read before deciding anything -- do NOT simply "
+            "retry.") from exc
+
+
 def set_dimming(host: str, esa_id: str, brightness: int,
                 port: int = DEFAULT_PORT, timeout: float = 8.0,
                 verify: bool = True) -> dict:
@@ -504,7 +540,9 @@ def set_dimming(host: str, esa_id: str, brightness: int,
     value, an unrecognised block, or a write the device accepted but did
     not apply; ConfigWriteError propagates for a refused or unreachable
     device, and ConfigWriteOutcomeUnknownError when neither the device
-    nor a read-back could settle what happened.
+    nor a read-back could settle what happened, or when the device
+    accepted the write and the confirming read then failed (see
+    _confirming_read).
     """
     # Import here, not at module load: keeps the read-only surface of
     # this module importable in contexts that never write, and mirrors
@@ -535,8 +573,9 @@ def set_dimming(host: str, esa_id: str, brightness: int,
         return write_summary
 
     # Confirm the write actually took, not merely that it was accepted.
-    brightness_read_back = get_dimming(host, esa_id, port=port,
-                                       timeout=timeout)
+    brightness_read_back = _confirming_read(
+        write_summary, "brightness",
+        lambda: get_dimming(host, esa_id, port=port, timeout=timeout))
     write_summary["read_back"] = brightness_read_back
     write_summary["verified"] = brightness_read_back == brightness
     if brightness_read_back != brightness:
@@ -586,13 +625,20 @@ def _parse_feature_states(general_block: dict) -> int:
     from text that is not a number would be a guess sent to the device.
     """
     feature_states_text = general_block.get("FeatureStates")
-    if (not isinstance(feature_states_text, str)
-            or not feature_states_text.strip().isdigit()):
-        raise SpindownWriteError(
-            f"FeatureStates read back as {feature_states_text!r}, not a "
-            f"number; refusing to compute a bitmask from something we "
-            f"cannot parse")
-    return int(feature_states_text)
+    if (isinstance(feature_states_text, str)
+            and feature_states_text.strip().isdigit()):
+        # isdigit() is only the first filter: it also passes "²", and
+        # more than 4300 digits, both of which int() refuses with a
+        # ValueError that no caller expects. Those are refused below
+        # like any other text that is not a number.
+        try:
+            return int(feature_states_text)
+        except ValueError:
+            pass
+    raise SpindownWriteError(
+        f"FeatureStates read back as {feature_states_text!r}, not a "
+        f"number; refusing to compute a bitmask from something we "
+        f"cannot parse")
 
 
 def _validate_spindown_delay(spindown_delay: int) -> None:
@@ -659,7 +705,9 @@ def set_spindown(host: str, esa_id: str, delay: int,
     dropdown index both fit (see _SPINDOWN_MAX).
 
     `verify` re-reads and confirms;
-    RESULT_ACCEPTED means received, not applied.
+    RESULT_ACCEPTED means received, not applied. An accepted write
+    whose confirming read fails is ConfigWriteOutcomeUnknownError (see
+    _confirming_read).
     """
     from .config_cmd import set_config
 
@@ -686,7 +734,9 @@ def set_spindown(host: str, esa_id: str, delay: int,
     if decided_by_readback(write_summary) or not verify:
         return write_summary
 
-    delay_read_back = get_spindown(host, esa_id, port=port, timeout=timeout)
+    delay_read_back = _confirming_read(
+        write_summary, "spin-down",
+        lambda: get_spindown(host, esa_id, port=port, timeout=timeout))
     write_summary["read_back"] = delay_read_back
     write_summary["verified"] = delay_read_back == delay
     if delay_read_back != delay:
@@ -716,8 +766,9 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     the device (measured 2026-08-12), and clearing only the bit leaves a
     stale delay that re-enable would revive.
 
-    Verified by read-back of BOTH fields.
-    Reversible with set_spindown(delay).
+    Verified by read-back of BOTH fields; an accepted write whose
+    confirming read fails is ConfigWriteOutcomeUnknownError (see
+    _confirming_read). Reversible with set_spindown(delay).
     """
     from .config_cmd import set_config
 
@@ -751,7 +802,8 @@ def disable_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
     if decided_by_readback(write_summary) or not verify:
         return write_summary
 
-    feature_bits, stored_delay = read_spindown_state()
+    feature_bits, stored_delay = _confirming_read(
+        write_summary, "spin-down disable", read_spindown_state)
     spindown_is_off = _spindown_is_off(feature_bits, stored_delay)
     write_summary["read_back"] = {"FeatureStates": feature_bits,
                                   "SpindownDelay": stored_delay}
