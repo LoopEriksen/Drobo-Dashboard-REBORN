@@ -342,6 +342,21 @@ class BackupJob:
         }
 
 
+def _robocopy_output_encoding() -> str:
+    """
+    The text encoding robocopy's piped output is read in: "oem" on
+    Windows, Python's codec for the console's OEM code page, which is
+    what robocopy writes to a pipe; "utf-8" anywhere else (where there
+    is no robocopy, so only the tests read it).
+
+    Until 2026-11-02 it was read as UTF-8 on Windows too, so a file name
+    with an accent or umlaut came out garbled in the progress the apps
+    show. errors="replace" stays beside it, so an undecodable byte can
+    only ever cost one character, never the copy.
+    """
+    return "oem" if os.name == "nt" else "utf-8"
+
+
 class BackupRunner:
     """
     Runs one backup at a time, in a background thread.
@@ -455,8 +470,9 @@ class BackupRunner:
         os.makedirs(job.backup_plan.destination, exist_ok=True)
         robocopy_process = subprocess.Popen(
             job.backup_plan.command, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", bufsize=1)
+            stderr=subprocess.STDOUT, text=True,
+            encoding=_robocopy_output_encoding(), errors="replace",
+            bufsize=1)
         assert robocopy_process.stdout is not None
         for line in robocopy_process.stdout:
             line = line.rstrip()

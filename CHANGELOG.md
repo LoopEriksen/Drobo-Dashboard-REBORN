@@ -816,6 +816,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   apps, for good. It now ends as failed, "Stopped by an unexpected
   error.", with the error named. `test_backup.py` gains two checks.
   (2026-11-02)
+- **Backup progress reads robocopy in its own code page.** robocopy
+  writes its progress in the Windows console's OEM code page, and the
+  agent read it as UTF-8, so a file name with an accent or umlaut came
+  out garbled in the progress both apps show. It is now read in the OEM
+  code page on Windows. Found by reading the code: the tests check the
+  choice and that it reaches robocopy, but no test copies a file with
+  such a name, so the decode itself is unverified. Display only; what
+  is copied is unchanged. `test_backup.py` gains two checks here and
+  three on Windows. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

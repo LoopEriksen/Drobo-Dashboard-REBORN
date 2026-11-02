@@ -269,6 +269,56 @@ check("-- and its error names what went wrong",
       "ValueError" in failed_job.error
       and "embedded null byte" in failed_job.error, failed_job.error)
 
+print("\n== robocopy's output is read in its own code page ==")
+# robocopy writes to a pipe in the console's OEM code page, not UTF-8,
+# so until 2026-11-02 a file name with an accent or umlaut came out
+# garbled in the progress the apps show. Python's "oem" codec is that
+# code page, and exists only on Windows. That the decode itself is
+# right is proven only where robocopy runs; here the choice is checked,
+# and that it reaches Popen.
+_real_os_name = os.name
+try:
+    os.name = "nt"
+    encoding_on_windows = backup._robocopy_output_encoding()
+    os.name = "posix"
+    encoding_elsewhere = backup._robocopy_output_encoding()
+finally:
+    os.name = _real_os_name
+check("on Windows the OEM code page is used, elsewhere UTF-8",
+      (encoding_on_windows, encoding_elsewhere) == ("oem", "utf-8"),
+      (encoding_on_windows, encoding_elsewhere))
+if os.name == "nt":
+    import codecs
+    check("-- and Python on this Windows knows the 'oem' codec",
+          codecs.lookup("oem") is not None)
+
+
+class _NoOutputProcess:
+    stdout = iter(())
+
+    @staticmethod
+    def wait():
+        return 0
+
+
+_popen_arguments = []
+_real_popen = backup.subprocess.Popen
+backup.subprocess.Popen = (
+    lambda *args, **kwargs: _popen_arguments.append(kwargs)
+    or _NoOutputProcess())
+try:
+    backup.BackupRunner()._run_robocopy(
+        backup.BackupJob(backup_plan=backup.plan(source_dir, destination_dir),
+                         started_at=time.time()))
+finally:
+    backup.subprocess.Popen = _real_popen
+check("-- and robocopy's output is decoded with it, replacing what it "
+      "cannot read",
+      [(arguments.get("encoding"), arguments.get("errors"))
+       for arguments in _popen_arguments]
+      == [(backup._robocopy_output_encoding(), "replace")],
+      _popen_arguments)
+
 print("\n== a real backup, into a real temp folder ==")
 if os.name != "nt":
     print("  SKIP    robocopy is Windows-only")
