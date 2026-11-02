@@ -947,6 +947,24 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   "No Drobo address" and exited 0, so a script running it took the
   failure for success. Nothing is sent on this path.
   `tools/test_nasd_sweep.py` gains a check. (2026-11-02)
+- **`tools/access_codes.py`, `tools/sweep_last_six.py` and
+  `tools/sweep_remainder.py` report a reply that is not a Drobo's
+  instead of crashing.** Each caught only a network error, so a status
+  greeting with the wrong framing or XML that did not parse (and, in
+  `access_codes.py`, a shares config the SDK could not use) ended in a
+  traceback. They now print why, as a network error at the same point
+  already did: `access_codes.py`, and either sweep when the problem
+  comes before its first command, exit 1; `sweep_last_six.py` stops
+  after the command the device stopped greeting on, and
+  `sweep_remainder.py`'s closing health check reports the problem, each
+  still exiting 0 as they always have after a network error there.
+  `access_codes.py` and `sweep_remainder.py` now report a reply that
+  arrived but could not be read as that, not as "Could not reach the
+  Drobo"; `sweep_last_six.py` keeps its one wording for both ("Drobo
+  not reachable before we start: ...", "NOT ANSWERING -- ..."), with
+  the reason after it. Only what is caught and what is printed change;
+  nothing sent changes.
+  `tools/test_nasd_sweep.py` gains eleven checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

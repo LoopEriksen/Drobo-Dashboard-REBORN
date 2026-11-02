@@ -66,6 +66,7 @@ import os
 import sys
 import tempfile
 import time
+from xml.etree import ElementTree
 
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_TOOLS_DIR, "..", "sdk")))
@@ -95,6 +96,12 @@ GREETING_TIMEOUT_SECONDS = 8
 # A breather between commands, on a command port already known to tire.
 PAUSE_BETWEEN_COMMANDS_SECONDS = 1.0
 
+# What reading a status greeting can raise: no connection (OSError), a
+# frame that is not a Drobo's (FrameError) or XML that does not parse
+# (ParseError). Catching only OSError used to let the other two end the
+# run in a traceback.
+GREETING_READ_ERRORS = (OSError, esatm.FrameError, ElementTree.ParseError)
+
 
 def check_status_port(host: str) -> tuple[bool, str]:
     """Is the device still greeting on the status port?
@@ -108,7 +115,7 @@ def check_status_port(host: str) -> tuple[bool, str]:
             esatm.fetch_greeting(host, STATUS_PORT,
                                  timeout=GREETING_TIMEOUT_SECONDS))
         return True, identity.get("name", "?")
-    except OSError as exc:
+    except GREETING_READ_ERRORS as exc:
         return False, str(exc)
 
 
@@ -136,7 +143,7 @@ def _read_esa_id(host) -> str:
             esatm.fetch_greeting(host, STATUS_PORT,
                                  timeout=GREETING_TIMEOUT_SECONDS)
         ).get("esa_id", "")
-    except OSError:
+    except GREETING_READ_ERRORS:
         return ""
 
 

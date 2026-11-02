@@ -85,7 +85,7 @@ No Drobo needed. They run from any folder, for example
 | [`test_extract_commands.py`](test_extract_commands.py) | Checks `extract_commands.py` against a recording it builds itself | No | Yes |
 | [`test_fw_params.py`](test_fw_params.py) | Checks `fw_params.py`. Skips one check unless the firmware is on this PC | No | Yes |
 | [`test_nasd_dissect.py`](test_nasd_dissect.py) | Checks `nasd_dissect.py`. Prints `ok:` lines rather than `PASS` | No | Yes |
-| [`test_nasd_sweep.py`](test_nasd_sweep.py) | Checks `nasd_sweep.py`'s safety list and password hiding against a pretend Drobo | No | Yes |
+| [`test_nasd_sweep.py`](test_nasd_sweep.py) | Checks `nasd_sweep.py`'s safety list and password hiding against a pretend Drobo, and that `nasd_sweep.py`, `sweep_last_six.py`, `sweep_remainder.py` and `access_codes.py` stop cleanly on a bad report path, a missing address or a greeting that cannot be read, with every device call replaced | No | Yes |
 
 ## Why this folder has no subfolders
 

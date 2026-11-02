@@ -46,6 +46,7 @@ import json
 import os
 import sys
 import tempfile
+from xml.etree import ElementTree
 
 # Two different siblings, for two different reasons: the protocol comes
 # from the SDK, and the Drobo's address comes from the agent's own
@@ -67,6 +68,14 @@ STATUS_PORT = 5000
 DEVICE_TIMEOUT_SECONDS = 8
 # The USER column's width in the printed table.
 USER_COLUMN_WIDTH = 16
+
+# What reading the greeting and the shares config can raise: no
+# connection (OSError), a frame that is not a Drobo's (FrameError), XML
+# that does not parse (ParseError), or a config reply the SDK could not
+# use (ConfigError). Catching only OSError used to let the rest end the
+# run in a traceback.
+DEVICE_READ_ERRORS = (OSError, esatm.FrameError, ElementTree.ParseError,
+                      config_cmd.ConfigError)
 
 
 def _as_list(value) -> list:
@@ -206,6 +215,22 @@ def _compare_with_before(snapshot_path: str, codes: dict) -> int:
     return 0
 
 
+def _print_read_failure(host: str, error: Exception) -> None:
+    """Say why the codes could not be read, and what to try.
+
+    Only a network error (OSError) means the Drobo was not reached, so
+    only that one gets the network advice. A frame, XML or config reply
+    that could not be used came over a connection that was made; it
+    used to be reported as "Could not reach the Drobo" too.
+    """
+    if isinstance(error, OSError):
+        print(f"Could not reach the Drobo at {host}: {error}")
+        print("Check you're on the same network as it, then try again.")
+        return
+    print(f"Could not read the share settings from the Drobo at {host}: "
+          f"{error}")
+
+
 def main(argv=None) -> int:
     """Read the codes, then show them, save them, or compare them.
 
@@ -223,9 +248,8 @@ def main(argv=None) -> int:
 
     try:
         codes = read_share_access_codes(host)
-    except OSError as exc:
-        print(f"Could not reach the Drobo at {host}: {exc}")
-        print("Check you're on the same network as it, then try again.")
+    except DEVICE_READ_ERRORS as exc:
+        _print_read_failure(host, exc)
         return 1
 
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)

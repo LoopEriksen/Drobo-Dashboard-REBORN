@@ -601,6 +601,83 @@ check("no Drobo address (no --host, none configured) exits 1",
       outcome == 1, outcome)
 
 
+# ---------------------------------------------------------------------------
+# 8. A greeting or config reply that is not a Drobo's ends in a message
+# and exit 1 in access_codes and the two later sweeps, not a traceback.
+# ---------------------------------------------------------------------------
+print("\n== the read-only tools survive a bad greeting or config reply ==")
+
+import sweep_remainder  # noqa: E402
+
+
+def _quietly(function, *args):
+    """(return value or the exception raised, printed output)."""
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            outcome = function(*args)
+    except (SystemExit, Exception) as exc:
+        outcome = exc
+    return outcome, printed.getvalue()
+
+
+def _bad_greeting_checks(failure_label):
+    """Every tool's greeting path, under whichever fake is installed."""
+    outcome, printed = _quietly(access_codes.main,
+                                ["show", "--host", "127.0.0.1"])
+    check(f"access_codes: {failure_label} -> exit 1, read (not reach)",
+          outcome == 1 and "Could not read" in printed
+          and "same network" not in printed, (repr(outcome), printed))
+    outcome, _ = _quietly(sweep_last_six.main, ["127.0.0.1"])
+    check(f"sweep_last_six: {failure_label} -> exit 1", outcome == 1,
+          repr(outcome))
+    outcome, _ = _quietly(sweep_last_six._read_esa_id, "127.0.0.1")
+    check(f"sweep_last_six: {failure_label} -> no serial", outcome == "",
+          repr(outcome))
+    outcome, printed = _quietly(sweep_remainder._fetch_identity,
+                                "127.0.0.1")
+    check(f"sweep_remainder: {failure_label} -> no identity, read error",
+          outcome is None and "Could not read" in printed,
+          (repr(outcome), printed))
+    outcome, printed = _quietly(sweep_remainder._verify_still_healthy,
+                                "127.0.0.1")
+    check(f"sweep_remainder: {failure_label} -> health check says so",
+          outcome is None and "!! status port greeting could not be read"
+          in printed, (repr(outcome), printed))
+
+
+_bad_greetings = [
+    ("a frame with a bad signature",
+     _greeting_raising(esatm.FrameError("bad signature"))),
+    ("a greeting that is not XML", lambda *args, **kwargs: b"<broken\x00"),
+]
+for failure_label, fake_fetch_greeting in _bad_greetings:
+    esatm.fetch_greeting = fake_fetch_greeting
+    try:
+        _bad_greeting_checks(failure_label)
+    finally:
+        esatm.fetch_greeting = _saved_fetch_greeting
+
+
+def _config_read_fails(*args, **kwargs):
+    """A stand-in for config_cmd.get_config whose reply was unusable."""
+    raise config_cmd.ConfigError("reply did not parse")
+
+
+_saved_get_config = config_cmd.get_config
+esatm.fetch_greeting = _fake_greeting_for([])
+config_cmd.get_config = _config_read_fails
+try:
+    outcome, printed = _quietly(access_codes.main,
+                                ["show", "--host", "127.0.0.2"])
+finally:
+    esatm.fetch_greeting = _saved_fetch_greeting
+    config_cmd.get_config = _saved_get_config
+check("access_codes: a config read that fails (ConfigError) -> exit 1",
+      outcome == 1 and "Could not read the share settings" in printed,
+      (repr(outcome), printed))
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

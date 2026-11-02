@@ -85,6 +85,7 @@ import os
 import sys
 import tempfile
 import time
+from xml.etree import ElementTree
 
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_TOOLS_DIR, "..", "sdk")))
@@ -133,6 +134,13 @@ PAUSE_BETWEEN_COMMANDS_SECONDS = 0.5
 # This many timeouts in a row stop the sweep.
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
+# What a status greeting that arrived but cannot be read raises: a
+# frame that is not a Drobo's (FrameError) or XML that does not parse
+# (ParseError). No connection at all is an OSError, caught on its own
+# so the message can say which. Catching only OSError used to let these
+# two end the run in a traceback.
+UNREADABLE_GREETING_ERRORS = (esatm.FrameError, ElementTree.ParseError)
+
 
 def _parse_arguments(argv) -> argparse.Namespace:
     """Read the command line (the module docstring is the --help)."""
@@ -167,6 +175,9 @@ def _fetch_identity(host: str) -> dict | None:
                                  timeout=GREETING_TIMEOUT_SECONDS))
     except OSError as exc:
         print(f"Could not reach the Drobo at {host}: {exc}")
+        return None
+    except UNREADABLE_GREETING_ERRORS as exc:
+        print(f"Could not read the Drobo's greeting at {host}: {exc}")
         return None
 
 
@@ -226,6 +237,8 @@ def _verify_still_healthy(host: str) -> None:
         print("  status port OK -- greeting still arriving.")
     except OSError as exc:
         print(f"  !! status port did not answer: {exc}")
+    except UNREADABLE_GREETING_ERRORS as exc:
+        print(f"  !! status port greeting could not be read: {exc}")
 
 
 def _print_summary(results: list[dict]) -> None:
