@@ -1019,6 +1019,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   with no arguments (how `windows/README.md` says to run it before a
   release) or with `--quiet` behave as before.
   `agent/tests/test_updates.py` gains three checks. (2026-11-02)
+- **`scripts/scan_for_pii.py` masks an email address's domain too.** A
+  hit masked only the part before the `@` and printed the domain in
+  full, and a personal domain is often a surname, so it reached the
+  console and the CI log. The domain is now masked after its first
+  letter, keeping its last label (`so*****@p**********.net`); the file
+  and line number still say where to look. What is found is unchanged.
+  `agent/tests/test_updates.py` gains a check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -697,6 +697,29 @@ if os.path.exists(_checker_path):
           (_quiet_exit, _quiet_output[:120]))
 
 
+# ---------------------------------------------------------------------------
+print("\n== scripts/scan_for_pii.py: what it prints and what it reads ==")
+# The privacy scanner sits beside check_versions.py in scripts/ and is
+# checked here for the same reason: an ordinary suite sweep runs it.
+# Addresses are assembled at run time, so this file never holds one
+# whole for the scanner (or the pre-commit hook) to find.
+
+_scanner_path = os.path.join(_repo_root, "scripts", "scan_for_pii.py")
+_scanner_spec = importlib.util.spec_from_file_location(
+    "_scan_for_pii", _scanner_path)
+_pii_scanner = importlib.util.module_from_spec(_scanner_spec)
+_scanner_spec.loader.exec_module(_pii_scanner)
+
+_personal_domain = "personal-surname-domain"
+_personal_address = "someone" + "@" + _personal_domain + ".net"
+_redacted_address = _pii_scanner.redact("email address", _personal_address)
+check("an email's domain is masked too, not printed in full",
+      _personal_domain not in _redacted_address
+      and _redacted_address.endswith(".net")
+      and _redacted_address.startswith("so"),
+      _redacted_address)
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

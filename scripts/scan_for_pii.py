@@ -315,6 +315,27 @@ def _redact_user_path(snippet):
             + "*" * max(len(account_name) - 1, 1))
 
 
+def _redact_email(snippet):
+    """The address with its local part and its domain masked.
+
+    The first characters of the local part, the domain's first letter
+    and its last label are kept: enough to find the line, which the
+    file and line number already pin down. The domain used to be
+    printed in full, and a personal domain is often a surname, so the
+    one part of an address that names its owner reached the console
+    and the CI log. Reserved and demo domains never get this far.
+    """
+    local_part, _, domain = snippet.partition("@")
+    kept_prefix = local_part[:2] if len(local_part) > 2 else local_part[:1]
+    local_mask = "*" * max(len(local_part) - len(kept_prefix), 1)
+    domain_name, dot, top_label = domain.rpartition(".")
+    if not dot:
+        domain_name, top_label = domain, ""
+    domain_mask = "*" * max(len(domain_name) - 1, 1)
+    return (f"{kept_prefix}{local_mask}@{domain_name[:1]}{domain_mask}"
+            f"{dot}{top_label}")
+
+
 def redact(label, snippet):
     """Never print the identifier itself.
 
@@ -323,15 +344,12 @@ def redact(label, snippet):
     whatever the user pastes when they ask for help. Enough is shown to
     find the line; the file and line number are the actionable part
     anyway. The user-path match now carries the account name, so that
-    name is masked too.
+    name is masked too, and so is an email's domain.
     """
     if label == "private pattern":
         return snippet[0] + "*" * (len(snippet) - 1) if snippet else "?"
     if label == "email address" and "@" in snippet:
-        local_part, _, domain = snippet.partition("@")
-        kept_prefix = local_part[:2] if len(local_part) > 2 else local_part[:1]
-        mask = "*" * max(len(local_part) - len(kept_prefix), 1)
-        return f"{kept_prefix}{mask}@{domain}"
+        return _redact_email(snippet)
     if label == "Drobo device serial":
         # Every unit's serial starts the same way;
         # what follows is the unit.
