@@ -796,9 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `droboapps`: the docstrings of
-  `droboapps_action` and `get_spindown` name errors and returns they do not
-  produce.
 - `sharewrite._resolve_share`: two shares with the identical name are
   refused (safe) with a message saying none matches exactly (wrong).
   `create_share` and `delete_share` name the wrong exception for a write

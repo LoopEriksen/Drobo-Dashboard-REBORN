@@ -773,6 +773,41 @@ check("FeatureStates '²' before the write: no write frame sent",
       not any("<CmdID>31</CmdID>" in payload
               for payload in fake_drobo.sent), fake_drobo.sent)
 
+print("\n== get_spindown's contract, as its docstring states it ==")
+fake_drobo = FakeDrobo([
+    b"<TMCmd><CmdID>30</CmdID><ResultDetails><DRINASConfig><General>"
+    b"<FeatureStates>7</FeatureStates><Dim>59</Dim>"
+    b"</General></DRINASConfig></ResultDetails></TMCmd>\x00"])
+check("a General block with no SpindownDelay reads as None",
+      droboapps.get_spindown("127.0.0.1", SAMPLE_ESA_ID,
+                             port=fake_drobo.port, timeout=5) is None)
+closed_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+closed_listener.bind(("127.0.0.1", 0))
+closed_port = closed_listener.getsockname()[1]
+closed_listener.close()
+check("a refused read raises OSError, not None",
+      _raises(lambda: droboapps.get_spindown(
+          "127.0.0.1", SAMPLE_ESA_ID, port=closed_port, timeout=5), OSError))
+
+print("\n== droboapps_action's contract: a ConfigError before the send ==")
+# Its docstring says the installed-app check can let out a plain
+# config_cmd.ConfigError, not only SysInfoError, with the action not
+# sent. A serial the login refuses to build is one.
+fake_drobo = FakeDrobo([_apps_reply("DroboAdmin")])
+try:
+    droboapps.droboapps_action("127.0.0.1", "drb SAMPLE", "DroboAdmin",
+                               "Stop", port=fake_drobo.port, timeout=5)
+    check("an implausible serial: ConfigError", False)
+except droboapps.DroboAppsActionError as exc:
+    check("an implausible serial: ConfigError", False,
+          f"DroboAppsActionError: {exc}")
+except config_cmd.ConfigError as exc:
+    check("an implausible serial: ConfigError",
+          "implausible device serial" in str(exc), str(exc))
+# The fake records an empty payload for a connection that sent it
+# nothing, so "nothing sent" is "no payload with anything in it".
+check("...and nothing was sent", not any(fake_drobo.sent), fake_drobo.sent)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

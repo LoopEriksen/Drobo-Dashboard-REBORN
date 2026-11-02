@@ -590,11 +590,14 @@ def set_dimming(host: str, esa_id: str, brightness: int,
 def get_spindown(host: str, esa_id: str, port: int = DEFAULT_PORT,
                  timeout: float = 8.0) -> int | None:
     """
-    The spin-down delay from the <General> block, or None if unreadable.
+    The spin-down delay from the <General> block; None when the block
+    has no SpindownDelay or it is not a number.
 
     Read-only. Reads the same block set_spindown writes, which is also
     how set_spindown verifies its own write -- one confirmed reader, no
-    second command to depend on.
+    second command to depend on. A read that fails is not None: it
+    raises config_cmd.ConfigError or OSError as get_config does, and a
+    reply with no General block raises GeneralWriteError.
     """
     from .config_cmd import get_config
     general_block = _extract_general_block(
@@ -888,8 +891,19 @@ def droboapps_action(host: str, esa_id: str, name: str, action: str,
     device has ACCEPTED the action (Result == RESULT_ACCEPTED); accepted
     is not the same as finished.
 
-    Raises DroboAppsActionError on a bad verb, an unknown app, a refused
-    device, or a non-accepted result.
+    Raises DroboAppsActionError for a bad verb, an app the device does
+    not report, a command port that cannot be reached, a refused login,
+    a reply that is not a result, or a result other than accepted.
+    Before the action is sent, the installed-app check can also let out
+    config_cmd.ConfigError (SysInfoError among them; a plain ConfigError
+    for a short or garbled frame, or for a serial the login refuses to
+    build) or OSError from its own read, and then the action was not
+    sent. After the action's own connect, OSError and
+    config_cmd.ConfigError propagate unwrapped (see _send_action), and
+    by then the action frame may be on the wire: the action may have
+    been taken, so neither is a reason to send it again blindly. (A
+    serial the login refuses is a ConfigError before any frame goes
+    out, on either path.)
     """
     app_name = _validated_app_action(action, name)
     command_id = _vetted_action_command_id()
