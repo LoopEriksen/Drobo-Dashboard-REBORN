@@ -302,13 +302,7 @@ def parse(xml_text: str) -> Envelope:
     mostly a guess (see the module docstring), so only the root,
     <ESAID> and <Command> are required, and everything else is read
     when it is there."""
-    document_text = xml_text.strip()
-    if document_text.startswith("<?xml"):
-        # drop the declaration line before handing to ElementTree --
-        # stdlib's parser is fine with it, but keeping this explicit
-        # documents that the exact declaration text is not itself
-        # meaningful to us
-        document_text = document_text.split("?>", 1)[1].strip()
+    document_text = _without_declaration(xml_text.strip())
     try:
         root = ElementTree.fromstring(document_text)
     except ElementTree.ParseError as exc:
@@ -349,6 +343,23 @@ def parse(xml_text: str) -> Envelope:
     )
 
 
+def _without_declaration(document_text: str) -> str:
+    """
+    The document with any leading <?xml ...?> declaration dropped.
+
+    stdlib's parser is fine with a declaration, but dropping it here
+    documents that the exact declaration text is not itself meaningful
+    to us. One with no "?>" is malformed and is an EnvelopeError: until
+    2026-11-02 split("?>", 1)[1] let an IndexError out instead.
+    """
+    if not document_text.startswith("<?xml"):
+        return document_text
+    _, separator, document_text = document_text.partition("?>")
+    if not separator:
+        raise EnvelopeError("unterminated XML declaration")
+    return document_text.strip()
+
+
 def _resolve_wire_command(
     command_raw: str,
 ) -> tuple[Optional[int], Optional[str]]:
@@ -358,9 +369,19 @@ def _resolve_wire_command(
     Digits are read as the numeric id and anything else as an eCmd*
     name, because the wire form is not yet known; either part is None
     when the table has no entry for it.
+
+    Digits int() refuses (more than Python's 4300-digit limit) are an
+    EnvelopeError, the one error parse promises: until 2026-11-02
+    int()'s ValueError escaped, the case _coerce_wire_value already
+    guarded.
     """
     if _INTEGER_RE.fullmatch(command_raw):
-        command_id = int(command_raw)
+        try:
+            command_id = int(command_raw)
+        except ValueError as exc:
+            raise EnvelopeError(
+                f"<Command> is a number of {len(command_raw)} digits, "
+                f"too long to read") from exc
         return command_id, commands.ID_TO_NAME.get(command_id)
     command_name = (command_raw if command_raw in commands.COMMANDS
                     else None)
@@ -369,11 +390,19 @@ def _resolve_wire_command(
 
 def _parse_error_code(root: ElementTree.Element) -> Optional[int]:
     """The integer in <Error>, or None when the element is absent or
-    empty (a request carries none)."""
+    empty (a request carries none).
+
+    Text that is not an integer is an EnvelopeError, the one error
+    parse promises; until 2026-11-02 int()'s ValueError escaped.
+    """
     error_element = root.find("Error")
-    return (int(error_element.text)
-            if error_element is not None and error_element.text
-            else None)
+    if error_element is None or not error_element.text:
+        return None
+    try:
+        return int(error_element.text)
+    except ValueError as exc:
+        raise EnvelopeError(
+            f"<Error> is not an integer: {error_element.text!r}") from exc
 
 
 def _parse_optional_value(element: Optional[ElementTree.Element]) -> Any:

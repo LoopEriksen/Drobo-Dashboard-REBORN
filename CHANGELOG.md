@@ -509,6 +509,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   by case. The write that actually reaches the Drobo already refused both;
   the helper now does too. Only scripts that call the helper directly see a
   difference: the software itself does not use it to write. (2026-11-02)
+- **The experimental client's message parser reports malformed messages as
+  malformed.** `envelope.parse`, used only by the older experimental client
+  that cannot talk to a real Drobo, let other kinds of error out for a
+  malformed message: a non-numeric error code, an XML declaration with no
+  end, and a command number too long to read (over 4300 digits). Each is
+  now its own "malformed message" error. Nothing the software sends or
+  shows changes. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

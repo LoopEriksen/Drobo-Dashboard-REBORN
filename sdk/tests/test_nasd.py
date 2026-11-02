@@ -376,6 +376,33 @@ try:
 except envelope.EnvelopeError:
     check("missing <Command> raises EnvelopeError", True)
 
+# Until 2026-11-02 a non-numeric <Error> let int()'s ValueError out, and
+# an <?xml declaration with no "?>" an IndexError, neither of them the
+# EnvelopeError parse promises.
+for label, malformed_document in (
+        ("a non-numeric <Error>",
+         "<DRINETTM><ESAID>x</ESAID><Command>1</Command><Error>abc</Error>"
+         "</DRINETTM>"),
+        ("an unterminated declaration before a document",
+         "<?xml version='1.0'><DRINETTM/>"),
+        ("a bare unterminated declaration", "<?xml"),
+        # int() refuses more than 4300 digits with a ValueError.
+        ("a <Command> past int()'s digit limit",
+         "<DRINETTM><ESAID>x</ESAID><Command>" + "9" * 5000
+         + "</Command></DRINETTM>")):
+    try:
+        envelope.parse(malformed_document)
+        check(f"{label} raises EnvelopeError", False)
+    except envelope.EnvelopeError:
+        check(f"{label} raises EnvelopeError", True)
+    except Exception as exc:
+        check(f"{label} raises EnvelopeError", False,
+              f"{type(exc).__name__}: {exc}")
+check("a declared, well-formed document still parses",
+      envelope.parse("<?xml version='1.0'?><DRINETTM><ESAID>x</ESAID>"
+                     "<Command>7</Command><Error>0</Error></DRINETTM>").error
+      == 0)
+
 
 # ---------------------------------------------------------------------------
 print("\n== framing.py: length-prefixed frame round trip ==")

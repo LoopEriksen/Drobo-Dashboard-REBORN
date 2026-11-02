@@ -796,8 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `envelope.parse` lets `ValueError` and `IndexError` escape
-  `EnvelopeError`; `framing` has no maximum frame length (speculative path
+- `framing` has no maximum frame length (speculative path
   only).
 - `identify`: `--compare` ignores `--interval` and always sends 15; a
   negative `--gap` ends in a traceback, not the usage exit code.
