@@ -796,9 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `sharewrite._resolve_share`: two shares with the identical name are
-  refused (safe) with a message saying none matches exactly (wrong).
-  `create_share` and `delete_share` name the wrong exception for a write
+- `sharewrite`: `create_share` and `delete_share` name the wrong exception for a write
   that did not apply. `shareedit.set_user_access` is weaker than
   `sharewrite` on the same rules (latent: only tests use it).
 - `envelope.parse` lets `ValueError` and `IndexError` escape

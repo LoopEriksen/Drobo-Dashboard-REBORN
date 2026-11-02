@@ -495,6 +495,13 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   with the same message as any other instead of escaping as an error the
   agent does not answer. Nothing sent to the Drobo changes, and nothing is
   ever sent twice. (2026-11-02)
+- **Two shares with the same name are refused with a message that says
+  so.** Asking to change access on a share when the Drobo lists two shares
+  of exactly that name was already refused, rather than editing one of them
+  at random, but the message said none of them matched the name exactly,
+  which was the opposite of the problem. It now says that several shares
+  carry exactly that name. The refusal and its answer from the agent are as
+  before, and nothing is sent to the Drobo. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

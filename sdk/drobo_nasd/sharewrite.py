@@ -118,12 +118,22 @@ def _resolve_share(share_config: ElementTree.Element,
     and taking the first hit edits and verifies the WRONG share while
     reporting success -- the 2026-08-12 audit's confirmed high finding.
     Same rule as user rows.
+
+    Two shares with the identical name are refused for the same reason,
+    with a message of their own. Until 2026-11-02 they reached the
+    case-fold message below, which says none of them matched exactly,
+    when every one of them did.
     """
     shares = _share_elements(share_config)
     exact_matches = [s for s in shares
                      if _child_text(s, "ShareName") == share_name]
     if len(exact_matches) == 1:
         return exact_matches[0]
+    if len(exact_matches) > 1:
+        raise ShareEditError(
+            f"{len(exact_matches)} shares are named exactly {share_name!r}; "
+            f"ambiguous -- refusing rather than editing the first one and "
+            f"hoping.")
     case_folded_matches = [
         s for s in shares
         if _child_text(s, "ShareName").lower() == share_name.lower()]

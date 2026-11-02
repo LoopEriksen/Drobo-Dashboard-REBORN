@@ -21,6 +21,7 @@ import socket
 import struct
 import sys
 import threading
+from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
@@ -650,6 +651,22 @@ except Exception as exc:
           f"{type(exc).__name__}: {exc}")
 check("only the read went out -- no write followed the malformed read",
       len(fake_drobo.sent) == 1, fake_drobo.sent)
+
+print("\n== two shares with the identical name: refused, and said so ==")
+# Refused before 2026-11-02 too, but with a message saying none of them
+# matched exactly, when both did.
+duplicate_config = ElementTree.fromstring(_compact_share_config(
+    _compact_share("Dup", "0") + _compact_share("Dup", "1")))
+try:
+    sharewrite._resolve_share(duplicate_config, "Dup")
+    check("two identically named shares are refused", False)
+except ShareEditError as exc:
+    check("two identically named shares are refused, named exactly",
+          "named exactly" in str(exc)
+          and "none matches exactly" not in str(exc), str(exc))
+    check("...worded as a refusal, so the agent still answers 400",
+          "refus" in str(exc).lower()
+          and "no share named" not in str(exc), str(exc))
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
