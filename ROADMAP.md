@@ -864,9 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- `DroboSettings`: one malformed port resets every later setting to its
-  default, which the next save writes back; the file is written in place,
-  not replaced atomically.
 - The app gives up on any agent request after 8 seconds, the same as the
   agent's own wait for the device's answer (`COMMAND_TIMEOUT_SECONDS`).
   When the device takes a write and then stays silent with the connection

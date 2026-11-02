@@ -868,6 +868,19 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   locked so the login saved is the one that connected. How and where the
   password is stored is unchanged. Checked by reading and by the Windows
   build; see `docs/testers-tasks.md` section 7. (2026-11-02)
+- **One bad value in the Windows app's settings no longer resets the rest,
+  and a save can no longer leave the file cut short.** A typed Drobo
+  address saved with a port such as 7.5 made the app read every setting
+  after it as its first-launch default (automatic discovery, the
+  diagnostics choice, close to tray, notifications), and the next change
+  to any setting wrote those defaults back over the user's choices. Now a
+  bad port counts as no port for that one address, and each part of the
+  file is read on its own. `settings.json` was also rewritten in place,
+  so a crash or power cut during a save could leave a truncated file
+  that read as a first launch; it is now written beside the old one and
+  moved over it in one step. The file's name and contents are unchanged.
+  The Windows test program gains 18 checks, working in a temporary
+  folder. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -137,48 +137,97 @@ internal static class DroboSettings
     /// <summary>Never throws -- a missing or corrupt file just means the same
     /// safe defaults a first-ever launch would have: nothing remembered,
     /// nothing manual, discovery on.</summary>
-    public static Settings LoadAll()
+    public static Settings LoadAll() => LoadAll(SettingsFilePath);
+
+    /// <summary>LoadAll from a given file. Internal so the test program can
+    /// point it at a temporary folder; the app only ever uses
+    /// SettingsFilePath.</summary>
+    internal static Settings LoadAll(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? Parse(File.ReadAllText(path)) : new Settings();
+        }
+        catch
+        {
+            // Unreadable (locked, permissions): the safe defaults, never a
+            // crash.
+            return new Settings();
+        }
+    }
+
+    /// <summary>
+    /// The settings in one settings.json document. Text that is not JSON, or
+    /// not a JSON object, gives the first-launch defaults.
+    ///
+    /// Each section is read under its own guard. Until 2026-11-02 one
+    /// try/catch covered them all, so a single bad value -- a manual port of
+    /// 7.5, which GetInt32 threw on -- left every section after it at its
+    /// default, and the next save of any setting wrote those defaults back
+    /// over the user's choices (notifications switched off again, say).
+    /// </summary>
+    internal static Settings Parse(string json)
     {
         var result = new Settings();
         try
         {
-            var path = SettingsFilePath;
-            if (!File.Exists(path)) return result;
-
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            var root = doc.RootElement;
-
-            ReadRememberedDevice(root, result);
-            ReadManualDevices(root, result);
-
-            // Explicit presence + kind check, not a bare GetBoolean() default:
-            // an ABSENT key must mean "on" (the documented default), while a
-            // PRESENT "false" must be honoured. Collapsing those two cases
-            // would be exactly the falsy-default trap this codebase has been
-            // bitten by before -- see the SeverityRank comment in
-            // MainWindow.xaml.cs for the earlier version of the same mistake.
-            if (ReadOptionalBool(root, "auto_discovery_enabled") is bool autoDiscoveryEnabled)
-                result.AutoDiscoveryEnabled = autoDiscoveryEnabled;
-
-            ReadDiagnosticsPreference(root, result);
-
-            // Same explicit presence check as auto_discovery_enabled above --
-            // an absent key must mean the documented default (OFF), not just
-            // whatever GetBoolean() would fall back to.
-            if (ReadOptionalBool(root, "close_to_tray_enabled") is bool closeToTrayEnabled)
-                result.CloseToTrayEnabled = closeToTrayEnabled;
-
-            if (ReadOptionalBool(root, "notifications_enabled") is bool notificationsEnabled)
-                result.NotificationsEnabled = notificationsEnabled;
-
-            ReadNotificationCategories(root, result);
+            using var doc = JsonDocument.Parse(json);
+            ReadSections(doc.RootElement, result);
         }
         catch
         {
-            // Corrupt or unreadable settings just means "start from the safe
-            // defaults already set on `result`" -- never a crash.
+            // Not JSON at all -- a file cut short, say: start from the safe
+            // defaults already set on `result`.
         }
         return result;
+    }
+
+    /// <summary>Reads every section of the document onto
+    /// <paramref name="result"/>, each one on its own, so one that cannot be
+    /// read keeps only its own default.</summary>
+    private static void ReadSections(JsonElement root, Settings result)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return;
+
+        ReadSection(() => ReadRememberedDevice(root, result));
+        ReadSection(() => ReadManualDevices(root, result));
+
+        // Explicit presence + kind check, not a bare GetBoolean() default:
+        // an ABSENT key must mean "on" (the documented default), while a
+        // PRESENT "false" must be honoured. Collapsing those two cases
+        // would be exactly the falsy-default trap this codebase has been
+        // bitten by before -- see the SeverityRank comment in
+        // MainWindow.xaml.cs for the earlier version of the same mistake.
+        if (ReadOptionalBool(root, "auto_discovery_enabled") is bool autoDiscoveryEnabled)
+            result.AutoDiscoveryEnabled = autoDiscoveryEnabled;
+
+        ReadSection(() => ReadDiagnosticsPreference(root, result));
+
+        // Same explicit presence check as auto_discovery_enabled above --
+        // an absent key must mean the documented default (OFF), not just
+        // whatever GetBoolean() would fall back to.
+        if (ReadOptionalBool(root, "close_to_tray_enabled") is bool closeToTrayEnabled)
+            result.CloseToTrayEnabled = closeToTrayEnabled;
+
+        if (ReadOptionalBool(root, "notifications_enabled") is bool notificationsEnabled)
+            result.NotificationsEnabled = notificationsEnabled;
+
+        ReadSection(() => ReadNotificationCategories(root, result));
+    }
+
+    /// <summary>Runs one section's reader, keeping that section's defaults
+    /// if it throws. ReadOptionalBool cannot throw on an object, so the three
+    /// flags above need no guard of their own.</summary>
+    private static void ReadSection(Action readSection)
+    {
+        try
+        {
+            readSection();
+        }
+        catch
+        {
+            // This section keeps its defaults; the others are still read.
+        }
     }
 
     /// <summary>
@@ -220,8 +269,9 @@ internal static class DroboSettings
     }
 
     /// <summary>Reads manual_devices, skipping any entry that is not an
-    /// object or has no host. A missing or non-numeric port reads as 0
-    /// ("not specified").</summary>
+    /// object or has no host. A port that is missing, not a number, or not
+    /// a whole number that fits an int (7.5, 1e10) reads as 0 ("not
+    /// specified"), affecting only its own row.</summary>
     private static void ReadManualDevices(JsonElement root, Settings result)
     {
         if (!root.TryGetProperty("manual_devices", out var manualDevicesElement)
@@ -233,7 +283,8 @@ internal static class DroboSettings
             var host = ReadStringOrEmpty(item, "host");
             if (string.IsNullOrWhiteSpace(host)) continue;
             var port = item.TryGetProperty("port", out var portElement) && portElement.ValueKind == JsonValueKind.Number
-                ? portElement.GetInt32() : 0;
+                       && portElement.TryGetInt32(out var parsedPort)
+                ? parsedPort : 0;
             result.ManualDevices.Add(new ManualDevice { Host = host, Port = port });
         }
     }
@@ -279,39 +330,76 @@ internal static class DroboSettings
     /// restart. The JSON keys are the settings.json format and must match
     /// what LoadAll reads.
     /// </summary>
-    public static void SaveAll(Settings settings)
+    public static void SaveAll(Settings settings) => SaveAll(settings, SettingsFilePath);
+
+    /// <summary>
+    /// SaveAll to a given file; true once the file holds the new settings.
+    ///
+    /// Written beside the file as settings.json.tmp and then moved over it,
+    /// which on one NTFS volume replaces it in a single step, so the file
+    /// is always either the old document or the new one. Until 2026-11-02
+    /// it was overwritten in place, and a crash or power cut mid-write left
+    /// a truncated file that LoadAll silently read as first-launch defaults:
+    /// the remembered Drobo, typed addresses and notification choices gone.
+    /// </summary>
+    internal static bool SaveAll(Settings settings, string path)
     {
+        var temporaryPath = path + ".tmp";
         try
         {
-            var path = SettingsFilePath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var json = JsonSerializer.Serialize(new
-            {
-                remembered_device = settings.Remembered is { } remembered ? new
-                {
-                    esa_id = remembered.EsaId,
-                    host = remembered.Host,
-                    name = remembered.Name,
-                    model = remembered.Model,
-                } : null,
-                manual_devices = settings.ManualDevices.Select(manualDevice => new { host = manualDevice.Host, port = manualDevice.Port }).ToArray(),
-                auto_discovery_enabled = settings.AutoDiscoveryEnabled,
-                diagnostics_preference = settings.DiagnosticsPreference switch
-                {
-                    DiagnosticsPreference.Clipboard => "clipboard",
-                    DiagnosticsPreference.File => "file",
-                    _ => "ask",
-                },
-                close_to_tray_enabled = settings.CloseToTrayEnabled,
-                notifications_enabled = settings.NotificationsEnabled,
-                notification_categories = settings.NotificationCategories,
-            }, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(path, json);
+            File.WriteAllText(temporaryPath, SerializeSettings(settings));
+            File.Move(temporaryPath, path, overwrite: true);
+            return true;
         }
         catch
         {
             // Not being able to save is not worth interrupting the flow for --
-            // whatever was on screen a moment ago still works.
+            // whatever was on screen a moment ago still works. The original
+            // file is untouched; only a half-written temporary one may need
+            // tidying.
+            DeleteQuietly(temporaryPath);
+            return false;
+        }
+    }
+
+    /// <summary>The settings as settings.json text. The JSON keys are the
+    /// file format and must match what Parse reads.</summary>
+    private static string SerializeSettings(Settings settings) =>
+        JsonSerializer.Serialize(new
+        {
+            remembered_device = settings.Remembered is { } remembered ? new
+            {
+                esa_id = remembered.EsaId,
+                host = remembered.Host,
+                name = remembered.Name,
+                model = remembered.Model,
+            } : null,
+            manual_devices = settings.ManualDevices.Select(manualDevice => new { host = manualDevice.Host, port = manualDevice.Port }).ToArray(),
+            auto_discovery_enabled = settings.AutoDiscoveryEnabled,
+            diagnostics_preference = settings.DiagnosticsPreference switch
+            {
+                DiagnosticsPreference.Clipboard => "clipboard",
+                DiagnosticsPreference.File => "file",
+                _ => "ask",
+            },
+            close_to_tray_enabled = settings.CloseToTrayEnabled,
+            notifications_enabled = settings.NotificationsEnabled,
+            notification_categories = settings.NotificationCategories,
+        }, new JsonSerializerOptions { WriteIndented = true });
+
+    /// <summary>Deletes a file if it can, and says nothing if it cannot (a
+    /// folder in its place, or no permission): it is only ever a leftover
+    /// temporary file.</summary>
+    private static void DeleteQuietly(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch
+        {
+            // Left for the next save to overwrite.
         }
     }
 

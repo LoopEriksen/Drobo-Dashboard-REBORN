@@ -16,7 +16,8 @@
     And, since 2026-11-02, JsonHelpers and WriteOutcome: how the app reads
     the agent's JSON (a null or a fraction where a number was expected used
     to throw mid-render) and how it reads a write's answer. Neither has a UI
-    dependency either.
+    dependency either. And DroboSettings, which reads and writes
+    settings.json; its tests work in a temporary folder.
 
     Deliberately NOT a test framework. The Python suites in this project are
     hand-rolled (a check() function, printed PASS/FAIL, non-zero exit) for the
@@ -46,6 +47,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="..\DroboDashboardReborn\AlertNotifier.cs" Link="AlertNotifier.cs" />
     <Compile Include="..\DroboDashboardReborn\CredentialStore.cs" Link="CredentialStore.cs" />
+    <Compile Include="..\DroboDashboardReborn\DroboSettings.cs" Link="DroboSettings.cs" />
     <Compile Include="..\DroboDashboardReborn\JsonHelpers.cs" Link="JsonHelpers.cs" />
     <Compile Include="..\DroboDashboardReborn\WriteOutcome.cs" Link="WriteOutcome.cs" />
   </ItemGroup>

@@ -341,6 +341,99 @@ var outcomeOfOk = Attempt(() => WriteOutcomes.FromAgentAnswer(true, ParseJson("{
 Check("-- and {ok: true} on a 200 is still confirmed", object.Equals(outcomeOfOk, WriteOutcome.Confirmed), outcomeOfOk);
 
 
+// ---------------------------------------------------------------------------
+// DroboSettings -- what the app remembers between launches.
+//
+// Until 2026-11-02 one bad value in settings.json (a manual port of 7.5) left
+// every later setting at its default, and the next save wrote those defaults
+// back; and the file was rewritten in place, so a crash mid-write left a
+// truncated file that read as a first launch. The file work below happens in a
+// fresh folder under the temp directory, removed again in the finally block.
+Console.WriteLine("\n== DroboSettings: a malformed port loses only itself ==");
+var badPortSettings = DroboSettings.Parse(
+    "{\"manual_devices\":[{\"host\":\"a\",\"port\":7.5},{\"host\":\"b\",\"port\":1e10},"
+    + "{\"host\":\"c\",\"port\":7421}],"
+    + "\"auto_discovery_enabled\":false,\"close_to_tray_enabled\":true,\"notifications_enabled\":true,"
+    + "\"notification_categories\":{\"drives\":true}}");
+Check("auto-discovery off is still read after a bad port", !badPortSettings.AutoDiscoveryEnabled);
+Check("close to tray is still read", badPortSettings.CloseToTrayEnabled);
+Check("notifications on are still read", badPortSettings.NotificationsEnabled);
+Check("a notification category is still read",
+      badPortSettings.NotificationCategories.TryGetValue("drives", out var drivesOn) && drivesOn);
+Check("every address is kept", badPortSettings.ManualDevices.Count == 3, badPortSettings.ManualDevices.Count);
+Check("7.5 and 1e10 read as no port given",
+      badPortSettings.ManualDevices.Count == 3
+      && badPortSettings.ManualDevices[0].Port == 0 && badPortSettings.ManualDevices[1].Port == 0);
+Check("a good port is kept as it was",
+      badPortSettings.ManualDevices.Count == 3 && badPortSettings.ManualDevices[2].Port == 7421);
+
+var cutShort = DroboSettings.Parse("{\"auto_discovery_enabled\":false,\"notifications_ena");
+Check("a file cut short gives first-launch defaults",
+      cutShort.AutoDiscoveryEnabled && !cutShort.NotificationsEnabled
+      && cutShort.ManualDevices.Count == 0 && cutShort.Remembered is null);
+var notAnObject = Attempt(() => DroboSettings.Parse("[1, 2]").AutoDiscoveryEnabled);
+Check("a document that is not an object gives the defaults, not a throw",
+      object.Equals(notAnObject, true), notAnObject);
+
+Console.WriteLine("\n== DroboSettings: a save replaces the file whole ==");
+var settingsFolder = Path.Combine(Path.GetTempPath(),
+                                  "drobo-dashboard-reborn-selftest-" + Guid.NewGuid().ToString("N"));
+try
+{
+    Directory.CreateDirectory(settingsFolder);
+    var settingsPath = Path.Combine(settingsFolder, "settings.json");
+    var toSave = new DroboSettings.Settings
+    {
+        Remembered = new DroboSettings.RememberedDevice
+        {
+            EsaId = "SELFTEST-SERIAL", Host = "drobo-selftest.invalid", Name = "Selftest", Model = "Drobo 5N",
+        },
+        AutoDiscoveryEnabled = false,
+        DiagnosticsPreference = DroboSettings.DiagnosticsPreference.File,
+        CloseToTrayEnabled = true,
+        NotificationsEnabled = true,
+    };
+    toSave.ManualDevices.Add(new DroboSettings.ManualDevice { Host = "drobo-selftest.invalid", Port = 5000 });
+    toSave.NotificationCategories["drives"] = true;
+
+    Check("saving reports success", DroboSettings.SaveAll(toSave, settingsPath));
+    var loadedBack = DroboSettings.LoadAll(settingsPath);
+    Check("the remembered Drobo comes back",
+          loadedBack.Remembered is { EsaId: "SELFTEST-SERIAL", Host: "drobo-selftest.invalid",
+                                     Name: "Selftest", Model: "Drobo 5N" });
+    Check("the typed address comes back",
+          loadedBack.ManualDevices.Count == 1 && loadedBack.ManualDevices[0].Host == "drobo-selftest.invalid"
+          && loadedBack.ManualDevices[0].Port == 5000);
+    Check("every switch comes back",
+          !loadedBack.AutoDiscoveryEnabled && loadedBack.CloseToTrayEnabled && loadedBack.NotificationsEnabled
+          && loadedBack.DiagnosticsPreference == DroboSettings.DiagnosticsPreference.File);
+    Check("the notification category comes back",
+          loadedBack.NotificationCategories.TryGetValue("drives", out var drivesBack) && drivesBack);
+    Check("no temporary file is left behind",
+          !File.Exists(settingsPath + ".tmp") && !Directory.Exists(settingsPath + ".tmp"));
+
+    // A folder where the temporary file must go makes the write fail before
+    // the real file is touched. Written in place, the save would have
+    // succeeded and changed it.
+    Directory.CreateDirectory(settingsPath + ".tmp");
+    var changed = DroboSettings.LoadAll(settingsPath);
+    changed.AutoDiscoveryEnabled = true;
+    changed.NotificationsEnabled = false;
+    var blockedSave = Attempt(() => DroboSettings.SaveAll(changed, settingsPath));
+    Check("a save that cannot be written says so, without throwing",
+          object.Equals(blockedSave, false), blockedSave);
+    var afterBlockedSave = DroboSettings.LoadAll(settingsPath);
+    Check("-- and the file keeps its old values",
+          !afterBlockedSave.AutoDiscoveryEnabled && afterBlockedSave.NotificationsEnabled);
+    Check("-- and the folder in the way is not deleted", Directory.Exists(settingsPath + ".tmp"));
+}
+finally
+{
+    try { Directory.Delete(settingsFolder, recursive: true); }
+    catch { /* a leftover temp folder is harmless */ }
+}
+
+
 Console.WriteLine();
 Console.WriteLine(fails.Count == 0 ? "ALL PASS" : $"{fails.Count} FAILURES: {string.Join(", ", fails)}");
 return fails.Count == 0 ? 0 : 1;
