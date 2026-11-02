@@ -1857,6 +1857,46 @@ check("a non-ASCII digit as the bay is a 400 with the usage text",
       _raw_answer.startswith(b"HTTP/1.1 400")
       and b"/api/mock/fail/<bay>" in _raw_answer, _raw_answer[:200])
 
+# A typed ?host= search held the discovery lock for its whole probe,
+# and every answer was sent inside the lock too, so a plain
+# /api/discover whose answer was already cached waited behind it --
+# about ten seconds against an address that never answers. Since
+# 2026-11-02 a typed search runs without the lock (it never reads or
+# writes the cache). Nothing is contacted: the probe is a fake.
+print("\n== a typed ?host= search does not hold up other /api/discover "
+      "callers ==")
+_manual_probe_started = threading.Event()
+_release_manual_probe = threading.Event()
+_saved_discovery_functions = (discovery.verify_candidate,
+                              discovery.discover_mdns)
+
+
+def _verify_blocking_on_typed_host(candidate, timeout=5.0, **kwargs):
+    _manual_probe_started.set()
+    _release_manual_probe.wait(5)
+    raise OSError("simulated: the typed address never answered")
+
+
+discovery.verify_candidate = _verify_blocking_on_typed_host
+discovery.discover_mdns = _fake_discover_mdns_empty
+api._ApiRequestHandler._discover_cache = (
+    time.time(), {"devices": [], "searched_for_seconds": 3})
+_manual_search = threading.Thread(
+    target=call, args=("/api/discover?host=192.0.2.9",), daemon=True)
+_manual_search.start()
+_manual_probe_started.wait(5)
+_plain_started_at = time.time()
+status, reply = call("/api/discover")
+_plain_wait_seconds = time.time() - _plain_started_at
+_release_manual_probe.set()
+_manual_search.join(10)
+(discovery.verify_candidate,
+ discovery.discover_mdns) = _saved_discovery_functions
+api._ApiRequestHandler._discover_cache = None
+check("a cached /api/discover answers while a typed search is still probing",
+      status == 200 and _plain_wait_seconds < 1.0,
+      (status, round(_plain_wait_seconds, 2)))
+
 print("\n== 404 ==")
 status, reply = call("/api/nope")
 check("unknown path 404s", status == 404, status)

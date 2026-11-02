@@ -2235,30 +2235,52 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         naming a host skips the cache in both directions -- it must
         actually go and look, and its answer must not become the cached
         answer for callers who didn't ask about that address.
+
+        Only the cached search takes _discover_lock, and no answer is
+        sent while it is held. Until 2026-11-02 a typed search held it
+        for its whole probe and every answer went out inside it, so a
+        caller whose answer was already cached waited behind an address
+        that never answered.
         """
         manual_host = self._query_value("host").strip()
-        with _ApiRequestHandler._discover_lock:
-            cached_payload = (None if manual_host else
-                              self._fresh_cached_payload(
-                                  _ApiRequestHandler._discover_cache,
-                                  self.DISCOVERY_CACHE_SECONDS))
-            if cached_payload is not None:
-                return self._send_json(cached_payload)
-
-            payload, error_body = self._search_for_drobos(manual_host)
-            if error_body:
-                return self._send_json(error_body, 502)
-
-            if manual_host:
-                self._add_manual_host_report(payload, manual_host)
-                # NOT cached: this answer is about one address somebody
-                # asked after, and letting it become the cached reply
-                # would serve it to the next caller who asked a
-                # different question.
-                return self._send_json(payload)
-
-            _ApiRequestHandler._discover_cache = (time.time(), payload)
+        if manual_host:
+            return self._serve_manual_host_discovery(manual_host)
+        payload, error_body = self._cached_discovery()
+        if error_body:
+            return self._send_json(error_body, 502)
         return self._send_json(payload)
+
+    def _serve_manual_host_discovery(self, manual_host: str) -> None:
+        """
+        The /api/discover answer for one typed address, searched
+        without the lock: it neither reads nor writes the cache.
+        """
+        payload, error_body = self._search_for_drobos(manual_host)
+        if error_body:
+            return self._send_json(error_body, 502)
+        self._add_manual_host_report(payload, manual_host)
+        # NOT cached: this answer is about one address somebody asked
+        # after, and letting it become the cached reply would serve it
+        # to the next caller who asked a different question.
+        return self._send_json(payload)
+
+    def _cached_discovery(self):
+        """
+        (payload, None) from the cache or a fresh search, which is then
+        cached, or (None, error_body) when the network could not be
+        searched. Holds _discover_lock throughout, so callers arriving
+        together share one search, and sends nothing itself.
+        """
+        with _ApiRequestHandler._discover_lock:
+            cached_payload = self._fresh_cached_payload(
+                _ApiRequestHandler._discover_cache,
+                self.DISCOVERY_CACHE_SECONDS)
+            if cached_payload is not None:
+                return cached_payload, None
+            payload, error_body = self._search_for_drobos("")
+            if not error_body:
+                _ApiRequestHandler._discover_cache = (time.time(), payload)
+            return payload, error_body
 
     def _search_for_drobos(self, manual_host: str):
         """

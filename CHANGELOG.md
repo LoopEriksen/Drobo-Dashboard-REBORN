@@ -699,6 +699,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   ordinary successful line is left out now, and the token is still
   scrubbed from every line printed. `test_agent.py` gains two checks.
   (2026-11-02)
+- **Searching a typed address no longer holds up the device picker.**
+  While the agent probed an address typed into the picker, which takes
+  several seconds when nothing answers there, every other request for
+  the list of Drobos waited behind it, even one whose answer was
+  already to hand. A typed search now runs on its own, and the
+  automatic search shares one look at the network among the callers
+  that arrive together, as before. `test_agent.py` gains one check.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
