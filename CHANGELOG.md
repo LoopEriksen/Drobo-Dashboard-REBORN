@@ -678,6 +678,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   now read whole, and IPv6 loopback falls back to this PC's network
   address the way `127.0.0.1` does. `test_agent.py` gains three checks.
   (2026-11-02)
+- **The simulator's bay controls answer an odd bay number.** A bay
+  written with a character that counts as a digit but is not 0-9, such
+  as a superscript two, made `/api/mock/fail/...` and its neighbours
+  drop the connection. Only 0-9 count as a bay now, and anything else
+  gets the usual usage answer. Simulator only. `test_agent.py` gains one
+  check. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

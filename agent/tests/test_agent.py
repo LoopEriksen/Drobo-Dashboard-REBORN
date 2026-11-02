@@ -1781,6 +1781,32 @@ for _route in _JSON_BODY_ROUTES:
 check("every JSON-body route answers [], 1 and null with a 400 and an "
       "error", _bad_body_answers == {}, _bad_body_answers)
 
+# The request line arrives decoded as Latin-1, so a raw byte 0xB2 in
+# the bay is "²", which str.isdigit() accepts and int() refuses: the
+# route raised and dropped the connection. Since 2026-11-02 only ASCII
+# digits are a bay, and anything else gets the usage answer.
+print("\n== the simulator's bay route takes ASCII digits only ==")
+
+
+def _raw_mock_request(request_target_bytes):
+    with socket.create_connection(("127.0.0.1", 7431), timeout=10) as sock:
+        sock.sendall(b"POST " + request_target_bytes + b" HTTP/1.1\r\n"
+                     b"Host: 127.0.0.1\r\nX-Agent-Token: "
+                     + TOKEN.encode() + b"\r\nContent-Length: 0\r\n"
+                     b"Connection: close\r\n\r\n")
+        received = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return received
+            received += chunk
+
+
+_raw_answer = _raw_mock_request(b"/api/mock/fail/\xb2")
+check("a non-ASCII digit as the bay is a 400 with the usage text",
+      _raw_answer.startswith(b"HTTP/1.1 400")
+      and b"/api/mock/fail/<bay>" in _raw_answer, _raw_answer[:200])
+
 print("\n== 404 ==")
 status, reply = call("/api/nope")
 check("unknown path 404s", status == 404, status)

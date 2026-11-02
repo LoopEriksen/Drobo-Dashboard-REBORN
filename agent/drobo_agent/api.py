@@ -2503,8 +2503,13 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         path_segments = path.split("/")[3:]  # after /api/mock/
         action = path_segments[0] if path_segments else ""
         argument = path_segments[1] if len(path_segments) > 1 else None
+        # ASCII digits only: the request line arrives decoded as
+        # Latin-1, so a raw byte 0xB2 is "\u00b2", which isdigit()
+        # accepts and int() refuses -- the route raised and dropped the
+        # connection (until 2026-11-02).
         bay_number = (int(argument)
-                      if argument is not None and argument.isdigit()
+                      if argument is not None and argument.isascii()
+                      and argument.isdigit()
                       else None)
         if not self._apply_mock_action(driver, action, argument, bay_number):
             return self._send_json(

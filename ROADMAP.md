@@ -817,9 +817,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api`: a non-ASCII digit in the simulator's bay route drops the
-  connection; a non-numeric `check_seconds` breaks every `/api/update`
-  (these two confirmed).
+- `api`: a non-numeric `check_seconds` breaks every `/api/update`
+  (confirmed).
   Errors on the event-stream route never reach the console; a manual
   `?host=` search holds up every other `/api/discover` caller.
 - `api._serve_droboapps_action` (confirmed, on a simulated device over
