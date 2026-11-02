@@ -199,7 +199,11 @@ def user_accounts(config: dict) -> list[str] | None:
     # wrong answer.
     if not names:
         return None
-    return sorted(set(names), key=str.lower)
+    # Case-insensitive first, then the name itself to break ties. With
+    # str.lower alone, names differing only by case kept the order the
+    # set iterated in, which PYTHONHASHSEED changes from run to run
+    # (until 2026-11-02).
+    return sorted(set(names), key=lambda name: (name.lower(), name))
 
 
 def _share_user_records(share_entry: dict) -> tuple[list[dict], str | None]:

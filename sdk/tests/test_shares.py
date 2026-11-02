@@ -13,6 +13,7 @@ rather than guessed at.
     py test_shares.py
 """
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.abspath(
@@ -206,6 +207,27 @@ check(
     )
     is None,
 )
+
+
+# Until 2026-11-02 names differing only by case kept the order a set
+# happened to iterate in, which PYTHONHASHSEED changes from run to run.
+# Each run below is a fresh interpreter with its own seed.
+SDK_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+CASE_COLLIDING_NAMES_SCRIPT = (
+    f"import sys; sys.path.insert(0, {SDK_ROOT!r}); "
+    "from drobo_nasd import shares; "
+    "print(shares.user_accounts({'DRIShareConfig': {'UserList': {'User': "
+    "[{'UserName': n} for n in ('bob', 'Bob', 'BOB', 'alice')]}}}))")
+orders_by_seed = {
+    seed: subprocess.run(
+        [sys.executable, "-c", CASE_COLLIDING_NAMES_SCRIPT],
+        capture_output=True, text=True, timeout=60,
+        env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout.strip()
+    for seed in range(8)}
+check("names differing only by case come out in one order, every run",
+      set(orders_by_seed.values()) == {"['alice', 'BOB', 'Bob', 'bob']"},
+      orders_by_seed)
 
 
 print("\n== advice when the Drobo has no accounts to sign in with ==")

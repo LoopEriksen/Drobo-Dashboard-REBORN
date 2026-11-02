@@ -536,6 +536,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   Drobo's port ran at full speed but in half duplex, the warning shown beside
   the network settings began with a stray space. Its text is otherwise the
   same, and so is when it appears. (2026-11-02)
+- **Account names that differ only by case are listed in a fixed order.**
+  The list of the Drobo's accounts is sorted ignoring case, and names such as
+  `Bob` and `bob` came out in whatever order Python happened to hold them,
+  which could change each time the agent started. They now always come out
+  in the same order. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
