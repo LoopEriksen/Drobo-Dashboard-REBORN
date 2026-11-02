@@ -796,8 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `shares.link_health`: at full speed but half duplex the note starts with
-  a stray space; `user_accounts` orders names that differ only by case
+- `shares.user_accounts` orders names that differ only by case
   differently from run to run.
 - `drobosync.summary`: when the settings read failed, the note still says
   the Drobo has no DroboSync partner, which was not measured.

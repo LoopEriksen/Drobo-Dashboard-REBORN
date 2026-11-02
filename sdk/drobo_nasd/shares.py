@@ -411,26 +411,28 @@ def link_health(config: dict) -> dict:
     every file copy runs at a tenth of the speed it should, and nothing
     on the device says so. That is worth telling somebody, so it is
     computed here and surfaced beside the network settings.
+
+    The note is its sentences joined by one space. Until 2026-11-02 the
+    half-duplex sentence carried a leading space of its own, so at full
+    speed the note began with a stray space.
     """
     network_config = _network_block(config)
     speed_mbps = _port_speed_mbps(network_config)
+    duplex = (network_config.get("PortDuplex") or "").strip()
 
-    link_report = {
-        "speed_mbps": speed_mbps,
-        "duplex": (network_config.get("PortDuplex") or "").strip(),
-        "degraded": False,
-        "note": "",
-    }
+    note_sentences = []
     if speed_mbps is not None and 0 < speed_mbps < 1000:
-        link_report["degraded"] = True
-        link_report["note"] = _slow_port_note(speed_mbps)
-    if (link_report["duplex"] or "").lower() == "half":
-        link_report["degraded"] = True
-        link_report["note"] = (link_report["note"] + " ").strip() + (
-            " The port is also in half duplex, which usually means the Drobo "
-            "and the switch failed to agree on a speed."
-        )
-    return link_report
+        note_sentences.append(_slow_port_note(speed_mbps))
+    if duplex.lower() == "half":
+        note_sentences.append(
+            "The port is also in half duplex, which usually means the Drobo "
+            "and the switch failed to agree on a speed.")
+    return {
+        "speed_mbps": speed_mbps,
+        "duplex": duplex,
+        "degraded": bool(note_sentences),
+        "note": " ".join(note_sentences),
+    }
 
 
 def _network_block(config: dict) -> dict:

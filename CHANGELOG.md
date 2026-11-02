@@ -532,6 +532,10 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   outside 0 to 86400 seconds (a day) is now a usage error too, before
   anything is sent. Every other command line that was valid sends exactly
   what it did. (2026-11-02)
+- **The half-duplex network warning no longer starts with a space.** When the
+  Drobo's port ran at full speed but in half duplex, the warning shown beside
+  the network settings began with a stray space. Its text is otherwise the
+  same, and so is when it appears. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -363,6 +363,22 @@ check(
     half_duplex_link_health,
 )
 
+# Until 2026-11-02 the half-duplex sentence was appended with a space of
+# its own, so at full speed the note began with a stray space.
+half_duplex_note = half_duplex_link_health["note"]
+check("at full speed the half-duplex note has no leading space",
+      half_duplex_note == half_duplex_note.strip()
+      and half_duplex_note.startswith("The port is also in half duplex"),
+      repr(half_duplex_note))
+slow_half_duplex_note = shares.link_health(
+    {"DRINasNetworkConfig": {"PortSpeed": "100",
+                             "PortDuplex": "half"}})["note"]
+check("slow and half duplex: both sentences, one space between them",
+      slow_half_duplex_note.startswith(shares._slow_port_note(100) + " The "
+                                       "port is also in half duplex")
+      and "  " not in slow_half_duplex_note,
+      repr(slow_half_duplex_note))
+
 check("a missing PortSpeed is not reported as a fault",
       shares.link_health({}) == {"speed_mbps": None, "duplex": "",
                                  "degraded": False, "note": ""},
