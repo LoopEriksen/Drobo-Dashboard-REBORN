@@ -122,7 +122,18 @@ _WRITE_ROOT_TAG = "DRINASConfig"
 
 # Any element whose name matches this never leaves this module
 # with its value.
-_CREDENTIAL_NAME_RE = re.compile(r"(?i)pass|secret|credential|\bkey\b|token")
+#
+# "Key" is matched two ways. A capital K is a word of its own in a
+# CamelCase tag (ApiKey, SSHKey, KeyData), so it matches anywhere; a
+# lower-case "key" must stand alone or between underscores (key,
+# api_key), so a tag that merely contains the letters, such as Monkey,
+# keeps its value. Until 2026-11-02 this was \bkey\b, which a letter
+# or an underscore on either side defeats, so every one of those
+# CamelCase and snake_case tags came back in clear.
+_CREDENTIAL_NAME_RE = re.compile(
+    r"(?i:pass|secret|credential|token)"
+    r"|Key"
+    r"|(?i:(?:^|[_\W])key(?:[_\W]|$))")
 _REDACTION_SENTINEL = "[redacted]"
 
 
@@ -398,9 +409,12 @@ def _redact_escaped_text(element: ElementTree.Element) -> None:
     try:
         inner_root = ElementTree.fromstring(document_text)
     except ElementTree.ParseError:
-        # Unparseable but XML-shaped. Refuse to pass it on.
-        if _CREDENTIAL_NAME_RE.search(text):
-            element.text = _REDACTION_SENTINEL
+        # Unparseable but XML-shaped. Refuse to pass it on, whatever
+        # words it holds: a blob that cannot be parsed cannot be checked
+        # either. Until 2026-11-02 it was replaced only when it held a
+        # credential-looking word, so one without such a word passed
+        # through, which is not what _redact_escaped_document promises.
+        element.text = _REDACTION_SENTINEL
         return
     if _CREDENTIAL_NAME_RE.search(inner_root.tag):
         element.text = _REDACTION_SENTINEL

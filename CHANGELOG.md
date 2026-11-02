@@ -434,6 +434,18 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   in this case, before or after the fix. The same read now also asks the
   do-not-send list first, as the other configuration read always did.
   (2026-11-02)
+- **Credential redaction catches CamelCase and snake_case key names, and
+  every unreadable escaped blob.** Configuration reads mask any field whose
+  name looks like a credential before it reaches the agent, a log or a
+  sweep report. The rule for "key" only matched the word on its own, so
+  fields named like `ApiKey`, `PrivateKey`, `SSHKey`, `KeyData` or
+  `api_key` came back in clear; they are now masked, while names that only
+  contain the letters (such as `Monkey`) are not. And an escaped XML blob
+  that could not be parsed was masked only when it held a
+  credential-looking word, though the code promised to mask it whatever
+  it held; it now always is. Only what is read and shown changes: write
+  baselines are read unmasked, as before, and nothing sent to the Drobo
+  changes. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

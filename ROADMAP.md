@@ -796,10 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- Credential redaction: `\bkey\b` does not match CamelCase tags such as
-  `ApiKey`, `PrivateKey`, `SSHKey` or `KeyData`, and an unparseable
-  XML-shaped blob with no credential-looking word passes through, though
-  the docstring says it is replaced wholesale.
 - `config_cmd._login_payload` drops non-ASCII characters from the serial
   silently, and the serial goes into the request XML unescaped; only its
   length is checked.

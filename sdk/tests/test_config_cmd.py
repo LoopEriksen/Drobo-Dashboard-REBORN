@@ -206,6 +206,43 @@ check("ordinary config is untouched by the new pass",
       and plain_network_result["DRINasNetworkConfig"]["IPConfig"]["IP"]
       == "10.0.0.5", plain_network_result)
 
+print("\n== the redaction holes found while reading, 2026-11-02 ==")
+# The name pattern used \bkey\b, which only matches "key" as a word of
+# its own. A CamelCase or snake_case tag puts a letter or an underscore
+# against it, so ApiKey, SSHKey and api_key all came back in clear.
+for key_tag in ("ApiKey", "PrivateKey", "SSHKey", "KeyData", "api_key"):
+    child_reply = (f"<TMCmd><ResultDetails><X><{key_tag}>{PLANTED_SECRET}"
+                   f"</{key_tag}></X></ResultDetails></TMCmd>").encode()
+    check(f"<{key_tag}> is redacted as a real child element",
+          PLANTED_SECRET not in repr(
+              config_cmd.parse_config_result(child_reply)))
+    check(f"<{key_tag}> is redacted inside an escaped inner document",
+          PLANTED_SECRET not in repr(config_cmd.parse_config_result(
+              escaped_result(f"<X><{key_tag}>{PLANTED_SECRET}</{key_tag}>"
+                             "</X>"))))
+
+# ...and the wider pattern still leaves ordinary fields alone, a word
+# that merely contains "key" included.
+ordinary_tags = ("ShareName", "SpindownDelay", "Dim", "FeatureStates",
+                 "NasName", "Temperature", "Monkey")
+ordinary_reply = ("<TMCmd><ResultDetails><X>"
+                  + "".join(f"<{tag}>kept-{tag}</{tag}>"
+                            for tag in ordinary_tags)
+                  + "</X></ResultDetails></TMCmd>").encode()
+ordinary_result = config_cmd.parse_config_result(ordinary_reply)
+for tag in ordinary_tags:
+    check(f"<{tag}> keeps its value",
+          ordinary_result["X"][tag] == f"kept-{tag}", ordinary_result)
+
+# An XML-shaped escaped blob that does not parse was replaced only when
+# it held a credential-looking word, though _redact_escaped_document
+# promises to replace it wholesale. One with no such word walked out.
+unparseable_blob_result = config_cmd.parse_config_result(
+    escaped_result("<Foo><Bar>abc</Foo>"))
+check("an unparseable XML-shaped blob is replaced even with no "
+      "credential word in it",
+      unparseable_blob_result == "[redacted]", unparseable_blob_result)
+
 print("\n== malformed and empty input ==")
 try:
     config_cmd.parse_config_result(b"<TMCmd><CmdID>30</CmdID></TMCmd>\x00")
