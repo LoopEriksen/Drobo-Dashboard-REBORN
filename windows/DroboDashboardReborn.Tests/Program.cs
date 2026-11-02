@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DroboDashboardReborn;
 
 // Tests for AlertNotifier -- when this app is allowed to interrupt somebody.
@@ -258,6 +259,87 @@ finally
 {
     CredentialStore.Forget(testHost);
 }
+
+// ---------------------------------------------------------------------------
+// JsonHelpers -- reading the agent's JSON without throwing mid-render.
+//
+// Every call below goes through Attempt, so a getter that throws shows up as a
+// FAIL carrying the exception, not as a crash of this program. Until
+// 2026-11-02 a JSON null where an object, number or flag was expected, or a
+// number with a fraction where an integer was, threw inside the Status tab's
+// rendering, and the app reported that as "Cannot reach the agent".
+
+static JsonElement ParseJson(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+static object? Attempt(Func<object?> read)
+{
+    try { return read(); }
+    catch (Exception ex) { return ex.GetType().Name + ": " + ex.Message; }
+}
+
+Console.WriteLine("\n== JsonHelpers: a JSON null or a fraction never throws ==");
+var oddReply = ParseJson("{\"a\":null,\"b\":41.5,\"c\":true,\"o\":null,\"big\":1e10,\"n\":7}");
+var nullElement = oddReply.GetProperty("o");
+var flagOnNull = Attempt(() => JsonHelpers.IsTrue(oddReply, "a"));
+Check("a null flag is false", object.Equals(flagOnNull, false), flagOnNull);
+var int64OnNull = Attempt(() => JsonHelpers.GetInt64OrZero(oddReply, "a"));
+Check("a null integer is 0", object.Equals(int64OnNull, 0L), int64OnNull);
+var doubleOnNull = Attempt(() => JsonHelpers.GetDoubleOrZero(oddReply, "a"));
+Check("a null number is 0", object.Equals(doubleOnNull, 0.0), doubleOnNull);
+var int32OnFraction = Attempt(() => JsonHelpers.GetInt32Or(oddReply, "b", 7));
+Check("41.5 where an int is wanted gives the fallback, not FormatException",
+      object.Equals(int32OnFraction, 7), int32OnFraction);
+var int64OnFraction = Attempt(() => JsonHelpers.GetInt64OrZero(oddReply, "b"));
+Check("41.5 where a long is wanted gives 0, not FormatException",
+      object.Equals(int64OnFraction, 0L), int64OnFraction);
+var int32TooBig = Attempt(() => JsonHelpers.GetInt32Or(oddReply, "big", 7));
+Check("1e10 where an int is wanted gives the fallback", object.Equals(int32TooBig, 7), int32TooBig);
+var int32Plain = Attempt(() => JsonHelpers.GetInt32Or(oddReply, "n", 0));
+Check("a whole number is read as itself", object.Equals(int32Plain, 7), int32Plain);
+var doublePlain = Attempt(() => JsonHelpers.GetDoubleOrZero(oddReply, "b"));
+Check("41.5 is read as 41.5 where a number is wanted", object.Equals(doublePlain, 41.5), doublePlain);
+var flagTrue = Attempt(() => JsonHelpers.IsTrue(oddReply, "c"));
+Check("a true flag is still true", object.Equals(flagTrue, true), flagTrue);
+
+// The element itself being null: `"capacity": null` handed to a renderer.
+var stringOnNullElement = Attempt(() => JsonHelpers.GetStringOr(nullElement, "x", "fb"));
+Check("a string read from a null element gives the fallback, not InvalidOperationException",
+      object.Equals(stringOnNullElement, "fb"), stringOnNullElement);
+var int64OnNullElement = Attempt(() => JsonHelpers.GetInt64OrZero(nullElement, "x"));
+Check("an integer read from a null element is 0", object.Equals(int64OnNullElement, 0L), int64OnNullElement);
+var flagOnNullElement = Attempt(() => JsonHelpers.IsTrue(nullElement, "x"));
+Check("a flag read from a null element is false", object.Equals(flagOnNullElement, false), flagOnNullElement);
+var flagOnDefault = Attempt(() => JsonHelpers.IsTrue(default, "x"));
+Check("a flag read from a default element is false", object.Equals(flagOnDefault, false), flagOnDefault);
+
+Console.WriteLine("\n== JsonHelpers: an agent port written as text is still a port ==");
+// The agent runs on `"port": "7420"` (it reads int(config["agent"]["port"])),
+// so the app must find its URL and token in that file too. The fallback here
+// is 1234 so a correct read cannot be mistaken for the fallback.
+foreach (var (portJson, expectedPort) in new (string, int)[]
+{
+    ("{\"port\":\"7420\"}", 7420),
+    ("{\"port\":\" 7421 \"}", 7421),
+    ("{\"port\":7422}", 7422),
+    ("{\"port\":null}", 1234),
+    ("{\"port\":\"abc\"}", 1234),
+    ("{\"port\":70000}", 1234),
+    ("{\"port\":0}", 1234),
+    ("{\"port\":7.5}", 1234),
+    ("{}", 1234),
+})
+{
+    var portRead = Attempt(() => JsonHelpers.GetPortOr(ParseJson(portJson), "port", 1234));
+    Check($"GetPortOr {portJson} -> {expectedPort}", object.Equals(portRead, expectedPort), portRead);
+}
+
+Console.WriteLine("\n== WriteOutcomes: an answer that is not an object is not a crash ==");
+var outcomeOfNull = Attempt(() => WriteOutcomes.FromAgentAnswer(true, ParseJson("null")));
+Check("a null answer is a failure, not InvalidOperationException",
+      object.Equals(outcomeOfNull, WriteOutcome.Failed), outcomeOfNull);
+var outcomeOfOk = Attempt(() => WriteOutcomes.FromAgentAnswer(true, ParseJson("{\"ok\":true}")));
+Check("-- and {ok: true} on a 200 is still confirmed", object.Equals(outcomeOfOk, WriteOutcome.Confirmed), outcomeOfOk);
+
 
 Console.WriteLine();
 Console.WriteLine(fails.Count == 0 ? "ALL PASS" : $"{fails.Count} FAILURES: {string.Join(", ", fails)}");

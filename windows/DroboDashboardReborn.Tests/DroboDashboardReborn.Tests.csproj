@@ -2,7 +2,7 @@
 
   <!--
     Tests for the parts of the Windows app whose RULES matter more than their
-    pixels. Two of them now:
+    pixels. Two of them first:
 
       AlertNotifier. The maintainer has twice reported this app being intrusive,
       and the notification rules are the difference between "tells you a drive
@@ -12,6 +12,11 @@
       so the difference between right and wrong here is somebody's NAS login.
       Its round-trip tests use a deliberately unreachable .invalid host name
       and delete what they wrote, pass or fail.
+
+    And, since 2026-11-02, JsonHelpers and WriteOutcome: how the app reads
+    the agent's JSON (a null or a fraction where a number was expected used
+    to throw mid-render) and how it reads a write's answer. Neither has a UI
+    dependency either.
 
     Deliberately NOT a test framework. The Python suites in this project are
     hand-rolled (a check() function, printed PASS/FAIL, non-zero exit) for the
@@ -41,6 +46,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="..\DroboDashboardReborn\AlertNotifier.cs" Link="AlertNotifier.cs" />
     <Compile Include="..\DroboDashboardReborn\CredentialStore.cs" Link="CredentialStore.cs" />
+    <Compile Include="..\DroboDashboardReborn\JsonHelpers.cs" Link="JsonHelpers.cs" />
+    <Compile Include="..\DroboDashboardReborn\WriteOutcome.cs" Link="WriteOutcome.cs" />
   </ItemGroup>
 
 </Project>

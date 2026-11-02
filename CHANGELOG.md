@@ -846,6 +846,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   lands after the backup finished no longer repaints its message.
   Checked by reading and by the Windows build, not by a test (see
   `docs/testers-tasks.md` section 7). (2026-11-02)
+- **A JSON null in the agent's answer no longer reads as "Cannot reach the
+  agent".** Where the Windows app expected a number, a flag or an object
+  (`"capacity": null`, `"reachable": null`, a temperature of 41.5 where a
+  whole number was expected), reading it threw, and the status poll
+  reported the throw as the agent being unreachable. Every reader now
+  falls back instead, and a payload whose `capacity` or `drives` is not
+  the expected kind is treated as no reading, which leaves the last real
+  figures on screen. A `port` in the agent's `config.json` written as
+  text (`"port": "7420"`), which the agent itself runs with, no longer
+  makes the app skip that file and miss its token. The Windows test
+  program gains 24 checks for this. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

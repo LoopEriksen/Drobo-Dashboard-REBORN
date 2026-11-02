@@ -503,8 +503,8 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             if (!doc.RootElement.TryGetProperty("agent", out var agent)) return false;
 
-            var port = agent.TryGetProperty("port", out var portElement) && portElement.TryGetInt32(out var parsedPort)
-                ? parsedPort : 7420;
+            // A number or text, as the agent itself accepts -- see GetPortOr.
+            var port = GetPortOr(agent, "port", 7420);
 
             if (string.IsNullOrWhiteSpace(AgentUrl.Text))
                 AgentUrl.Text = $"http://127.0.0.1:{port}";
@@ -860,7 +860,7 @@ public partial class MainWindow : Window
         var row = new DiscoveredDeviceRow
         {
             Host = host,
-            Port = device.TryGetProperty("port", out var portElement) && portElement.ValueKind == JsonValueKind.Number ? portElement.GetInt32() : 0,
+            Port = GetInt32Or(device, "port", 0),
             Name = string.IsNullOrEmpty(GetStringOr(device, "name", "")) ? "Drobo" : GetStringOr(device, "name", "Drobo"),
             Model = model,
             Firmware = firmware,
@@ -1578,9 +1578,11 @@ public partial class MainWindow : Window
         try
         {
             var leds = await FetchJson("/api/leds");
-            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
+            // TryGetInt32, not GetInt32, which throws on 7.5.
+            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number
+                && dimmingElement.TryGetInt32(out var dimming))
             {
-                BrightnessSlider.Value = dimmingElement.GetInt32();
+                BrightnessSlider.Value = dimming;
             }
         }
         catch { /* leave the default; the card still works */ }
@@ -1752,8 +1754,9 @@ public partial class MainWindow : Window
         try
         {
             var leds = await FetchJson("/api/leds");
-            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
-                DimmingValue.Text = dimmingElement.GetInt32().ToString();
+            if (leds.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number
+                && dimmingElement.TryGetInt32(out var dimming))
+                DimmingValue.Text = dimming.ToString();
         }
         catch { }
     }
@@ -2321,8 +2324,7 @@ public partial class MainWindow : Window
                 var (ok, root) = await PostJson("/api/mock/sign-in",
                     new { share = row.Name, username, password });
                 if (!ok) return ERROR_UNEXP_NET_ERR;
-                int code = root.TryGetProperty("win32_error", out var win32ErrorElement) && win32ErrorElement.TryGetInt32(out var win32Error)
-                    ? win32Error : ERROR_UNEXP_NET_ERR;
+                int code = GetInt32Or(root, "win32_error", ERROR_UNEXP_NET_ERR);
                 if (code == 0) _simulatedConnections[row.Unc] = driveLetter;
                 return code;
             }
@@ -2555,9 +2557,9 @@ public partial class MainWindow : Window
         AppendTemperature(extras, device);
 
         if (device.TryGetProperty("uptime_seconds", out var uptimeElement)
-            && uptimeElement.ValueKind == JsonValueKind.Number)
+            && uptimeElement.ValueKind == JsonValueKind.Number
+            && uptimeElement.TryGetInt64(out var uptimeSeconds))
         {
-            var uptimeSeconds = uptimeElement.GetInt64();
             var days = uptimeSeconds / 86400;
             var hours = (uptimeSeconds % 86400) / 3600;
             extras.Append("  ·  up ");
@@ -2578,7 +2580,8 @@ public partial class MainWindow : Window
             || temperatureElement.ValueKind != JsonValueKind.Number)
             return;
 
-        extras.Append($"  ·  {temperatureElement.GetInt32()} °C");
+        // Rounded rather than GetInt32, which throws on 41.5.
+        extras.Append($"  ·  {temperatureElement.GetDouble():0} °C");
         if (!device.TryGetProperty("temperature_at", out var measuredAtElement)
             || measuredAtElement.ValueKind != JsonValueKind.Number)
             return;
@@ -2630,9 +2633,14 @@ public partial class MainWindow : Window
         // after the guard, which the compiler rightly refuses.
         bool hasDevice = status.TryGetProperty("device", out var device)
                          && device.ValueKind == JsonValueKind.Object;
+        // Kinds, not just presence: `"capacity": null` or `"drives": null`
+        // threw inside the renderers until 2026-11-02, which RefreshStatus
+        // reported as "Cannot reach the agent".
         bool hasReading = reachableNow && hasDevice
-                          && status.TryGetProperty("capacity", out _)
-                          && status.TryGetProperty("drives", out _);
+                          && status.TryGetProperty("capacity", out var capacityElement)
+                          && capacityElement.ValueKind == JsonValueKind.Object
+                          && status.TryGetProperty("drives", out var drivesElement)
+                          && drivesElement.ValueKind == JsonValueKind.Array;
 
         if (!hasReading)
         {
@@ -2697,7 +2705,7 @@ public partial class MainWindow : Window
     private void RenderOverallState(JsonElement status)
     {
         var state = GetStringOr(status, "overall_state", "unknown");
-        var reachable = status.TryGetProperty("reachable", out var reachableValue) && reachableValue.GetBoolean();
+        var reachable = IsTrue(status, "reachable");
         state = reachable ? state : "unreachable";
         switch (state)
         {
@@ -2751,7 +2759,7 @@ public partial class MainWindow : Window
         long usedBytes = GetInt64OrZero(capacity, "used_bytes"), freeBytes = GetInt64OrZero(capacity, "free_bytes");
         long usableBytes = GetInt64OrZero(capacity, "usable_bytes"), rawBytes = GetInt64OrZero(capacity, "raw_bytes");
         long protectionBytes = GetInt64OrZero(capacity, "protection_bytes");
-        double usedFraction = capacity.TryGetProperty("used_fraction", out var usedFractionElement) ? usedFractionElement.GetDouble() : 0;
+        double usedFraction = GetDoubleOrZero(capacity, "used_fraction");
         CapUsed.Text = FormatBytes(usedBytes);
         CapFree.Text = FormatBytes(freeBytes);
         CapUsable.Text = FormatBytes(usableBytes);
@@ -2815,8 +2823,8 @@ public partial class MainWindow : Window
         _bays.Clear();
         foreach (var drive in status.GetProperty("drives").EnumerateArray())
         {
-            bool present = drive.TryGetProperty("present", out var presentElement) && presentElement.GetBoolean();
-            int bay = drive.TryGetProperty("bay", out var bayElement) ? bayElement.GetInt32() : 0;
+            bool present = IsTrue(drive, "present");
+            int bay = GetInt32Or(drive, "bay", 0);
             _bays.Add(present ? BuildDriveRow(drive, bay) : BuildEmptyBayRow(bay));
         }
     }
@@ -2847,7 +2855,8 @@ public partial class MainWindow : Window
         // sick one stands out instead of "0 errors" cluttering every row.
         long errorCount = GetInt64OrZero(drive, "error_count");
         long ssdLifePercent = drive.TryGetProperty("ssd_life_remaining", out var ssdLifeElement) && ssdLifeElement.ValueKind == JsonValueKind.Number
-            ? ssdLifeElement.GetInt64() : 100;
+                              && ssdLifeElement.TryGetInt64(out var ssdLifeReported)
+            ? ssdLifeReported : 100;
         var flagParts = new List<string>();
         if (errorCount > 0) flagParts.Add($"{errorCount} error{(errorCount == 1 ? "" : "s")}");
         if (ssdLifePercent < 100) flagParts.Add($"life {ssdLifePercent}%");
@@ -2930,8 +2939,9 @@ public partial class MainWindow : Window
         var detailParts = new List<string>();
         // Explicit presence check: a volume reporting zero partitions is
         // not the same as one that reported none, and 0 is falsy.
-        if (volume.TryGetProperty("partition_count", out var partitionCountElement) && partitionCountElement.ValueKind == JsonValueKind.Number)
-            detailParts.Add(partitionCountElement.GetInt64() == 1 ? "1 partition" : partitionCountElement.GetInt64() + " partitions");
+        if (volume.TryGetProperty("partition_count", out var partitionCountElement) && partitionCountElement.ValueKind == JsonValueKind.Number
+            && partitionCountElement.TryGetInt64(out var partitionCount))
+            detailParts.Add(partitionCount == 1 ? "1 partition" : partitionCount + " partitions");
         string uniqueId = GetStringOr(volume, "unique_id", "");
         if (!string.IsNullOrEmpty(uniqueId)) detailParts.Add("id " + uniqueId);
 
@@ -3051,7 +3061,7 @@ public partial class MainWindow : Window
         FanDetail.Text = fan.ValueKind == JsonValueKind.Object
                          && fan.TryGetProperty("rpm", out var rpm)
                          && rpm.ValueKind == JsonValueKind.Number
-            ? $"{rpm.GetInt64()} RPM" : "";
+            ? $"{rpm.GetDouble():0} RPM" : "";
 
         // The device's own words about a problem, verbatim -- empty on a
         // healthy unit, so the line only appears when there is something to say.
@@ -3839,9 +3849,10 @@ public partial class MainWindow : Window
         {
             var root = await FetchJson("/api/leds");
 
-            if (root.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number)
+            if (root.TryGetProperty("dimming", out var dimmingElement) && dimmingElement.ValueKind == JsonValueKind.Number
+                && dimmingElement.TryGetInt32(out var dimming))
             {
-                DimmingValue.Text = dimmingElement.GetInt32().ToString();
+                DimmingValue.Text = dimming.ToString();
                 DimmingNote.Text = GetStringOr(root, "scale_note", "");
             }
             else
@@ -3898,7 +3909,7 @@ public partial class MainWindow : Window
 
         var scale = root.TryGetProperty("scale_factor", out var scaleFactorElement)
                     && scaleFactorElement.ValueKind == JsonValueKind.Number
-            ? $" (scale factor {scaleFactorElement.GetInt32()})" : "";
+            ? $" (scale factor {scaleFactorElement.GetDouble():0.##})" : "";
         DemoModeText.Text =
             "This Drobo is in shop-display (demo) mode" + scale + ". In that mode it "
             + "reports invented capacity rather than what the drives actually hold, so "
@@ -4159,7 +4170,7 @@ public partial class MainWindow : Window
         {
             var (okStatus, root) = await PostJson("/api/droboapps/action",
                 new { name = row.Name, action = verb });
-            if (okStatus && root.TryGetProperty("ok", out var okElement) && okElement.GetBoolean())
+            if (okStatus && IsTrue(root, "ok"))
             {
                 ShowDroboAppActionAccepted(root);
             }

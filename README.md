@@ -388,7 +388,8 @@ needs hardware. Each is a `test_*.py` file in one of those three folders;
 
 The Windows app's notification rules and saved logins are tested too — they
 decide when this software is allowed to interrupt you, and what it puts in
-Windows' Credential Manager, so they don't get to be untested:
+Windows' Credential Manager, so they don't get to be untested — and so is how
+it reads the agent's answers:
 
 ```bash
 dotnet run --project windows/DroboDashboardReborn.Tests

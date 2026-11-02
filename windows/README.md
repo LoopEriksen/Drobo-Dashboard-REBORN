@@ -18,7 +18,7 @@ dashboard. All Drobo logic stays in `agent/` and `sdk/`.
 | | |
 |---|---|
 | [`DroboDashboardReborn/`](DroboDashboardReborn/) | The app's source code. What each file is: [The app's source files](#the-apps-source-files), below |
-| [`DroboDashboardReborn.Tests/`](DroboDashboardReborn.Tests/) | Tests for the app's notification rules and saved-login handling. Run them from the repository's top folder: `dotnet run --project windows/DroboDashboardReborn.Tests` |
+| [`DroboDashboardReborn.Tests/`](DroboDashboardReborn.Tests/) | Tests for the app's notification rules, saved-login handling, and how it reads the agent's JSON and write answers. Run them from the repository's top folder: `dotnet run --project windows/DroboDashboardReborn.Tests` |
 | [`installer/`](installer/README.md) | Everything the `.msi` installer is built from. **Testers: open [`installer/TESTING.md`](installer/TESTING.md) first** |
 | [`build-installer.ps1`](build-installer.ps1) | Builds the installer. Run it from the repository's top folder |
 | [`test-installer.ps1`](test-installer.ps1) | Installs, runs and uninstalls the built `.msi` to prove it works. Needs an administrator window |

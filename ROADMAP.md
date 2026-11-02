@@ -864,8 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- A JSON `null` where a number or flag is expected reads as "Cannot reach
-  the agent"; a `port` saved as text skips the whole agent config.
 - Connect-as: a share that connected but whose login could not be saved
   leaves the dialog open, Cancel then reports it not connected, and a second
   Connect fails against the connection that worked.

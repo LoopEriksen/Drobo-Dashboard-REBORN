@@ -54,8 +54,9 @@ public static class WriteOutcomes
     /// </summary>
     public static WriteOutcome FromAgentAnswer(bool isSuccessStatus, JsonElement answer)
     {
-        var statusSaysSucceeded = isSuccessStatus
-            && answer.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
+        // IsTrue rather than TryGetProperty, which throws when the answer is
+        // not an object (a JSON null or a list).
+        var statusSaysSucceeded = isSuccessStatus && JsonHelpers.IsTrue(answer, "ok");
         var claimedOutcome = JsonHelpers.GetStringOr(answer, "outcome", "") switch
         {
             "verified" => WriteOutcome.Confirmed,

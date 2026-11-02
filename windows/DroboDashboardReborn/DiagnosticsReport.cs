@@ -150,10 +150,8 @@ internal static class DiagnosticsReport
     /// why BuildText's header warns about sharing the file.</summary>
     private static void AppendDriveLine(StringBuilder report, JsonElement drive)
     {
-        int bay = drive.TryGetProperty("bay", out var bayElement) && bayElement.ValueKind == JsonValueKind.Number
-            ? bayElement.GetInt32() : 0;
-        bool present = drive.TryGetProperty("present", out var presentElement)
-                       && presentElement.ValueKind == JsonValueKind.True;
+        int bay = GetInt32Or(drive, "bay", 0);
+        bool present = IsTrue(drive, "present");
         if (!present)
         {
             report.AppendLine($"  Bay {bay}   empty");
