@@ -796,8 +796,6 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `framing` has no maximum frame length (speculative path
-  only).
 - `identify`: `--compare` ignores `--interval` and always sends 15; a
   negative `--gap` ends in a traceback, not the usage exit code.
 - `shares.link_health`: at full speed but half duplex the note starts with

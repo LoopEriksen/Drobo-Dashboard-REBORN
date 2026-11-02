@@ -9,6 +9,7 @@ Run this after changing anything under drobo_nasd/.
 """
 import os
 import socket
+import struct
 import subprocess
 import sys
 
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
 from drobo_nasd import client, commands, envelope, esatm, framing  # noqa: E402
+from drobo_nasd import config_cmd  # noqa: E402
 from drobo_nasd.models import DriveSlot  # noqa: E402
 
 failures = []
@@ -448,6 +450,33 @@ check("first of two concatenated frames", first_payload == b"first",
 check("second of two concatenated frames", second_payload == b"second",
       second_payload)
 check("nothing left after both frames", remainder_after_second == b"")
+
+print("\n== framing.py: a frame longer than the cap is refused ==")
+# Until 2026-11-02 nothing capped the declared length, so a prefix of
+# 0xFFFFFFFF kept FrameAssembler buffering, waiting for four gigabytes.
+try:
+    framing.decode_frame(struct.pack(">I", 0xFFFFFFFF))
+    check("an oversize prefix raises FrameTooLargeError", False)
+except framing.FrameTooLargeError as exc:
+    check("an oversize prefix raises FrameTooLargeError",
+          isinstance(exc, framing.FramingError))
+except framing.FramingError as exc:
+    check("an oversize prefix raises FrameTooLargeError", False,
+          f"{type(exc).__name__}: {exc}")
+oversize_assembler = framing.FrameAssembler()
+try:
+    oversize_assembler.feed(struct.pack(">I", 0xFFFFFFFF))
+    check("FrameAssembler reports an oversize frame instead of buffering",
+          False, oversize_assembler.pending_bytes())
+except framing.FrameTooLargeError:
+    check("FrameAssembler reports an oversize frame instead of buffering",
+          True)
+check("the cap is the confirmed channel's own",
+      framing.MAX_FRAME_BYTES == config_cmd.MAX_PAYLOAD_BYTES)
+frame_at_cap = framing.encode_frame(b"x" * config_cmd.MAX_PAYLOAD_BYTES)
+check("a frame exactly at the cap still decodes",
+      len(framing.decode_frame(frame_at_cap)[0])
+      == config_cmd.MAX_PAYLOAD_BYTES)
 
 print("\n== framing.py: FrameAssembler handles fragmented delivery ==")
 assembler = framing.FrameAssembler()

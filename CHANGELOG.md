@@ -516,6 +516,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   end, and a command number too long to read (over 4300 digits). Each is
   now its own "malformed message" error. Nothing the software sends or
   shows changes. (2026-11-02)
+- **The experimental client's frame reader has a size limit.** The frame
+  reader used only by the older experimental client (which cannot talk to a
+  real Drobo) accepted any declared length, so a peer announcing a
+  four-gigabyte frame kept it waiting and buffering without end. Frames are
+  now capped at 4 MiB, the limit the working command channel already uses,
+  and a larger one is reported at once. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

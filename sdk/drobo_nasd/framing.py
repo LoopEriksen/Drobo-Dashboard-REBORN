@@ -62,6 +62,24 @@ class FramingError(Exception):
     """
 
 
+class FrameTooLargeError(FramingError):
+    """A length prefix declares more than MAX_FRAME_BYTES.
+
+    A FramingError so existing handlers still catch it, but its own
+    type, because it is not "not complete yet": no number of further
+    reads completes it, and FrameAssembler must report it rather than
+    wait.
+    """
+
+
+# The most a frame's payload may declare: the same 4 MiB cap the
+# confirmed command channel applies (config_cmd.MAX_PAYLOAD_BYTES),
+# repeated here rather than imported so this speculative module keeps
+# depending on nothing else in the package. Until 2026-11-02 there was
+# no cap, and a prefix of 0xFFFFFFFF kept FrameAssembler buffering
+# without bound for a frame that would never arrive.
+MAX_FRAME_BYTES = 4 * 1024 * 1024
+
 _LENGTH_STRUCTS = {
     "big": struct.Struct(">I"),
     "little": struct.Struct("<I"),
@@ -91,7 +109,8 @@ def decode_frame(buffered_bytes: bytes, *,
     Raises FramingError if `buffered_bytes` does not yet contain a
     complete frame -- the caller should read more bytes from the socket
     and retry (this is exactly the "Size %d, Received %d" situation the
-    daemon logs).
+    daemon logs) -- and FrameTooLargeError as soon as the length prefix
+    declares more than MAX_FRAME_BYTES, which no retry can complete.
     """
     length_struct = _LENGTH_STRUCTS.get(byteorder)
     if length_struct is None:
@@ -105,6 +124,10 @@ def decode_frame(buffered_bytes: bytes, *,
         )
     (payload_length,) = length_struct.unpack(
         buffered_bytes[:length_struct.size])
+    if payload_length > MAX_FRAME_BYTES:
+        raise FrameTooLargeError(
+            f"frame declares {payload_length} bytes, more than the "
+            f"{MAX_FRAME_BYTES}-byte cap")
     frame_end_offset = length_struct.size + payload_length
     if len(buffered_bytes) < frame_end_offset:
         raise FramingError(
@@ -136,7 +159,8 @@ class FrameAssembler:
 
         A partial frame stays buffered for the next call, because a
         socket read ends wherever the network happened to split the
-        data, not on a frame boundary.
+        data, not on a frame boundary. A frame declaring more than
+        MAX_FRAME_BYTES raises FrameTooLargeError instead of buffering.
         """
         self._buffer += received_bytes
         frames: List[bytes] = []
@@ -145,6 +169,9 @@ class FrameAssembler:
                 payload, remainder = decode_frame(
                     self._buffer, byteorder=self._byteorder
                 )
+            except FrameTooLargeError:
+                # Not "wait for more": no further read completes it.
+                raise
             except FramingError:
                 break
             frames.append(payload)
