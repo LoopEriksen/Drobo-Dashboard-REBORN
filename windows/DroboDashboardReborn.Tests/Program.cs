@@ -434,6 +434,38 @@ finally
 }
 
 
+// ---------------------------------------------------------------------------
+// WriteOutcomes -- a write whose answer never arrived.
+//
+// Until 2026-11-02 the app waited 8 seconds for a write's answer, as long as
+// one of the agent's own waits on the Drobo, and showed every failed request
+// as "Could not reach the agent" in red -- including writes the Drobo had
+// taken. Only a request that cannot have reached the agent is a failure now.
+Console.WriteLine("\n== WriteOutcomes: an unanswered write is never a red failure ==");
+var timedOut = WriteOutcomes.FromTransportFailure(
+    new TaskCanceledException("timed out", new TimeoutException()));
+Check("a timeout is unsettled", timedOut == WriteOutcome.Unsettled, timedOut);
+var cutOff = WriteOutcomes.FromTransportFailure(
+    new HttpRequestException(HttpRequestError.ResponseEnded, "the response ended early"));
+Check("a connection cut off after the request went out is unsettled",
+      cutOff == WriteOutcome.Unsettled, cutOff);
+var garbledAnswer = WriteOutcomes.FromTransportFailure(new JsonException("not JSON"));
+Check("an answer that is not JSON is unsettled", garbledAnswer == WriteOutcome.Unsettled, garbledAnswer);
+var refused = WriteOutcomes.FromTransportFailure(
+    new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"));
+Check("an agent that is not listening is a plain failure (nothing was sent)",
+      refused == WriteOutcome.Failed, refused);
+Check("-- and is still called unreachable",
+      WriteOutcomes.DescribeTransportFailure(
+          new HttpRequestException(HttpRequestError.ConnectionError, "x")).StartsWith("Could not reach the agent"));
+var timeoutWords = WriteOutcomes.DescribeTransportFailure(new TaskCanceledException("timed out"));
+Check("a timeout says the change may have been done, and to look first",
+      timeoutWords.Contains("may have been done") && timeoutWords.Contains("Refresh and look")
+      && !timeoutWords.Contains("Could not reach"), timeoutWords);
+Check("the write timeout outlasts the agent's worst case (4 connections x 3 waits x 8 s)",
+      WriteOutcomes.AgentWriteTimeoutSeconds > 4 * 3 * 8, WriteOutcomes.AgentWriteTimeoutSeconds);
+
+
 Console.WriteLine();
 Console.WriteLine(fails.Count == 0 ? "ALL PASS" : $"{fails.Count} FAILURES: {string.Join(", ", fails)}");
 return fails.Count == 0 ? 0 : 1;

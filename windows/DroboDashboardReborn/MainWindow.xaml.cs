@@ -45,7 +45,8 @@ public partial class MainWindow : Window
     /// <summary>How long one request to the local agent may take before it is
     /// reported as unreachable. A status tick makes up to four requests in a
     /// row (status, alerts twice, shares), so one tick can take up to four
-    /// times this.</summary>
+    /// times this. Writes wait longer: see
+    /// WriteOutcomes.AgentWriteTimeoutSeconds.</summary>
     private const int AgentRequestTimeoutSeconds = 8;
 
     /// <summary>How often the Status tab re-reads /api/status. The footer's
@@ -53,6 +54,11 @@ public partial class MainWindow : Window
     private const int StatusPollIntervalSeconds = 10;
 
     private readonly HttpClient _agentHttpClient = new() { Timeout = TimeSpan.FromSeconds(AgentRequestTimeoutSeconds) };
+
+    /// <summary>The client for writes -- configuration, share create and
+    /// delete, DroboApps Start/Stop -- whose answer can take the agent far
+    /// longer than a read's 8 seconds; see PostWriteJson.</summary>
+    private readonly HttpClient _agentWriteHttpClient = new() { Timeout = TimeSpan.FromSeconds(WriteOutcomes.AgentWriteTimeoutSeconds) };
     private readonly DispatcherTimer _statusPollTimer = new() { Interval = TimeSpan.FromSeconds(StatusPollIntervalSeconds) };
     private readonly ObservableCollection<DriveRow> _bays = new();
     private readonly ObservableCollection<VolumeRow> _volumes = new();
@@ -1706,7 +1712,7 @@ public partial class MainWindow : Window
         button.Content = "Applying…";
         try
         {
-            var (okStatus, root) = await PostJson(path, body);
+            var (okStatus, root) = await PostWriteJson(path, body);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             ShowConfigResult(resultBox, outcome, outcome.Succeeded()
                 ? BuildWriteSuccessMessage(root, outcome)
@@ -1721,7 +1727,12 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowConfigResult(resultBox, false, "Could not reach the agent.  (" + ex.Message + ")");
+            // No answer read: amber "may have been done" unless the request
+            // cannot have reached the agent -- see FromTransportFailure.
+            var outcome = WriteOutcomes.FromTransportFailure(ex);
+            ShowConfigResult(resultBox, outcome, WriteOutcomes.DescribeTransportFailure(ex));
+            if (path.EndsWith("/brightness") && outcome == WriteOutcome.Unsettled)
+                _ = RefreshLedsReadout();
         }
         finally
         {
@@ -1789,12 +1800,24 @@ public partial class MainWindow : Window
     /// <summary>POST a JSON body; returns (is2xx, parsed body). Unlike FetchJson
     /// it does NOT throw on a non-2xx status, because the agent puts the
     /// human-readable reason in the error body and that is what we show.</summary>
-    private async Task<(bool ok, JsonElement root)> PostJson(string path, object body)
+    private Task<(bool ok, JsonElement root)> PostJson(string path, object body) =>
+        PostJsonWith(_agentHttpClient, path, body);
+
+    /// <summary>PostJson for a write that can reach the Drobo, with the
+    /// write timeout. Until 2026-11-02 writes used the reads' 8 seconds,
+    /// the same as one of the agent's own waits on the device, so the app
+    /// gave up first and showed a failure for writes the agent went on to
+    /// settle.</summary>
+    private Task<(bool ok, JsonElement root)> PostWriteJson(string path, object body) =>
+        PostJsonWith(_agentWriteHttpClient, path, body);
+
+    /// <summary>The POST behind PostJson and PostWriteJson.</summary>
+    private async Task<(bool ok, JsonElement root)> PostJsonWith(HttpClient client, string path, object body)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
         request.Headers.Add("X-Agent-Token", Token.Password);
         request.Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
-        using var response = await _agentHttpClient.SendAsync(request);
+        using var response = await client.SendAsync(request);
         var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         return (response.IsSuccessStatusCode, doc.RootElement.Clone());
@@ -2437,7 +2460,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var (okStatus, root) = await PostJson(path, body);
+            var (okStatus, root) = await PostWriteJson(path, body);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             return (outcome, outcome.Succeeded()
                 ? BuildWriteSuccessMessage(root, outcome)
@@ -2445,7 +2468,9 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            return (WriteOutcome.Failed, "Could not reach the agent.  (" + ex.Message + ")");
+            // Unsettled closes the dialog, so a create or delete that may
+            // have applied is not one click from being sent again.
+            return (WriteOutcomes.FromTransportFailure(ex), WriteOutcomes.DescribeTransportFailure(ex));
         }
     }
 
@@ -4170,7 +4195,7 @@ public partial class MainWindow : Window
         DroboAppsActionResult.Visibility = Visibility.Collapsed;
         try
         {
-            var (okStatus, root) = await PostJson("/api/droboapps/action",
+            var (okStatus, root) = await PostWriteJson("/api/droboapps/action",
                 new { name = row.Name, action = verb });
             if (okStatus && IsTrue(root, "ok"))
             {
@@ -4187,7 +4212,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowConfigResult(DroboAppsActionResult, false, "Could not reach the agent.  (" + ex.Message + ")");
+            ShowConfigResult(DroboAppsActionResult, WriteOutcomes.FromTransportFailure(ex),
+                             WriteOutcomes.DescribeTransportFailure(ex));
         }
         finally
         {

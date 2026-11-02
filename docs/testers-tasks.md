@@ -129,3 +129,13 @@ for each step, what you saw if it differs from what it says.
    the buttons must read **Close** and **Try saving again**; **Close** must
    leave the share listed as connected, and **Try saving again** must not
    show a connection error. Report the saving error's exact words.
+5. **A write whose answer never comes is "may have been done", not a
+   failure** (fixed 2026-11-02). Open the simulated Drobo, sign in to
+   **Advanced Configuration** on the Tools tab, suspend the agent's
+   process as in step 2, and press **Apply** beside brightness. After
+   about two minutes the line under it must turn amber and say the change
+   may have been done; it must not be red, and must not say "Could not
+   reach the agent". Resume the process. Then end the agent's `python`
+   process (Task Manager, Details tab, **End task**) and press **Apply**
+   again: that one must be red, "Could not reach the agent", straight
+   away.

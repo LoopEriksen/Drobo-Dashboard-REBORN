@@ -864,16 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- The app gives up on any agent request after 8 seconds, the same as the
-  agent's own wait for the device's answer (`COMMAND_TIMEOUT_SECONDS`).
-  When the device takes a write and then stays silent with the connection
-  open, the agent waits those 8 seconds before the read-back that settles
-  the write (measured at 8.04 seconds on a simulated device over loopback;
-  on real hardware the reads before and after add to it), so the app has
-  already shown "Could not reach the agent" as a failure, in the red kept
-  for "nothing happened", and the create and delete dialogs are ready to
-  send again, while the agent goes on to classify the write correctly with
-  nobody listening.
 - The diagnostics report says "just started" when uptime is unknown, and
   loses the "why it could not be reached" section when `device` is
   missing. The in-app file browser counts sizes in 1024s where the Status

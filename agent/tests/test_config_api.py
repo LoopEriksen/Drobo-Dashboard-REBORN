@@ -13,6 +13,7 @@ own port, plain urllib.
 import atexit
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -204,6 +205,32 @@ try:
     )
 finally:
     http_server.shutdown()
+
+# The Windows app's wait for a write must outlast the agent's worst case
+# for one: four command-port connections (the read before, the write,
+# the read-back, and the fresh read that settles an unacknowledged
+# write), each able to wait COMMAND_TIMEOUT_SECONDS three times
+# (connect, login reply, result). Until 2026-11-02 the app waited 8
+# seconds, one of those waits, and showed a failure for writes the agent
+# went on to settle. Read from the C# source, so raising the agent's
+# timeout without the app's fails here.
+print("\n== the Windows app waits longer for a write than the agent can ==")
+write_outcome_path = os.path.join(
+    AGENT_DIR, "..", "windows", "DroboDashboardReborn", "WriteOutcome.cs")
+with open(write_outcome_path, encoding="utf-8") as write_outcome_file:
+    timeout_match = re.search(
+        r"AgentWriteTimeoutSeconds\s*=\s*(\d+)\s*;",
+        write_outcome_file.read())
+check("WriteOutcome.cs states AgentWriteTimeoutSeconds",
+      timeout_match is not None)
+agent_worst_case_seconds = (
+    4 * 3 * api._ApiRequestHandler.COMMAND_TIMEOUT_SECONDS)
+app_write_timeout_seconds = (
+    int(timeout_match.group(1)) if timeout_match else 0)
+check(f"-- and it is longer than the agent's worst case, "
+      f"{agent_worst_case_seconds:g} s",
+      app_write_timeout_seconds > agent_worst_case_seconds,
+      app_write_timeout_seconds)
 
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))

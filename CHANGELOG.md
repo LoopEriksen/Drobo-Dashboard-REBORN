@@ -892,6 +892,22 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   accepted, unconfirmed, as any other failed re-read already was. Nothing
   sent to the Drobo changes. `test_droboapps_api.py` gains four checks,
   45 to 49. (2026-11-02)
+- **A write whose answer is slow is no longer shown as a failure in the
+  Windows app.** The app gave up on every agent request after 8 seconds,
+  the same as one of the agent's own waits for the Drobo, so when the
+  Drobo took a write and stayed silent the app showed "Could not reach
+  the agent" in red, the colour kept for "nothing happened", and the
+  share create and delete dialogs stayed ready to send it again, while
+  the agent went on to settle the write with nobody listening. Writes
+  (brightness, spin-down, share access, share create and delete,
+  DroboApps Start and Stop) now wait 120 seconds, longer than the
+  agent's worst case of 96, and reads keep 8. When no answer arrives
+  anyway, the app says in amber that the change may have been done and
+  to refresh and look before trying again, and the share dialogs close;
+  only an agent that could not be reached at all is still red. Nothing
+  sent to the Drobo changes. The Windows test program gains 7 checks,
+  and `test_config_api.py` 2 (23 to 25), which fail if the agent's
+  timeout is raised past what the app waits. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
