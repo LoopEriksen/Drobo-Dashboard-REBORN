@@ -413,8 +413,8 @@ class BackupRunner:
         Every way out records an end time (the finally), so a job never
         reads as running forever. A robocopy that ran and reported
         problems is a result, not an exception -- interpret_exit_code
-        says what it means; only a copy that could not start lands in
-        the except clauses.
+        says what it means; only a copy that could not start, or was
+        stopped by an error, lands in the except clauses.
         """
         try:
             exit_code = self._run_robocopy(job)
@@ -432,6 +432,16 @@ class BackupRunner:
             with self._lock:
                 job.ok, job.error = False, str(exc)
                 job.summary = "Could not start."
+        # Last, after the two above: anything else (a ValueError for a
+        # path holding a NUL character, say) used to leave the finished
+        # job reading "Running..." with no result (until 2026-11-02).
+        # Caught whole because this is the copy thread's top level, and
+        # the job is the only place the outcome can be reported.
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
+                job.ok = False
+                job.error = f"{type(exc).__name__}: {exc}"
+                job.summary = "Stopped by an unexpected error."
         finally:
             with self._lock:
                 job.finished_at = time.time()

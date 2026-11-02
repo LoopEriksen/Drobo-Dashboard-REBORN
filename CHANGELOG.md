@@ -810,6 +810,12 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   as the check took. The check now happens first, and two starts at
   once still make only one backup. `test_backup.py` gains two checks.
   (2026-11-02)
+- **A backup stopped by an unexpected error says it stopped.** Only the
+  errors of a copy that could not start were caught, so any other error
+  left the finished backup showing "Running..." with no result, in both
+  apps, for good. It now ends as failed, "Stopped by an unexpected
+  error.", with the error named. `test_backup.py` gains two checks.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

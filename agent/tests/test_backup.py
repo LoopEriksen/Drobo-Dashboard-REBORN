@@ -243,6 +243,32 @@ check("-- and two starts at once still make one job",
       len(started_jobs) == 1 and len(refused_starts) == 1
       and "already running" in refused_starts[0], concurrent_outcomes)
 
+print("\n== a copy stopped by an unexpected error says so ==")
+# Only OSError was caught, so anything else -- a ValueError for a
+# destination holding a NUL character, say -- left the finished job
+# reading "Running..." with no result and no error (until 2026-11-02).
+# robocopy is never run here: _run_robocopy is replaced.
+failing_runner = backup.BackupRunner()
+
+
+def _robocopy_raising(job):
+    raise ValueError("embedded null byte")
+
+
+failing_runner._run_robocopy = _robocopy_raising
+failed_job = failing_runner.start(source_dir, destination_dir)
+for _ in range(50):
+    if not failed_job.running:
+        break
+    time.sleep(0.1)
+check("an unexpected error ends the job as failed, not 'Running...'",
+      not failed_job.running and failed_job.ok is False
+      and failed_job.summary != "Running...",
+      (failed_job.running, failed_job.ok, failed_job.summary))
+check("-- and its error names what went wrong",
+      "ValueError" in failed_job.error
+      and "embedded null byte" in failed_job.error, failed_job.error)
+
 print("\n== a real backup, into a real temp folder ==")
 if os.name != "nt":
     print("  SKIP    robocopy is Windows-only")
