@@ -930,6 +930,18 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   ended in a traceback; it now stops with a plain message, as an empty
   serial already did. The commands sent and their bytes are unchanged.
   `tools/test_nasd_sweep.py` gains seven checks. (2026-11-02)
+- **`tools/sweep_last_six.py` reads its arguments first and logs in
+  with the serial of the host it sends to.** The serial used to be read
+  from `sys.argv[1]` by hand before the arguments were parsed, so
+  `sweep_last_six.py HOST --help` contacted the Drobo before printing
+  help, an option before the host (`--timeout 1 HOST`) took the serial
+  from `agent/config.json`'s address, or none, while sending to HOST,
+  and calling `main()` from another script raised `NameError`. The
+  arguments are now parsed first, the serial comes from HOST's own
+  greeting, and a Drobo that reports no serial stops the run before any
+  command. For the ordinary `sweep_last_six.py HOST` run the six
+  commands, their order, the guard check and their bytes are unchanged.
+  `tools/test_nasd_sweep.py` gains five checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

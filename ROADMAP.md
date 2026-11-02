@@ -834,10 +834,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `tools/sweep_last_six.py` reads the serial from `sys.argv` by hand before
-  parsing its arguments, so it can log in with one host's serial while
-  sending to another, or with an empty one, and contacts the device even
-  for `--help`; importing it and calling `main()` raises `NameError`.
 - `tools/access_codes.py` exits 0 on "no Drobo address". It, and the two
   sweeps, catch only `OSError`, so a framing or XML error ends in a
   traceback.

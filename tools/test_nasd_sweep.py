@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import functools
 import io
 import os
+import runpy
 import shutil
 import socket
 import struct
@@ -472,6 +474,113 @@ for failure_label, fake_fetch_greeting in _greeting_failures:
           repr(outcome))
 check("a run stopped at the greeting leaves no empty report behind",
       not os.path.exists(os.path.join(_main_scratch_dir, "greeting.json")))
+
+
+# ---------------------------------------------------------------------------
+# 6. sweep_last_six.py: the serial comes from the host it sends to, and
+# --help contacts nothing. No sockets: the greeting and the send are
+# both replaced.
+# ---------------------------------------------------------------------------
+print("\n== sweep_last_six: arguments first, then the same host's serial ==")
+
+import sweep_last_six  # noqa: E402
+
+_SERIAL_BY_HOST = {"127.0.0.2": "drb000000HOSTB", "127.0.0.3": ""}
+
+
+def _fake_greeting_for(greeting_hosts):
+    """A stand-in for esatm.fetch_greeting that logs the host asked.
+
+    Each host's synthetic greeting carries that host's serial, so a
+    login made with another host's serial shows up in the send spy.
+    """
+    def fetch_greeting(host, *args, **kwargs):
+        greeting_hosts.append(host)
+        serial = _SERIAL_BY_HOST.get(host, "drb000000OTHER")
+        return (f"<ESATMUpdate><mESAID>{serial}</mESAID>"
+                f"<mName>Sample</mName></ESATMUpdate>").encode() + b"\x00"
+    return fetch_greeting
+
+
+def _run_last_six_as_script(argv):
+    """Run sweep_last_six.py as __main__, the way a shell starts it.
+
+    runpy executes a fresh copy of the file, so anything patched on the
+    imported module does not reach it; only shared modules (esatm,
+    nasd_sweep, time) do.
+    """
+    sys.argv = ["sweep_last_six.py"] + argv
+    runpy.run_path(sweep_last_six.__file__, run_name="__main__")
+
+
+def _skip_pause(seconds):
+    """Stand-in for time.sleep, so the pauses are not waited out."""
+
+
+def _run_last_six(argv, as_script):
+    """Run sweep_last_six with argv; (outcome, greeting hosts, sends).
+
+    as_script runs the file as __main__ (runpy, sys.argv set), which is
+    how it is started from a shell; otherwise main(argv) is called.
+    time.sleep is replaced rather than PAUSE_BETWEEN_COMMANDS_SECONDS,
+    because the runpy copy keeps its own 1-second pause.
+    """
+    greeting_hosts = []
+    send_spy = _CallSpy({"status": "answered", "tags": []})
+    if as_script:
+        run_sweep = functools.partial(_run_last_six_as_script, argv)
+    else:
+        run_sweep = functools.partial(sweep_last_six.main, argv)
+    saved = (esatm.fetch_greeting, nasd_sweep.send_one_command, time.sleep,
+             tempfile.tempdir, sys.argv)
+    esatm.fetch_greeting = _fake_greeting_for(greeting_hosts)
+    nasd_sweep.send_one_command = send_spy
+    time.sleep = _skip_pause
+    tempfile.tempdir = _main_scratch_dir
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            outcome = run_sweep()
+    except (SystemExit, Exception) as exc:
+        outcome = exc
+    finally:
+        (esatm.fetch_greeting, nasd_sweep.send_one_command, time.sleep,
+         tempfile.tempdir, sys.argv) = saved
+    return outcome, greeting_hosts, send_spy.calls
+
+
+def _exit_code(outcome):
+    """The exit code a SystemExit carries, or the outcome itself."""
+    return outcome.code if isinstance(outcome, SystemExit) else outcome
+
+
+for help_argv in (["--help"], ["127.0.0.1", "--help"]):
+    outcome, greeting_hosts, sends = _run_last_six(help_argv, as_script=True)
+    check(f"`sweep_last_six.py {' '.join(help_argv)}` prints help and "
+          "contacts nothing",
+          _exit_code(outcome) == 0 and not greeting_hosts and not sends,
+          (repr(outcome), greeting_hosts))
+
+
+def _sends_used(sends, host):
+    """True when every send went to `host` with `host`'s own serial."""
+    return bool(sends) and all(
+        args[0] == host and args[2] == _SERIAL_BY_HOST[host]
+        for args, _ in sends)
+
+
+outcome, _, sends = _run_last_six(["127.0.0.2"], as_script=False)
+check("main([host]) called directly runs, with that host's serial",
+      outcome == 0 and _sends_used(sends, "127.0.0.2"), repr(outcome))
+
+outcome, _, sends = _run_last_six(["--timeout", "1", "127.0.0.2"],
+                                  as_script=True)
+check("an option before the host still logs in with that host's serial",
+      _exit_code(outcome) == 0 and _sends_used(sends, "127.0.0.2"),
+      (repr(outcome), [args[:3] for args, _ in sends][:1]))
+
+outcome, _, sends = _run_last_six(["127.0.0.3"], as_script=False)
+check("a host that reports no serial stops before any command is sent",
+      outcome == 1 and not sends, (repr(outcome), len(sends)))
 
 
 print("\n" + ("ALL PASS" if not failures

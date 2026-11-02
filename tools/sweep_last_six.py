@@ -125,8 +125,9 @@ def _host_from_agent_config():
 def _read_esa_id(host) -> str:
     """The serial from `host`'s status greeting, or "" if unreadable.
 
-    The command channel's login carries the serial, so it is read once
-    at startup and shared by every command.
+    The command channel's login carries the serial, so main reads it
+    once, from the same host the commands go to, and hands it to every
+    send.
     """
     if not host:
         return ""
@@ -151,8 +152,8 @@ def _detail_suffix(record: dict) -> str:
     return detail_suffix
 
 
-def _send_and_print(host: str, command_name: str, command_id: int,
-                    timeout_seconds: float) -> dict:
+def _send_and_print(host: str, esa_id: str, command_name: str,
+                    command_id: int, timeout_seconds: float) -> dict:
     """Send one command through nasd_sweep and print how it went.
 
     nasd_sweep.send_one_command does the login, the empty-parameter
@@ -162,7 +163,7 @@ def _send_and_print(host: str, command_name: str, command_id: int,
     started_at = time.monotonic()
     record = nasd_sweep.send_one_command(host,
                                          nasd_sweep.DEFAULT_COMMAND_PORT,
-                                         _startup_esa_id,
+                                         esa_id,
                                          command_id, timeout_seconds)
     elapsed_seconds = time.monotonic() - started_at
     record["name"], record["cmd_id"] = command_name, command_id
@@ -184,7 +185,8 @@ def _device_still_greeting(host: str) -> bool:
     return is_healthy
 
 
-def _send_in_order(host: str, timeout_seconds: float) -> list[dict]:
+def _send_in_order(host: str, esa_id: str,
+                   timeout_seconds: float) -> list[dict]:
     """Send the six in ORDER, stopping the moment the device goes quiet.
 
     The guard is asked again for each command even though none of the
@@ -204,19 +206,41 @@ def _send_in_order(host: str, timeout_seconds: float) -> list[dict]:
                             "status": "refused-by-guard"})
             continue
 
-        results.append(_send_and_print(host, command_name, command_id,
-                                       timeout_seconds))
+        results.append(_send_and_print(host, esa_id, command_name,
+                                       command_id, timeout_seconds))
         if not _device_still_greeting(host):
             break
         time.sleep(PAUSE_BETWEEN_COMMANDS_SECONDS)
     return results
 
 
+def _write_report(host: str, results: list[dict]) -> None:
+    """Print one line per command, then save the (redacted) records.
+
+    The report goes to the temp folder, outside the repository, because
+    it names the host. The file is closed when written; it used to be
+    left open for the garbage collector.
+    """
+    print("== summary ==")
+    for record in results:
+        print(f"  {record['name']:24} {record['status']}")
+
+    report_path = os.path.join(tempfile.gettempdir(), "drobo-last-six.json")
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump({"host": host, "results": results}, report_file, indent=1)
+    print(f"\nRedacted report: {report_path}")
+
+
 def main(argv=None) -> int:
     """Check the device, send the six one at a time, write a report.
 
-    Reads the serial from _startup_esa_id, which the __main__ block
-    sets before calling this.
+    The arguments are parsed before anything is contacted, so --help
+    reaches no device, and the serial is read from the host the
+    commands go to. It used to be read by the __main__ block from
+    sys.argv[1] before parsing: `HOST --help` read a greeting, an
+    option before the host took the serial from agent/config.json's
+    address (or none) while sending to HOST, and calling main()
+    directly raised NameError.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("host", nargs="?", default="")
@@ -234,28 +258,18 @@ def main(argv=None) -> int:
     if not is_healthy:
         print(f"Drobo not reachable before we start: {device_name_or_error}")
         return 1
+    esa_id = _read_esa_id(host)
+    if not esa_id:
+        # _read_esa_id gives "" for a greeting that could not be read as
+        # well as for one without a serial, so the message covers both.
+        print("Could not read the Drobo's serial; cannot log in.")
+        return 1
     print(f"Starting against {device_name_or_error}. Status port healthy.\n")
 
-    results = _send_in_order(host, args.timeout)
-
-    print("== summary ==")
-    for record in results:
-        print(f"  {record['name']:24} {record['status']}")
-
-    report_path = os.path.join(tempfile.gettempdir(), "drobo-last-six.json")
-    json.dump({"host": host, "results": results},
-              open(report_path, "w", encoding="utf-8"), indent=1)
-    print(f"\nRedacted report: {report_path}")
+    results = _send_in_order(host, esa_id, args.timeout)
+    _write_report(host, results)
     return 0
 
 
 if __name__ == "__main__":
-    # _startup_esa_id is read once, up front, and shared by every
-    # command below.
-    _startup_host = (sys.argv[1]
-                     if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
-                     else "")
-    if not _startup_host:
-        _startup_host = _host_from_agent_config()
-    _startup_esa_id = _read_esa_id(_startup_host)
     raise SystemExit(main())
