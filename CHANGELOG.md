@@ -684,6 +684,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   drop the connection. Only 0-9 count as a bay now, and anything else
   gets the usual usage answer. Simulator only. `test_agent.py` gains one
   check. (2026-11-02)
+- **A malformed update setting no longer breaks the update check.** A
+  `check_seconds` in the `updates` block of `config.json` that is not a
+  number (`"daily"`, `null`), or an `updates` entry that is not a block
+  at all, made every `/api/update` drop the connection, so both apps
+  could not show the update state. A missing, non-numeric, zero or
+  negative value now means the default of one day, and a malformed
+  block reads as switched off. `test_agent.py` gains one check.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

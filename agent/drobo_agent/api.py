@@ -139,6 +139,7 @@ from __future__ import annotations
 
 import functools
 import json
+import math
 import queue
 import re
 import socket
@@ -959,14 +960,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         with _ApiRequestHandler._update_lock:
             updates_config = self.monitor.config.get("updates", {})
-            cache_seconds = float(updates_config.get(
-                "check_seconds", DEFAULT_UPDATE_CHECK_SECONDS))
+            if not isinstance(updates_config, dict):
+                updates_config = {}
             cached_payload = self._fresh_cached_payload(
-                _ApiRequestHandler._update_cache, cache_seconds)
+                _ApiRequestHandler._update_cache,
+                self._update_check_seconds(updates_config))
             if cached_payload is not None:
                 return self._send_json(cached_payload)
-            status = updates.check(
-                self.monitor.config.get("updates", {}), VERSION)
+            status = updates.check(updates_config, VERSION)
             payload = status.to_dict()
             # A disabled check is not worth caching for a day: flipping
             # the setting on should take effect on the next refresh, not
@@ -974,6 +975,26 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             if status.state != updates.STATE_DISABLED:
                 _ApiRequestHandler._update_cache = (time.time(), payload)
         return self._send_json(payload)
+
+    @staticmethod
+    def _update_check_seconds(updates_config: dict) -> float:
+        """
+        How long an update answer is cached: check_seconds from
+        config.json, or DEFAULT_UPDATE_CHECK_SECONDS when it is missing
+        or not a positive, finite number.
+
+        It went straight into float() until 2026-11-02, so a value such
+        as "daily" or null broke every /api/update with a dropped
+        connection.
+        """
+        try:
+            check_seconds = float(updates_config.get(
+                "check_seconds", DEFAULT_UPDATE_CHECK_SECONDS))
+        except (TypeError, ValueError):
+            return DEFAULT_UPDATE_CHECK_SECONDS
+        if not math.isfinite(check_seconds) or check_seconds <= 0:
+            return DEFAULT_UPDATE_CHECK_SECONDS
+        return check_seconds
 
     @staticmethod
     def _fresh_cached_payload(cache_entry, max_age_seconds: float):

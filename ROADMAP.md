@@ -817,10 +817,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api`: a non-numeric `check_seconds` breaks every `/api/update`
-  (confirmed).
-  Errors on the event-stream route never reach the console; a manual
-  `?host=` search holds up every other `/api/discover` caller.
+- `api`: errors on the event-stream route never reach the console; a
+  manual `?host=` search holds up every other `/api/discover` caller.
 - `api._serve_droboapps_action` (confirmed, on a simulated device over
   loopback): when the Drobo takes a DroboApps Start or Stop and then hangs
   up without a result frame, the pattern measured on share create,

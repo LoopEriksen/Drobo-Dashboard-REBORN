@@ -1634,6 +1634,28 @@ check("a disabled answer is not cached",
       api._ApiRequestHandler._update_cache is None,
       api._ApiRequestHandler._update_cache)
 
+# check_seconds went straight into float(), so a value such as "daily"
+# broke every /api/update with a dropped connection (until 2026-11-02).
+# Each malformed value now falls back to the default of a day; the
+# check itself stays switched off, so nothing is contacted.
+_saved_updates_block = monitor.config.get("updates")
+_update_answers = {}
+for _updates_block in ({"check_seconds": "daily"},
+                       {"check_seconds": None},
+                       {"check_seconds": -5},
+                       {"check_seconds": "nan"},
+                       "not a block"):
+    monitor.config["updates"] = _updates_block
+    try:
+        status, reply = call("/api/update")
+        _update_answers[repr(_updates_block)] = (status, reply.get("state"))
+    except Exception as _connection_error:  # noqa: BLE001 - the check
+        _update_answers[repr(_updates_block)] = repr(_connection_error)
+monitor.config["updates"] = _saved_updates_block
+check("a malformed check_seconds or updates block still gets an answer",
+      all(answer == (200, "disabled") for answer in _update_answers.values()),
+      _update_answers)
+
 print("\n== DroboSync: built, dormant, and honest about why ==")
 # Needs two Drobos; only a single unit is available. Shipped built
 # rather than absent so the page explains itself instead of a button
