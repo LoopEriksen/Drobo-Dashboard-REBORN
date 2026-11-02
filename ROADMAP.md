@@ -796,8 +796,7 @@ the rest come from reading the code.
 
 *SDK — writes and their gates*
 
-- `sharewrite`: `create_share` and `delete_share` name the wrong exception for a write
-  that did not apply. `shareedit.set_user_access` is weaker than
+- `shareedit.set_user_access` is weaker than
   `sharewrite` on the same rules (latent: only tests use it).
 - `envelope.parse` lets `ValueError` and `IndexError` escape
   `EnvelopeError`; `framing` has no maximum frame length (speculative path

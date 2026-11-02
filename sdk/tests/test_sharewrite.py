@@ -668,6 +668,35 @@ except ShareEditError as exc:
           "refus" in str(exc).lower()
           and "no share named" not in str(exc), str(exc))
 
+print("\n== an unreachable device fails the baseline read: OSError ==")
+# The write docstrings say so: nothing is sent, and the error is the
+# read's own OSError, not config_cmd.ConfigWriteError.
+closed_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+closed_listener.bind(("127.0.0.1", 0))
+closed_port = closed_listener.getsockname()[1]
+closed_listener.close()
+for label, write in (
+        ("set_share_user_access",
+         lambda: sharewrite.set_share_user_access(
+             "127.0.0.1", "drb000000SAMPLE", "Photos", "Everyone", "1",
+             port=closed_port, timeout=5)),
+        ("create_share",
+         lambda: sharewrite.create_share(
+             "127.0.0.1", "drb000000SAMPLE", "NewShare",
+             port=closed_port, timeout=5)),
+        ("delete_share",
+         lambda: sharewrite.delete_share(
+             "127.0.0.1", "drb000000SAMPLE", "Photos",
+             port=closed_port, timeout=5))):
+    try:
+        write()
+        check(f"{label}, port refused: raises OSError", False)
+    except Exception as exc:
+        check(f"{label}, port refused: raises OSError",
+              isinstance(exc, OSError)
+              and not isinstance(exc, config_cmd.ConfigError),
+              f"{type(exc).__name__}: {exc}")
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

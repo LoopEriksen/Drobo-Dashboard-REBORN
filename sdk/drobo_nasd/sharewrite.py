@@ -425,11 +425,17 @@ def set_share_user_access(host: str, esa_id: str, share_name: str,
     when the device never answered and the read-back is what established
     the change (see set_config_raw). `timeout` is in seconds.
 
-    Raises ShareEditError for a disallowed code, an unknown share, or a
+    Raises ShareEditError for a disallowed code, an unknown share, a
     lost share (which surgical editing should make impossible, but is
-    asserted); ShareWriteOutcomeUnknownError when the outcome cannot be
-    established; config_cmd.ConfigWriteError propagates for a refused or
-    unreachable device.
+    asserted), or a write the device ACCEPTED that the fresh read-back
+    shows did not apply; ShareWriteOutcomeUnknownError when the outcome
+    cannot be established; config_cmd.ConfigWriteError propagates for a
+    write the device refused or could not be reached to receive, or
+    for a write the device never acknowledged whose read-back shows it
+    did not apply.
+    Before anything is sent, the baseline read raises OSError for a
+    device that cannot be reached and a plain config_cmd.ConfigError
+    for a reply it cannot read.
     """
     share_name, username, access_code = _normalized_access_request(
         share_name, username, access_code)
@@ -733,9 +739,15 @@ def create_share(host: str, esa_id: str, share_name: str,
     underivable volume; ShareWriteOutcomeUnknownError when the outcome
     cannot be established -- whether the write was ACCEPTED and the
     read-back failed, or the write was never acknowledged and the
-    read-back failed too; config_cmd.ConfigWriteError for a refused or
-    unreachable device, or for a write the read-back shows did not
-    apply.
+    read-back failed too. A write the read-back shows did not apply is
+    ShareEditError when the device ACCEPTED it (the fresh read-back in
+    _confirm_by_fresh_read) and config_cmd.ConfigWriteError when the
+    device never acknowledged it (config_cmd's arbiter);
+    config_cmd.ConfigWriteError also for a write the device refused or
+    could not be reached to receive.
+    Before anything is sent, the baseline read raises OSError for a
+    device that cannot be reached and a plain config_cmd.ConfigError
+    for a reply it cannot read.
     """
     share_name = _validated_new_share_name(share_name)
     volume = _validated_volume_text(volume)
@@ -876,9 +888,15 @@ def delete_share(host: str, esa_id: str, share_name: str,
 
     Raises ShareEditError for an unknown or ambiguous name;
     ShareWriteOutcomeUnknownError when the outcome cannot be
-    established; config_cmd.ConfigWriteError for a refused or
-    unreachable device, or for a delete the read-back shows did not
-    happen.
+    established. A delete the read-back shows did not happen is
+    ShareEditError when the device ACCEPTED it (the fresh read-back in
+    _confirm_by_fresh_read) and config_cmd.ConfigWriteError when the
+    device never acknowledged it (config_cmd's arbiter);
+    config_cmd.ConfigWriteError also for a delete the device refused
+    or could not be reached to receive.
+    Before anything is sent, the baseline read raises OSError for a
+    device that cannot be reached and a plain config_cmd.ConfigError
+    for a reply it cannot read.
     """
     share_name = (share_name or "").strip()
     if not share_name:
