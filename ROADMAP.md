@@ -864,9 +864,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- **Confirmed:** "Change Drobo" starts a search and then cancels it, so the
-  picker stays on "Searching…" (or, with auto-discovery off, never shows
-  the manual entries).
 - A late reply for the Drobo just left can still paint its shares, alerts
   or token error, and a failed older search can wipe the newer list; the
   10-second status poll and the backup poll can overlap themselves.

@@ -825,6 +825,15 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   such a name, so the decode itself is unverified. Display only; what
   is copied is unchanged. `test_backup.py` gains two checks here and
   three on Windows. (2026-11-02)
+- **"Change Drobo" in the Windows app no longer cancels its own search.**
+  The button started a new device search and only then marked everything
+  in flight as out of date, the search included, so the search threw its
+  own result away and the picker stayed on "Searching..."; with automatic
+  discovery off, the manually added Drobos never appeared. The old
+  Drobo's work is now marked out of date first and the search starts
+  last. There is no automated check for this (the window is not in the
+  Windows test program); `docs/testers-tasks.md` section 7 has the steps.
+  (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

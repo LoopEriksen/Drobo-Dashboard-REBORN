@@ -1330,8 +1330,6 @@ public partial class MainWindow : Window
     private void ChangeDrobo_Click(object sender, RoutedEventArgs e)
     {
         _statusPollTimer.Stop();
-        ShowLanding();
-        _ = SearchForDevices();
 
         // The alerts of the Drobo we just left say nothing about the next one.
         // Without this, switching devices would either suppress a genuine
@@ -1341,6 +1339,13 @@ public partial class MainWindow : Window
         // flight will now see a changed generation and discard itself, so it
         // cannot land after this line and re-seed the notifier with the Drobo
         // we are walking away from.
+        //
+        // And both come BEFORE the search below starts. SearchForDevices
+        // takes its own generation (++_generation) and runs to its first
+        // await before returning here; until 2026-11-02 this bump came after
+        // that, so the search the click had just started saw its generation
+        // moved, dropped its own result and never cleared "Searching...",
+        // and with auto-discovery off the manual entries never showed.
         _generation++;
         _alertNotifier.Reset();
 
@@ -1352,6 +1357,10 @@ public partial class MainWindow : Window
         SettingsEmpty.Visibility = Visibility.Visible;
         SettingsError.Visibility = Visibility.Collapsed;
         SettingsLinkWarningBox.Visibility = Visibility.Collapsed;
+
+        // Last, so the search is the newest piece of work there is.
+        ShowLanding();
+        _ = SearchForDevices();
     }
 
     private void ShowLanding()

@@ -83,3 +83,26 @@ already settled: no third-party app may run continuously in the background, so
 the realistic behaviour is that photos back up when you arrive home (geofence
 or Wi-Fi wake) and catch up overnight while charging. No iOS app can do better,
 and none of that is a limit of this project's agent.
+
+## 7. Windows app screens -- needs a Windows PC
+
+**Built:** the Windows app. Its rules that need no window (notifications,
+saved logins, settings, JSON reading, write outcomes) are checked by
+`windows/DroboDashboardReborn.Tests` on every push; the screens themselves
+are not, because a test program cannot drive WPF, and nobody on this
+project has a Windows PC at hand when these change.
+
+**Missing:** someone pressing the buttons. Every step below runs against the
+simulated Drobo, so no Drobo is needed and nothing is sent to one, unless it
+says otherwise.
+
+**What to do:** start `START WITH SIMULATED DROBO (testing).bat` and report,
+for each step, what you saw if it differs from what it says.
+
+1. **Change Drobo finishes its search** (fixed 2026-11-02). Open the
+   simulated Drobo, press **Change Drobo**, and wait. The picker must leave
+   "Searching..." and list the Drobos it found. Then, on the picker, add
+   an address under **ADD A DROBO MANUALLY**, untick **Automatically
+   search the network for Drobos**, open a Drobo and press **Change
+   Drobo** again: the picker must show the address you added, not
+   "Searching...".

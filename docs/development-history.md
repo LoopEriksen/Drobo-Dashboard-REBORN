@@ -984,7 +984,7 @@ the one it found, so a reused address would be trusted (fixed
 entry is served with a 1970 timestamp beside its not-decoded marker (fixed
 2026-11-02); and in
 the Windows app "Change Drobo" cancels its own search and leaves the picker
-stuck on "Searching…". For the maintainer to decide:
+stuck on "Searching…" (fixed 2026-11-02). For the maintainer to decide:
 `eCmdGetNASUsernamePassword`, which by its name returns credentials, is not
 in `DO_NOT_SEND`, and the credential redaction misses tags such as `ApiKey`.
 
