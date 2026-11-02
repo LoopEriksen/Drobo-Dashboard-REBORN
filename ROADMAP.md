@@ -864,9 +864,7 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Windows app*
 
-- The diagnostics report says "just started" when uptime is unknown, and
-  loses the "why it could not be reached" section when `device` is
-  missing. The in-app file browser counts sizes in 1024s where the Status
+- The in-app file browser counts sizes in 1024s where the Status
   tab uses 1000s, and its root check accepts `\\host\Photos2` for
   `\\host\Photos`.
 

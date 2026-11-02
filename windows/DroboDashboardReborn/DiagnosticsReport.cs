@@ -58,14 +58,17 @@ internal static class DiagnosticsReport
     /// </summary>
     private static void AppendSummary(StringBuilder report, JsonElement root)
     {
-        // Read before anything is written, as it always has been: a reply
-        // with no "device" throws here, and BuildText reports that instead.
-        var device = root.GetProperty("device");
-        var reachable = root.TryGetProperty("reachable", out var reachableElement)
-                        && reachableElement.ValueKind == JsonValueKind.True;
-
+        // The network hint first, and nothing read before it that can
+        // throw. Until 2026-11-02 "device" was read with GetProperty up
+        // here, so a reply without one -- the agent's first seconds, before
+        // any reading -- threw before anything was written: the report lost
+        // the one section that explains the problem, and said the JSON
+        // could not be read.
         AppendNetworkHint(report, root);
-        AppendDevice(report, root, device, reachable);
+        if (root.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object)
+            AppendDevice(report, root, device, IsTrue(root, "reachable"));
+        else
+            AppendNoReading(report, root);
         AppendCapacity(report, root);
         AppendDrives(report, root);
         AppendRecentEvents(report, root);
@@ -92,9 +95,22 @@ internal static class DiagnosticsReport
         report.AppendLine();
     }
 
-    /// <summary>The DEVICE block, always written: name, model, firmware,
-    /// address, overall state and uptime, plus the firmware note when the
-    /// agent flags the installed build.</summary>
+    /// <summary>The DEVICE block for a reply that carries no device at all:
+    /// says so, with the agent's own reason when it gave one, and the
+    /// firmware note if the agent sent that anyway.</summary>
+    private static void AppendNoReading(StringBuilder report, JsonElement root)
+    {
+        report.AppendLine("DEVICE");
+        AppendField(report, "Status", "No reading from the Drobo yet");
+        var agentError = GetStringOr(root, "error", "");
+        if (agentError.Length > 0) AppendField(report, "Agent says", agentError);
+        AppendFirmwareNote(report, root);
+        report.AppendLine();
+    }
+
+    /// <summary>The DEVICE block when the reply has a device: name, model,
+    /// firmware, address, overall state and uptime, plus the firmware note
+    /// when the agent flags the installed build.</summary>
     private static void AppendDevice(StringBuilder report, JsonElement root, JsonElement device, bool reachable)
     {
         report.AppendLine("DEVICE");
@@ -103,17 +119,24 @@ internal static class DiagnosticsReport
         AppendField(report, "Firmware", GetStringOr(device, "firmware", "?"));
         AppendField(report, "Address", GetStringOr(device, "ip", ""));
         AppendField(report, "Status", GetStringOr(root, "overall_state", "unknown") + (reachable ? "" : "  (unreachable)"));
-        AppendField(report, "Uptime", FormatUptime(GetInt64OrZero(device, "uptime_seconds")));
-        // Sits with the version it is about. Only present for the builds Drobo
-        // withdrew, and worth carrying into a support thread: anyone reading
-        // this report otherwise has to know the 5N's release history to spot it.
+        AppendField(report, "Uptime", FormatUptime(ReadUptimeSeconds(device)));
+        AppendFirmwareNote(report, root);
+        report.AppendLine();
+    }
+
+    /// <summary>The firmware note, when the agent flags the installed
+    /// build. It sits with the version it is about. Only present for the
+    /// builds Drobo withdrew, and worth carrying into a support thread:
+    /// anyone reading this report otherwise has to know the 5N's release
+    /// history to spot it.</summary>
+    private static void AppendFirmwareNote(StringBuilder report, JsonElement root)
+    {
         if (root.TryGetProperty("firmware_advisory", out var firmwareAdvisory)
             && firmwareAdvisory.ValueKind == JsonValueKind.Object
             && firmwareAdvisory.TryGetProperty("notable", out var notable) && notable.ValueKind == JsonValueKind.True)
         {
             AppendField(report, "Firmware note", GetStringOr(firmwareAdvisory, "headline", ""));
         }
-        report.AppendLine();
     }
 
     /// <summary>The CAPACITY block, in bytes formatted for reading, with the
@@ -177,7 +200,7 @@ internal static class DiagnosticsReport
 
         report.AppendLine("RECENT EVENTS");
         foreach (var logEntry in events.EnumerateArray())
-            report.AppendLine($"  {GetStringOr(logEntry, "ts_iso", "?"),-20} {GetStringOr(logEntry, "severity", "info"),-8} {GetStringOr(logEntry, "message", "")}");
+            report.AppendLine($"  {FormatEventTime(logEntry),-20} {GetStringOr(logEntry, "severity", "info"),-8} {GetStringOr(logEntry, "message", "")}");
         report.AppendLine();
     }
 
@@ -205,15 +228,37 @@ internal static class DiagnosticsReport
     private static void AppendField(StringBuilder report, string label, string value) =>
         report.AppendLine($"  {label,-12}{value}");
 
+    /// <summary>An event's time as the agent sent it, or "time not decoded"
+    /// for an empty ts_iso, which would otherwise print as a blank column.
+    /// Since 2026-11-02 the agent sends an empty one for an entry whose time
+    /// it could not decode (models.EventLogEntry.to_dict); before, it sent
+    /// a 1970 date there, which this report printed as if it were
+    /// real.</summary>
+    private static string FormatEventTime(JsonElement logEntry)
+    {
+        var timeText = GetStringOr(logEntry, "ts_iso", "");
+        return timeText.Length > 0 ? timeText : "time not decoded";
+    }
+
+    /// <summary>uptime_seconds, or null when it is missing, null or not a
+    /// whole number. Read by hand rather than with GetInt64OrZero, whose 0
+    /// for "absent" would print as "just started".</summary>
+    private static long? ReadUptimeSeconds(JsonElement device) =>
+        device.TryGetProperty("uptime_seconds", out var uptimeElement)
+        && uptimeElement.ValueKind == JsonValueKind.Number && uptimeElement.TryGetInt64(out var uptimeSeconds)
+            ? uptimeSeconds : null;
+
     /// <summary>
     /// Uptime as a reader would say it ("3 days 4h", "2h 5m", "7m"), since
-    /// a raw seconds count means nothing at a glance. Zero or less reads
-    /// "just started" -- and so does a missing or null uptime_seconds,
-    /// which GetInt64OrZero turns into 0. Under a minute reads "1m", not
-    /// "0m".
+    /// a raw seconds count means nothing at a glance. An unknown uptime
+    /// reads "unknown"; a reported zero or less reads "just started".
+    /// Until 2026-11-02 a missing or null uptime_seconds read "just
+    /// started" too, so a 5N whose uptime read failed was reported as just
+    /// booted. Under a minute reads "1m", not "0m".
     /// </summary>
-    private static string FormatUptime(long uptimeSeconds)
+    private static string FormatUptime(long? reportedUptimeSeconds)
     {
+        if (reportedUptimeSeconds is not long uptimeSeconds) return "unknown";
         if (uptimeSeconds <= 0) return "just started";
         var days = uptimeSeconds / 86400;
         var hours = (uptimeSeconds % 86400) / 3600;

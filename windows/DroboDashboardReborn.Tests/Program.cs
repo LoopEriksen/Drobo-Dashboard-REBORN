@@ -466,6 +466,49 @@ Check("the write timeout outlasts the agent's worst case (4 connections x 3 wait
       WriteOutcomes.AgentWriteTimeoutSeconds > 4 * 3 * 8, WriteOutcomes.AgentWriteTimeoutSeconds);
 
 
+// ---------------------------------------------------------------------------
+// DiagnosticsReport -- the file "Copy diagnostics" saves.
+//
+// Until 2026-11-02 a reply with no "device" (the agent's first seconds, before
+// any reading) threw before anything was written, so the report lost its
+// "why it could not be reached" section and claimed the JSON was unreadable;
+// and an unknown uptime read "just started".
+Console.WriteLine("\n== DiagnosticsReport: no reading yet still says why ==");
+var noReadingReport = Attempt(() => DiagnosticsReport.BuildText(
+    "{\"reachable\":false,\"error\":\"no reading taken yet\","
+    + "\"network_hint\":{\"headline\":\"H1\",\"detail\":\"D1\"}}")) as string ?? "";
+Check("the why-unreachable section is there",
+      noReadingReport.Contains("WHY THE DROBO COULD NOT BE REACHED") && noReadingReport.Contains("H1"),
+      noReadingReport);
+Check("-- and the JSON is not called unreadable",
+      !noReadingReport.Contains("Could not read the agent's response as JSON"), noReadingReport);
+Check("-- and the agent's own error is reported",
+      noReadingReport.Contains("No reading from the Drobo yet") && noReadingReport.Contains("no reading taken yet"),
+      noReadingReport);
+
+Console.WriteLine("\n== DiagnosticsReport: an unknown uptime is unknown ==");
+static string UptimeLine(string report) =>
+    report.Split('\n').FirstOrDefault(line => line.TrimStart().StartsWith("Uptime"))?.Trim() ?? "(no Uptime line)";
+var noUptime = UptimeLine(DiagnosticsReport.BuildText("{\"reachable\":true,\"device\":{\"name\":\"n\"}}"));
+Check("a missing uptime reads unknown, not just started", noUptime.EndsWith("unknown"), noUptime);
+var nullUptime = UptimeLine(DiagnosticsReport.BuildText(
+    "{\"reachable\":true,\"device\":{\"name\":\"n\",\"uptime_seconds\":null}}"));
+Check("a null uptime reads unknown", nullUptime.EndsWith("unknown"), nullUptime);
+var zeroUptime = UptimeLine(DiagnosticsReport.BuildText(
+    "{\"reachable\":true,\"device\":{\"name\":\"n\",\"uptime_seconds\":0}}"));
+Check("a reported 0 still reads just started", zeroUptime.EndsWith("just started"), zeroUptime);
+var twoHours = UptimeLine(DiagnosticsReport.BuildText(
+    "{\"reachable\":true,\"device\":{\"name\":\"n\",\"uptime_seconds\":7200}}"));
+Check("7200 seconds still reads 2h", twoHours.EndsWith("2h"), twoHours);
+
+Console.WriteLine("\n== DiagnosticsReport: an event whose time is not decoded says so ==");
+var eventReport = DiagnosticsReport.BuildText(
+    "{\"reachable\":true,\"device\":{\"name\":\"n\"},"
+    + "\"event_log\":[{\"ts_iso\":\"\",\"severity\":\"info\",\"message\":\"M1\"}]}");
+var eventLine = eventReport.Split('\n').FirstOrDefault(line => line.Contains("M1"))?.Trim() ?? "(no event line)";
+Check("an empty ts_iso prints as not decoded", eventLine.StartsWith("time not decoded"), eventLine);
+
+
 Console.WriteLine();
 Console.WriteLine(fails.Count == 0 ? "ALL PASS" : $"{fails.Count} FAILURES: {string.Join(", ", fails)}");
 return fails.Count == 0 ? 0 : 1;

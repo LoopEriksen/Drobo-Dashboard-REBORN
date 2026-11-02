@@ -908,6 +908,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   sent to the Drobo changes. The Windows test program gains 7 checks,
   and `test_config_api.py` 2 (23 to 25), which fail if the agent's
   timeout is raised past what the app waits. (2026-11-02)
+- **The Windows diagnostics report keeps its "why it could not be
+  reached" section, and no longer calls an unknown uptime "just
+  started".** A status reply with no device in it, which is what the agent
+  answers in its first seconds before any reading, made the saved report
+  drop that section and say the agent's reply could not be read as JSON.
+  It now writes the section, then a DEVICE block saying there is no
+  reading yet, with the agent's reason. A missing uptime read "just
+  started", so a Drobo whose uptime read failed was reported as just
+  booted; it now reads "unknown". An event whose time the agent could not
+  decode prints "time not decoded" rather than a blank. The Windows test
+  program gains 8 checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 
