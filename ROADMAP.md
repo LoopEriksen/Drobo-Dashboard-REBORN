@@ -834,9 +834,8 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Tools and scripts*
 
-- `scripts/scan_for_pii.py` cannot see into a UTF-16 file, skips an
-  unreadable file without saying so, and with `--path` takes its private
-  patterns from the scanned checkout.
+- `scripts/scan_for_pii.py` with `--path` takes its private patterns from
+  the scanned checkout.
 - The committed icons do not match what `generate_icon.py` produces with a
   different zlib, so its "reproduces identically on any machine" does not
   hold.

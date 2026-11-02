@@ -720,6 +720,70 @@ check("an email's domain is masked too, not printed in full",
       _redacted_address)
 
 
+def _scan_tree(tree, relative_paths):
+    """(hits, unreadable files) from scan_files over a temporary tree.
+
+    REPO_ROOT is pointed at the tree for the call and put back after.
+    The unreadable list is None when scan_files cannot report one.
+    """
+    saved_root = _pii_scanner.REPO_ROOT
+    _pii_scanner.REPO_ROOT = tree
+    unreadable_files = []
+    try:
+        hits = _pii_scanner.scan_files(
+            _pii_scanner.BUILTIN_PATTERNS, [], relative_paths,
+            unreadable_files=unreadable_files)
+    except TypeError:
+        hits = _pii_scanner.scan_files(
+            _pii_scanner.BUILTIN_PATTERNS, [], relative_paths)
+        unreadable_files = None
+    finally:
+        _pii_scanner.REPO_ROOT = saved_root
+    return hits, unreadable_files
+
+
+_contact_text = ("first line\r\ncontact: " + _personal_address + "\r\n")
+# An em dash and curly quotes have no NUL in either byte of UTF-16, so
+# a file with them is UTF-16 that is not all Latin-1.
+_punctuated_contact_text = ("first line \u2014 \u201cquoted\u201d\r\n"
+                            "contact: " + _personal_address + "\r\n")
+_scan_file_names = ("utf8.txt", "utf16-bom.txt", "utf16le-no-bom.txt",
+                    "utf16le-no-bom-dash.txt")
+with tempfile.TemporaryDirectory() as _scan_dir:
+    for _file_name, _file_bytes in zip(_scan_file_names, (
+            _contact_text.encode("utf-8"),
+            _contact_text.encode("utf-16"),
+            _contact_text.encode("utf-16-le"),
+            _punctuated_contact_text.encode("utf-16-le"))):
+        with open(os.path.join(_scan_dir, _file_name), "wb") as _scan_file:
+            _scan_file.write(_file_bytes)
+    for _file_name in _scan_file_names:
+        _hits, _ = _scan_tree(_scan_dir, [_file_name])
+        check(f"an email in {_file_name} is found, on line 2",
+              [(hit[1], hit[2]) for hit in _hits]
+              == [(2, "email address")],
+              _hits)
+
+    _hits, _unreadable = _scan_tree(_scan_dir, ["missing.txt", "utf8.txt"])
+    check("a file that cannot be read is named, not skipped in silence",
+          _unreadable is not None
+          and [path for path, _reason in _unreadable] == ["missing.txt"]
+          and len(_hits) == 1,
+          (_unreadable, _hits))
+
+_report_output = io.StringIO()
+try:
+    with contextlib.redirect_stdout(_report_output):
+        _report_exit = _pii_scanner._report(
+            [], [], True, [("missing.txt", "No such file or directory")])
+except TypeError as exc:
+    _report_exit = exc
+check("-- and a scan that could not read a file is not called clean",
+      _report_exit == 1 and "missing.txt" in _report_output.getvalue()
+      and "PII scan: clean" not in _report_output.getvalue(),
+      (_report_exit, _report_output.getvalue()))
+
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

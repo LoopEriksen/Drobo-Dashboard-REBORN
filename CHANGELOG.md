@@ -1026,6 +1026,19 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   letter, keeping its last label (`so*****@p**********.net`); the file
   and line number still say where to look. What is found is unchanged.
   `agent/tests/test_updates.py` gains a check. (2026-11-02)
+- **`scripts/scan_for_pii.py` reads UTF-16 files, and says when it
+  could not read one.** Every file was read as UTF-8, which turns a
+  UTF-16 file (as PowerShell and other Windows tools write them) into
+  text with a NUL between every pair of characters, so nothing in it
+  could ever match; a file that could not be opened at all was left
+  out without a word, and the scan could still call the tree clean.
+  UTF-16 files are now decoded as UTF-16 -- always when they start with
+  a byte-order mark, as PowerShell writes them, and without one when
+  their first 4 KB is mostly Latin-1 text (UTF-16 in another script
+  with no mark is still read as before) -- and every file that could
+  not be read is listed with the reason; a scan that missed any is not
+  called clean (exit 1). Every other file is read exactly as before.
+  `agent/tests/test_updates.py` gains six checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

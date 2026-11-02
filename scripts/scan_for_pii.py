@@ -421,34 +421,109 @@ def _scan_lines(relative_path, text_file, patterns, allow_patterns, hits):
                                allow_patterns))
 
 
-def _scan_one_file(relative_path, patterns, allow_patterns, hits):
-    """Append every hit in one repo file to hits; skip it if unreadable.
+#: The two UTF-16 byte-order marks: little-endian, then big-endian.
+_UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
+#: How much of a file without a BOM is sampled to spot UTF-16.
+_UTF16_SAMPLE_BYTES = 4096
+#: The share of high-byte positions that must be NUL for UTF-16: every
+#: Latin-1 character has one, a dash, curly quote or other character
+#: past U+00FF does not.
+_UTF16_MIN_NUL_SHARE = 0.9
+#: The share of low-byte positions that may be NUL (U+3000, U+4E00 and
+#: the like have one there); UTF-8 text has none anywhere.
+_UTF16_MAX_STRAY_NUL_SHARE = 0.01
 
-    Read as UTF-8 with undecodable bytes ignored, so one stray byte
-    neither stops the whole scan nor skips the file; a file that cannot
-    be opened at all is left out, and the rest are still scanned.
+
+def _nul_share(position_bytes):
+    """The share of `position_bytes` that are NUL (0.0 when empty)."""
+    if not position_bytes:
+        return 0.0
+    return position_bytes.count(0) / len(position_bytes)
+
+
+def _bomless_utf16_codec(sample):
+    """"utf-16-le" or "utf-16-be" for UTF-16 text without a BOM.
+
+    Text in UTF-16 that is mostly Latin has a NUL in nearly every other
+    byte, which UTF-8 text never does, so a sample whose odd (or even)
+    positions are at least 90% NUL, with next to none in the others, is
+    taken as UTF-16. A share rather than every byte, because the first
+    rule needed every character in the sample to be Latin-1: one em
+    dash or curly quote defeated it and the file was read as UTF-8.
+    Returns None for anything else.
     """
+    if len(sample) < 4:
+        return None
+    even_share = _nul_share(sample[0::2])
+    odd_share = _nul_share(sample[1::2])
+    if (odd_share >= _UTF16_MIN_NUL_SHARE
+            and even_share <= _UTF16_MAX_STRAY_NUL_SHARE):
+        return "utf-16-le"
+    if (even_share >= _UTF16_MIN_NUL_SHARE
+            and odd_share <= _UTF16_MAX_STRAY_NUL_SHARE):
+        return "utf-16-be"
+    return None
+
+
+def _file_codec(path):
+    """The codec to read a file with: UTF-16 when it is, else UTF-8.
+
+    Every file used to be read as UTF-8 with undecodable bytes ignored,
+    which turns UTF-16 into text with a NUL between every pair of
+    characters, so no pattern could match anything in it -- and
+    Windows tools (PowerShell's redirection among them) write UTF-16.
+    Only the first _UTF16_SAMPLE_BYTES are read to decide, so the file
+    itself is still streamed: reading it whole cost about six times its
+    size in memory, which a ~155 MB self-contained exe under bin/ turns
+    into a gigabyte. Raises OSError when the file cannot be opened.
+    """
+    with open(path, "rb") as raw_file:
+        sample = raw_file.read(_UTF16_SAMPLE_BYTES)
+    if sample.startswith(_UTF16_BOMS):
+        # The "utf-16" codec reads the BOM to pick the byte order.
+        return "utf-16"
+    return _bomless_utf16_codec(sample) or "utf-8"
+
+
+def _scan_one_file(relative_path, patterns, allow_patterns, hits,
+                   unreadable_files):
+    """Append every hit in one repo file to hits.
+
+    Read with undecodable bytes ignored, so one stray byte neither
+    stops the whole scan nor skips the file. A file that cannot be read
+    is appended to unreadable_files as (relative_path, reason) and the
+    rest are still scanned. It used to be left out without a word, so a
+    scan that never saw a file could still call the tree clean.
+    """
+    path = os.path.join(REPO_ROOT, relative_path)
     try:
-        with open(os.path.join(REPO_ROOT, relative_path),
-                  encoding="utf-8", errors="ignore") as text_file:
+        codec = _file_codec(path)
+        with open(path, encoding=codec, errors="ignore") as text_file:
             _scan_lines(relative_path, text_file, patterns, allow_patterns,
                         hits)
-    except (OSError, UnicodeError):
-        return
+    except (OSError, UnicodeError) as exc:
+        reason = getattr(exc, "strerror", None) or str(exc)
+        unreadable_files.append((relative_path, reason))
 
 
-def scan_files(patterns, allow_patterns, relative_paths):
+def scan_files(patterns, allow_patterns, relative_paths,
+               unreadable_files=None):
     """Every hit in relative_paths, as (relative_path, line_number,
     label, snippet) tuples, in file then line then pattern order.
 
     The patterns are tried on every line, and every match is kept, so
-    one accepted match cannot hide a real one beside it.
+    one accepted match cannot hide a real one beside it. Files that
+    could not be read are appended to unreadable_files, when a list is
+    given, as (relative_path, reason).
     """
+    if unreadable_files is None:
+        unreadable_files = []
     hits = []
     for relative_path in relative_paths:
         if _is_skipped(relative_path):
             continue
-        _scan_one_file(relative_path, patterns, allow_patterns, hits)
+        _scan_one_file(relative_path, patterns, allow_patterns, hits,
+                       unreadable_files)
     return hits
 
 
@@ -521,14 +596,49 @@ def _load_private_patterns(generic_only):
     return [], []
 
 
-def _report(hits, private_pattern_notes, generic_only):
+def _print_unreadable(unreadable_files):
+    """Name every file the scan could not read, and why."""
+    print(f"  !! could not read {len(unreadable_files)} file(s):")
+    for relative_path, reason in unreadable_files:
+        print(f"       {relative_path} ({reason})")
+
+
+def _load_patterns(generic_only):
+    """(patterns, allow_patterns, private_pattern_notes), said out loud.
+
+    Every note about the two lists is printed, then how many patterns
+    of each kind will run, so a scan states what it looked for before
+    it says what it found.
+    """
+    private_patterns, private_pattern_notes = _load_private_patterns(
+        generic_only)
+    allow_patterns, allowlist_notes = load_allowlist()
+    for note in private_pattern_notes:
+        print(f"  !! {note}")
+    for note in allowlist_notes:
+        print(f"  !  {note}")
+    print(f"  {len(BUILTIN_PATTERNS)} built-in pattern(s), "
+          f"{len(private_patterns)} private pattern(s), "
+          f"{len(allow_patterns)} reviewed exception(s)")
+    return (BUILTIN_PATTERNS + private_patterns, allow_patterns,
+            private_pattern_notes)
+
+
+def _report(hits, private_pattern_notes, generic_only, unreadable_files=()):
     """Print the verdict and the redacted hits; return the exit code.
 
     "Clean" is only honest when every category was actually checked:
     no hits with a warning about the private list is still 1, while
     --generic-only is 0 because it says out loud that names were not
-    checked, and CI has no way to check them.
+    checked, and CI has no way to check them. A file that could not be
+    read is the same kind of gap, so any makes the result 1.
     """
+    if unreadable_files:
+        _print_unreadable(unreadable_files)
+    if not hits and unreadable_files:
+        print("PII scan: no hits in the files that could be read -- but "
+              "some could not be; this is not a clean bill of health.")
+        return 1
     if not hits:
         if private_pattern_notes:
             print("PII scan: no hits from the patterns that RAN -- but see "
@@ -574,21 +684,15 @@ def main():
     relative_paths, scope_description = chosen_files
 
     print(f"Scanning {REPO_ROOT}")
-    private_patterns, private_pattern_notes = _load_private_patterns(
+    patterns, allow_patterns, private_pattern_notes = _load_patterns(
         args.generic_only)
-    allow_patterns, allowlist_notes = load_allowlist()
-    for note in private_pattern_notes:
-        print(f"  !! {note}")
-    for note in allowlist_notes:
-        print(f"  !  {note}")
-    print(f"  {len(BUILTIN_PATTERNS)} built-in pattern(s), "
-          f"{len(private_patterns)} private pattern(s), "
-          f"{len(allow_patterns)} reviewed exception(s)")
     print(f"  scanning {scope_description}")
 
-    hits = scan_files(BUILTIN_PATTERNS + private_patterns, allow_patterns,
-                      relative_paths)
-    return _report(hits, private_pattern_notes, args.generic_only)
+    unreadable_files = []
+    hits = scan_files(patterns, allow_patterns, relative_paths,
+                      unreadable_files)
+    return _report(hits, private_pattern_notes, args.generic_only,
+                   unreadable_files)
 
 
 if __name__ == "__main__":
