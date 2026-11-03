@@ -781,6 +781,17 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   separate weakness was found and recorded in the roadmap for the
   maintainer rather than changed: neither way checks the mail server's
   certificate. `test_notify.py` gains two checks. (2026-11-02)
+- **A failed ntfy push is reported the way a failed email is, without
+  its topic.** When the ntfy server could not be reached, the ntfy
+  backend printed the error itself and carried on as if the push had
+  gone, so nothing calling it could tell, and the printed error could
+  include the push address with the topic in it, which is the secret. A
+  server written without `https://` was worse: its error escaped the
+  backend and the agent's console printed the whole address, topic
+  included. Every failure is now reported to its caller, naming the
+  server but never the topic; the agent's console still shows it, and
+  the other alert channels still send. `test_notify.py` gains six
+  checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

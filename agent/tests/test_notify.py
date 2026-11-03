@@ -299,6 +299,85 @@ finally:
     smtplib.SMTP = _original_smtp_class
     smtplib.SMTP_SSL = _original_smtp_ssl_class
 
+print("\n== an ntfy failure is raised, like email's, without the topic ==")
+# Until 2026-11-02 NtfyNotifier.send printed its failure and returned
+# normally, so nothing that called it could tell a push had not gone
+# out. It raises now; NotifierGroup still prints it and carries on with
+# the other backends. The topic is the secret, so it is never in the
+# message. Nothing is contacted: urlopen is replaced.
+NTFY_TOPIC = "drobo-secret-topic-do-not-leak"
+_original_urlopen = notify.urllib.request.urlopen
+_ntfy_requests = []
+
+
+def _urlopen_refusing(request, timeout=None):
+    _ntfy_requests.append(request)
+    raise OSError(f"simulated: refused for {request.full_url}")
+
+
+class _RecordingNotifier(notify.Notifier):
+    name = "recorder"
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, title, message, severity):
+        self.sent.append(message)
+
+
+notify.urllib.request.urlopen = _urlopen_refusing
+try:
+    ntfy_backend = notify.NtfyNotifier("https://ntfy.example.invalid",
+                                       NTFY_TOPIC)
+    try:
+        ntfy_backend.send("T", "m", "critical")
+        ntfy_error = None
+    except Exception as exc:  # noqa: BLE001 - the type is the check
+        ntfy_error = exc
+    check("a failed ntfy send raises RuntimeError",
+          isinstance(ntfy_error, RuntimeError), repr(ntfy_error))
+    check("-- naming the server but not the topic",
+          ntfy_error is not None
+          and "ntfy.example.invalid" in str(ntfy_error)
+          and NTFY_TOPIC not in str(ntfy_error), str(ntfy_error))
+    recorder = _RecordingNotifier()
+    captured_stdout = io.StringIO()
+    with contextlib.redirect_stdout(captured_stdout):
+        notify.NotifierGroup([ntfy_backend, recorder]).send(
+            "T", "still delivered", "critical")
+    check("-- and a group still delivers to its other backends",
+          recorder.sent == ["still delivered"], recorder.sent)
+    check("-- while printing the ntfy failure, without the topic",
+          "ntfy" in captured_stdout.getvalue()
+          and NTFY_TOPIC not in captured_stdout.getvalue(),
+          captured_stdout.getvalue())
+
+    # A server written without its scheme: urllib refuses the URL
+    # itself, before anything is sent, with the whole URL (topic and
+    # all) in a ValueError. Until 2026-11-02 that went past the
+    # backend's catch and the group printed it whole.
+    schemeless_backend = notify.NtfyNotifier("ntfy.example.invalid",
+                                             NTFY_TOPIC)
+    try:
+        schemeless_backend.send("T", "m", "critical")
+        schemeless_error = None
+    except Exception as exc:  # noqa: BLE001 - the type is the check
+        schemeless_error = exc
+    check("a server with no scheme raises RuntimeError, without the topic",
+          isinstance(schemeless_error, RuntimeError)
+          and NTFY_TOPIC not in str(schemeless_error),
+          repr(schemeless_error))
+    captured_stdout = io.StringIO()
+    with contextlib.redirect_stdout(captured_stdout):
+        notify.NotifierGroup([schemeless_backend]).send(
+            "T", "m", "critical")
+    check("-- and the group prints that failure without the topic",
+          "ntfy" in captured_stdout.getvalue()
+          and NTFY_TOPIC not in captured_stdout.getvalue(),
+          captured_stdout.getvalue())
+finally:
+    notify.urllib.request.urlopen = _original_urlopen
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

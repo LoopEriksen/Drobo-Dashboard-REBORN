@@ -14,7 +14,6 @@ message text.
 
 from __future__ import annotations
 
-import urllib.error
 import urllib.request
 
 from .models import SEVERITY_CRITICAL, SEVERITY_WARNING
@@ -79,11 +78,43 @@ class NtfyNotifier(Notifier):
     def send(self, title: str, message: str, severity: str) -> None:
         """
         POST the message to the topic, with severity mapped to ntfy's
-        priority and tags. A failure is printed, not raised.
+        priority and tags. Raises RuntimeError on a failure, naming the
+        server and the error but never the topic, which is the secret.
+
+        Raised, like the email backend's, so a caller can see it;
+        NotifierGroup prints it and carries on with the other backends.
+        Until 2026-11-02 it was printed here and swallowed, with the
+        error's own text, which could carry the topic in a URL.
+
+        The request is built inside the try, and any exception is
+        caught, as the email backend does: a server written without its
+        scheme ("ntfy.example.com") makes urllib refuse the URL with a
+        ValueError whose text is the whole URL, topic included, and
+        until 2026-11-02 that one went past this and was printed whole.
         """
         if not self.topic:
             return
-        request = urllib.request.Request(
+        try:
+            request = self._push_request(title, message, severity)
+            with urllib.request.urlopen(
+                    request, timeout=self.TIMEOUT_SECONDS) as response:
+                response.read()
+        except Exception as exc:
+            # Never let a failed notification take the agent down -- the
+            # whole point is that it keeps watching the array. Monitor
+            # sends through NotifierGroup, which catches this.
+            error_text = str(exc).replace(self.topic, "<topic>")
+            raise RuntimeError(
+                f"ntfy send to {self.server} failed: {error_text}") from None
+
+    def _push_request(self, title: str, message: str,
+                      severity: str) -> urllib.request.Request:
+        """
+        The POST to the topic, with severity mapped to ntfy's priority
+        and tags. Raises ValueError for a URL urllib cannot use, which
+        is why send() builds it inside its try.
+        """
+        return urllib.request.Request(
             f"{self.server}/{self.topic}",
             data=message.encode("utf-8"),
             method="POST",
@@ -93,14 +124,6 @@ class NtfyNotifier(Notifier):
                 "Tags": self._TAGS_BY_SEVERITY.get(severity, "floppy_disk"),
             },
         )
-        try:
-            with urllib.request.urlopen(
-                    request, timeout=self.TIMEOUT_SECONDS) as response:
-                response.read()
-        except (urllib.error.URLError, OSError) as exc:
-            # Never let a failed notification take the agent down -- the
-            # whole point is that it keeps watching the array.
-            print(f"[notify] ntfy send failed: {exc}", flush=True)
 
 
 class EmailNotifier(Notifier):
