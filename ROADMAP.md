@@ -824,7 +824,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   `config_cmd.ConfigError` on a hang-up or a short frame (and
   `summary`'s own per-read catch lets it through), so such a read drops
   the connection with no answer. Both routes only read.
-- `notify`: the ntfy topic is not quoted in the URL.
 - `notify` (found 2026-11-02, while adding port 465): the email backend
   starts TLS with no SSL context, both `starttls()` and port 465's
   `SMTP_SSL`, and in Python's `smtplib` that means the server's

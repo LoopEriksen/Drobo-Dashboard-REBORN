@@ -378,6 +378,44 @@ try:
 finally:
     notify.urllib.request.urlopen = _original_urlopen
 
+print("\n== the ntfy topic is quoted into the URL ==")
+# Until 2026-11-02 the topic went into the URL as typed, so a space,
+# "?", "#" or "/" in it posted somewhere else. An ordinary topic
+# (letters, digits, - and _) is unchanged. Nothing is contacted.
+
+
+class _AcceptedResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def read(self):
+        return b""
+
+
+def _urlopen_accepting(request, timeout=None):
+    _ntfy_requests.append(request)
+    return _AcceptedResponse()
+
+
+notify.urllib.request.urlopen = _urlopen_accepting
+try:
+    for typed_topic, expected_url in (
+            ("drobo alerts?x=1#y",
+             "https://ntfy.example.invalid/drobo%20alerts%3Fx%3D1%23y"),
+            ("drobo/alerts", "https://ntfy.example.invalid/drobo%2Falerts"),
+            ("drobo_alerts-2", "https://ntfy.example.invalid/drobo_alerts-2")):
+        _ntfy_requests.clear()
+        notify.NtfyNotifier("https://ntfy.example.invalid", typed_topic).send(
+            "T", "m", "critical")
+        posted_url = _ntfy_requests[0].full_url if _ntfy_requests else None
+        check(f"topic {typed_topic!r} posts to {expected_url}",
+              posted_url == expected_url, posted_url)
+finally:
+    notify.urllib.request.urlopen = _original_urlopen
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

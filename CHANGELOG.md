@@ -792,6 +792,11 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   server but never the topic; the agent's console still shows it, and
   the other alert channels still send. `test_notify.py` gains six
   checks. (2026-11-02)
+- **An ntfy topic with a space or a `?`, `#` or `/` in it posts to that
+  topic.** The topic went into the push address as typed, so those
+  characters sent the push somewhere else. It is now quoted into the
+  address whole; an ordinary topic of letters, digits, `-` and `_` is
+  unchanged. `test_notify.py` gains three checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

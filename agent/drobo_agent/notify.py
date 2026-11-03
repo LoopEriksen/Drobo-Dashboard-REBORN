@@ -14,6 +14,7 @@ message text.
 
 from __future__ import annotations
 
+import urllib.parse
 import urllib.request
 
 from .models import SEVERITY_CRITICAL, SEVERITY_WARNING
@@ -94,8 +95,14 @@ class NtfyNotifier(Notifier):
         """
         if not self.topic:
             return
+        # Quoted whole, so a space, "?", "#" or "/" in the topic stays
+        # part of the topic; until 2026-11-02 it went in as typed and
+        # posted somewhere else. Ordinary topics ([-_A-Za-z0-9]) are
+        # unchanged by it.
+        quoted_topic = urllib.parse.quote(self.topic, safe="")
         try:
-            request = self._push_request(title, message, severity)
+            request = self._push_request(
+                quoted_topic, title, message, severity)
             with urllib.request.urlopen(
                     request, timeout=self.TIMEOUT_SECONDS) as response:
                 response.read()
@@ -103,19 +110,21 @@ class NtfyNotifier(Notifier):
             # Never let a failed notification take the agent down -- the
             # whole point is that it keeps watching the array. Monitor
             # sends through NotifierGroup, which catches this.
-            error_text = str(exc).replace(self.topic, "<topic>")
+            error_text = (str(exc).replace(quoted_topic, "<topic>")
+                          .replace(self.topic, "<topic>"))
             raise RuntimeError(
                 f"ntfy send to {self.server} failed: {error_text}") from None
 
-    def _push_request(self, title: str, message: str,
+    def _push_request(self, quoted_topic: str, title: str, message: str,
                       severity: str) -> urllib.request.Request:
         """
-        The POST to the topic, with severity mapped to ntfy's priority
-        and tags. Raises ValueError for a URL urllib cannot use, which
-        is why send() builds it inside its try.
+        The POST to the topic (already quoted for the URL), with
+        severity mapped to ntfy's priority and tags. Raises ValueError
+        for a URL urllib cannot use, which is why send() builds it
+        inside its try.
         """
         return urllib.request.Request(
-            f"{self.server}/{self.topic}",
+            f"{self.server}/{quoted_topic}",
             data=message.encode("utf-8"),
             method="POST",
             headers={
