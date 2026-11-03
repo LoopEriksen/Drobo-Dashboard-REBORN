@@ -824,9 +824,15 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   `config_cmd.ConfigError` on a hang-up or a short frame (and
   `summary`'s own per-read catch lets it through), so such a read drops
   the connection with no answer. Both routes only read.
-- `notify`: implicit TLS on 465 is not supported, and an ntfy failure is
-  printed, not raised, so callers cannot see it; the ntfy topic is not
-  quoted in the URL.
+- `notify`: an ntfy failure is printed, not raised, so callers cannot see
+  it; the ntfy topic is not quoted in the URL.
+- `notify` (found 2026-11-02, while adding port 465): the email backend
+  starts TLS with no SSL context, both `starttls()` and port 465's
+  `SMTP_SSL`, and in Python's `smtplib` that means the server's
+  certificate is not checked, so the SMTP password is open to anyone who
+  can sit between this PC and the mail server. **For the maintainer:**
+  checking it is the obvious fix, but it would stop a server with a
+  self-signed certificate that works today.
 - `backup`: the same folder as both ends reports two refusals; planning
   holds the lock while it checks a UNC path, blocking the status route; an
   error other than `OSError` leaves a job showing "Running..."; robocopy's

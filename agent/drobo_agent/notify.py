@@ -136,6 +136,14 @@ class EmailNotifier(Notifier):
     #: mail server that has gone away cannot hold up a poll cycle.
     TIMEOUT_SECONDS = 15.0
 
+    #: The port that speaks TLS from the first byte (implicit TLS,
+    #: "SMTPS"), where a plain SMTP greeting is never answered, so it
+    #: is TLS whatever use_tls says. Every other port starts plain and
+    #: upgrades with STARTTLS when use_tls is set. Until 2026-11-02
+    #: there was no implicit-TLS mode, so a server offering only port
+    #: 465 could not be used.
+    IMPLICIT_TLS_PORT = 465
+
     def __init__(self, host: str, port: int, username: str, password: str,
                  sender: str, recipients: list[str], use_tls: bool = True):
         self.host = host
@@ -169,11 +177,13 @@ class EmailNotifier(Notifier):
             f"Sent by Drobo Dashboard REBORN, the agent watching your Drobo.\n"
             f"Severity: {severity}\n")
 
+        implicit_tls = self.port == self.IMPLICIT_TLS_PORT
+        smtp_class = smtplib.SMTP_SSL if implicit_tls else smtplib.SMTP
         try:
-            with smtplib.SMTP(
+            with smtp_class(
                     self.host, self.port,
                     timeout=self.TIMEOUT_SECONDS) as smtp:
-                self._log_in_and_send(smtp, mail)
+                self._log_in_and_send(smtp, mail, implicit_tls)
         except Exception as exc:
             # Deliberately NOT str(exc): a rejected SMTP login commonly
             # echoes the credentials back in the server's response, and
@@ -182,13 +192,14 @@ class EmailNotifier(Notifier):
                 f"could not send mail via {self.host}:{self.port} "
                 f"({type(exc).__name__})") from None
 
-    def _log_in_and_send(self, smtp, mail) -> None:
+    def _log_in_and_send(self, smtp, mail, implicit_tls: bool) -> None:
         """
-        On an open SMTP connection: STARTTLS when use_tls is set, log in
-        when there is a username, then send. use_tls means STARTTLS on
-        the plain connection; there is no implicit-TLS (port 465) mode.
+        On an open SMTP connection: STARTTLS when use_tls is set and the
+        connection is not already TLS (port 465, IMPLICIT_TLS_PORT), log
+        in when there is a username, then send. On any other port
+        use_tls means STARTTLS on the plain connection.
         """
-        if self.use_tls:
+        if self.use_tls and not implicit_tls:
             smtp.starttls()
         if self.username:
             smtp.login(self.username, self._password)

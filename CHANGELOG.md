@@ -773,6 +773,14 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   used to switch TLS off, such as `null`, `""` and `[]`: they now keep
   it on, with the console line. `test_notify.py` gains nine checks.
   (2026-11-02)
+- **Email alerts work with a mail server on port 465.** Port 465 speaks
+  TLS from the first byte, and the agent only knew how to start plain
+  and switch to TLS (STARTTLS), so a server offering only port 465 could
+  not be used. Port 465 now connects over TLS from the start, whatever
+  `use_tls` says; every other port is unchanged. While doing this, a
+  separate weakness was found and recorded in the roadmap for the
+  maintainer rather than changed: neither way checks the mail server's
+  certificate. `test_notify.py` gains two checks. (2026-11-02)
 
 ## 1.2.0 -- not yet released
 

@@ -251,6 +251,54 @@ try:
 finally:
     smtplib.SMTP = _original_smtp_class
 
+print("\n== port 465 is implicit TLS ==")
+# Port 465 speaks TLS from the first byte, so a plain SMTP greeting
+# there never gets an answer. Until 2026-11-02 there was no way to use
+# such a server; now port 465 connects with SMTP_SSL and skips STARTTLS,
+# and every other port is unchanged. Nothing is contacted: both classes
+# are recording fakes.
+_smtp_sessions = []
+
+
+def _recording_smtp(class_name):
+    class _RecordingSMTP:
+        def __init__(self, host, port, timeout=None, **kwargs):
+            self.calls = [class_name]
+            _smtp_sessions.append(self.calls)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def starttls(self, *args, **kwargs):
+            self.calls.append("starttls")
+
+        def login(self, user, password):
+            self.calls.append("login")
+
+        def send_message(self, message):
+            self.calls.append("send_message")
+    return _RecordingSMTP
+
+
+_original_smtp_ssl_class = smtplib.SMTP_SSL
+smtplib.SMTP = _recording_smtp("SMTP")
+smtplib.SMTP_SSL = _recording_smtp("SMTP_SSL")
+try:
+    for smtp_port, expected_calls in (
+            (465, ["SMTP_SSL", "login", "send_message"]),
+            (587, ["SMTP", "starttls", "login", "send_message"])):
+        _smtp_sessions.clear()
+        notify.build(email_config(port=smtp_port)).members[0].send(
+            "T", "m", "critical")
+        check(f"port {smtp_port}: {', '.join(expected_calls)}",
+              _smtp_sessions == [expected_calls], _smtp_sessions)
+finally:
+    smtplib.SMTP = _original_smtp_class
+    smtplib.SMTP_SSL = _original_smtp_ssl_class
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)
