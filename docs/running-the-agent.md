@@ -163,7 +163,12 @@ ever speaks the Drobo protocol.**
 netsh advfirewall firewall add rule name="Drobo Agent" dir=in action=allow protocol=TCP localport=7420 profile=private
 ```
 
-3. The phone uses `http://<pc-lan-ip>:7420` with the same token.
+3. Pair the phone. It scans the QR code from `/api/pair.svg`, which holds
+   `http://<pc-lan-ip>:7420` and a one-time pairing code, and trades the code
+   at `POST /api/pair/claim` for a token of its own. That token opens the
+   photo-upload routes and nothing else; the agent's own token is never sent
+   to the phone. (Until 2026-11-05 this step handed the phone the agent's own
+   token.)
 
 **Never forward this port on your router.** For access away from home, install
 Tailscale on the PC running the agent and on the phone — then the phone reaches

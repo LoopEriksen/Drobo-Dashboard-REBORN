@@ -9,14 +9,16 @@ released. Every push to this repository carries this file.
 Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
 
 ### Added
-- **The installer is built and tested on every change to it, and a
-  release tag publishes it.** A new CI workflow,
+- **The installer is built and tested on every change to it or to what
+  it carries, and a release tag publishes it.** A new CI workflow,
   `.github/workflows/installer.yml`, builds the MSI on a fresh Windows
   runner (which runs as an administrator, as the per-machine install
   needs), builds a throwaway copy numbered one higher, and runs
   `windows/test-installer.ps1` with both: install, launch against the
   simulated Drobo, uninstall, the no-desktop-shortcut install, and an
-  upgrade that keeps the user's settings. Until now that test had only
+  upgrade that keeps the user's settings. It runs on every push that
+  changes the installer, its build or test script, the Windows app, or
+  the agent and SDK the MSI carries. Until now that test had only
   ever been run by hand, on the maintainer's PC. The MSI, its
   `SHA256SUMS.txt` and the test's log are kept with each run. When a
   `v*` tag matching the app's version is pushed, the same tested MSI and
@@ -455,6 +457,37 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   software sends otherwise changes. (2026-11-02)
 
 ### Fixed
+- **Security: pairing a phone no longer hands it the agent's admin
+  token.** `GET /api/pair` answered with the agent's own access token,
+  and `GET /api/pair.svg` drew it into a QR code of
+  `<address>/?token=<token>`, which was also a link that signed whoever
+  opened it in to the whole dashboard. A phone paired that way, or
+  anyone who photographed that QR code on a screen, could have done
+  everything the dashboard can: read every reading and setting, change
+  the Drobo's settings, start and stop its apps, run a backup with
+  mirror on, and create or delete shares. Nothing used pairing yet (no
+  phone app exists, and neither the browser dashboard nor the Windows
+  app shows the QR code), so nothing had handed the token to a phone.
+  Now `/api/pair` issues a one-time pairing code instead: 128 random
+  bits, claimable once and only for ten minutes, and withdrawn by the
+  next code asked for or by five wrong claims. The QR code carries it
+  after `#pair=`, the part of a link a browser never sends to a server,
+  so it cannot reach a log. The phone trades the code at the new
+  `POST /api/pair/claim` (no admin token needed) for a token of its
+  own, sent as the `X-Device-Token` header. That token opens the seven
+  photo-upload routes and nothing else, and every other route answers
+  it with a 401. The agent keeps only its SHA-256, in
+  `paired_devices.json` beside `config.json`, never on a Drobo share
+  (git ignores it: a phone's name is often a person's).
+  `GET /api/photos/devices` lists the paired phones, never with a
+  token, and `POST /api/photos/devices/revoke` unpairs one at once. The
+  admin token still opens everything, the photo routes included, and
+  the access log now hides a pairing code in a URL as it already hid
+  the token. For testers' own scripts: `/api/pair`'s answer has
+  `pairing_code` and `pairing_expires_at` where it had `token`.
+  `agent/tests/test_agent.py` gains thirty checks (303 to 333), and its
+  pairing check now requires a code and no token where it required the
+  token. (2026-11-05)
 - **Identify no longer credits the original Dashboard with this app's
   value.** After a blink, the agent's reply, which both the Windows app and
   the browser dashboard show, said the original Dashboard "used this

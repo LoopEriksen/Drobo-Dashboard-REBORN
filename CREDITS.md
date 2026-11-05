@@ -205,8 +205,11 @@ DroboPix is what Phase 4 sets out to replace, and it is also the design this
 phase is built on. Both halves of that are true at once and the repository says
 so in the same breath.
 
-**Pairing by QR code.** The agent shows a code carrying URL and token; the phone
-scans it. [`agent/drobo_agent/qr.py`](agent/drobo_agent/qr.py) credits the
+**Pairing by QR code.** The agent shows a QR code carrying its URL and a
+one-time pairing code; the phone scans it and trades the pairing code for a
+token of its own. (Until 2026-11-05 the QR code carried the agent's own access
+token, which opened far more than a phone needs.)
+[`agent/drobo_agent/qr.py`](agent/drobo_agent/qr.py) credits the
 source and the reasoning together: "DroboPix paired exactly this way -- a QR
 code shown in Drobo Dashboard that you scanned with the phone. It was the right
 call then and it still is: nobody should be typing a 32-character token on a

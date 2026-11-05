@@ -89,6 +89,13 @@ docs/captures/*.txt
 # the pattern covers any suffix so that cannot recur.
 agent/config.json.*
 
+# The phones paired with the agent (since 2026-11-05): each phone's name,
+# which is often its owner's name, and the SHA-256 of its photo-upload
+# token. Kept beside the config it belongs to, one file per config
+# (paired_devices.json beside config.json, paired_devices.mock.json beside
+# config.mock.json), and briefly a .tmp beside that while it is saved.
+agent/paired_devices*
+
 # The build's personal-identifier watchlist: literally a list of the strings
 # that must never be tracked, so tracking the list would defeat it.
 windows/installer-identifiers.local.txt

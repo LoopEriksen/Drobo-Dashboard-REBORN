@@ -5,9 +5,12 @@ Plain JSON over loopback (or the LAN, if you turn that on). The Windows
 app and the iOS app both talk to this and neither knows the Drobo
 protocol exists.
 
-Every endpoint except /api/ping requires the access token from
-config.json, sent as the  X-Agent-Token  header. /api/events also
-accepts ?token= because browser EventSource can't set headers.
+Every endpoint except /api/ping and /api/pair/claim requires the access
+token from config.json, sent as the  X-Agent-Token  header. /api/events
+also accepts ?token= because browser EventSource can't set headers. A
+paired phone sends a token of its own instead, as  X-Device-Token,
+which opens the seven photo-upload routes marked (phone) below and
+nothing else; see pairing.py.
 
     GET  /                      the web dashboard (no auth - it holds no
                                  data)
@@ -75,24 +78,38 @@ accepts ?token= because browser EventSource can't set headers.
     GET  /api/history[?limit=N]  trimmed series for graphing
     GET  /api/events            server-sent events: live snapshots and
                                  alerts
-    GET  /api/photos/stats      how much has been backed up
-    GET  /api/photos/session?id=<sha256>  how much of a chunked upload
-                                 the agent already holds, so it can be
-                                 resumed
-    GET  /api/pair              url + token for the phone
-    GET  /api/pair.svg          the same, as a scannable QR code
-    POST /api/photos/have       {"hashes":[...]} -> {"missing":[...]}
+    GET  /api/photos/stats      (phone) how much has been backed up
+    GET  /api/photos/session?id=<sha256>  (phone) how much of a chunked
+                                 upload the agent already holds, so it
+                                 can be resumed
+    GET  /api/pair              a new pairing code for a phone, with
+                                 this agent's address and when the code
+                                 expires; never the admin token
+    GET  /api/pair.svg          the waiting code as a scannable QR code
+                                 of <url>/#pair=<code>
+    POST /api/pair/claim        {"code", "device_name"} -> {"device_id",
+                                 "device_token"}: a phone trades the
+                                 code for its own photo-only token. No
+                                 admin token -- the code is the
+                                 credential
+    GET  /api/photos/devices    the paired phones: id, name, when each
+                                 was paired and last used; never a token
+    POST /api/photos/devices/revoke  {"device_id"} unpair one phone; its
+                                 token stops working at once
+    POST /api/photos/have       (phone) {"hashes":[...]} ->
+                                 {"missing":[...]}
     POST /api/photos/rescan     rebuild the dedupe index from the files
                                  actually on the Drobo -- run after
                                  deleting any by hand
-    POST /api/photos            raw file body; X-Filename, X-Taken-At
-                                 headers
-    POST /api/photos/begin      start a chunked, resumable upload (the
-                                 path videos take): {"filename", "size",
-                                 "sha256", "taken_at"}
-    POST /api/photos/chunk      raw body: the next chunk; X-Upload-Id
-                                 and X-Offset headers
-    POST /api/photos/finish     check the whole file against its
+    POST /api/photos            (phone) raw file body; X-Filename,
+                                 X-Taken-At headers
+    POST /api/photos/begin      (phone) start a chunked, resumable
+                                 upload (the path videos take):
+                                 {"filename", "size", "sha256",
+                                 "taken_at"}
+    POST /api/photos/chunk      (phone) raw body: the next chunk;
+                                 X-Upload-Id and X-Offset headers
+    POST /api/photos/finish     (phone) check the whole file against its
                                  SHA-256, then file it; X-Upload-Id
                                  header
     POST /api/identify          flash the Drobo's lights, so you can
@@ -151,7 +168,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree
 
-from . import backup, drivers, notify, qr, updates, webui
+from . import backup, drivers, notify, pairing, qr, updates, webui
 from drobo_nasd import shares as nasd_shares
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
                         identify as nasd_identify, netcheck, sharewrite)
@@ -190,6 +207,21 @@ SSE_KEEPALIVE_SECONDS = 15
 #: refused by PhotoStore.ingest with its own message in megabytes
 #: rather than by the body reader's bare byte count.
 SINGLE_UPLOAD_SLACK_BYTES = 1024
+
+#: The only (method, path) pairs a paired phone's X-Device-Token opens:
+#: what photo backup needs, and nothing that reads or changes the
+#: Drobo, rebuilds the library's index, or manages pairing. On every
+#: other route that token is answered 401. The admin X-Agent-Token
+#: opens these as well, and /api/ping needs no token at all.
+_DEVICE_TOKEN_ROUTES = frozenset({
+    ("GET", "/api/photos/stats"),
+    ("GET", "/api/photos/session"),
+    ("POST", "/api/photos/have"),
+    ("POST", "/api/photos"),
+    ("POST", "/api/photos/begin"),
+    ("POST", "/api/photos/chunk"),
+    ("POST", "/api/photos/finish"),
+})
 
 #: Where _pair_url "connects" a UDP socket to learn which local address
 #: routes off this machine. Connecting a UDP socket sends nothing; it
@@ -411,14 +443,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     http.server builds a handler for every connection, and with
     HTTP/1.1 keep-alive one handler answers each request on that
     connection in turn. So whatever has to outlive a connection lives
-    on the class, not on the instance: the monitor, photo store and
-    token that build_http_server() injects, and the caches and locks
-    that keep repeated requests from turning into repeated connections
-    to a device that tires easily. Per-request state may live on the
-    instance only if do_GET/do_POST reset it before anything reads it,
-    as _split_request_url does for `query_params`; anything set on only
-    some routes would otherwise leak into the next request on the same
-    connection.
+    on the class, not on the instance: the monitor, photo store, paired
+    phones and token that build_http_server() injects, and the caches
+    and locks that keep repeated requests from turning into repeated
+    connections to a device that tires easily. Per-request state may
+    live on the instance only if do_GET/do_POST reset it before anything
+    reads it, as _split_request_url does for `query_params`; anything
+    set on only some routes would otherwise leak into the next request
+    on the same connection.
     """
 
     server_version = f"DroboAgent/{VERSION}"
@@ -468,14 +500,17 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     # injected by build_http_server()
     monitor = None
     photo_store = None
+    paired_devices = None
     token = ""
 
     # -- plumbing ------------------------------------------------------
 
-    #: A token supplied in the URL, in any of the forms a request line
-    #: can carry one. Scrubbed before anything is printed: see
-    #: log_message.
-    _TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s\"]*", re.I)
+    #: A secret supplied in the URL, in any of the forms a request line
+    #: can carry one: a token (?token=, or any parameter whose name ends
+    #: in "token") or a pairing code (#pair=, as the QR code has it, or
+    #: ?code=). Scrubbed before anything is printed: see log_message.
+    _SECRET_IN_URL = re.compile(
+        r"([?&#;](?:[\w-]*token|pair|code)=)[^&\s\"#]*", re.I)
 
     def log_request(self, code="-", size="-") -> None:
         """
@@ -503,24 +538,30 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, message_format: str, *args) -> None:
         """
-        A quieter access log than http.server's, with any token in the
-        URL scrubbed out. Every line passes through here, errors
-        included; log_request leaves out the event stream's routine 200.
+        A quieter access log than http.server's, with any token or
+        pairing code in the URL scrubbed out. Every line passes through
+        here, errors included; log_request leaves out the event
+        stream's routine 200.
         """
         # The access log prints the whole request line, query string
-        # included, and a token still reaches us in the URL on the two
-        # routes that need it that way -- /api/events, and `/?token=`
-        # from the QR code that /api/pair.svg hands out. So the agent
-        # was printing its own access token into the console window that
-        # Run-Agent.bat tells testers to copy into a public issue when
-        # the agent stops. Found by a privacy audit, 2026-09-08.
+        # included, and a token still reaches us in the URL: /api/events
+        # takes it that way, and until 2026-11-05 the QR code from
+        # /api/pair.svg handed out `/?token=`, so old links carry it.
+        # So the agent was printing its own access token into the
+        # console window that Run-Agent.bat tells testers to copy into
+        # a public issue when the agent stops. Found by a privacy audit,
+        # 2026-09-08.
         #
         # Scrubbed rather than refused, because a browser cannot set a
-        # header on an EventSource and the phone pairing flow depends on
-        # the URL form. Everything else takes the header only (see
-        # _authorised); the token still works here, it just stops being
-        # written down.
-        line = self._TOKEN_IN_URL.sub(r"\1<redacted>", message_format % args)
+        # header on an EventSource. Everything else takes the header
+        # only (see _authorised); the token still works here, it just
+        # stops being written down. A pairing code is scrubbed the same
+        # way: the QR code puts it after #pair=, which a browser never
+        # sends, but a hand-made request can carry it, and so can
+        # ?code=. A claim's body, where the code belongs, is never
+        # printed at all.
+        line = self._SECRET_IN_URL.sub(r"\1<redacted>",
+                                       message_format % args)
         print(f"[api] {self.address_string()} {line}", flush=True)
 
     def _authorised(self, query_params: dict, *,
@@ -532,18 +573,18 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         cannot set a header.
 
         Header-only is what stops a token that has already escaped into
-        a URL (the QR code from /api/pair.svg, a pairing link forwarded
-        to a phone, a screenshot in a bug report) from being a
-        one-request CSRF. A page on any other site can make your browser
-        POST to 127.0.0.1 with a plain <form>, and a form cannot set
-        X-Agent-Token; if it could put the token in the query string
-        instead, that single request would be enough to fire
-        /api/backup/start with mirror on, or /api/shares/delete. A
-        cross-site fetch() *can* set the header, but then it is a
-        preflighted request -- and this handler answers no OPTIONS and
-        sends no Access-Control-* headers, so the preflight fails and
-        the real request is never sent. Header-only is therefore the
-        whole fix.
+        a URL (a pairing link from before 2026-11-05, when the QR code
+        from /api/pair.svg carried the token, a bookmark, a screenshot
+        in a bug report) from being a one-request CSRF. A page on any
+        other site can make your browser POST to 127.0.0.1 with a plain
+        <form>, and a form cannot set X-Agent-Token; if it could put
+        the token in the query string instead, that single request
+        would be enough to fire /api/backup/start with mirror on, or
+        /api/shares/delete. A cross-site fetch() *can* set the header,
+        but then it is a preflighted request -- and this handler
+        answers no OPTIONS and sends no Access-Control-* headers, so
+        the preflight fails and the real request is never sent.
+        Header-only is therefore the whole fix.
         """
         supplied_token = self.headers.get("X-Agent-Token", "")
         if not supplied_token and allow_query:
@@ -567,20 +608,60 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         return secrets.compare_digest(supplied_token_bytes,
                                       self.token.encode("utf-8"))
 
-    def _send_unauthorised(self, query_params: dict) -> None:
+    def _authorised_device(self, method: str, path: str) -> bool:
         """
-        The 401, saying what changed when the token came in the URL.
+        Whether the request carries a paired phone's X-Device-Token on
+        a route that token may open (_DEVICE_TOKEN_ROUTES).
+
+        Its own header, never X-Agent-Token, so neither token can be
+        taken for the other: a phone's token sent as X-Agent-Token, or
+        the admin token sent as X-Device-Token, is simply refused.
+        """
+        if (method, path) not in _DEVICE_TOKEN_ROUTES:
+            return False
+        device_token = self.headers.get("X-Device-Token", "")
+        return self.paired_devices.device_for_token(device_token) is not None
+
+    def _request_authorised(self, method: str, path: str) -> bool:
+        """
+        Whether this request may reach `path`: the admin token on any
+        route (in the URL only on GET /api/events, see _authorised), or
+        a paired phone's token on the photo-upload routes.
+        """
+        allow_query = method == "GET" and path == "/api/events"
+        if self._authorised(self.query_params, allow_query=allow_query):
+            return True
+        return self._authorised_device(method, path)
+
+    def _send_unauthorised(self, query_params: dict, method: str,
+                           path: str) -> None:
+        """
+        The 401, saying what changed when the token came in the URL,
+        and what a phone's token opens when that is what was sent.
 
         ?token= used to be accepted everywhere. Somebody's bookmark,
         curl one-liner or phone client was very likely built from the
         pairing URL, and a bare "invalid token" would send them hunting
         for a typo in a token that is perfectly good.
         """
+        if (self.headers.get("X-Device-Token")
+                and not self.headers.get("X-Agent-Token")):
+            return self._send_json(
+                {"error": self._device_refusal(method, path)}, 401)
         message = "missing or invalid X-Agent-Token"
         if query_params.get("token"):
             message += ("; ?token= is accepted on /api/events only -- "
                         "send the token as the X-Agent-Token header")
         return self._send_json({"error": message}, 401)
+
+    @staticmethod
+    def _device_refusal(method: str, path: str) -> str:
+        """Why a phone's X-Device-Token was refused on this route."""
+        if (method, path) in _DEVICE_TOKEN_ROUTES:
+            return ("this X-Device-Token is not one this agent paired, or "
+                    "it was revoked -- pair the phone again")
+        return ("a paired phone's X-Device-Token opens the photo-upload "
+                "routes only; everything else needs the X-Agent-Token")
 
     def _send_json(self, payload, status: int = 200) -> None:
         """
@@ -597,12 +678,19 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_text(self, text: str, status: int = 200,
-                   content_type: str = "text/plain") -> None:
-        """Answer with `text`, UTF-8 encoded: the page shell, the QR."""
+                   content_type: str = "text/plain",
+                   no_store: bool = False) -> None:
+        """
+        Answer with `text`, UTF-8 encoded: the page shell, the QR.
+        `no_store` keeps a browser from keeping a copy, as the QR code
+        needs: it carries a pairing code.
+        """
         body = text.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if no_store:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -742,16 +830,16 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         from the authenticated API -- so both are served without a
         token. That lets you bookmark the dashboard and be prompted for
         the token once. /api/events alone may take the token in the URL
-        (see _authorised).
+        (see _authorised), and a paired phone's token opens the photo
+        routes alone (see _authorised_device).
         """
         path = self._split_request_url()
         if path == "/api/ping":
             return self._serve_ping()
         if path == "/":
             return self._send_text(webui.PAGE, content_type="text/html")
-        if not self._authorised(self.query_params,
-                                allow_query=(path == "/api/events")):
-            return self._send_unauthorised(self.query_params)
+        if not self._request_authorised("GET", path):
+            return self._send_unauthorised(self.query_params, "GET", path)
         route = self._get_routes().get(path)
         if route is None:
             return self._send_not_found(path)
@@ -784,6 +872,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "/api/history": self._serve_history,
             "/api/photos/stats": self._serve_photo_stats,
             "/api/photos/session": self._serve_photo_upload_progress,
+            "/api/photos/devices": self._serve_paired_devices,
             "/api/pair": self._serve_pairing,
             "/api/pair.svg": self._serve_pairing_qr,
             "/api/events": self._stream_events,
@@ -791,17 +880,21 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         """
-        Answer a POST: the token check, then the route table, then the
-        mock driver's controls.
+        Answer a POST: the one open route first, then the token check,
+        then the route table, then the mock driver's controls.
 
-        No allow_query here, deliberately: nothing this handler writes
+        /api/pair/claim is open because the pairing code in its body is
+        the phone's credential, and the phone has no other yet. No
+        query token anywhere, deliberately: nothing this handler writes
         may be reachable by a request a cross-site <form> can forge.
         See _authorised.
         """
         path = self._split_request_url()
-        if not self._authorised(self.query_params):
+        if path == "/api/pair/claim":
+            return self._serve_pairing_claim()
+        if not self._request_authorised("POST", path):
             self._drain_request_body()
-            return self._send_unauthorised(self.query_params)
+            return self._send_unauthorised(self.query_params, "POST", path)
         route = self._post_routes().get(path)
         if route is not None:
             return route()
@@ -821,6 +914,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "/api/photos/begin": self._serve_photo_upload_begin,
             "/api/photos/chunk": self._serve_photo_upload_chunk,
             "/api/photos/finish": self._serve_photo_upload_finish,
+            "/api/photos/devices/revoke": self._serve_paired_device_revoke,
             "/api/identify": self._serve_identify,
             "/api/config/brightness": self._serve_brightness_write,
             "/api/config/spindown": self._serve_spindown_write,
@@ -1212,22 +1306,55 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json({"error": str(exc)}, 400)
 
     def _serve_pairing(self) -> None:
-        """Everything the phone needs to connect, in one payload."""
+        """
+        What a phone needs to pair, in one payload: the address to
+        reach this agent at, and a new pairing code (which withdraws
+        any earlier one) with the time it expires.
+
+        Never the admin token. Until 2026-11-05 this answered with it,
+        so a phone paired from it could have done everything the
+        dashboard can; now the phone trades the code for a token of its
+        own at /api/pair/claim (see pairing.py).
+
+        A GET that changes something, unlike every other GET here, and
+        a route name kept from before the fix. That is safe because it
+        needs the X-Agent-Token header, which neither a link prefetcher
+        nor a cross-site form can send, and all it changes is which
+        unclaimed code is waiting.
+        """
         return self._send_json({
             "agent": "drobo-agent", "version": VERSION,
             "url": self._pair_url(),
-            "token": self.token,
+            **self.paired_devices.issue_code(),
             "photos_enabled": self.photo_store.enabled,
         })
 
     def _serve_pairing_qr(self) -> None:
         """
-        The pairing link as a QR code. It carries the token, so this
-        stays behind auth like everything else.
+        The pairing link as a QR code: this agent's address, and the
+        waiting pairing code after #pair=, in the URL's fragment, which
+        a browser never sends to a server, so the code cannot land in
+        an access log. It draws the code /api/pair has just issued
+        rather than withdrawing it (a new one only when none is
+        waiting), and stays behind the admin token: the code in it
+        pairs a phone.
+
+        Until 2026-11-05 it drew `/?token=<the admin token>`, a link
+        that signed whoever scanned it in to the whole dashboard.
         """
+        pairing_code = self.paired_devices.waiting_code()["pairing_code"]
         return self._send_text(
-            qr.svg(f"{self._pair_url()}/?token={self.token}"),
-            content_type="image/svg+xml")
+            qr.svg(f"{self._pair_url()}/#pair={pairing_code}"),
+            content_type="image/svg+xml", no_store=True)
+
+    def _serve_paired_devices(self) -> None:
+        """
+        The phones paired with this agent, for the PC to show and to
+        revoke by: id, name, and when each was paired and last used.
+        Never a token, nor a token's digest.
+        """
+        return self._send_json(
+            {"devices": self.paired_devices.list_devices()})
 
     # -- POST: the agent's own actions ---------------------------------
 
@@ -1413,6 +1540,60 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(self.photo_store.finish(upload_id))
         except PhotoStoreError as exc:
             return self._send_json({"error": str(exc)}, 400)
+
+    # Pairing a phone, and unpairing one.
+
+    def _serve_pairing_claim(self) -> None:
+        """
+        A phone trading its pairing code for a token of its own:
+        {"code", "device_name"} -> {"device_id", "device_token"}.
+
+        Open, like /api/ping, because the code is the credential. Never
+        printed: the body holds the code and the answer the only copy
+        of the token, so a claim leaves nothing in the console but the
+        access log's request line and a note that a phone was paired.
+        """
+        try:
+            claim = self._read_json_body()
+        except (ValueError, UnicodeDecodeError) as exc:
+            return self._send_bad_json(exc)
+        try:
+            new_device = self.paired_devices.claim(
+                claim.get("code"), claim.get("device_name"))
+        except pairing.InvalidClaimError as exc:
+            return self._send_json({"error": str(exc)}, 400)
+        except pairing.PairingCodeRefusedError as exc:
+            return self._send_json({"error": str(exc)}, 401)
+        except pairing.PairedDevicesNotSavedError as exc:
+            return self._send_json({"error": str(exc)}, 500)
+        print("[pair] a phone was paired; GET /api/photos/devices lists it",
+              flush=True)
+        return self._send_json(new_device)
+
+    def _serve_paired_device_revoke(self) -> None:
+        """
+        Unpair one phone, {"device_id"}: its token is refused from this
+        answer on. The admin token and every other phone are untouched.
+        """
+        try:
+            body = self._read_json_body()
+        except (ValueError, UnicodeDecodeError) as exc:
+            return self._send_bad_json(exc)
+        device_id = body.get("device_id")
+        if not isinstance(device_id, str) or not device_id:
+            return self._send_json(
+                {"error": "expected {\"device_id\": ...}, an id from "
+                          "GET /api/photos/devices"}, 400)
+        try:
+            revoked = self.paired_devices.revoke(device_id)
+        except pairing.PairedDevicesNotSavedError as exc:
+            return self._send_json({"error": str(exc)}, 500)
+        if not revoked:
+            return self._send_json(
+                {"error": "no paired phone has that device_id",
+                 "device_id": device_id}, 404)
+        print("[pair] a paired phone was revoked", flush=True)
+        return self._send_json({"ok": True, "device_id": device_id})
 
     # -- POST: writes that reach the Drobo -----------------------------
 
@@ -2711,18 +2892,27 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
-def build_http_server(config: dict, monitor, photo_store):
+def build_http_server(config: dict, monitor, photo_store,
+                      paired_devices=None):
     """Build the agent's HTTP server without starting it.
 
     The caller decides how it runs: run_agent.py serves it on the main
     thread until Ctrl+C, while the test suites serve it on a background
     thread and shut it down when their checks are done. The monitor,
-    photo store and token go onto the handler class because
-    http.server makes a fresh handler for every connection, so a second
-    server built in the same process replaces the first one's.
+    photo store, paired phones and token go onto the handler class
+    because http.server makes a fresh handler for every connection, so
+    a second server built in the same process replaces the first one's.
+
+    `paired_devices` is a pairing.PairedDevices. run_agent.py gives it
+    the file beside config.json; left out, as the test suites that
+    never pair a phone leave it, the phones are kept in memory only, so
+    a test can never write into a real agent's folder.
     """
     _ApiRequestHandler.monitor = monitor
     _ApiRequestHandler.photo_store = photo_store
+    _ApiRequestHandler.paired_devices = (
+        paired_devices if paired_devices is not None
+        else pairing.PairedDevices())
     _ApiRequestHandler.token = config["agent"]["token"]
     bind_address = config["agent"]["bind"]
     port = int(config["agent"]["port"])

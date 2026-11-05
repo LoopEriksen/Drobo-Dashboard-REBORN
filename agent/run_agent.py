@@ -25,7 +25,7 @@ import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from drobo_agent import api, config, notify  # noqa: E402
+from drobo_agent import api, config, notify, pairing  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 
@@ -60,9 +60,13 @@ def main(argv: list[str] | None = None) -> int:
 
     photo_store = PhotoStore(loaded_config["photos"])
     photo_store.load()
+    # Beside the config file, never on the Drobo: see pairing.py.
+    paired_devices = pairing.PairedDevices(
+        pairing.path_beside_config(args.config))
 
     monitor.start()
-    http_server = api.build_http_server(loaded_config, monitor, photo_store)
+    http_server = api.build_http_server(loaded_config, monitor, photo_store,
+                                        paired_devices)
 
     dashboard_url = _print_banner(loaded_config["agent"])
     if args.open:

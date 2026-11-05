@@ -15,7 +15,7 @@ the GF arithmetic are the standard's own mathematics, not anyone's
 implementation. EC = error correction.
 
     from drobo_agent import qr
-    svg = qr.svg("http://10.0.0.50:7420/?token=...")
+    svg = qr.svg("http://10.0.0.50:7420/#pair=...")
 
 DroboPix paired exactly this way -- a QR code shown in Drobo Dashboard
 that you scanned with the phone. It was the right call then and it still

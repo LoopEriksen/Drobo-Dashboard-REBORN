@@ -24,9 +24,9 @@ profiles, where a mistake destroys hardware. That reasoning doesn't apply here.)
 
 ## What it does not need
 
-- **No web address, no domain, no cloud account.** The app points at an IP and a
-  token — `http://192.0.2.50:7420`. On your own network nothing leaves the
-  house.
+- **No web address, no domain, no cloud account.** The app points at an IP and
+  holds a token of its own, from pairing — `http://192.0.2.50:7420`. On your
+  own network nothing leaves the house.
 - **No App Store, no review.** It's sideloaded.
 - **No myDrobo, no relay.** Away from home, Tailscale gives you the same LAN
   address with no ports open to the internet. The original relay capped around
@@ -162,20 +162,45 @@ Guarantees worth knowing when writing the client:
 
 ### Step 3 — pairing
 
-```
-GET /api/pair  ->  {"url": "http://192.0.2.50:7420", "token": "...", ...}
-```
+On the PC, a page or app that holds the agent's own token asks for a pairing
+code and shows it as a QR code; neither the browser dashboard nor the Windows
+app does this yet. Both routes need that token, which never reaches the phone:
 
 ```
-GET /api/pair.svg  ->  the same thing as a scannable QR code
+GET /api/pair      ->  {"url": "http://192.0.2.50:7420",
+                        "pairing_code": "...", "pairing_expires_at": 1700000600, ...}
+GET /api/pair.svg  ->  that code as a QR code of  http://192.0.2.50:7420/#pair=<code>
 ```
 
-Everything the phone needs in one payload, and a QR code so setup is a camera
-scan rather than typing a 32-character token on a phone keyboard. DroboPix
-paired exactly this way. The QR encoder is stdlib-only
+The phone scans the QR code, takes the address and the code from it, and trades
+the code for a token of its own. No other token is needed for this:
+
+```
+POST /api/pair/claim   {"code": "<code>", "device_name": "Kitchen iPhone"}
+   -> {"device_id": "...", "device_token": "..."}
+```
+
+The code works once, for ten minutes, and five wrong claims withdraw it. The
+`device_token` comes back in this answer and never again (the agent keeps only
+its SHA-256), so store it straight away. Every request in steps 1 and 2 then
+sends it as a header of its own:
+
+```
+X-Device-Token: <device_token>
+```
+
+It opens the photo-upload routes above and nothing else; every other route
+answers it with a 401. The PC lists paired phones (`GET /api/photos/devices`)
+and can revoke one (`POST /api/photos/devices/revoke`), after which its token
+is refused too and the phone has to pair again.
+
+A QR code makes setup a camera scan rather than typing a code on a phone
+keyboard. DroboPix paired exactly this way. The QR encoder is stdlib-only
 ([`agent/drobo_agent/qr.py`](../agent/drobo_agent/qr.py)) — no dependency.
 
-Both endpoints require the token, since they carry it.
+Until 2026-11-05 `/api/pair` answered with the agent's own access token, which
+opens everything the dashboard can do. Nothing used pairing before then, and no
+phone can get that token now.
 
 ---
 
@@ -230,7 +255,7 @@ rejection pressure is miserable.
 ## Build order
 
 1. **Pair and upload one photo by hand.** Prove the round trip before anything
-   else. Store the URL and token in the Keychain.
+   else. Store the URL and the device token from pairing in the Keychain.
 2. **Full-library sync in the foreground**, using `have` then upload. Get
    progress and cancellation right here, where you can watch it.
 3. **Chunked video upload** on `URLSession` background transfers.

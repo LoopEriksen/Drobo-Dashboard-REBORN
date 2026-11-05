@@ -27,7 +27,8 @@ this way is [`../docs/development-history.md`](../docs/development-history.md).
 | `config.json` | Your own settings, created beside `run_agent.py` on the first run from source: the access token and, if you set up email alerts, your email server's password. Only on your PC, and git ignores it. Never share or commit it |
 | `config.example.json` | A sample settings file to read or copy; the agent never reads it by itself. Note that it sets `"driver": "mock"` (the simulator), while the `config.json` the agent creates on its first run uses your real Drobo (`"driver": "drobo5n"`) |
 | `config.mock.json` | Appears after the first run of `START WITH SIMULATED DROBO (testing).bat`: the simulated Drobo's settings and its own access token. Git ignores it |
-| `drobo_agent/` | The agent's code, one file per job: `api.py` (the web API; its opening comment lists every route), `webui.py` (the web dashboard page), `monitor.py` (polls the Drobo, keeps history, decides alerts), `drivers.py` (the real Drobo driver and the simulator), `notify.py` (sends alerts: console, ntfy, email), `photos.py` (receives phone photo backups), `backup.py` (copies the Drobo to an external drive), `updates.py` (the update check, off by default), `config.py` (reads `config.json` and makes the token), `qr.py` (the pairing QR code), `models.py` (the data shapes the agent adds), `__init__.py` (makes the agent use the `sdk/` beside it). It speaks the Drobo's protocol only through the library in [`../sdk/`](../sdk/), `drobo_nasd`; photo and drive backups use the Drobo's shares like any other network folder |
+| `paired_devices.json` | Appears beside `config.json` once a phone is paired: each phone's name and the SHA-256 of its photo-upload token, never the token itself. The simulator's phones are in `paired_devices.mock.json`, beside `config.mock.json`. Git ignores both |
+| `drobo_agent/` | The agent's code, one file per job: `api.py` (the web API; its opening comment lists every route), `webui.py` (the web dashboard page), `monitor.py` (polls the Drobo, keeps history, decides alerts), `drivers.py` (the real Drobo driver and the simulator), `notify.py` (sends alerts: console, ntfy, email), `photos.py` (receives phone photo backups), `backup.py` (copies the Drobo to an external drive), `updates.py` (the update check, off by default), `config.py` (reads `config.json` and makes the token), `pairing.py` (the one-time pairing codes and each paired phone's photo-only token), `qr.py` (the pairing QR code), `models.py` (the data shapes the agent adds), `__init__.py` (makes the agent use the `sdk/` beside it). It speaks the Drobo's protocol only through the library in [`../sdk/`](../sdk/), `drobo_nasd`; photo and drive backups use the Drobo's shares like any other network folder |
 | `tests/` | Ten test suites that need no hardware. Only in the source repository, not in an installed copy |
 
 ---
@@ -90,7 +91,7 @@ Starts a real agent on port 7431 of this PC (a fixed port, so run one copy
 of the tests at a time), exercises every endpoint, checks the answers, and
 stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
-raises the "cannot reach" alert; no Drobo is contacted. 303 checks as of 2026-11-05 (the number grows with
+raises the "cannot reach" alert; no Drobo is contacted. 333 checks as of 2026-11-05 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.
@@ -154,9 +155,11 @@ readings off as measurements.
 
 ## API
 
-Everything except `/api/ping` needs the `X-Agent-Token` header.
-`/api/events` also accepts `?token=` because browsers can't set headers on an
-EventSource.
+Everything except `/api/ping` and `/api/pair/claim` needs the `X-Agent-Token`
+header. `/api/events` also accepts `?token=` because browsers can't set headers
+on an EventSource. A paired phone never gets that token: it sends its own, as
+the `X-Device-Token` header, which opens the seven photo-upload routes marked
+*phone* below and is refused (401) everywhere else.
 
 The routes most people touch. The complete list — forty-odd today, including
 the config writes, share create/delete, DroboApps, the event log and
@@ -175,15 +178,18 @@ is kept current; `../docs/capabilities.md` maps each to its status.
 | GET | `/api/history?limit=N` | Trimmed series for graphing |
 | GET | `/api/netcheck?host=` | Whether this PC is even on the Drobo's network — the usual reason one "vanishes". `/api/status` already carries this as `network_hint`; this is for a device picker with an address and no snapshot. |
 | GET | `/api/events` | Server-sent events — live snapshots and alerts |
-| GET | `/api/photos/stats` | How much has been backed up |
-| POST | `/api/photos/have` | `{"hashes":[...]}` → `{"missing":[...]}` |
-| POST | `/api/photos` | Raw file body; `X-Filename` + `X-Taken-At` headers |
-| POST | `/api/photos/begin` | Start a chunked upload (videos) |
-| POST | `/api/photos/chunk` | Append a chunk; `X-Upload-Id` + `X-Offset` |
-| POST | `/api/photos/finish` | Verify hash and file it; `X-Upload-Id` |
-| GET | `/api/photos/session?id=` | How many bytes of an upload we already hold |
-| GET | `/api/pair` | URL + token for the phone, in one payload |
-| GET | `/api/pair.svg` | The same as a scannable QR code |
+| GET | `/api/photos/stats` | *Phone.* How much has been backed up |
+| POST | `/api/photos/have` | *Phone.* `{"hashes":[...]}` → `{"missing":[...]}` |
+| POST | `/api/photos` | *Phone.* Raw file body; `X-Filename` + `X-Taken-At` headers |
+| POST | `/api/photos/begin` | *Phone.* Start a chunked upload (videos) |
+| POST | `/api/photos/chunk` | *Phone.* Append a chunk; `X-Upload-Id` + `X-Offset` |
+| POST | `/api/photos/finish` | *Phone.* Verify hash and file it; `X-Upload-Id` |
+| GET | `/api/photos/session?id=` | *Phone.* How many bytes of an upload we already hold |
+| GET | `/api/pair` | A new one-time pairing code for a phone, with this agent's address: `{"url", "pairing_code", "pairing_expires_at", ...}`. Never the admin token. Each request withdraws the code before it |
+| GET | `/api/pair.svg` | The waiting code as a scannable QR code of `<url>/#pair=<code>` |
+| POST | `/api/pair/claim` | No auth — the code is the credential. `{"code", "device_name"}` → `{"device_id", "device_token"}`, the phone's own token, shown this once. The code works once, for ten minutes, and five wrong claims withdraw it |
+| GET | `/api/photos/devices` | The paired phones: id, name, when paired and last used. Never a token |
+| POST | `/api/photos/devices/revoke` | `{"device_id"}`: unpair one phone; its token stops working at once |
 | POST | `/api/mock/<action>/<bay>` | Fault injection, mock driver only |
 
 ---
@@ -259,5 +265,9 @@ worth having regardless: it works whether or not the app is installed.
   machine running the agent.
 - The token is a shared secret in plain HTTP. That's fine on a home LAN;
   it is not fine on an untrusted network.
+- **A phone never holds the admin token.** Pairing gives it a one-time code
+  that it trades for a token of its own, good for the photo-upload routes
+  only; the agent keeps just that token's SHA-256, and revoking the phone
+  ends it. Until 2026-11-05 `/api/pair` handed out the admin token itself.
 - `config.json` contains the access token and, if you set up email alerts,
   your email server's password. It's in `.gitignore` — keep it that way.

@@ -1045,6 +1045,50 @@ with PowerShell's `Get-FileHash` as well as `sha256sum`. The lifecycle
 test's `LICENSE` check now wants a file holding the GPL's text, not just
 something of that name.
 
+One gap was left in when the workflow runs. Its path filter named the
+installer's files, its two scripts and the app, but not the agent or the
+SDK, though the MSI carries both and the lifecycle test starts that
+agent, so a change to the agent alone could have reached the `v1.2.0`
+tag with no installer run behind it. The filter now names `agent/` and
+`sdk/` too.
+
+## A paired phone gets a key of its own (2026-11-05)
+
+**11-05.** Pairing, part of the photo service since before 1.0.0, gave
+the phone the agent's admin token: `/api/pair` answered with it, and
+`/api/pair.svg` drew it into a QR code of `/?token=`, a link that signed
+whoever scanned it in to the whole dashboard. A phone paired that way,
+or anyone with a photo of the screen, could have deleted a share. No
+phone app exists, and neither the browser dashboard nor the Windows app
+shows that QR code, so nothing used pairing yet, and the answer could
+change without breaking a client. The maintainer asked for it to be
+fixed before 1.2.0.
+
+Pairing is an exchange now. `/api/pair` issues a one-time code (128
+random bits, claimable once within ten minutes, withdrawn by the next
+code or by five wrong claims), and the QR code carries it after
+`#pair=`, the part of a link a browser never sends, so it cannot reach
+a log. The phone trades it at `POST /api/pair/claim`, which needs no
+admin token, for a token of its own. That token travels in its own
+header, `X-Device-Token`, so neither token can be taken for the other;
+it opens the seven photo-upload routes and is refused on every other,
+pairing and revocation included; and the agent keeps only its SHA-256,
+in a file beside `config.json` that git ignores. The file is named
+after the config beside it (`paired_devices.mock.json` for the
+simulator's `config.mock.json`), so a phone paired with the simulator
+cannot upload to the real agent in the same folder.
+`GET /api/photos/devices` lists the phones and
+`POST /api/photos/devices/revoke` unpairs one at once. A phone's last
+use is saved at most once a minute, so a run of chunk uploads does not
+rewrite the file each time. The access log hides `pair=` and `code=`
+the way it hides `token=`, and a claim's body is never printed.
+
+The suite's pairing check had asserted that the admin token came back;
+it now asserts that a code does and the token does not. Thirty new
+checks cover the code, the claim, the phone's token on and off the
+photo routes, the saved file and revocation, and each one fails when
+the agent's old `api.py` is put back.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

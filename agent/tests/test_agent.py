@@ -32,7 +32,7 @@ from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from drobo_agent import api, config, drivers, notify, qr  # noqa: E402
+from drobo_agent import api, config, drivers, notify, pairing, qr  # noqa: E402
 from drobo_agent import photos  # noqa: E402
 from drobo_agent.models import (  # noqa: E402
     Capacity, DeviceInfo, DriveSlot, PackHealth, SEVERITY_CRITICAL, Snapshot)
@@ -71,11 +71,32 @@ agent_config = config.load(config_path)
 TOKEN = agent_config["agent"]["token"]
 BASE_URL = "http://127.0.0.1:7431"
 
+
+class _ManualClock:
+    """
+    The paired phones' clock in this suite. It stands still until a
+    check moves it, so a pairing code's ten minutes can run out, and a
+    phone's minute between saves can pass, without the suite waiting.
+    """
+
+    def __init__(self, now_seconds):
+        self.now_seconds = now_seconds
+
+    def __call__(self):
+        return self.now_seconds
+
+
+pairing_clock = _ManualClock(1_800_000_000.0)
+paired_devices_path = os.path.join(temp_dir, "paired_devices.json")
+paired_devices = pairing.PairedDevices(paired_devices_path,
+                                       clock=pairing_clock)
+
 monitor = Monitor(agent_config, notify.build(agent_config["notify"]))
 photo_store = PhotoStore(agent_config["photos"])
 photo_store.load()
 monitor.start()
-http_server = api.build_http_server(agent_config, monitor, photo_store)
+http_server = api.build_http_server(agent_config, monitor, photo_store,
+                                    paired_devices)
 threading.Thread(target=http_server.serve_forever, daemon=True).start()
 time.sleep(1.2)
 
@@ -135,10 +156,10 @@ except Exception as _connection_error:
 # token in a URL but cannot set a header, so any route that accepts the
 # query form is forgeable by any page the user happens to be looking at
 # -- and the token has already been in a URL, in the QR code
-# /api/pair.svg hands out. /api/events is the one exemption, because an
-# EventSource genuinely cannot send a header. Both halves are checked:
-# withdraw the exemption and the dashboard goes blind, widen it and
-# /api/backup/start is one forged form away.
+# /api/pair.svg handed out until 2026-11-05. /api/events is the one
+# exemption, because an EventSource genuinely cannot send a header.
+# Both halves are checked: withdraw the exemption and the dashboard goes
+# blind, widen it and /api/backup/start is one forged form away.
 _EMPTY_TOKEN_HEADERS = {"X-Agent-Token": ""}
 for _route in ("/api/status", "/api/pair", "/api/shares"):
     status, reply = call(f"{_route}?token={TOKEN}",
@@ -627,9 +648,14 @@ check("chunk without begin rejected", status == 400, reply)
 
 print("\n== pairing ==")
 status, reply = call("/api/pair")
-check("pair returns url and token",
-      status == 200 and reply["token"] == TOKEN and "url" in reply,
-      reply)
+# It answered with the admin token itself until 2026-11-05; the code
+# and what a phone gets for it are checked under "a pairing code, and a
+# token of the phone's own" below.
+check("pair returns the url and a pairing code, never the admin token",
+      status == 200 and "url" in reply
+      and isinstance(reply.get("pairing_code"), str)
+      and TOKEN not in json.dumps(reply),
+      json.dumps(reply).replace(TOKEN, "<THE ADMIN TOKEN>"))
 check("pair url is not loopback",
       "127.0.0.1" not in reply["url"] or True,
       reply["url"])
@@ -806,6 +832,341 @@ except ValueError as exc:
     refusal = str(exc)
 check("qr refuses a 214-byte payload, naming the real limit",
       "213" in refusal and "270" not in refusal, refusal or "accepted")
+
+print("\n== a pairing code, and a token of the phone's own ==")
+# Until 2026-11-05 /api/pair answered with the agent's own admin token,
+# and /api/pair.svg drew it into a link that signed whoever scanned it
+# in to the whole dashboard: a paired phone could have done everything
+# the dashboard can, the seven routes that change the Drobo included.
+# Now the PC hands out a one-time code, and the phone trades it for a
+# token of its own that opens the photo-upload routes and nothing else.
+# No Drobo is reached: the agent runs the simulator, and every route a
+# phone's token is refused on refuses it before doing anything.
+
+
+def claim_pairing_code(code, device_name="Test phone"):
+    """POST /api/pair/claim the way a phone does it: no admin token."""
+    return call("/api/pair/claim", method="POST",
+                data=json.dumps({"code": code,
+                                 "device_name": device_name}).encode(),
+                headers={"X-Agent-Token": "",
+                         "Content-Type": "application/json"})
+
+
+def phone_call(path, device_token, data=None, headers=None, method=None,
+               raw=False):
+    """call(), sent the way a paired phone sends it: its own token in
+    X-Device-Token, and no admin token.
+    """
+    phone_headers = {"X-Agent-Token": "", "X-Device-Token": device_token}
+    phone_headers.update(headers or {})
+    return call(path, data=data, headers=phone_headers, method=method,
+                raw=raw)
+
+
+def svg_modules(svg_bytes, pixels_per_module=6, quiet_zone_modules=4):
+    """The module grid of an SVG from qr.svg(), for qr_decode()."""
+    svg_root = ElementTree.fromstring(svg_bytes)
+    modules_per_side = (int(svg_root.get("width")) // pixels_per_module
+                        - 2 * quiet_zone_modules)
+    grid = [[0] * modules_per_side for _ in range(modules_per_side)]
+    for rect in svg_root.iter("{http://www.w3.org/2000/svg}rect"):
+        if rect.get("x") is None:  # the white background
+            continue
+        row = int(rect.get("y")) // pixels_per_module - quiet_zone_modules
+        first_column = (int(rect.get("x")) // pixels_per_module
+                        - quiet_zone_modules)
+        for column_offset in range(int(rect.get("width"))
+                                   // pixels_per_module):
+            grid[row][first_column + column_offset] = 1
+    return grid
+
+
+def read_saved_devices():
+    """The paired-devices file's text, or "" when there is none."""
+    if not os.path.exists(paired_devices_path):
+        return ""
+    with open(paired_devices_path, encoding="utf-8") as devices_file:
+        return devices_file.read()
+
+
+def listed_device(device_id):
+    """One phone as GET /api/photos/devices lists it, or {}."""
+    status, reply = call("/api/photos/devices")
+    listed = reply.get("devices", []) if status == 200 else []
+    return next((device for device in listed
+                 if device.get("device_id") == device_id), {})
+
+
+def event_stream_status(extra_headers):
+    """
+    The status GET /api/events answers with, read from its first line
+    only: a stream that was let in would never end, so nothing after
+    the status line is waited for.
+    """
+    header_lines = "".join(f"{name}: {value}\r\n"
+                           for name, value in extra_headers.items())
+    with socket.create_connection(("127.0.0.1", 7431),
+                                  timeout=10) as events_socket:
+        events_socket.sendall(
+            f"GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            f"{header_lines}Accept: text/event-stream\r\n"
+            f"Connection: close\r\n\r\n".encode())
+        status_line = events_socket.makefile("rb").readline().split()
+    return int(status_line[1]) if len(status_line) > 1 else 0
+
+
+def statuses_on_every_photo_route(send):
+    """
+    One of each photo-upload request, sent with `send` (call for the
+    admin token, or a phone_call), as {route: status}. Every run sends
+    a photo and a video of its own, so none is a duplicate, and the
+    upload has to end "stored" for the last route to count as a 200.
+    """
+    photo_bytes = b"\xff\xd8\xff\xe0" + os.urandom(1024)
+    video_bytes = b"\x00\x00\x00\x18ftypmp42" + os.urandom(2000)
+    video_sha256 = hashlib.sha256(video_bytes).hexdigest()
+    statuses = {
+        "GET /api/photos/stats": send("/api/photos/stats")[0],
+        "POST /api/photos/have": send(
+            "/api/photos/have", method="POST",
+            data=json.dumps({"hashes": [video_sha256]}).encode())[0],
+        "POST /api/photos": send(
+            "/api/photos", data=photo_bytes, method="POST",
+            headers={"X-Filename": "IMG_2001.JPG"})[0],
+        "POST /api/photos/begin": send(
+            "/api/photos/begin", method="POST", data=json.dumps(
+                {"filename": "IMG_2002.MOV", "size": len(video_bytes),
+                 "sha256": video_sha256}).encode())[0],
+        "GET /api/photos/session": send(
+            "/api/photos/session?id=" + video_sha256)[0],
+        "POST /api/photos/chunk": send(
+            "/api/photos/chunk", data=video_bytes, method="POST",
+            headers={"X-Upload-Id": video_sha256, "X-Offset": "0"})[0],
+    }
+    status, finish_reply = send("/api/photos/finish", method="POST",
+                                headers={"X-Upload-Id": video_sha256})
+    statuses["POST /api/photos/finish"] = (
+        status if finish_reply.get("status") == "stored"
+        else f"{status} {finish_reply}")
+    return statuses
+
+
+_withdrawn_by_the_next = call("/api/pair")[1].get("pairing_code") or ""
+status, pair_reply = call("/api/pair")
+pairing_code = pair_reply.get("pairing_code") or ""
+check("a pairing code is 128 random bits or more, good for ten minutes",
+      re.fullmatch(r"[A-Za-z0-9_-]{22,}", pairing_code) is not None
+      and pair_reply.get("pairing_expires_at")
+      == int(pairing_clock.now_seconds) + 10 * 60,
+      json.dumps(pair_reply).replace(TOKEN, "<THE ADMIN TOKEN>"))
+status, reply = claim_pairing_code(_withdrawn_by_the_next)
+check("-- and asking for a new one withdraws the one before it",
+      bool(_withdrawn_by_the_next) and pairing_code != _withdrawn_by_the_next
+      and status == 401
+      and reply.get("error") == pairing.CODE_REFUSED_MESSAGE,
+      (status, reply))
+
+status, pairing_svg = call("/api/pair.svg", raw=True)
+_qr_link = qr_decode(svg_modules(pairing_svg))[2].decode("utf-8", "replace")
+check("the pairing QR code reads back as <url>/#pair=<the code /api/pair "
+      "gave>, with no admin token in it",
+      bool(pairing_code)
+      and _qr_link == f"{pair_reply.get('url')}/#pair={pairing_code}"
+      and TOKEN not in _qr_link,
+      _qr_link.replace(TOKEN, "<THE ADMIN TOKEN>"))
+with urllib.request.urlopen(urllib.request.Request(
+        BASE_URL + "/api/pair.svg", headers={"X-Agent-Token": TOKEN}),
+        timeout=10) as _svg_response:
+    _svg_cache_control = _svg_response.headers.get("Cache-Control")
+check("-- and no browser is told it may keep a copy",
+      _svg_cache_control == "no-store", _svg_cache_control)
+
+_claim_output = io.StringIO()
+with contextlib.redirect_stdout(_claim_output):
+    status, claim_reply = claim_pairing_code(pairing_code, "  Test phone  ")
+device_token = claim_reply.get("device_token") or ""
+device_id = claim_reply.get("device_id") or ""
+check("a claim with the code answers a device id and a token of the "
+      "phone's own",
+      status == 200 and sorted(claim_reply) == ["device_id", "device_token"]
+      and len(device_token) >= 43 and device_token != TOKEN,
+      (status, sorted(claim_reply)))
+_claim_log = _claim_output.getvalue()
+check("-- and the console gets its request line and a note, never the "
+      "code, the token or the phone's name",
+      status == 200 and "POST /api/pair/claim" in _claim_log
+      and pairing_code not in _claim_log and device_token not in _claim_log
+      and "Test phone" not in _claim_log,
+      _claim_log.replace(pairing_code or "\0", "<THE CODE>"))
+status, reply = claim_pairing_code(pairing_code)
+check("-- the code works once: a second claim with it is refused",
+      bool(device_token) and status == 401
+      and reply.get("error") == pairing.CODE_REFUSED_MESSAGE,
+      (status, reply))
+
+status, devices_reply = call("/api/photos/devices")
+_devices_text = json.dumps(devices_reply)
+_device_token_sha256 = hashlib.sha256(device_token.encode()).hexdigest()
+check("the device list shows the phone under its trimmed name, and never "
+      "its token or the token's digest",
+      status == 200 and bool(device_token)
+      and [(device.get("device_id"), device.get("device_name"))
+           for device in devices_reply.get("devices", [])]
+      == [(device_id, "Test phone")]
+      and all(sorted(device) == ["created_at", "device_id", "device_name",
+                                 "last_used_at"]
+              for device in devices_reply.get("devices", []))
+      and device_token not in _devices_text
+      and _device_token_sha256 not in _devices_text,
+      (status, _devices_text.replace(device_token or "\0", "<TOKEN>")))
+check("-- paired now, and not used yet",
+      listed_device(device_id).get("created_at")
+      == int(pairing_clock.now_seconds)
+      and "last_used_at" in listed_device(device_id)
+      and listed_device(device_id)["last_used_at"] is None,
+      listed_device(device_id))
+_saved_devices_text = read_saved_devices()
+check("the paired-devices file holds the token's SHA-256, never the token, "
+      "the code or the admin token",
+      bool(device_token) and _device_token_sha256 in _saved_devices_text
+      and device_token not in _saved_devices_text
+      and pairing_code not in _saved_devices_text
+      and TOKEN not in _saved_devices_text,
+      _saved_devices_text.replace(TOKEN, "<THE ADMIN TOKEN>"))
+check("-- and it is the file beside config.json, one per config file "
+      "(config.mock.json's is paired_devices.mock.json)",
+      os.path.exists(paired_devices_path)
+      and pairing.path_beside_config(config_path) == paired_devices_path
+      and pairing.path_beside_config(
+          os.path.join(temp_dir, "config.mock.json"))
+      == os.path.join(temp_dir, "paired_devices.mock.json"),
+      pairing.path_beside_config(config_path))
+
+_phone_statuses = statuses_on_every_photo_route(
+    lambda path, **kwargs: phone_call(path, device_token, **kwargs))
+check("a phone's token opens every photo-upload route",
+      bool(device_token) and set(_phone_statuses.values()) == {200},
+      _phone_statuses)
+_first_used_at = int(pairing_clock.now_seconds)
+check("-- and using it marks the phone as used, then",
+      bool(device_token)
+      and listed_device(device_id).get("last_used_at") == _first_used_at,
+      listed_device(device_id))
+_saved_after_first_use = read_saved_devices()
+pairing_clock.now_seconds += 30
+phone_call("/api/photos/stats", device_token)
+check("-- but another use within the minute rewrites neither the list nor "
+      "the file",
+      bool(device_token)
+      and listed_device(device_id).get("last_used_at") == _first_used_at
+      and read_saved_devices() == _saved_after_first_use,
+      listed_device(device_id))
+pairing_clock.now_seconds += 31
+phone_call("/api/photos/stats", device_token)
+check("-- while the first use after the minute moves it, in the file too",
+      listed_device(device_id).get("last_used_at") == _first_used_at + 61
+      and f'"last_used_at": {_first_used_at + 61}' in read_saved_devices(),
+      listed_device(device_id))
+
+_phone_refusals = {}
+for _method, _route, _body in (
+        ("GET", "/api/status", None), ("GET", "/api/pair", None),
+        ("GET", "/api/pair.svg", None), ("POST", "/api/shares/create", {}),
+        ("POST", "/api/config/brightness", {}), ("POST", "/api/identify", {}),
+        ("POST", "/api/droboapps/action", {}),
+        ("POST", "/api/photos/rescan", {}),
+        ("GET", "/api/photos/devices", None),
+        ("POST", "/api/photos/devices/revoke", {"device_id": device_id})):
+    _phone_refusals[f"{_method} {_route}"] = phone_call(
+        _route, device_token, method=_method,
+        data=None if _body is None else json.dumps(_body).encode(),
+        headers={"Content-Type": "application/json"})[0]
+_phone_refusals["GET /api/events"] = event_stream_status(
+    {"X-Device-Token": device_token})
+check("a phone's token is refused (401) on every other route",
+      bool(device_token) and set(_phone_refusals.values()) == {401},
+      _phone_refusals)
+status, reply = phone_call("/api/status", device_token)
+check("-- and the 401 says it opens the photo-upload routes only",
+      bool(device_token) and status == 401
+      and "photo-upload routes only" in reply.get("error", ""),
+      reply)
+_phone_token_as_admin = call("/api/photos/stats",
+                             headers={"X-Agent-Token": device_token})[0]
+_admin_token_as_phone = phone_call("/api/photos/stats", TOKEN)[0]
+check("neither token is taken for the other: the phone's as X-Agent-Token "
+      "and the admin token as X-Device-Token are both refused",
+      bool(device_token) and _phone_token_as_admin == 401
+      and _admin_token_as_phone == 401,
+      (_phone_token_as_admin, _admin_token_as_phone))
+
+_expiring_code = call("/api/pair")[1].get("pairing_code") or ""
+pairing_clock.now_seconds += 10 * 60 + 1
+status, reply = claim_pairing_code(_expiring_code)
+check("a code more than ten minutes old is refused",
+      bool(_expiring_code) and status == 401
+      and reply.get("error") == pairing.CODE_REFUSED_MESSAGE,
+      (status, reply))
+_timely_code = call("/api/pair")[1].get("pairing_code") or ""
+pairing_clock.now_seconds += 10 * 60 - 1
+status, second_claim = claim_pairing_code(_timely_code, "Second phone")
+second_device_token = second_claim.get("device_token") or ""
+check("-- and one claimed with a second to spare is accepted",
+      bool(_timely_code) and status == 200 and bool(second_device_token),
+      (status, sorted(second_claim)))
+
+_guarded_code = call("/api/pair")[1].get("pairing_code") or ""
+_wrong_claim_statuses = [claim_pairing_code(f"not-the-code-{attempt}")[0]
+                         for attempt in range(4)]
+status, reply = claim_pairing_code(_guarded_code, "Third phone")
+check("a wrong code is refused, and four of them leave the code claimable",
+      bool(_guarded_code) and _wrong_claim_statuses == [401] * 4
+      and status == 200,
+      (_wrong_claim_statuses, status))
+_withdrawn_code = call("/api/pair")[1].get("pairing_code") or ""
+_wrong_claim_statuses = [claim_pairing_code(f"not-the-code-{attempt}")[0]
+                         for attempt in range(5)]
+status, reply = claim_pairing_code(_withdrawn_code, "Fourth phone")
+check("-- but the fifth wrong code withdraws it",
+      bool(_withdrawn_code) and _wrong_claim_statuses == [401] * 5
+      and status == 401
+      and reply.get("error") == pairing.CODE_REFUSED_MESSAGE,
+      (_wrong_claim_statuses, status, reply))
+
+_named_code = call("/api/pair")[1].get("pairing_code") or ""
+_name_refusals = [claim_pairing_code(_named_code, refused_name)[0]
+                  for refused_name in ("x" * 65, "two\nlines",
+                                       "‮enohp", "   ", None)]
+status, reply = claim_pairing_code(_named_code, "K" * 64)
+check("a phone's name must be printable and 64 characters at most, and a "
+      "refused name leaves the code claimable",
+      bool(_named_code) and _name_refusals == [400] * 5 and status == 200,
+      (_name_refusals, status))
+
+status, reply = call("/api/photos/devices/revoke", method="POST",
+                     data=json.dumps({"device_id": device_id}).encode())
+_revoke_status = status
+check("revoking a phone ends its token's access at once",
+      bool(device_token) and _revoke_status == 200
+      and phone_call("/api/photos/stats", device_token)[0] == 401,
+      (_revoke_status, reply))
+check("-- it leaves the list and the file, and every other phone keeps "
+      "working",
+      _revoke_status == 200 and listed_device(device_id) == {}
+      and _device_token_sha256 not in read_saved_devices()
+      and phone_call("/api/photos/stats", second_device_token)[0] == 200,
+      listed_device(device_id))
+_admin_statuses = statuses_on_every_photo_route(call)
+check("-- and the admin token still opens every photo-upload route",
+      _revoke_status == 200 and set(_admin_statuses.values()) == {200},
+      _admin_statuses)
+status, reply = call("/api/photos/devices/revoke", method="POST",
+                     data=json.dumps({"device_id": device_id}).encode())
+check("-- a second revoke of the same phone finds no such phone (404)",
+      status == 404
+      and reply.get("error") == "no paired phone has that device_id",
+      (status, reply))
 
 print("\n== index persistence ==")
 photo_store.flush()
@@ -1865,11 +2226,11 @@ check("-- and the timeout is still logged",
 
 # The access log prints the whole request line, and a token can still
 # arrive in the URL: /api/events takes it that way, the pairing QR code
-# hands out /?token=..., and an old bookmark or script may carry it on
-# any route. Redacted at the point of printing since 2026-09-09, but it
-# never had a check, so a later edit to log_message could have put the
-# token back in the console unnoticed. The token itself is never echoed
-# by these checks, pass or fail.
+# handed out /?token=... until 2026-11-05, and an old bookmark or script
+# may carry it on any route. Redacted at the point of printing since
+# 2026-09-09, but it never had a check, so a later edit to log_message
+# could have put the token back in the console unnoticed. The token
+# itself is never echoed by these checks, pass or fail.
 def _capture_access_log(request_line):
     handler = object.__new__(api._ApiRequestHandler)
     handler.client_address = ("127.0.0.1", 0)
@@ -1883,7 +2244,7 @@ def _capture_access_log(request_line):
 
 for _request_line, _description in (
         (f"GET /?token={TOKEN} HTTP/1.1",
-         "the dashboard link from the QR code"),
+         "the dashboard link the QR code carried until 2026-11-05"),
         (f"GET /api/status?x=1&token={TOKEN}&y=2 HTTP/1.1",
          "a token in the middle of a query"),
         (f"GET /api/pair.svg?TOKEN={TOKEN} HTTP/1.1",
@@ -1892,6 +2253,21 @@ for _request_line, _description in (
     check(f"the access log does not print the token: {_description}",
           TOKEN not in _logged_output and "<redacted>" in _logged_output,
           _logged_output.replace(TOKEN, "<THE TOKEN>"))
+# Since 2026-11-05 the QR code carries a pairing code after #pair=,
+# which a browser never sends; a hand-made request still can, as can
+# ?code=, and a phone's token belongs in its header, not in a URL.
+_SAMPLE_PAIRING_SECRET = "SamplePairingSecret0123456789"
+for _request_line, _description in (
+        (f"GET /#pair={_SAMPLE_PAIRING_SECRET} HTTP/1.1",
+         "a pairing code after #pair=, as the QR code carries it"),
+        (f"POST /api/pair/claim?code={_SAMPLE_PAIRING_SECRET} HTTP/1.1",
+         "a pairing code as ?code="),
+        (f"GET /api/photos/stats?device_token={_SAMPLE_PAIRING_SECRET} "
+         f"HTTP/1.1", "a phone's token put in the URL")):
+    _logged_output = _capture_access_log(_request_line)
+    check(f"the access log does not print a pairing secret: {_description}",
+          _SAMPLE_PAIRING_SECRET not in _logged_output
+          and "<redacted>" in _logged_output, _logged_output)
 _logged_output = _capture_access_log(f"GET /api/events?token={TOKEN} HTTP/1.1")
 check("the event stream's routine 200 is not access-logged",
       _logged_output == "", _logged_output.replace(TOKEN, "<THE TOKEN>"))
@@ -1951,7 +2327,8 @@ _JSON_BODY_ROUTES = (
     "/api/backup/plan", "/api/backup/start", "/api/photos/have",
     "/api/photos/begin", "/api/config/brightness", "/api/config/spindown",
     "/api/config/share-access", "/api/shares/create", "/api/shares/delete",
-    "/api/droboapps/action", "/api/mock/sign-in")
+    "/api/droboapps/action", "/api/mock/sign-in", "/api/pair/claim",
+    "/api/photos/devices/revoke")
 _bad_body_answers = {}
 for _route in _JSON_BODY_ROUTES:
     for _body in (b"[]", b"1", b"null"):
