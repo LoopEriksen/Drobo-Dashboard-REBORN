@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-test_nasd_dissect.py - self-test for nasd_dissect.py.
+test_nasd_dissect.py - self-test for nasd_dissect.py, and for
+nasd_tap.py's start-up (its port is bound before any capture file is
+made).
 
 There is no real Drobo to capture from in CI, so this builds a small,
 in-memory packet capture with a framing we CHOOSE and therefore KNOW:

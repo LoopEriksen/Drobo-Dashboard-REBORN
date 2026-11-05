@@ -77,7 +77,7 @@ the divider is this project's own record and is not bound by that shape.
   read-only until 2026-07-27. Today `commands.SAFE_WRITES` (Identify) and
   `VETTED_WRITES` (`eCmdSetConfig` only via `config_cmd.set_config`'s
   read-modify-write; `eCmdDroboAppsAction` only via `droboapps_action`) are
-  the only ways bytes that change anything go out, and 53 of the 103 commands
+  the only ways bytes that change anything go out, and 54 of the 103 commands
   are refused outright. Nothing joins either set without the maintainer saying so.
   This device is irreplaceable and there is no vendor recovery tool.
 - **Never expose the Drobo or the agent to the internet.** No port forwarding.

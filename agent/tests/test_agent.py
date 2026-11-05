@@ -1727,7 +1727,8 @@ check("a hang-up on both LED reads is still answered, 200",
 check("-- with no brightness and the reason",
       reply.get("dimming") is None
       and "short header" in reply.get("error", ""), reply)
-check("-- and no demo-mode reading", reply.get("demo_mode") is None, reply)
+check("-- and no demo-mode reading",
+      "demo_mode" in reply and reply["demo_mode"] is None, reply)
 
 print("\n== the update check is dormant, and says so ==")
 # Built now so it exists before it is needed rather than being assembled

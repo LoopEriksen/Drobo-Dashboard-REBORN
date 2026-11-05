@@ -314,8 +314,13 @@ if (Test-Path $runAgentBat) {
 Check "TESTING.md present in the install folder" (Test-Path (Join-Path $InstallRoot 'TESTING.md'))
 # The licence ships with the program since 2026-10-19 (GPL-3.0-or-later):
 # the build copies LICENSE into the staging folder, and this proves it
-# reached the install folder too, which no run had checked before.
-Check "LICENSE present in the install folder" (Test-Path (Join-Path $InstallRoot 'LICENSE'))
+# reached the install folder too, which no run had checked before. A file
+# (not a folder) whose text is the GPL's, so that something else merely
+# named LICENSE does not pass.
+$licencePath = Join-Path $InstallRoot 'LICENSE'
+$licenceIsFile = Test-Path -LiteralPath $licencePath -PathType Leaf
+$licenceIsGpl = $licenceIsFile -and (Select-String -LiteralPath $licencePath -Pattern 'GNU GENERAL PUBLIC LICENSE' -SimpleMatch -Quiet)
+Check "LICENSE present in the install folder" $licenceIsGpl "file: $licenceIsFile, GPL text: $licenceIsGpl"
 
 # The one non-negotiable: never ship a real device token or a config.json
 # that would make every install share the same access token.

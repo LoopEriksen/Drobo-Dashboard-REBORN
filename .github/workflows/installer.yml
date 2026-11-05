@@ -65,7 +65,11 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       msi_name: ${{ steps.version.outputs.msi_name }}
     steps:
+      # No step pushes, so the token is not left in .git/config for the
+      # build scripts that run after this.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -79,6 +83,19 @@ jobs:
           version=$(sed -n 's|.*<Version>\([^<]*\)</Version>.*|\1|p' "$csproj" | head -1)
           if [ -z "$version" ]; then
             echo "::error::No <Version> in $csproj."
+            exit 1
+          fi
+          # Two to four dot-separated numbers, with at most a plain
+          # -suffix or +suffix: a little stricter than
+          # build-installer.ps1, which also takes a single number and
+          # leading zeros. Checked because the arithmetic below evaluates
+          # the number, and every later step names a file after it:
+          # nothing else may reach them. No leading zeros: bash
+          # arithmetic refuses 08 as a bad octal number, so 1.2.08 would
+          # stop this step, and reads 010 as 8, so 1.2.010 would give the
+          # upgrade build the wrong number (1.2.9).
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){1,3}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::The csproj version is not two to four numbers (no leading zeros) with an optional -suffix or +suffix."
             exit 1
           fi
           # A release named for one version must not ship an MSI built as
@@ -110,9 +127,13 @@ jobs:
 
       - name: Build the release MSI (version from the csproj)
         shell: bash
+        # Step outputs reach the shell as environment variables, never as
+        # ${{ }} expressions pasted into the script.
+        env:
+          MSI_NAME: ${{ steps.version.outputs.msi_name }}
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1
-          msi="windows/dist/${{ steps.version.outputs.msi_name }}"
+          msi="windows/dist/$MSI_NAME"
           if [ ! -f "$msi" ]; then
             echo "::error::No MSI at $msi. build-installer.ps1 fell back to its zipped PowerShell installer, so WiX did not build; see its output above."
             exit 1
@@ -120,9 +141,12 @@ jobs:
 
       - name: Build the throwaway upgrade MSI into its own folder
         shell: bash
+        env:
+          UPGRADE_VERSION: ${{ steps.version.outputs.upgrade_version }}
+          UPGRADE_MSI_NAME: ${{ steps.version.outputs.upgrade_msi_name }}
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1 -Version "${{ steps.version.outputs.upgrade_version }}"
-          msi="windows/dist/${{ steps.version.outputs.upgrade_msi_name }}"
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1 -Version "$UPGRADE_VERSION"
+          msi="windows/dist/$UPGRADE_MSI_NAME"
           if [ ! -f "$msi" ]; then
             echo "::error::No upgrade MSI at $msi; see the build output above."
             exit 1
@@ -134,14 +158,17 @@ jobs:
 
       - name: Run the lifecycle test (install, launch, uninstall, upgrade)
         shell: bash
+        env:
+          MSI_NAME: ${{ steps.version.outputs.msi_name }}
+          UPGRADE_MSI_NAME: ${{ steps.version.outputs.upgrade_msi_name }}
         run: |
           log=windows/dist/installer-test.log
           rc=0
           # To a file, not through tee, so the exit code read here is the
           # test's own, as in tests.yml.
           powershell -NoProfile -ExecutionPolicy Bypass -File windows/test-installer.ps1 \
-            -MsiPath "windows/dist/${{ steps.version.outputs.msi_name }}" \
-            -UpgradeMsiPath "windows/dist/upgrade-test/${{ steps.version.outputs.upgrade_msi_name }}" \
+            -MsiPath "windows/dist/$MSI_NAME" \
+            -UpgradeMsiPath "windows/dist/upgrade-test/$UPGRADE_MSI_NAME" \
             > "$log" 2>&1 || rc=$?
           cat "$log"
 
@@ -176,9 +203,11 @@ jobs:
 
       - name: SHA-256 of the release MSI
         shell: bash
+        env:
+          MSI_NAME: ${{ steps.version.outputs.msi_name }}
         run: |
           cd windows/dist
-          msi="${{ steps.version.outputs.msi_name }}"
+          msi="$MSI_NAME"
           # The format of 1.1.0's SHA256SUMS.txt: the hash, two spaces, the
           # file name, so `sha256sum -c SHA256SUMS.txt` checks a download.
           # Written out by hand because Git Bash's sha256sum reads in binary
@@ -227,7 +256,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh is given the token through GH_TOKEN below; git needs none, so
+      # the token that can write is not left in .git/config.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@v4
         with:
@@ -241,6 +274,13 @@ jobs:
           VERSION: ${{ needs.msi.outputs.version }}
           MSI_NAME: ${{ needs.msi.outputs.msi_name }}
         run: |
+          # The msi job already stops on a tag that disagrees with the
+          # csproj, so this cannot fail today; it is checked again here
+          # because this is the one job that can write to the repository.
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not v$VERSION, the csproj version."
+            exit 1
+          fi
           cd release
           # The file attached is the file that was hashed and tested.
           sha256sum -c SHA256SUMS.txt

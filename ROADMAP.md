@@ -814,6 +814,16 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
   not as a warning (plausible; depends on whether a populated bay can
   report 0). `Capacity.protection_bytes` is never filled from a real 5N,
   so both apps show a measured-looking 0 B (plausible; may be a known gap).
+- XML replies (found 2026-11-05, reviewing the LED and DroboSync hang-up
+  fix): a reply whose XML declaration names an encoding Python does not
+  know (`encoding="bogus"`) makes ElementTree raise `LookupError`, not
+  `ParseError`, so it passes the SDK's twelve `except ParseError` sites.
+  `droboapps.parse_dimming`, `parse_demo_mode` and
+  `drobosync.parse_sync_reply` let it through (confirmed), and it is
+  neither `ConfigError` nor `OSError`, so `/api/leds`, `/api/drobosync`
+  and other on-demand routes drop the connection instead of answering.
+  Only a broken or hostile peer would send one, and the monitor's poll
+  loop catches every exception, so polling survives.
 
 *Agent*
 
@@ -832,9 +842,20 @@ a cause shared a commit), with a test that failed before the fix wherever
 a test was possible; what changed is in `CHANGELOG.md` under Unreleased.
 No tool contacts a Drobo where it did not before, `sweep_last_six.py
 --help` now contacts none, and no byte sent on an ordinary run changed.
-The one intended difference is that fix's own: `sweep_last_six.py
---timeout N HOST` logs in with HOST's own serial, not the configured
-host's, and sends nothing to a host whose greeting gives none. The icon
+The intended differences are that fix's own: two runs of
+`sweep_last_six.py --timeout N HOST` send different bytes, measured on
+loopback fakes. With no usable address in `agent/config.json` (none, an
+empty one, or the shipped default `auto`) it used to take an empty
+serial, which the SDK refuses before sending, so it opened six
+connections and sent nothing; it now logs in with HOST's own serial and
+sends all six commands (ids 58, 67, 75, 79, 48 and 26: ModeSense,
+CacheBattery, DoPoll, AuthenticateUser, GetUpdate and Identify, each a
+236-byte login and a 96-byte command, 332 bytes for a real Drobo's
+15-character serial), as the tool was always meant to. With
+`agent/config.json` naming a different Drobo it used to read that
+Drobo's greeting and log in to HOST with that Drobo's serial, not
+HOST's; it now contacts only HOST, with HOST's own serial. (This
+paragraph described these wrongly until 2026-11-05.) The icon
 claim was corrected in `generate_icon.py`'s docstring; the icons were not
 regenerated.
 

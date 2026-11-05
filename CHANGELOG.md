@@ -21,10 +21,18 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   `SHA256SUMS.txt` and the test's log are kept with each run. When a
   `v*` tag matching the app's version is pushed, the same tested MSI and
   its checksum are published as that tag's GitHub Release, with notes
-  from `.github/release-notes.md`. Nothing is signed, by the decision of
-  2026-09-05. The lifecycle test also checks, for the first time, that
-  `LICENSE` reaches the install folder (one more check). Its first runs
-  passed: 72 checks, `LICENSE` included. (2026-11-05)
+  from `.github/release-notes.md`, which say the installer is unsigned
+  on purpose and how to check the download against its SHA-256 (with
+  PowerShell's `Get-FileHash` or `sha256sum`). Nothing is signed, by the
+  decision of 2026-09-05. The version and file names reach the
+  workflow's scripts as environment variables, the version must be
+  numbers without leading zeros (with an optional suffix) before it is
+  used, the release job checks the tag against it a second time, and
+  neither job's checkout keeps its token. The lifecycle test also
+  checks, for the first time, that `LICENSE` reaches the install folder,
+  as a file holding the GPL's text (one more check). Its first runs
+  passed: 72 checks, `LICENSE` included, when that check still asked
+  only that something named `LICENSE` was there. (2026-11-05)
 
 ### Changed
 - **Backup is graded Built, unverified in both records.** The roadmap
@@ -962,14 +970,36 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   with the serial of the host it sends to.** The serial used to be read
   from `sys.argv[1]` by hand before the arguments were parsed, so
   `sweep_last_six.py HOST --help` contacted the Drobo before printing
-  help, an option before the host (`--timeout 1 HOST`) took the serial
-  from `agent/config.json`'s address, or none, while sending to HOST,
-  and calling `main()` from another script raised `NameError`. The
-  arguments are now parsed first, the serial comes from HOST's own
-  greeting, and a Drobo that reports no serial stops the run before any
-  command. For the ordinary `sweep_last_six.py HOST` run the six
-  commands, their order, the guard check and their bytes are unchanged.
-  `tools/test_nasd_sweep.py` gains five checks. (2026-11-02)
+  help, an option before the host took the serial from
+  `agent/config.json`'s address rather than from HOST, and calling
+  `main()` from another script raised `NameError`. The arguments are now
+  parsed first, the serial comes from HOST's own greeting, and a Drobo
+  that reports no serial stops the run before any command. For the
+  ordinary `sweep_last_six.py HOST` run the six commands, their order,
+  the guard check and their bytes are unchanged. Two runs send different
+  bytes, both measured against loopback fakes. With no usable address in
+  `agent/config.json` (none, an empty one, or the shipped default
+  `auto`), `sweep_last_six.py --timeout N HOST` used to take an empty
+  serial, which the SDK refuses before sending, so it opened six
+  connections and sent nothing (with `auto` it first looked up a host of
+  that name to read its greeting on port 5000, and the serial was empty
+  only because that name does not resolve); it now logs in with HOST's
+  own serial and sends all six commands (ids 58, 67, 75, 79, 48 and 26:
+  ModeSense, CacheBattery, DoPoll, AuthenticateUser, GetUpdate and
+  Identify), each a 236-byte login and a 96-byte command, 332 bytes for
+  a real Drobo's 15-character serial, as the tool was always meant to.
+  With `agent/config.json` naming a different Drobo, the same run used
+  to read that Drobo's greeting first and then send HOST six logins
+  carrying the other Drobo's serial (a fake that accepts any login got
+  the six commands with that serial too); it now contacts only HOST and
+  sends HOST's own serial. Runs that sent nothing either way now also
+  open nothing they did not need: `sweep_last_six.py --help`, with or
+  without HOST, no longer reads a greeting (without HOST it read the
+  greeting of the Drobo named in `agent/config.json`, when one was), and
+  a HOST whose greeting gives no serial no longer gets six empty command
+  connections. This entry first described these differences wrongly;
+  corrected 2026-11-05. `tools/test_nasd_sweep.py` gains five checks.
+  (2026-11-02)
 - **`tools/access_codes.py` exits 1 when it has no Drobo address.**
   With no `--host` and no address in `agent/config.json` it said
   "No Drobo address" and exited 0, so a script running it took the

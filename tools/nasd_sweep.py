@@ -565,8 +565,10 @@ def _probe_report_file(report_path: str) -> None:
     """Open the report file for writing once, so a refusal comes now.
 
     A file made only by this probe is removed again, so a run that
-    stops before the report is written leaves nothing behind; a file
-    that was already there is opened for appending and left as it was.
+    stops before the report is written leaves no empty report file; a
+    file that was already there is opened for appending and left as it
+    was. A folder _prepare_report_path made for the report stays, empty,
+    because removing folders is not this probe's job.
     Raises OSError (IsADirectoryError, PermissionError, ...) when the
     path cannot be written.
     """

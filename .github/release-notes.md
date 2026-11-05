@@ -8,7 +8,7 @@
 -->
 **Uninstall 1.0.0 first** if you have it: {VERSION} installs for everyone on the PC into Program Files, and Windows cannot upgrade the old per-user install in place. Your settings and access token are kept. **1.1.0 upgrades in place**: install {VERSION} over it, and your settings and access token are kept.
 
-Download `{MSI_NAME}` and double-click it. It bundles its own Python and .NET 10 runtime, so nothing else needs installing. It is unsigned by choice, so SmartScreen will say Unknown publisher (More info > Run anyway).
+Download `{MSI_NAME}` and double-click it. It bundles its own Python and .NET 10 runtime, so nothing else needs installing. It is unsigned on purpose (this is not a for-profit project, so it is not code-signed), so SmartScreen will say Unknown publisher (More info > Run anyway). To check the download, compare its SHA-256 with the one below: in PowerShell, `Get-FileHash {MSI_NAME}` prints it (SHA-256 is the default; it prints capital letters, and the case does not matter), or with Git Bash run `sha256sum -c SHA256SUMS.txt` beside it.
 
 SHA-256: `{SHA256}`
 

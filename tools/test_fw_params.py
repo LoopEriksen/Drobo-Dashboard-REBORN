@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Offline tests for fw_params.py.
+Offline tests for fw_params.py, and for fwtool.py's rootfs sub-command.
+
+fwtool.py is the unpacker that feeds fw_params.py, so its one
+sub-command that writes a tree is checked here too.
 
 The firmware itself is gitignored (vendor/**), so this suite cannot
 assume the real nasd binary is present. It tests the logic against a

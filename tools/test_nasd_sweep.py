@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-test_nasd_sweep.py - offline self-test for nasd_sweep.py.
-No hardware needed.
+test_nasd_sweep.py - offline self-test for nasd_sweep.py, for
+sweep_remainder.py and sweep_last_six.py, which are built on it, and for
+access_codes.py. No hardware needed.
 
 Two things matter most here, because they are the two safety guarantees
 the task depends on:

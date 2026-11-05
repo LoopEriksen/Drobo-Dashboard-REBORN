@@ -1028,6 +1028,23 @@ runs' MSIs, built from the same payload, differ by 4 KB and in their hash, so
 the SHA-256 that matters is the one the release job publishes beside the
 file it attaches.
 
+The workflow and the release notes went in without a review of their own,
+so they had one the same day. Nothing in them was wrong, but some things
+were tightened. The steps pasted the version and the MSI's name into their
+scripts as `${{ }}` expressions; those now arrive as environment variables,
+and the version read from the csproj must be two to four numbers, with no
+leading zeros (bash arithmetic refuses `08` as a bad octal number, which
+stops the step, and reads `010` as 8, which would give the upgrade build
+1.2.9 where 1.2.11 was meant) and an optional suffix, before anything
+evaluates it or names a file after it. The release job, the one that can
+write, checks again that the tag is `v` and the csproj's version, though
+the build job already stops on any other, and neither job's checkout
+leaves its token in `.git/config`. The notes now say the installer is
+unsigned on purpose, and how to check the download against its SHA-256,
+with PowerShell's `Get-FileHash` as well as `sha256sum`. The lifecycle
+test's `LICENSE` check now wants a file holding the GPL's text, not just
+something of that name.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -1068,9 +1085,15 @@ give the remaining command-channel reads the whole-frame deadline the
 settings reads already have; one elevated install of the
 fallback scripts into the real Program Files;
 record the original Dashboard creating and deleting a user, which user
-management now waits on; decide which of the faults the readability pass
-recorded (2026-10-29) get fixed, starting with the alerts a network blip
-reports as resolved; and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
+management now waits on; decide whether the email backend should check
+the mail server's certificate (found 2026-11-02, while adding port 465)
+and whether a reply naming an XML encoding Python does not know should be
+answered rather than drop the connection (found 2026-11-05, in review),
+the two faults left in the roadmap's list that wait on the maintainer
+(the faults the readability pass recorded on 2026-10-29 were fixed on
+2026-11-02 and the LED and DroboSync hang-up found that day on
+2026-11-05, leaving in the list besides those two only two `esatm`
+readings that need a real device to settle); and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
 redundant pack to degrade for the status codes. The licence is no longer
 open: it was settled as GPL-3.0-or-later on 2026-10-19.
 
