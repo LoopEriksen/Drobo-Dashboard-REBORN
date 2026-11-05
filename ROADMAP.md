@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-11-02_
+_Last updated: 2026-11-05_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded
@@ -817,13 +817,6 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *Agent*
 
-- `api` (found 2026-11-02, while fixing the DroboApps reads):
-  `/api/leds` catches only `SysInfoError` and `OSError` around its two
-  reads, and `/api/drobosync` only `DroboSyncError` and `OSError` around
-  `drobosync.summary`, but the frame reader raises a bare
-  `config_cmd.ConfigError` on a hang-up or a short frame (and
-  `summary`'s own per-read catch lets it through), so such a read drops
-  the connection with no answer. Both routes only read.
 - `notify` (found 2026-11-02, while adding port 465): the email backend
   starts TLS with no SSL context, both `starttls()` and port 465's
   `SMTP_SSL`, and in Python's `smtplib` that means the server's

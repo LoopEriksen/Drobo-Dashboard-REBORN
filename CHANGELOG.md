@@ -726,6 +726,16 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   with no apps. Nothing sent to the Drobo changes, and nothing is ever
   re-sent. `test_droboapps_api.py` gains twelve checks: eight with the
   fix and four more for the two app-list reads. (2026-11-02)
+- **A Drobo that hangs up during the brightness or DroboSync reads is
+  answered.** `/api/leds` and `/api/drobosync` only read, but when the
+  Drobo closed the connection without replying, or sent a short frame,
+  the SDK's error got past both routes and the agent dropped the
+  connection with no answer, which the apps show as the agent being
+  unreachable. `/api/leds` now answers as it does for its other read
+  failures (no brightness reading, with the reason), and
+  `/api/drobosync` answers a 502 with the reason and "not configured".
+  Nothing sent to the Drobo changes. `test_agent.py` gains five checks.
+  (2026-11-05)
 - **A photo-library rescan keeps what it cannot vouch for.** For the
   photo-upload API, which waits for a phone app: a rescan dropped from
   its index any photo it could not open at that moment (a share

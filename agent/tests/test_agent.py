@@ -1703,6 +1703,32 @@ check("the unknown scale is admitted, not papered over",
 check("demo mode is reported", reply.get("demo_mode") is False, reply)
 check("-- with its scale factor", reply.get("scale_factor") == 1, reply)
 
+# A Drobo that hangs up without replying makes the SDK's frame read
+# raise a plain config_cmd.ConfigError, not SysInfoError. Until
+# 2026-11-05 the route caught only SysInfoError and OSError, so such a
+# read dropped the connection with no answer.
+
+
+def _hanging_up_read(*args, **kwargs):
+    raise config_cmd.ConfigError("short header: 0 of 16 bytes")
+
+
+droboapps.get_dimming = _hanging_up_read
+droboapps.get_demo_mode = _hanging_up_read
+try:
+    status, reply = call("/api/leds")
+except Exception as _connection_error:  # noqa: BLE001 - the check
+    status, reply = None, {"error": repr(_connection_error)}
+finally:
+    droboapps.get_dimming, droboapps.get_demo_mode = (
+        _original_get_dimming, _original_get_demo_mode)
+check("a hang-up on both LED reads is still answered, 200",
+      status == 200, (status, reply))
+check("-- with no brightness and the reason",
+      reply.get("dimming") is None
+      and "short header" in reply.get("error", ""), reply)
+check("-- and no demo-mode reading", reply.get("demo_mode") is None, reply)
+
 print("\n== the update check is dormant, and says so ==")
 # Built now so it exists before it is needed rather than being assembled
 # in a hurry on release day. Off by default; the unit tests in
@@ -1797,6 +1823,23 @@ check("-- and does not read as a failure",
 check("the simulator does not fabricate a sync partner",
       all(not r.get("configured") for r in reply.get("reads", {}).values()),
       reply)
+
+# drobosync.summary lets a plain ConfigError (a hang-up or a short
+# frame) through its per-read catch, and until 2026-11-05 the route
+# caught only DroboSyncError and OSError, so the agent dropped the
+# connection with no answer.
+drobosync.summary = _hanging_up_read
+try:
+    status, reply = call("/api/drobosync")
+except Exception as _connection_error:  # noqa: BLE001 - the check
+    status, reply = None, {"error": repr(_connection_error)}
+finally:
+    drobosync.summary = _original_sync_summary
+check("a hang-up on the DroboSync reads is answered, 502 with the reason",
+      status == 502 and "short header" in reply.get("error", ""),
+      (status, reply))
+check("-- and is not reported as a sync partner",
+      reply.get("configured") is False, reply)
 
 print("\n== the console never gets a secret or a traceback it did not earn ==")
 # http.server logs a timeout BEFORE it has read a request line, so the

@@ -154,8 +154,7 @@ from xml.etree import ElementTree
 from . import backup, drivers, notify, qr, updates, webui
 from drobo_nasd import shares as nasd_shares
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
-                        identify as nasd_identify, netcheck, sharewrite,
-                        sysinfo)
+                        identify as nasd_identify, netcheck, sharewrite)
 from drobo_nasd.shareedit import ShareEditError
 from .drivers import MockDriver, SimulatedWriteUnconfirmedError
 from .photos import PhotoStoreError
@@ -1057,18 +1056,23 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         """
         The /api/leds answer from two device reads, each allowed to
         fail on its own.
+
+        ConfigError, not only SysInfoError (its subclass): a Drobo that
+        hangs up without replying makes the SDK's frame read raise a
+        plain ConfigError, and until 2026-11-05 that escaped and the
+        agent dropped the connection with no answer.
         """
         payload: dict = {"scale_note": DIMMING_SCALE_NOTE}
         try:
             payload["dimming"] = droboapps.get_dimming(
                 host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS)
-        except (sysinfo.SysInfoError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             payload["dimming"] = None
             payload["error"] = str(exc)
         try:
             payload.update(droboapps.get_demo_mode(
                 host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS))
-        except (sysinfo.SysInfoError, OSError):
+        except (config_cmd.ConfigError, OSError):
             # Best-effort. A missing demo-mode read must not cost the
             # brightness reading, which is the half anyone came for.
             payload.setdefault("demo_mode", None)
@@ -1135,6 +1139,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         (ROADMAP, 2026-07-28): it needs two units and only a single unit
         is available, so it reports "not configured" honestly rather
         than being absent.
+
+        ConfigError, not only DroboSyncError: summary() lets a plain
+        ConfigError (a hang-up or a short frame) and a bare
+        SysInfoError through its per-read catch, and until 2026-11-05
+        either one dropped the connection with no answer.
         """
         driver = self.monitor.driver
         if getattr(driver, "simulate_config", False):
@@ -1146,7 +1155,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         try:
             return self._send_json(drobosync.summary(
                 host, esa_id, timeout=self.COMMAND_TIMEOUT_SECONDS))
-        except (drobosync.DroboSyncError, OSError) as exc:
+        except (config_cmd.ConfigError, OSError) as exc:
             return self._send_json({"error": str(exc), "configured": False,
                                     "reads": {}}, 502)
 
