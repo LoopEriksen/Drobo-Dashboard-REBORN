@@ -8,6 +8,23 @@ released. Every push to this repository carries this file.
 
 Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
 
+### Added
+- **The installer is built and tested on every change to it, and a
+  release tag publishes it.** A new CI workflow,
+  `.github/workflows/installer.yml`, builds the MSI on a fresh Windows
+  runner (which runs as an administrator, as the per-machine install
+  needs), builds a throwaway copy numbered one higher, and runs
+  `windows/test-installer.ps1` with both: install, launch against the
+  simulated Drobo, uninstall, the no-desktop-shortcut install, and an
+  upgrade that keeps the user's settings. Until now that test had only
+  ever been run by hand, on the maintainer's PC. The MSI, its
+  `SHA256SUMS.txt` and the test's log are kept with each run. When a
+  `v*` tag matching the app's version is pushed, the same tested MSI and
+  its checksum are published as that tag's GitHub Release, with notes
+  from `.github/release-notes.md`. Nothing is signed, by the decision of
+  2026-09-05. The lifecycle test also checks, for the first time, that
+  `LICENSE` reaches the install folder (one more check). (2026-11-05)
+
 ### Changed
 - **Backup is graded Built, unverified in both records.** The roadmap
   called it Working and `docs/capabilities.md` Built, unverified, a split

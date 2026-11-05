@@ -1,0 +1,261 @@
+# CI: build the MSI from a clean checkout and prove it installs, runs,
+# upgrades and uninstalls, on a machine that is not the maintainer's.
+#
+# WHY this exists: windows/test-installer.ps1 is the only proof that the
+# installer works, and until this file it had only ever run by hand, from an
+# administrator shell, on one PC -- 53 checks on 2026-09-18, 64 on
+# 2026-09-21, 70 on 2026-10-08. Every change to the installer since then
+# (the licence joining the payload on 2026-10-19, for one) was shipped on
+# the strength of the build succeeding, which proves the MSI exists, not
+# that it installs. tests.yml builds the app; nothing built the installer.
+#
+# WHY windows-latest is enough for an elevated test: GitHub's Windows
+# runners run every step as an administrator, so the per-machine install
+# and test-installer.ps1's refusal to run without elevation are both
+# satisfied with no workaround. The runner is thrown away afterwards, which
+# is exactly the machine that script wants: nothing installed, nothing to
+# back up, nobody's real install to remove.
+#
+# WHY two builds: the lifecycle test proves an upgrade keeps the user's
+# settings only when it is given a second MSI numbered above the first
+# (-UpgradeMsiPath). The second one is a throwaway, one patch number up,
+# built with -Version into its own folder; it is never uploaded or released.
+# The first is built with no -Version, so it takes the csproj's number and
+# is byte-for-byte the build a release ships.
+#
+# WHY WiX is installed here and pinned: build-installer.ps1 falls back to a
+# zipped PowerShell installer when it cannot find WiX, and still exits 0.
+# On a runner that fallback would make this job prove the wrong installer,
+# so WiX 5.0.2 is installed first (the v5 toolset Package.wxs and the
+# script's pinned 5.0.2 extensions are written for), and the job fails if
+# no .msi comes out.
+#
+# WHY the release is a second job: only it needs to write to the
+# repository, so only it gets `contents: write`, and only on a v* tag whose
+# build has just passed the lifecycle test. It publishes exactly the MSI
+# that was tested, with its SHA-256, and the notes in .github/release-notes.md.
+# Nothing is signed: code signing was decided against on 2026-09-05.
+name: installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    # Path filters do not apply to tag pushes, so a v* tag always builds.
+    tags: ["v*"]
+    paths:
+      - "windows/installer/**"
+      - "windows/build-installer.ps1"
+      - "windows/test-installer.ps1"
+      - "windows/DroboDashboardReborn/**"
+      - ".github/workflows/installer.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  msi:
+    name: Build the MSI and run its lifecycle test
+    runs-on: windows-latest
+    # Two self-contained publishes, two MSIs and three install cycles take
+    # well under half an hour; anything near this is a hung msiexec or a
+    # pause that waited for a key.
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      msi_name: ${{ steps.version.outputs.msi_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Read the version, and check a tag agrees with it
+        id: version
+        shell: bash
+        run: |
+          csproj=windows/DroboDashboardReborn/DroboDashboardReborn.csproj
+          version=$(sed -n 's|.*<Version>\([^<]*\)</Version>.*|\1|p' "$csproj" | head -1)
+          if [ -z "$version" ]; then
+            echo "::error::No <Version> in $csproj."
+            exit 1
+          fi
+          # A release named for one version must not ship an MSI built as
+          # another, so a tag that disagrees with the csproj stops here.
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the csproj version $version."
+            exit 1
+          fi
+          # The upgrade build: the same number with its last part one higher.
+          numeric=${version%%[-+]*}
+          IFS=. read -r -a parts <<< "$numeric"
+          last=$(( ${#parts[@]} - 1 ))
+          parts[$last]=$(( ${parts[$last]} + 1 ))
+          upgrade_version=$(IFS=.; echo "${parts[*]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "upgrade_version=$upgrade_version" >> "$GITHUB_OUTPUT"
+          echo "msi_name=DroboDashboardReborn-$version-win-x64.msi" >> "$GITHUB_OUTPUT"
+          echo "upgrade_msi_name=DroboDashboardReborn-$upgrade_version-win-x64.msi" >> "$GITHUB_OUTPUT"
+          echo "Building $version, and $upgrade_version as the throwaway upgrade."
+
+      - name: Install WiX 5.0.2
+        shell: powershell
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet tool install wix failed' }
+          # Global tools land here; later steps need it on PATH so that
+          # build-installer.ps1 finds `wix` the way it does on a PC.
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE '.dotnet\tools')
+
+      - name: Build the release MSI (version from the csproj)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1
+          msi="windows/dist/${{ steps.version.outputs.msi_name }}"
+          if [ ! -f "$msi" ]; then
+            echo "::error::No MSI at $msi. build-installer.ps1 fell back to its zipped PowerShell installer, so WiX did not build; see its output above."
+            exit 1
+          fi
+
+      - name: Build the throwaway upgrade MSI into its own folder
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1 -Version "${{ steps.version.outputs.upgrade_version }}"
+          msi="windows/dist/${{ steps.version.outputs.upgrade_msi_name }}"
+          if [ ! -f "$msi" ]; then
+            echo "::error::No upgrade MSI at $msi; see the build output above."
+            exit 1
+          fi
+          # Out of windows/dist/ itself, so it can never be mistaken for
+          # the release build by anything that looks there.
+          mkdir -p windows/dist/upgrade-test
+          mv "$msi" windows/dist/upgrade-test/
+
+      - name: Run the lifecycle test (install, launch, uninstall, upgrade)
+        shell: bash
+        run: |
+          log=windows/dist/installer-test.log
+          rc=0
+          # To a file, not through tee, so the exit code read here is the
+          # test's own, as in tests.yml.
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows/test-installer.ps1 \
+            -MsiPath "windows/dist/${{ steps.version.outputs.msi_name }}" \
+            -UpgradeMsiPath "windows/dist/upgrade-test/${{ steps.version.outputs.upgrade_msi_name }}" \
+            > "$log" 2>&1 || rc=$?
+          cat "$log"
+
+          result=$(grep -E '^(ALL PASS \(|[0-9]+ FAILURES \(of )' "$log" | tail -1 | tr -d '\r')
+          licence=$(grep -E '^  (PASS|FAIL)  LICENSE present in the install folder' "$log" | tr -d '\r')
+          echo
+          echo "== summary =="
+          echo "test-installer.ps1: ${result:-no result line}, exit $rc"
+          echo "${licence:-no LICENSE check ran}"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Installer lifecycle: ${result:-no result line}, exit $rc"
+              echo '```'
+              echo "${licence:-no LICENSE check ran}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::The installer lifecycle test failed; see the FAIL lines above."
+            exit 1
+          fi
+          # Same rule as tests.yml: success without the summary line means
+          # the script ended without running its checks.
+          case "$result" in
+            "ALL PASS ("*) ;;
+            *) echo "::error::The lifecycle test exited 0 without reporting ALL PASS."; exit 1 ;;
+          esac
+          case "$licence" in
+            "  PASS  "*) ;;
+            *) echo "::error::The LICENSE check did not pass."; exit 1 ;;
+          esac
+
+      - name: SHA-256 of the release MSI
+        shell: bash
+        run: |
+          cd windows/dist
+          msi="${{ steps.version.outputs.msi_name }}"
+          # The format of 1.1.0's SHA256SUMS.txt: the hash, two spaces, the
+          # file name, so `sha256sum -c SHA256SUMS.txt` checks a download.
+          sha256sum "$msi" > SHA256SUMS.txt
+          size_bytes=$(stat -c %s "$msi")
+          echo "MSI: $msi, $size_bytes bytes ($(( size_bytes / 1048576 )) MB)"
+          cat SHA256SUMS.txt
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### $msi"
+              echo "$size_bytes bytes"
+              echo '```'
+              cat SHA256SUMS.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the MSI and its checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ steps.version.outputs.version }}
+          path: |
+            windows/dist/${{ steps.version.outputs.msi_name }}
+            windows/dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Upload the test log and msiexec logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-test-logs
+          path: |
+            windows/dist/installer-test.log
+            windows/dist/test-logs/
+          if-no-files-found: warn
+
+  release:
+    name: Publish the GitHub Release for this tag
+    needs: msi
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-${{ needs.msi.outputs.version }}
+          path: release
+
+      - name: Create the release with the tested MSI attached
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.msi.outputs.version }}
+          MSI_NAME: ${{ needs.msi.outputs.msi_name }}
+        run: |
+          cd release
+          # The file attached is the file that was hashed and tested.
+          sha256sum -c SHA256SUMS.txt
+          sha256=$(cut -d' ' -f1 SHA256SUMS.txt)
+          changelog_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/CHANGELOG.md"
+          sed -e "s|{VERSION}|$VERSION|g" \
+              -e "s|{MSI_NAME}|$MSI_NAME|g" \
+              -e "s|{SHA256}|$sha256|g" \
+              -e "s|{CHANGELOG_URL}|$changelog_url|g" \
+              ../.github/release-notes.md > notes.md
+          if grep -qE '\{(VERSION|MSI_NAME|SHA256|CHANGELOG_URL)\}' notes.md; then
+            echo "::error::A placeholder in .github/release-notes.md was not filled in."
+            exit 1
+          fi
+          cat notes.md
+          # Not a draft and not a prerelease; an existing release for this
+          # tag makes this fail rather than be overwritten.
+          gh release create "$GITHUB_REF_NAME" "$MSI_NAME" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Drobo Dashboard REBORN $VERSION" \
+            --notes-file notes.md

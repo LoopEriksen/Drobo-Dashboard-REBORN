@@ -998,6 +998,23 @@ day the gate began counting any id or name the table does not hold as
 refused, and its integrity checks stopped being `assert`s that `python -O`
 removes. The refused count went from 53 names to 54.
 
+## The installer, tested off the maintainer's PC (2026-11-05)
+
+**11-05.** Until now the installer's lifecycle test had run only by hand,
+from an administrator shell on the maintainer's PC: 53 checks on 09-18, 64
+on 09-21, 70 on 10-08. Anything that changed the payload afterwards rested
+on the build succeeding, and the licence's line in the build, added on
+10-19, had not been through one. GitHub's Windows runners run as an
+administrator and are thrown away after each run, which is the machine the
+test asks for, so `.github/workflows/installer.yml` now builds the MSI
+there with WiX 5.0.2, builds a throwaway copy one patch number higher, and
+runs the test with both. The test gained one check, that `LICENSE` reaches
+the install folder. The same workflow publishes a release: on a `v*` tag
+that matches the app's version, the MSI it has just tested goes up with
+its SHA-256 and the notes in `.github/release-notes.md`, modelled on
+1.1.0's, from a second job that alone may write to the repository. Nothing
+is signed.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

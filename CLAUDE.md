@@ -170,7 +170,8 @@ windows/build-installer.ps1, windows/test-installer.ps1   build the MSI; prove i
 tools/drobo_probe.py      read-only network discovery
 tools/README.md           every tool by job, and which ones contact a real Drobo
 scripts/                  the PII guard (scanner + pre-commit hook); never move or rename anything in it
-.github/workflows/        CI: guard.yml (secrets + PII), lint.yml (every .py compiles), style.yml (pinned flake8 with .flake8's settings: PEP 8, 79/72 columns, naming), tests.yml (all thirty-one Python suites, and the Windows app + its tests)
+.github/workflows/        CI: guard.yml (secrets + PII), lint.yml (every .py compiles), style.yml (pinned flake8 with .flake8's settings: PEP 8, 79/72 columns, naming), tests.yml (all thirty-one Python suites, and the Windows app + its tests), installer.yml (builds the MSI on a Windows runner, runs the elevated lifecycle test with its upgrade leg, and on a v* tag publishes the tested MSI as the GitHub Release)
+.github/release-notes.md  the body of every GitHub Release; installer.yml fills in the version, MSI name, SHA-256 and changelog link
 docs/captures/            local-only packet captures; README.md is the only tracked file
 ios/                      iPhone app plan only (needs a Mac)
 vendor/                   Drobo's own software, local only; only README.md is tracked

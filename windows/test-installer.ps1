@@ -7,7 +7,7 @@
       1. msiexec /i  (per-machine, quiet, verbose log)
       2. Verify what landed: exe present and full size, agent + SDK source,
          the BUNDLED PYTHON runtime present and able to start, the launcher
-         wired to it, TESTING.md, Start Menu + Desktop + Uninstall shortcuts,
+         wired to it, TESTING.md and LICENSE, Start Menu + Desktop + Uninstall shortcuts,
          an ARP entry with the right version, and -- critically -- no
          config.json and no hardcoded access token shipped.
       3. Run the installed product the way a tester would: the Start Menu
@@ -312,6 +312,10 @@ if (Test-Path $runAgentBat) {
     Check "Run-Agent keeps its window open when the agent stops (pause on error)" ($runAgentText -match 'if errorlevel 1' -and $runAgentText -match '\bpause\b')
 }
 Check "TESTING.md present in the install folder" (Test-Path (Join-Path $InstallRoot 'TESTING.md'))
+# The licence ships with the program since 2026-10-19 (GPL-3.0-or-later):
+# the build copies LICENSE into the staging folder, and this proves it
+# reached the install folder too, which no run had checked before.
+Check "LICENSE present in the install folder" (Test-Path (Join-Path $InstallRoot 'LICENSE'))
 
 # The one non-negotiable: never ship a real device token or a config.json
 # that would make every install share the same access token.
