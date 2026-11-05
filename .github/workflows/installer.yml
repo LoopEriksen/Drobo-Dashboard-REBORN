@@ -43,11 +43,17 @@ on:
     branches: ["**"]
     # Path filters do not apply to tag pushes, so a v* tag always builds.
     tags: ["v*"]
+    # The installer's own files, the app, and the agent and the SDK it
+    # runs on: those two are copied into the payload as well, and the
+    # lifecycle test starts that agent. Until 2026-11-05 a change to
+    # either could reach a tag without this job ever building it.
     paths:
       - "windows/installer/**"
       - "windows/build-installer.ps1"
       - "windows/test-installer.ps1"
       - "windows/DroboDashboardReborn/**"
+      - "agent/**"
+      - "sdk/**"
       - ".github/workflows/installer.yml"
 
 permissions:
