@@ -1015,6 +1015,19 @@ its SHA-256 and the notes in `.github/release-notes.md`, modelled on
 1.1.0's, from a second job that alone may write to the repository. Nothing
 is signed.
 
+It passed on its first run, and on the run after a one-line fix: 72 checks
+against 1.2.0 with 1.2.1 as the upgrade, `LICENSE` in the program folder
+among them. That is two more than 10-08's 70: the licence check, and,
+most likely, the check that the app is still running after launch, which
+the test counts only where Smart App Control is not enforcing (the
+runner does not; a PC that enforces it blocks the unsigned app). The fix
+was the checksum file: Git Bash's `sha256sum` on Windows wrote the name
+as `*name`, binary mode, where 1.1.0's file has two spaces, so the
+workflow now writes the line itself. The MSI is about 68 MB, and the two
+runs' MSIs, built from the same payload, differ by 4 KB and in their hash, so
+the SHA-256 that matters is the one the release job publishes beside the
+file it attaches.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -1044,9 +1057,10 @@ None of these were written down first. Each was learned.
 
 What is built, what is in progress, and what is planned is kept current in
 [`capabilities.md`](capabilities.md). The open items, in the order they are
-worth doing: build 1.2.0's MSI on Windows, run its elevated lifecycle test
-(which also runs the Check for Updates shortcut) and publish it, which is what
-puts everything since 1.1.0 into testers' hands; re-run share create on
+worth doing: date 1.2.0's changelog, merge, and push its `v1.2.0` tag, whose
+installer run builds the MSI, runs the elevated lifecycle test (passed on CI
+on 2026-11-05) and publishes it, which is what puts everything since 1.1.0
+into testers' hands; re-run share create on
 hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
 watching the unit; copy a real Drobo share to an external drive once, which
 backup's grade waits on; start and stop a DroboApp on hardware for the first time;

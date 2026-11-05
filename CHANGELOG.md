@@ -23,7 +23,8 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   its checksum are published as that tag's GitHub Release, with notes
   from `.github/release-notes.md`. Nothing is signed, by the decision of
   2026-09-05. The lifecycle test also checks, for the first time, that
-  `LICENSE` reaches the install folder (one more check). (2026-11-05)
+  `LICENSE` reaches the install folder (one more check). Its first runs
+  passed: 72 checks, `LICENSE` included. (2026-11-05)
 
 ### Changed
 - **Backup is graded Built, unverified in both records.** The roadmap
