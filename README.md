@@ -412,8 +412,8 @@ retired; from 1.1.0 on, releases come from here.
 
 Drobo Dashboard REBORN is free software, licensed under the GNU General
 Public License, version 3 or (at your option) any later version
-(GPL-3.0-or-later). The full text is in [`LICENSE`](LICENSE); from the
-next release, the installer also puts a copy in the program's folder. You
+(GPL-3.0-or-later). The full text is in [`LICENSE`](LICENSE); since
+1.2.0, the installer also puts a copy in the program's folder. You
 may run, study, share and change it; if you distribute it, changed or not,
 you must do so under the same licence and make the source available.
 

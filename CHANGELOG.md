@@ -4,11 +4,66 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
-## Unreleased
+## 1.2.0 -- 2026-11-05
 
-Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
+Everything below has landed since 1.1.0.
+
+**Upgrading from 1.1.0: install 1.2.0 over it.** Both install into Program
+Files for everyone on the PC and share the same upgrade identity, so Windows
+Installer replaces 1.1.0 in place; there is nothing to remove first. Your
+settings and access token are kept: they live in your own profile, not in the
+program folder. **Still on 1.0.0? Uninstall it first,** exactly as for 1.1.0
+(why, under 1.1.0 below).
+
+**If you have scripts of your own that import the SDK, they will need
+changing.** Many public names in `drobo_nasd`, the agent and the tools are
+renamed, first to follow PEP 8 and then by the readability pass, and some
+keyword parameters are renamed too. No old name is kept alongside its new
+one, so a script that uses an old name stops with an `ImportError` or
+`AttributeError` naming it, and a call that passes an old keyword stops with
+a `TypeError` (positional calls are unaffected). Both lists, old name to new,
+are under Changed below: the PEP 8 renames in "Names follow PEP 8 and say
+what they mean", and the readability pass's names and keyword parameters in
+"Readability pass: names with units...". The apps themselves, the agent's
+routes and JSON keys, `config.json` and the command-line options do not
+change, and nothing sent to a Drobo does.
 
 ### Added
+- **A `.flake8` settings file at the top of the repository.** It holds the
+  limits the PEP 8 pass below works to (79 columns for code, 72 for
+  comments and docstrings, exception names ending in `Error`), exempts
+  only the dashboard page's HTML in `agent/drobo_agent/webui.py` from the
+  line limit, and skips the local-only `vendor/` folder, so a plain
+  `python3 -m flake8` checks the same thing the pass was held to.
+  (2026-10-19)
+- **A style check on every push.** A new workflow,
+  `.github/workflows/style.yml`, runs flake8 with the settings in
+  `.flake8` on every push and pull request, so a line over the limits or
+  a name out of PEP 8's style turns the run red instead of piling up
+  until the next pass. It is separate from `lint.yml`, which still
+  compiles every file and installs nothing, and it pins flake8 and each
+  of its plugins to an exact version, so a new upstream release cannot
+  turn it red on a commit that changed nothing. Nothing the software does
+  changes. (2026-10-23)
+- **Kept activity figures show how old they are.** When a fetch of the
+  Drobo's read/write counters fails, the agent keeps serving the last
+  figures, and the command port can stop answering for half an hour. Until
+  now those kept figures looked as fresh as a new reading everywhere they
+  appeared. The agent's performance data (`/api/performance`, and
+  `performance` in `/api/status`) gains `measured_at`, the time the Drobo
+  sent the figures, in Unix seconds, or null before it ever has; no
+  existing key changes. When the figures are more than three minutes old
+  (the agent's two-minute refresh plus a minute's slack), the browser
+  dashboard's Recent activity panel and the Windows app's Status tab say
+  "Last read ... ago" beside them, and the Windows app's saved diagnostics
+  report gives the time under PERFORMANCE. Nothing sent to the Drobo
+  changes, nor how often. `test_drivers.py` gains nine checks for this
+  (54 to 63) and `test_agent.py` one (271 to 272). CI's Windows job
+  compiles the Windows changes with the rest of the app on every push, and
+  on 2026-11-05 they were first built into an MSI, installed and launched
+  against the simulated Drobo by the installer workflow's elevated
+  lifecycle test (72 checks, all passing); no check looks at the age line
+  itself. (2026-10-19)
 - **The installer is built and tested on every change to it or to what
   it carries, and a release tag publishes it.** A new CI workflow,
   `.github/workflows/installer.yml`, builds the MSI on a fresh Windows
@@ -34,429 +89,124 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   checks, for the first time, that `LICENSE` reaches the install folder,
   as a file holding the GPL's text (one more check). Its first runs
   passed: 72 checks, `LICENSE` included, when that check still asked
-  only that something named `LICENSE` was there. (2026-11-05)
-
-### Changed
-- **Backup is graded Built, unverified in both records.** The roadmap
-  called it Working and `docs/capabilities.md` Built, unverified, a split
-  flagged on 2026-09-26. Its test suite copies real files between ordinary
-  folders on every push (on the Windows runner, where robocopy exists), but
-  no record shows it ever copying from a real Drobo share, and Working means
-  working against the real device. Nothing the software does changes; one
-  copy of a real share to an external drive moves it. (2026-10-29)
-- **The readability rules the code follows are written down.** `CLAUDE.md`
-  gains a section of its own: names that say what they hold, units
-  included; guard clauses and at most two levels of nesting; functions of
-  about 40 lines; docstrings that say why; and the names that never change
-  because something outside the code reads them (routes, JSON and config
-  keys, CLI flags, environment variables, file and registry names).
-  Nothing the software does changes. (2026-10-29)
-- **Write-path parameters name the thing they set.** For testers who call
-  the SDK or the simulated driver from their own scripts by keyword, these
-  parameter names changed (positional calls are unaffected):
-  `droboapps.set_dimming(value)` -> `set_dimming(brightness)`;
-  `sharewrite.create_share(name)` -> `create_share(share_name)`;
-  `sharewrite.delete_share(name)` -> `delete_share(share_name)`;
-  `MockDriver.set_dimming(value)` -> `set_dimming(brightness)`;
-  `MockDriver.set_share_access(share, user, access)` ->
-  `set_share_access(share_name, username, access_code)`. A rename only:
-  every check, its order, every error message and every byte sent to the
-  Drobo are as they were. (2026-10-29)
-- **Readability pass: names with units, guard clauses, shallow nesting, short functions; no behaviour changes.**
-  The code is now written to the rules in `CLAUDE.md`, one module per
-  commit, with nothing the software does changed. Each commit was held
-  to the 31 Python suites with the same counts, the same bytes sent to
-  a simulated Drobo, the same dashboard and QR fingerprints, the same
-  JSON keys on every read-only route and the same `--help` from every
-  program. Faults found along the way were recorded, not fixed: they are
-  listed under Phase 6 in `ROADMAP.md`. For testers whose own scripts
-  use them, every public name and keyword parameter that changed, here
-  and in the earlier entries above, in one place. Renamed names:
-  `api.serve` -> `build_http_server`; `Monitor.history_dicts` ->
-  `history_points`; `Drobo5NDriver.timeout` -> `timeout_seconds` and
-  `try_sweep` -> `discovery_sweep_enabled`; `BackupJob.plan` ->
-  `backup_plan`; `extract_commands.extract` -> `extract_from_capture`
-  and `DEFAULT_PORT` -> `DEFAULT_COMMAND_PORT`; `fw_params.analyse` ->
-  `analyse_command`; `drobo_probe.SWEEP_RANGE` -> `SWEEP_PORT_RANGE`
-  and `PROBES` -> `FINGERPRINT_PROBES`; `fwtool.Section`'s `offset`,
-  `size`, `build` and `kind` -> `absolute_offset`, `size_bytes`,
-  `build_number` and `payload_format`; `nasd_tap.Tap` -> `TrafficTap`;
-  `generate_icon.ICON_SIZES`, `PLATE` and `WORDMARK` ->
-  `ICON_SIZES_PIXELS`, `PLATE_COLOUR` and `WORDMARK_COLOUR`. Renamed
-  keyword parameters (positional calls are unaffected):
-  `droboapps.set_dimming(value)` and `MockDriver.set_dimming(value)` ->
-  `brightness`; `sharewrite.create_share(name)` and
-  `delete_share(name)` -> `share_name`;
-  `MockDriver.set_share_access(share, user, access)` ->
-  `(share_name, username, access_code)`;
-  `config_cmd.set_config_raw(edit)` -> `edit_section`;
-  `commands.is_safe_write(name)` -> `command_name`;
-  `framing.decode_frame(data)` -> `buffered_bytes` and
-  `FrameAssembler.feed(data)` -> `received_bytes`;
-  `discovery.parse_mdns_response(data)` -> `packet`;
-  `Monitor.history_points(limit)` -> `max_points`;
-  `PhotoStore.ingest(data)` -> `file_bytes`;
-  `drobo_probe.is_tcp_port_open(timeout)` and
-  `fingerprint_port(timeout)` -> `timeout_seconds`,
-  `mdns_discover(wait)` -> `wait_seconds`, `port_sweep(workers)` and
-  `scan_subnet(workers)` -> `worker_count`, `hexdump(limit)` ->
-  `max_bytes`; `fw_params.analyse_command`, `extract_strings` and
-  `validate`'s `blob` -> `binary_bytes`;
-  `dashboard_strings.strings_near(span)` -> `neighbour_count`;
-  `nasd_dissect.read_pcap_classic(data)` and `read_pcapng(data)` ->
-  `capture_bytes`, and `analyse_direction(label, report, max_preview)`
-  -> `(direction_label, stream_report, max_preview_bytes)`;
-  `nasd_probe.read_available(first_timeout, idle_timeout)` ->
-  `(first_timeout_seconds, idle_timeout_seconds)`,
-  `connect_to_status_port(timeout)` -> `timeout_seconds`,
-  `classify_response(data)` -> `reply_bytes` and `hexdump(limit)` ->
-  `limit_bytes`; `nasd_tap.TrafficTap(bin_path)` ->
-  `client_bytes_path`, `handle_connection(client)` -> `client_socket`
-  and `hexdump(limit)` -> `limit_bytes`; `generate_icon.build_shapes`
-  and `render`'s `size` -> `size_pixels`, `word_width` and
-  `word_predicate`'s `dot_size` -> `dot_size_pixels`. `set_spindown`
-  keeps its `delay`. The sub-lines below say what changed in each
-  module. (2026-10-29)
-  - Private helpers that scripts of your own may reach into:
-    `eventlog._command_xml` -> `_build_request_payload`. A rename only:
-    every byte sent to the Drobo is unchanged. (2026-10-29)
-  - Agent names that say what they return or hold, for testers who run
-    the agent from scripts of their own: `api.serve` ->
-    `api.build_http_server` (it builds the server and leaves starting it
-    to the caller, as before); `monitor.Monitor.history_dicts` ->
-    `history_points` (the `/api/history` route, its `?limit=` query
-    and the `points` key it answers with stay);
-    `photos.PhotoStore.ingest(data)` -> `ingest(file_bytes)` (positional
-    calls are unaffected). A rename only: every route, JSON key and
-    message is as it was. (2026-10-29)
-  - Capture and firmware tools name what they process, for testers who
-    import them from scripts of their own: `extract_commands.extract` ->
-    `extract_from_capture`; `fw_params.analyse` -> `analyse_command`.
-    The command lines, their flags and their `--json` output are
-    unchanged, as are the `port=` and `window=` parameters. (2026-10-29)
-  - `sdk/drobo_nasd/config_cmd.py`: the write path reads as its steps,
-    each a named helper; for testers who call it by keyword,
-    `set_config_raw(edit)` -> `set_config_raw(edit_section)`
-    (positional calls are unaffected). Every except clause, its order,
-    the read-back that decides an unacknowledged write, and every byte
-    sent to the Drobo are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/commands.py`: the gate helpers say what they check
-    and why; for testers who call it by keyword, `is_safe_write(name)`
-    -> `is_safe_write(command_name)`. The write-gate sets, their
-    members and every refusal are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/envelope.py`: building and parsing a request read
-    as named steps. Private helpers only; every byte and every XML
-    element sent to the Drobo is unchanged. (2026-10-29)
-  - `sdk/drobo_nasd/framing.py`: frame decoding names its lengths and
-    offsets; for testers who call it by keyword, `decode_frame(data)`
-    -> `decode_frame(buffered_bytes)` and `FrameAssembler.feed(data)` ->
-    `feed(received_bytes)` (positional calls are unaffected).
-    (2026-10-29)
-  - `sdk/drobo_nasd/client.py`: the speculative client says why its
-    request and state machine work the way they do, in docstrings and
-    local names only. (2026-10-29)
-  - `sdk/drobo_nasd/sharewrite.py`: each share write reads as its
-    steps, and each refusal is a named check. Private helpers and local
-    names only; every check, every except clause and its order, the
-    read-back that decides an unacknowledged write, and every byte sent
-    to the Drobo are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/shareedit.py`: `set_user_access` and
-    `describe_change` read as their steps. Private helpers and local
-    names only; every check and message is as it was, and the module
-    still sends nothing to the Drobo. (2026-10-29)
-  - `sdk/drobo_nasd/shares.py`: the account and share walks are
-    flat, and the access advice and link report are built by named
-    helpers. Every user-visible string, JSON key and key order is as
-    it was. (2026-10-29)
-  - `sdk/drobo_nasd/droboapps.py`: the readers share one parse,
-    and each writer reads as its checks. Private helpers and local
-    names only (`set_spindown` keeps its `delay` parameter); every
-    check, its order, every message, the read-backs and every byte
-    sent to the Drobo are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/drobosync.py`: `parse_sync_reply` and
-    `summary` read as their steps. The reads happen in the same order
-    with the same skips, and their keys are unchanged. (2026-10-29)
-  - `sdk/drobo_nasd/identify.py`: the command line reads as its
-    steps and the result parse is its own helper; a docstring that
-    contradicted the no-retry policy now matches it. The request
-    bytes, every printed line, exit code and the `--help` text are as
-    they were. (2026-10-29)
-  - `sdk/drobo_nasd/esatm.py`: the status-greeting parser reads as
-    its parts (device info, drives, capacity, pack health), in the
-    same order as before. Private helpers and local names only; the
-    timeout message and every field read are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/sysinfo.py`: one login helper and one
-    result-element reader replace two copies of each. The same frames
-    go out in the same order, the same errors are raised in the same
-    order, and the socket still closes however the call ends.
-    (2026-10-29)
-  - `sdk/drobo_nasd/eventlog.py`: the reply's refusals read as named
-    steps, and the login goes through sysinfo's shared helper. Every
-    refusal, its order and message, and every byte sent to the Drobo
-    are as they were. (2026-10-29)
-  - `sdk/drobo_nasd/discovery.py`: browsing, verifying and resolving
-    read as named steps; for testers who call it by keyword,
-    `parse_mdns_response(data)` -> `parse_mdns_response(packet)`
-    (positional calls are unaffected). Every message, the order in
-    which candidates are tried and the identity check are as they
-    were. (2026-10-29)
-  - `sdk/drobo_nasd/firmware.py`: the withdrawn-build advisory is
-    built by its own helper; its headline, detail text and JSON keys
-    are byte-identical. (2026-10-29)
-  - `sdk/drobo_nasd/models.py`: the shapes say why they look the way
-    they do, and units the field names cannot carry are comments.
-    Every field keeps its name and order, so the agent's JSON keys are
-    unchanged. (2026-10-29)
-  - `sdk/drobo_nasd/netcheck.py`: the interface parser reads one line
-    at a time through named helpers, taking the same decisions in the
-    same order. Private helpers and local names only; every
-    user-visible text is byte-identical. (2026-10-29)
-  - `agent/drobo_agent/drivers.py`: the long methods read as their
-    steps, and the bare numbers are named constants; for testers whose
-    scripts read the real driver's attributes,
-    `Drobo5NDriver.timeout` -> `timeout_seconds` and `try_sweep` ->
-    `discovery_sweep_enabled`. The config keys `timeout` and
-    `discovery_sweep`, every JSON key and message, the simulator's
-    random draws and their order, and every call into the SDK are as
-    they were. (2026-10-29)
-  - `agent/drobo_agent/api.py`: the routes read as a table, each
-    answered by a named method, and the long handlers read as their
-    steps; the bare numbers are named constants. Every route, JSON key,
-    header, message and status is as it was, and the config-write
-    path's order of refusals is unchanged. (2026-10-29)
-  - `agent/drobo_agent/models.py`: `Alert.active` and `Alert.to_dict`
-    say why "active" is derived from `cleared_at` and added to the JSON
-    by hand. Docstrings only; no code changed. (2026-10-29)
-  - `agent/drobo_agent/monitor.py`: each alert rule is its own function,
-    called in the same order, and the fire/resend/clear loop is its own
-    step; for testers who call it by keyword,
-    `Monitor.history_points(limit)` -> `history_points(max_points)`
-    (positional calls, the `/api/history` route and its `?limit=` query
-    are unaffected). Every alert key, message and the order
-    notifications go out in are as they were. (2026-10-29)
-  - `agent/drobo_agent/config.py`: reading the file is its own step, and
-    the docstrings say why the merge is deep and the save atomic. Both
-    error messages, their order, the first-run token and every config
-    key are as they were. (2026-10-29)
-  - `agent/drobo_agent/notify.py`: one builder per notification backend
-    and one SMTP path, with STARTTLS, login and send in the same order
-    as before. Every skip message, timeout and config key is as it was.
-    (2026-10-29)
-  - `agent/drobo_agent/backup.py`: the destination refusals and the copy
-    are named steps; for testers whose scripts read it, `BackupJob.plan`
-    -> `backup_plan`, which no longer shadows the module's `plan()`
-    function. Every refusal, its wording and order, the robocopy command
-    and the JSON keys are as they were. (2026-10-29)
-  - `agent/drobo_agent/photos.py`: the upload steps the single-shot and
-    chunked paths share are named helpers, and the limits are named with
-    their units. Private helpers and local names only; every check,
-    refusal message, its order, the lock and every JSON key are as they
-    were. (2026-10-29)
-  - `agent/drobo_agent/qr.py`: each stage of the QR encoder is its own
-    named step, with the specification's reasons in the docstrings.
-    Private helpers and local names only; every matrix and SVG it draws
-    is identical. (2026-10-29)
-  - `agent/drobo_agent/updates.py`: `check()` and `main()` read as named
-    steps, and a helper that only checks a checksum's shape is no longer
-    called "verified". Every message, exit status and the order of the
-    checks are as they were, and nothing is downloaded or installed.
-    (2026-10-29)
-  - `agent/run_agent.py`: `main()` reads as its start-up steps, and says
-    why `--once` connects by itself and why shutdown runs on its own
-    thread. The flags, `--help` text, banner lines and shutdown order
-    are as they were. (2026-10-29)
-  - `agent/check_updates.py`: `main()` says why any failure to run
-    becomes exit status 3 rather than Python's 1. Docstring only; no
-    code changed. (2026-10-29)
-  - `tools/nasd_dissect.py`: the capture readers and reports are split
-    into named steps, and the header-shape search is one walk in the
-    same order as before, so a tie still keeps the same shape. Private
-    helpers and local names only; the printed output, the `-o` JSON
-    report and its keys, and the command line are as they were.
-    (2026-10-29)
-  - `tools/extract_commands.py`: one helper per printed section and per
-    scan; for testers who import it, `DEFAULT_PORT` ->
-    `DEFAULT_COMMAND_PORT` (still 5001). The printed report, the
-    `--json` file, the exit codes, the command line and the `port=`
-    keyword are as they were. (2026-10-29)
-  - `tools/drobo_probe.py`: one runner per sub-command, and the
-    timeouts and sizes are named with their units; for testers who
-    import it, `SWEEP_RANGE` -> `SWEEP_PORT_RANGE` and `PROBES` ->
-    `FINGERPRINT_PROBES`. Every sub-command prints the same lines,
-    sends the same bytes and writes the same report, and the command
-    line and `--help` are unchanged. (2026-10-29)
-  - `tools/fwtool.py`: the JFFS2 rebuild reads as its steps; for testers
-    who import it, `Section`'s fields `offset`, `size`, `build` and
-    `kind` -> `absolute_offset`, `size_bytes`, `build_number` and
-    `payload_format`. Every sub-command prints the same lines and
-    writes the same files, and the command line and `--help` are
-    unchanged. (2026-10-29)
-  - `tools/fw_params.py`: `main` reads as three steps and the binary is
-    named as bytes. The listing, the `--validate` report, the exit
-    codes, the `--min` and `--window` flags, the `window=` keyword and
-    the returned keys are as they were. (2026-10-29)
-  - `tools/dashboard_strings.py`: one function per report, and the
-    credential regexes are named for what they match (same patterns
-    and flags). Every report prints the same lines and returns the
-    same exit code, and the command line is unchanged. (2026-10-29)
-  - `tools/nasd_probe.py`: one helper per attempt, and the timeouts are
-    named in seconds; for testers who import it, `read_available`'s
-    `first_timeout` and `idle_timeout` -> `first_timeout_seconds` and
-    `idle_timeout_seconds`, `connect_to_status_port(timeout)` ->
-    `timeout_seconds` and `hexdump(limit)` -> `limit_bytes` (positional
-    calls are unaffected). The bytes sent, the order of attempts, the
-    console output, the JSON report and the command line are as they
-    were. (2026-10-29)
-  - `tools/nasd_sweep.py`: the login, the command and the reply are each
-    their own helper. Every except clause and its order, the bytes sent,
-    every record and its keys (`elapsed_s` included), the console output,
-    the report and the command line are as they were, and the keyword
-    parameters other tools pass keep their names. (2026-10-29)
-  - `tools/nasd_tap.py`: `main` reads as its steps, and the tap's file
-    writing and console printing are apart; for testers who import it,
-    `Tap` -> `TrafficTap` and its `bin_path` -> `client_bytes_path`. The
-    relayed bytes, both capture files and their JSONL keys, the console
-    output, the exit codes and the command line are as they were.
-    (2026-10-29)
-  - `tools/sweep_last_six.py`: one helper per step, and the port and
-    waits are named with their units. The commands sent, their order,
-    the health checks between them, the console output, the report and
-    the exit codes are as they were. (2026-10-29)
-  - `tools/sweep_remainder.py`: `main` reads as its steps, and its
-    timeouts and pauses are named in seconds. The safety check, the
-    commands sent and their order, the console output, the report and
-    the exit codes are as they were. (2026-10-29)
-  - `tools/access_codes.py`: one function per step, and the snapshot's
-    `share<TAB>user` key is explained. The reads from the device, the
-    `before.json` snapshot and its keys, the console output, the exit
-    codes and the command line are as they were. (2026-10-29)
-  - `scripts/check_versions.py`: the version map is named, and the
-    per-file read and the four-part comparison are their own steps. The
-    files read, the table, the problem sentences and the exit codes are
-    as they were. (2026-10-29)
-  - `scripts/scan_for_pii.py`: the six-deep scan loop and the long
-    `main` are split into named steps. Every label, note, message, exit
-    code, command-line option and the order of the accept rules are as
-    they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/Assets/generate_icon.py`: the shape
-    builder and the renderer are split into named steps, and sizes are
-    named in pixels. Both icons it draws come out byte-identical; the
-    committed `.ico` files were not regenerated. (2026-10-29)
-  - `windows/DroboDashboardReborn/AlertNotifier.cs`: the remembered
-    alert keys and the first-pass flag are named for what they hold.
-    Private names only; every category id, key prefix and the rules
-    that decide which alerts notify are as they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/AlertRow.cs`: each alert-row property
-    says what it is for. Doc comments only; no property is renamed here
-    (`SortTime` -> `SortTimeUnixSeconds` came with the app's earlier
-    names commit, and nothing binds to it). (2026-10-29)
-  - `windows/DroboDashboardReborn/App.xaml.cs`: start-up reads as its
-    steps, reading `--agent-config` and installing the last-chance
-    error handlers in the same order as before. The flag, the message
-    and its caption are as they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/ConnectShareDialog.xaml.cs`: the
-    dialog's set-up and its Connect button read as named steps, with
-    early returns in place of nested branches. Every message, the drive
-    letters offered and the order of connect, save and close are as
-    they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/CredentialStore.cs`: the unmanaged
-    pointers are named as pointers, and zeroing and freeing them are
-    their own helpers, called in the same order. Every message and the
-    Windows API calls are as they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/DeleteShareDialog.xaml.cs`: the
-    delete callback and the typed-name check are named for what they
-    do. The route, its `confirm_name` key, the comparison and every
-    string the dialog shows are as they were. (2026-10-29)
-  - `windows/DroboDashboardReborn/DiagnosticsChoiceDialog.xaml.cs`: the
-    choice and why it defaults to Cancelled are documented. Doc
-    comments only. (2026-10-29)
-  - `windows/DroboDashboardReborn/DiagnosticsReport.cs`: one helper per
-    report section, in the same order as before. Every heading, label,
-    format and JSON key read is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/DiscoveredDeviceRow.cs`: each
-    picker-row property says what it holds and where it comes from. Doc
-    comments only; no property is renamed. (2026-10-29)
-  - `windows/DroboDashboardReborn/DriveRow.cs`: each bay-row property
-    says what it shows and what an empty bay gets. Doc comments only;
-    no property is renamed. (2026-10-29)
-  - `windows/DroboDashboardReborn/DroboAppRow.cs`: each DroboApp-row
-    property says what it is for, including why an app's name is never
-    reworded. Doc comments only; no property is renamed. (2026-10-29)
-  - `windows/DroboDashboardReborn/DroboSettings.cs`: one reader per
-    `settings.json` section, called in the same order inside the same
-    error handling. Every settings key and value is as it was.
-    (2026-10-29)
-  - `windows/DroboDashboardReborn/EventLogRow.cs`: the chip fields say
-    what they hold and why the label falls back to "LOG". Comments
-    only; no property is renamed. (2026-10-29)
-  - `windows/DroboDashboardReborn/JsonHelpers.cs`: the getters say why
-    a missing or mistyped key falls back instead of throwing; locals
-    spelled out. Every formatted size is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/MarkdownGuide.cs`: one helper per kind
-    of block, tried in the same order as before. The HTML written for
-    the Shares guide is unchanged. (2026-10-29)
-  - `windows/DroboDashboardReborn/NewShareDialog.xaml.cs`: names say
-    what they return or hold, and the 27-character limit is named.
-    Every message is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/NotificationCategoryRow.cs`: `Id`
-    says it is the key saved in `settings.json`; bound properties keep
-    their names. (2026-10-29)
-  - `windows/DroboDashboardReborn/ShareBrowserWindow.xaml.cs`: the
-    folder read and its failures get a method of their own, called at
-    the same point. Every message is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/ShareRow.cs`: each plain field says
-    what it holds. Comments only; no property is renamed here
-    (`TimeMachine` -> `IsTimeMachine` came with the app's earlier names
-    commit, and nothing binds to it). (2026-10-29)
-  - `windows/DroboDashboardReborn/SmbConnections.cs`: the connection
-    enumeration is split into named steps with the same cleanup on
-    every path, and its buffer size is named in bytes. (2026-10-29)
-  - `windows/DroboDashboardReborn/SplashWindow.xaml.cs`: `Done` ->
-    `Dismiss` and `Report` -> `ReportStatus`, callers moved with them.
-    (2026-10-29)
-  - `windows/DroboDashboardReborn/TrayIconManager.cs`: the tooltip,
-    balloon and timeout limits are named constants with their reasons;
-    every value is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/WriteOutcome.cs`: the two verdicts a
-    write's answer is weighed by have names. The outcome strings and
-    their mapping are unchanged. (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: fields, brushes,
-    helpers and poll intervals say what they are. Every JSON key, route,
-    user-visible string and XAML name is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: every doc
-    comment sits on the member it describes. Comments only.
-    (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the start-up,
-    device picker and settings methods are split into named helpers
-    called at the same points. (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Status,
-    Alerts and Shares renderers are split into named helpers; every
-    control is written in the same order. (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Settings and
-    Tools tab handlers are split into named helpers. Every JSON key,
-    string and message is as it was. (2026-10-29)
-  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: no method nests
-    more than two levels deep. (2026-10-29)
-- **The command gate refuses anything it does not know.** The SDK's
-  check for a command that must never be sent answered "not refused" for
-  an id the firmware's table does not hold (such as 200 or -1) and for a
-  misspelt name, and the older experimental client would have framed and
-  sent such an id. Now an unknown id, an unknown name, or a value that is
-  neither a name nor a plain number counts as refused, and that client asks
-  the same check before anything is sent. Stricter only: every command the
-  software sends is in the table, so nothing it sends today changes.
-  (2026-11-02)
-- **`eCmdGetNASUsernamePassword` is refused.** By its name this command
-  returns share usernames and passwords. It was sent once, by the second
-  command sweep on 2026-07-27, and answered empty, but one empty answer on
-  one firmware is no promise for another, and nothing here needs what it
-  would return. It is now in the list of commands that are never sent, in a
-  group of its own (it is a read, not a write), which takes that list from
-  53 names to 54. `tools/sweep_remainder.py` no longer lists it (its own
-  safety check would otherwise stop the sweep) and records why. Nothing the
-  software sends otherwise changes. (2026-11-02)
+  only that something named `LICENSE` was there. The run recorded for
+  this release, on 2026-11-05 against commit 1483daf on GitHub's
+  `windows-latest` runner (elevated), with the upgrade leg from 1.2.0 to
+  a throwaway 1.2.1, passed all 72 checks, the GPL-text `LICENSE` check
+  included, and exited 0. (2026-11-05)
 
 ### Fixed
+- **The Dashboard string miner hides every key it promised to hide.**
+  `tools/dashboard_strings.py` reads the original Dashboard's program
+  files, which carry a hardcoded key for Drobo's dead API Gateway, and its
+  notes (and `docs/command-surface.md`) said credentials were redacted from
+  its output on sight. Two kinds were not. A key given with its field name,
+  such as `x-api-key: ...` or a URL ending `?api_key=...`, was printed in
+  clear by `--near` and `--endpoints`, and so was the separate string that
+  follows a bare `x-api-key` in `--near` output. And a long key-shaped
+  string was let through whenever it started like a tag, so a 40-character
+  key beginning with a letter passed. Now a field name followed directly
+  by `:` or `=` and a value is redacted, the string after such a name in
+  `--near` output is too, and a long key-shaped string is kept only when
+  it is all letters, as a long tag name is. `--near` now also hides the
+  literal after any credential-named tag, such as the tag after
+  `SMTPPassword`, so it shows a little less than before; that is
+  deliberate. A URL whose path merely says `/token` is still shown. The
+  tool reads files on this PC only, so nothing sent to a Drobo changes.
+  A new suite, `tools/test_dashboard_strings.py`, checks it with made-up
+  strings (25 checks), which makes thirty-one suites, five of them under
+  `tools/`. (2026-10-19)
+- **A status-channel test can no longer pass without testing what it
+  names.** Three socket cases in `sdk/tests/test_esatm.py` sent from
+  threads that looked their socket up when they ran, not when they were
+  started, so a sender slow to run could close the next case's socket
+  instead of its own. The bad-signature case then passed on a hang-up,
+  because a short header raises the same error class. The cases now send
+  before they read, from the test itself, as `test_config_cmd.py`
+  already did, and the bad-signature check requires the bad-signature
+  error. Tests only: nothing the software sends to a Drobo changes, and
+  the suite still has 60 checks. (2026-10-19)
+- **The notification test now notices a category missing from the
+  Windows app.** `agent/tests/test_notification_simulation.py` listed the
+  seven notification categories its port of the app's routing can return,
+  but never used the list, so it did not check the app's own Categories
+  list in `AlertNotifier.cs`. The app builds its Settings switches from
+  that list and keeps saved settings only for the categories in it, so a
+  category dropped from it could never be switched on. The test now reads
+  that list's ids and fails if they are not exactly its own seven. Tests
+  only: the app and agent are unchanged, and nothing is sent to a Drobo.
+  The suite gains three checks for this (54 to 57). (2026-10-19)
+- **The capture dissector finishes instead of crashing.**
+  `tools/nasd_dissect.py` stopped with a Python `NameError` whenever it
+  could not work out a frame layout. That happened on an empty capture, on
+  any recording of the command port (5001), which
+  `tools/capture-identify.ps1` asks it to read, and on the status port's
+  real greeting, whose confirmed layout is outside the shapes it tries. So
+  its `-o` report was never written. It now prints its "no framing could
+  be inferred" note and finishes, and it names the port it looked on
+  instead of always saying 5000. It still works out no layout from either
+  port's real traffic; `tools/extract_commands.py` is the tool for the
+  command port. Its test suite gains seven checks for this (51 to 58).
+  (2026-10-19)
+- **The pairing QR encoder states its real limit.** Its notes and its
+  error message said it held about 270 characters. The most it holds is
+  213 bytes (version 10 at error-correction level M, in byte mode), and
+  the error now says so along with the size it was given. The pairing
+  link is well inside that, so no QR code changes. `test_agent.py` gains
+  three checks for this (268 to 271): a 213-byte round trip, which is the
+  first to reach version 10, the stated limit, and the refusal of 214
+  bytes. (2026-10-19)
+- **Uptime no longer runs fast or slow when one reading is missing.**
+  The Drobo reports its temperature and uptime in one reply, and the
+  agent counted uptime on from the time of the last *temperature*
+  reading. A reply with an uptime but no usable temperature (one outside
+  1-95 C is dropped as implausible) therefore counted the time since
+  that temperature twice, and more with every such reply. A reply with a
+  temperature but no uptime restarted an old uptime from that moment, so
+  it read low. Each reading now keeps its own time, and the status no
+  longer gives a reading time to a temperature that never arrived.
+  Nothing sent to the Drobo changed, nor how often. `test_drivers.py`
+  gains seven checks for this (47 to 54). (2026-10-19)
+- **Four SDK readers no longer test an XML element's truth value.** The
+  readers for the Drobo's temperature and uptime, its throughput, its
+  DroboApps list and its shop-demo flag each found their section with
+  `find(...) or` the enclosing element. An element with no children
+  counts as false, so an empty section fell back to the one around it,
+  and Python 3.12 and later warn on every such test. With that warning
+  made an error (as `-W error` or `PYTHONWARNINGS=error` does), a
+  reply whose section was not escaped stopped the reader with an
+  exception; from the temperature reader, that would have shown the
+  Drobo as unreachable. They now test `is not None`, which also matches
+  what Python 3.13 and later announce: that an element will always
+  count as true. The Drobo's real replies escape these sections, so no
+  value read from it changes, and nothing sent to it changes.
+  `test_sysinfo.py` gains five checks for this (45 to 50). (2026-10-19)
+- **A config.json that is not UTF-8 is reported, not misread.** One saved
+  as UTF-16 (Windows PowerShell 5.1's `>` and Out-File write that, and
+  Notepad does when asked) stopped the agent at start-up with a raw
+  traceback, and the Check for Updates shortcut said update checks were
+  off, with exit status 0, even when the file switched them on. Both now
+  say the file is not UTF-8 text and to save it as UTF-8, and the
+  shortcut exits 3, as it does for a file that is not valid JSON.
+  Separately, `py -m drobo_agent.updates` exits 2 (could not tell), not
+  1 (an update is available), on a config.json it cannot read; the
+  shortcut, which runs `check_updates.py`, keeps its 3. A file of valid
+  JSON but the wrong shape is handled as before. The comment in the
+  update check that described how a missing or broken config was handled
+  had been wrong for both and now says what happens. `test_updates.py`
+  gains two checks for this (77 to 79). (2026-10-19)
+- **`tools/fwtool.py` names JFFS2 compression types correctly.** When it
+  met firmware nodes it cannot unpack, it labelled type 8 as LZO. In
+  JFFS2's own numbering (`linux/jffs2.h`) LZO is 7, so real LZO nodes were
+  reported as a bare "7", and type 8, which has no mainline meaning, as
+  LZO. It is a research tool for firmware files and never contacts a
+  Drobo. (2026-10-19)
+- **Comments that no longer matched the code**, corrected with no change
+  in behaviour: the example alert key (`drive-failed-3`, not
+  `drive-failed-bay3`) in the agent's `models.py` and the Windows app's
+  `AlertRow.cs`; and the ways discovery can find a Drobo, which also
+  include an address typed in (`manual`) and the one already in use
+  (`in-use`), and which front-ends receive as `found_by`. (2026-10-19)
 - **Security: pairing a phone no longer hands it the agent's admin
   token.** `GET /api/pair` answered with the agent's own access token,
   and `GET /api/pair.svg` drew it into a QR code of
@@ -1147,172 +897,6 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   to the same image. The docstring now says so. The icons are unchanged
   and were not regenerated. (2026-11-02)
 
-## 1.2.0 -- not yet released
-
-Everything below has landed since 1.1.0.
-
-**Upgrading from 1.1.0: install 1.2.0 over it.** Both install into Program
-Files for everyone on the PC and share the same upgrade identity, so Windows
-Installer replaces 1.1.0 in place; there is nothing to remove first. Your
-settings and access token are kept: they live in your own profile, not in the
-program folder. **Still on 1.0.0? Uninstall it first,** exactly as for 1.1.0
-(why, under 1.1.0 below).
-
-**If you have scripts of your own that import the SDK, they will need
-changing.** Many public names in `drobo_nasd` and the agent are renamed to
-follow PEP 8, and no old name is kept alongside its new one, so a script
-that uses an old name stops with an `ImportError` or `AttributeError` naming
-it. The full list, old name to new, is under Changed below ("Names follow
-PEP 8 and say what they mean"). The apps themselves, the agent's routes and
-JSON keys, `config.json` and the command-line options do not change, and
-nothing sent to a Drobo does.
-
-### Added
-- **A `.flake8` settings file at the top of the repository.** It holds the
-  limits the PEP 8 pass below works to (79 columns for code, 72 for
-  comments and docstrings, exception names ending in `Error`), exempts
-  only the dashboard page's HTML in `agent/drobo_agent/webui.py` from the
-  line limit, and skips the local-only `vendor/` folder, so a plain
-  `python3 -m flake8` checks the same thing the pass was held to.
-  (2026-10-19)
-- **A style check on every push.** A new workflow,
-  `.github/workflows/style.yml`, runs flake8 with the settings in
-  `.flake8` on every push and pull request, so a line over the limits or
-  a name out of PEP 8's style turns the run red instead of piling up
-  until the next pass. It is separate from `lint.yml`, which still
-  compiles every file and installs nothing, and it pins flake8 and each
-  of its plugins to an exact version, so a new upstream release cannot
-  turn it red on a commit that changed nothing. Nothing the software does
-  changes. (2026-10-23)
-- **Kept activity figures show how old they are.** When a fetch of the
-  Drobo's read/write counters fails, the agent keeps serving the last
-  figures, and the command port can stop answering for half an hour. Until
-  now those kept figures looked as fresh as a new reading everywhere they
-  appeared. The agent's performance data (`/api/performance`, and
-  `performance` in `/api/status`) gains `measured_at`, the time the Drobo
-  sent the figures, in Unix seconds, or null before it ever has; no
-  existing key changes. When the figures are more than three minutes old
-  (the agent's two-minute refresh plus a minute's slack), the browser
-  dashboard's Recent activity panel and the Windows app's Status tab say
-  "Last read ... ago" beside them, and the Windows app's saved diagnostics
-  report gives the time under PERFORMANCE. Nothing sent to the Drobo
-  changes, nor how often. `test_drivers.py` gains nine checks for this
-  (54 to 63) and `test_agent.py` one (271 to 272). The Windows changes
-  have not been through a Windows build yet. (2026-10-19)
-
-### Fixed
-- **The Dashboard string miner hides every key it promised to hide.**
-  `tools/dashboard_strings.py` reads the original Dashboard's program
-  files, which carry a hardcoded key for Drobo's dead API Gateway, and its
-  notes (and `docs/command-surface.md`) said credentials were redacted from
-  its output on sight. Two kinds were not. A key given with its field name,
-  such as `x-api-key: ...` or a URL ending `?api_key=...`, was printed in
-  clear by `--near` and `--endpoints`, and so was the separate string that
-  follows a bare `x-api-key` in `--near` output. And a long key-shaped
-  string was let through whenever it started like a tag, so a 40-character
-  key beginning with a letter passed. Now a field name followed directly
-  by `:` or `=` and a value is redacted, the string after such a name in
-  `--near` output is too, and a long key-shaped string is kept only when
-  it is all letters, as a long tag name is. `--near` now also hides the
-  literal after any credential-named tag, such as the tag after
-  `SMTPPassword`, so it shows a little less than before; that is
-  deliberate. A URL whose path merely says `/token` is still shown. The
-  tool reads files on this PC only, so nothing sent to a Drobo changes.
-  A new suite, `tools/test_dashboard_strings.py`, checks it with made-up
-  strings (25 checks), which makes thirty-one suites, five of them under
-  `tools/`. (2026-10-19)
-- **A status-channel test can no longer pass without testing what it
-  names.** Three socket cases in `sdk/tests/test_esatm.py` sent from
-  threads that looked their socket up when they ran, not when they were
-  started, so a sender slow to run could close the next case's socket
-  instead of its own. The bad-signature case then passed on a hang-up,
-  because a short header raises the same error class. The cases now send
-  before they read, from the test itself, as `test_config_cmd.py`
-  already did, and the bad-signature check requires the bad-signature
-  error. Tests only: nothing the software sends to a Drobo changes, and
-  the suite still has 60 checks. (2026-10-19)
-- **The notification test now notices a category missing from the
-  Windows app.** `agent/tests/test_notification_simulation.py` listed the
-  seven notification categories its port of the app's routing can return,
-  but never used the list, so it did not check the app's own Categories
-  list in `AlertNotifier.cs`. The app builds its Settings switches from
-  that list and keeps saved settings only for the categories in it, so a
-  category dropped from it could never be switched on. The test now reads
-  that list's ids and fails if they are not exactly its own seven. Tests
-  only: the app and agent are unchanged, and nothing is sent to a Drobo.
-  The suite gains three checks for this (54 to 57). (2026-10-19)
-- **The capture dissector finishes instead of crashing.**
-  `tools/nasd_dissect.py` stopped with a Python `NameError` whenever it
-  could not work out a frame layout. That happened on an empty capture, on
-  any recording of the command port (5001), which
-  `tools/capture-identify.ps1` asks it to read, and on the status port's
-  real greeting, whose confirmed layout is outside the shapes it tries. So
-  its `-o` report was never written. It now prints its "no framing could
-  be inferred" note and finishes, and it names the port it looked on
-  instead of always saying 5000. It still works out no layout from either
-  port's real traffic; `tools/extract_commands.py` is the tool for the
-  command port. Its test suite gains seven checks for this (51 to 58).
-  (2026-10-19)
-- **The pairing QR encoder states its real limit.** Its notes and its
-  error message said it held about 270 characters. The most it holds is
-  213 bytes (version 10 at error-correction level M, in byte mode), and
-  the error now says so along with the size it was given. The pairing
-  link is well inside that, so no QR code changes. `test_agent.py` gains
-  three checks for this (268 to 271): a 213-byte round trip, which is the
-  first to reach version 10, the stated limit, and the refusal of 214
-  bytes. (2026-10-19)
-- **Uptime no longer runs fast or slow when one reading is missing.**
-  The Drobo reports its temperature and uptime in one reply, and the
-  agent counted uptime on from the time of the last *temperature*
-  reading. A reply with an uptime but no usable temperature (one outside
-  1-95 C is dropped as implausible) therefore counted the time since
-  that temperature twice, and more with every such reply. A reply with a
-  temperature but no uptime restarted an old uptime from that moment, so
-  it read low. Each reading now keeps its own time, and the status no
-  longer gives a reading time to a temperature that never arrived.
-  Nothing sent to the Drobo changed, nor how often. `test_drivers.py`
-  gains seven checks for this (47 to 54). (2026-10-19)
-- **Four SDK readers no longer test an XML element's truth value.** The
-  readers for the Drobo's temperature and uptime, its throughput, its
-  DroboApps list and its shop-demo flag each found their section with
-  `find(...) or` the enclosing element. An element with no children
-  counts as false, so an empty section fell back to the one around it,
-  and Python 3.12 and later warn on every such test. With that warning
-  made an error (as `-W error` or `PYTHONWARNINGS=error` does), a
-  reply whose section was not escaped stopped the reader with an
-  exception; from the temperature reader, that would have shown the
-  Drobo as unreachable. They now test `is not None`, which also matches
-  what Python 3.13 and later announce: that an element will always
-  count as true. The Drobo's real replies escape these sections, so no
-  value read from it changes, and nothing sent to it changes.
-  `test_sysinfo.py` gains five checks for this (45 to 50). (2026-10-19)
-- **A config.json that is not UTF-8 is reported, not misread.** One saved
-  as UTF-16 (Windows PowerShell 5.1's `>` and Out-File write that, and
-  Notepad does when asked) stopped the agent at start-up with a raw
-  traceback, and the Check for Updates shortcut said update checks were
-  off, with exit status 0, even when the file switched them on. Both now
-  say the file is not UTF-8 text and to save it as UTF-8, and the
-  shortcut exits 3, as it does for a file that is not valid JSON.
-  Separately, `py -m drobo_agent.updates` exits 2 (could not tell), not
-  1 (an update is available), on a config.json it cannot read; the
-  shortcut, which runs `check_updates.py`, keeps its 3. A file of valid
-  JSON but the wrong shape is handled as before. The comment in the
-  update check that described how a missing or broken config was handled
-  had been wrong for both and now says what happens. `test_updates.py`
-  gains two checks for this (77 to 79). (2026-10-19)
-- **`tools/fwtool.py` names JFFS2 compression types correctly.** When it
-  met firmware nodes it cannot unpack, it labelled type 8 as LZO. In
-  JFFS2's own numbering (`linux/jffs2.h`) LZO is 7, so real LZO nodes were
-  reported as a bare "7", and type 8, which has no mainline meaning, as
-  LZO. It is a research tool for firmware files and never contacts a
-  Drobo. (2026-10-19)
-- **Comments that no longer matched the code**, corrected with no change
-  in behaviour: the example alert key (`drive-failed-3`, not
-  `drive-failed-bay3`) in the agent's `models.py` and the Windows app's
-  `AlertRow.cs`; and the ways discovery can find a Drobo, which also
-  include an address typed in (`manual`) and the one already in use
-  (`in-use`), and which front-ends receive as `found_by`. (2026-10-19)
-
 ### Changed
 - **The browser dashboard's activity note no longer promises a refresh.**
   It said the figures were "refreshed every couple of minutes", which is
@@ -1324,7 +908,9 @@ nothing sent to a Drobo does.
   `LICENSE` at the top of the repository, the README's License section says
   the same, and the SDK's package metadata declares it (it said
   "Proprietary" before). The installer now puts a copy of `LICENSE` in the
-  program folder, beside `TESTING.md`. (2026-10-19)
+  program folder, beside `TESTING.md`; on 2026-11-05 the installer
+  workflow's elevated lifecycle test found it there, in
+  `C:\Program Files\Drobo Dashboard REBORN`. (2026-10-19)
 - **Names follow PEP 8 and say what they mean.** Classes, functions,
   variables and constants in the SDK, the agent, the tools and the tests
   are renamed so that each name says what it holds or does, and
@@ -1571,6 +1157,425 @@ nothing sent to a Drobo does.
     programs' `--help` descriptions (`run_agent.py`, `nasd_dissect.py`,
     `nasd_sweep.py`, `sweep_remainder.py`) re-wrap a line differently,
     with the same words
+- **Backup is graded Built, unverified in both records.** The roadmap
+  called it Working and `docs/capabilities.md` Built, unverified, a split
+  flagged on 2026-09-26. Its test suite copies real files between ordinary
+  folders on every push (on the Windows runner, where robocopy exists), but
+  no record shows it ever copying from a real Drobo share, and Working means
+  working against the real device. Nothing the software does changes; one
+  copy of a real share to an external drive moves it. (2026-10-29)
+- **The readability rules the code follows are written down.** `CLAUDE.md`
+  gains a section of its own: names that say what they hold, units
+  included; guard clauses and at most two levels of nesting; functions of
+  about 40 lines; docstrings that say why; and the names that never change
+  because something outside the code reads them (routes, JSON and config
+  keys, CLI flags, environment variables, file and registry names).
+  Nothing the software does changes. (2026-10-29)
+- **Write-path parameters name the thing they set.** For testers who call
+  the SDK or the simulated driver from their own scripts by keyword, these
+  parameter names changed (positional calls are unaffected):
+  `droboapps.set_dimming(value)` -> `set_dimming(brightness)`;
+  `sharewrite.create_share(name)` -> `create_share(share_name)`;
+  `sharewrite.delete_share(name)` -> `delete_share(share_name)`;
+  `MockDriver.set_dimming(value)` -> `set_dimming(brightness)`;
+  `MockDriver.set_share_access(share, user, access)` ->
+  `set_share_access(share_name, username, access_code)`. A rename only:
+  every check, its order, every error message and every byte sent to the
+  Drobo are as they were. (2026-10-29)
+- **Readability pass: names with units, guard clauses, shallow nesting, short functions; no behaviour changes.**
+  The code is now written to the rules in `CLAUDE.md`, one module per
+  commit, with nothing the software does changed. Each commit was held
+  to the 31 Python suites with the same counts, the same bytes sent to
+  a simulated Drobo, the same dashboard and QR fingerprints, the same
+  JSON keys on every read-only route and the same `--help` from every
+  program. Faults found along the way were recorded, not fixed: they are
+  listed under Phase 6 in `ROADMAP.md`. For testers whose own scripts
+  use them, every public name and keyword parameter that changed, here
+  and in the other entries of 2026-10-29 above, in one place (the PEP 8
+  renames of 2026-10-19 to 24 are in their own entry). Renamed names:
+  `api.serve` -> `build_http_server`; `Monitor.history_dicts` ->
+  `history_points`; `Drobo5NDriver.timeout` -> `timeout_seconds` and
+  `try_sweep` -> `discovery_sweep_enabled`; `BackupJob.plan` ->
+  `backup_plan`; `extract_commands.extract` -> `extract_from_capture`
+  and `DEFAULT_PORT` -> `DEFAULT_COMMAND_PORT`; `fw_params.analyse` ->
+  `analyse_command`; `drobo_probe.SWEEP_RANGE` -> `SWEEP_PORT_RANGE`
+  and `PROBES` -> `FINGERPRINT_PROBES`; `fwtool.Section`'s `offset`,
+  `size`, `build` and `kind` -> `absolute_offset`, `size_bytes`,
+  `build_number` and `payload_format`; `nasd_tap.Tap` -> `TrafficTap`;
+  `generate_icon.ICON_SIZES`, `PLATE` and `WORDMARK` ->
+  `ICON_SIZES_PIXELS`, `PLATE_COLOUR` and `WORDMARK_COLOUR`. Renamed
+  keyword parameters (positional calls are unaffected):
+  `droboapps.set_dimming(value)` and `MockDriver.set_dimming(value)` ->
+  `brightness`; `sharewrite.create_share(name)` and
+  `delete_share(name)` -> `share_name`;
+  `MockDriver.set_share_access(share, user, access)` ->
+  `(share_name, username, access_code)`;
+  `config_cmd.set_config_raw(edit)` -> `edit_section`;
+  `commands.is_safe_write(name)` -> `command_name`;
+  `framing.decode_frame(data)` -> `buffered_bytes` and
+  `FrameAssembler.feed(data)` -> `received_bytes`;
+  `discovery.parse_mdns_response(data)` -> `packet`;
+  `Monitor.history_points(limit)` -> `max_points`;
+  `PhotoStore.ingest(data)` -> `file_bytes`;
+  `drobo_probe.is_tcp_port_open(timeout)` and
+  `fingerprint_port(timeout)` -> `timeout_seconds`,
+  `mdns_discover(wait)` -> `wait_seconds`, `port_sweep(workers)` and
+  `scan_subnet(workers)` -> `worker_count`, `hexdump(limit)` ->
+  `max_bytes`; `fw_params.analyse_command`, `extract_strings` and
+  `validate`'s `blob` -> `binary_bytes`;
+  `dashboard_strings.strings_near(span)` -> `neighbour_count`;
+  `nasd_dissect.read_pcap_classic(data)` and `read_pcapng(data)` ->
+  `capture_bytes`, and `analyse_direction(label, report, max_preview)`
+  -> `(direction_label, stream_report, max_preview_bytes)`;
+  `nasd_probe.read_available(first_timeout, idle_timeout)` ->
+  `(first_timeout_seconds, idle_timeout_seconds)`,
+  `connect_to_status_port(timeout)` -> `timeout_seconds`,
+  `classify_response(data)` -> `reply_bytes` and `hexdump(limit)` ->
+  `limit_bytes`; `nasd_tap.TrafficTap(bin_path)` ->
+  `client_bytes_path`, `handle_connection(client)` -> `client_socket`
+  and `hexdump(limit)` -> `limit_bytes`; `generate_icon.build_shapes`
+  and `render`'s `size` -> `size_pixels`, `word_width` and
+  `word_predicate`'s `dot_size` -> `dot_size_pixels`. `set_spindown`
+  keeps its `delay`. The sub-lines below say what changed in each
+  module. (2026-10-29)
+  - Private helpers that scripts of your own may reach into:
+    `eventlog._command_xml` -> `_build_request_payload`. A rename only:
+    every byte sent to the Drobo is unchanged. (2026-10-29)
+  - Agent names that say what they return or hold, for testers who run
+    the agent from scripts of their own: `api.serve` ->
+    `api.build_http_server` (it builds the server and leaves starting it
+    to the caller, as before); `monitor.Monitor.history_dicts` ->
+    `history_points` (the `/api/history` route, its `?limit=` query
+    and the `points` key it answers with stay);
+    `photos.PhotoStore.ingest(data)` -> `ingest(file_bytes)` (positional
+    calls are unaffected). A rename only: every route, JSON key and
+    message is as it was. (2026-10-29)
+  - Capture and firmware tools name what they process, for testers who
+    import them from scripts of their own: `extract_commands.extract` ->
+    `extract_from_capture`; `fw_params.analyse` -> `analyse_command`.
+    The command lines, their flags and their `--json` output are
+    unchanged, as are the `port=` and `window=` parameters. (2026-10-29)
+  - `sdk/drobo_nasd/config_cmd.py`: the write path reads as its steps,
+    each a named helper; for testers who call it by keyword,
+    `set_config_raw(edit)` -> `set_config_raw(edit_section)`
+    (positional calls are unaffected). Every except clause, its order,
+    the read-back that decides an unacknowledged write, and every byte
+    sent to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/commands.py`: the gate helpers say what they check
+    and why; for testers who call it by keyword, `is_safe_write(name)`
+    -> `is_safe_write(command_name)`. The write-gate sets, their
+    members and every refusal are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/envelope.py`: building and parsing a request read
+    as named steps. Private helpers only; every byte and every XML
+    element sent to the Drobo is unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/framing.py`: frame decoding names its lengths and
+    offsets; for testers who call it by keyword, `decode_frame(data)`
+    -> `decode_frame(buffered_bytes)` and `FrameAssembler.feed(data)` ->
+    `feed(received_bytes)` (positional calls are unaffected).
+    (2026-10-29)
+  - `sdk/drobo_nasd/client.py`: the speculative client says why its
+    request and state machine work the way they do, in docstrings and
+    local names only. (2026-10-29)
+  - `sdk/drobo_nasd/sharewrite.py`: each share write reads as its
+    steps, and each refusal is a named check. Private helpers and local
+    names only; every check, every except clause and its order, the
+    read-back that decides an unacknowledged write, and every byte sent
+    to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/shareedit.py`: `set_user_access` and
+    `describe_change` read as their steps. Private helpers and local
+    names only; every check and message is as it was, and the module
+    still sends nothing to the Drobo. (2026-10-29)
+  - `sdk/drobo_nasd/shares.py`: the account and share walks are
+    flat, and the access advice and link report are built by named
+    helpers. Every user-visible string, JSON key and key order is as
+    it was. (2026-10-29)
+  - `sdk/drobo_nasd/droboapps.py`: the readers share one parse,
+    and each writer reads as its checks. Private helpers and local
+    names only (`set_spindown` keeps its `delay` parameter); every
+    check, its order, every message, the read-backs and every byte
+    sent to the Drobo are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/drobosync.py`: `parse_sync_reply` and
+    `summary` read as their steps. The reads happen in the same order
+    with the same skips, and their keys are unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/identify.py`: the command line reads as its
+    steps and the result parse is its own helper; a docstring that
+    contradicted the no-retry policy now matches it. The request
+    bytes, every printed line, exit code and the `--help` text are as
+    they were. (2026-10-29)
+  - `sdk/drobo_nasd/esatm.py`: the status-greeting parser reads as
+    its parts (device info, drives, capacity, pack health), in the
+    same order as before. Private helpers and local names only; the
+    timeout message and every field read are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/sysinfo.py`: one login helper and one
+    result-element reader replace two copies of each. The same frames
+    go out in the same order, the same errors are raised in the same
+    order, and the socket still closes however the call ends.
+    (2026-10-29)
+  - `sdk/drobo_nasd/eventlog.py`: the reply's refusals read as named
+    steps, and the login goes through sysinfo's shared helper. Every
+    refusal, its order and message, and every byte sent to the Drobo
+    are as they were. (2026-10-29)
+  - `sdk/drobo_nasd/discovery.py`: browsing, verifying and resolving
+    read as named steps; for testers who call it by keyword,
+    `parse_mdns_response(data)` -> `parse_mdns_response(packet)`
+    (positional calls are unaffected). Every message, the order in
+    which candidates are tried and the identity check are as they
+    were. (2026-10-29)
+  - `sdk/drobo_nasd/firmware.py`: the withdrawn-build advisory is
+    built by its own helper; its headline, detail text and JSON keys
+    are byte-identical. (2026-10-29)
+  - `sdk/drobo_nasd/models.py`: the shapes say why they look the way
+    they do, and units the field names cannot carry are comments.
+    Every field keeps its name and order, so the agent's JSON keys are
+    unchanged. (2026-10-29)
+  - `sdk/drobo_nasd/netcheck.py`: the interface parser reads one line
+    at a time through named helpers, taking the same decisions in the
+    same order. Private helpers and local names only; every
+    user-visible text is byte-identical. (2026-10-29)
+  - `agent/drobo_agent/drivers.py`: the long methods read as their
+    steps, and the bare numbers are named constants; for testers whose
+    scripts read the real driver's attributes,
+    `Drobo5NDriver.timeout` -> `timeout_seconds` and `try_sweep` ->
+    `discovery_sweep_enabled`. The config keys `timeout` and
+    `discovery_sweep`, every JSON key and message, the simulator's
+    random draws and their order, and every call into the SDK are as
+    they were. (2026-10-29)
+  - `agent/drobo_agent/api.py`: the routes read as a table, each
+    answered by a named method, and the long handlers read as their
+    steps; the bare numbers are named constants. Every route, JSON key,
+    header, message and status is as it was, and the config-write
+    path's order of refusals is unchanged. (2026-10-29)
+  - `agent/drobo_agent/models.py`: `Alert.active` and `Alert.to_dict`
+    say why "active" is derived from `cleared_at` and added to the JSON
+    by hand. Docstrings only; no code changed. (2026-10-29)
+  - `agent/drobo_agent/monitor.py`: each alert rule is its own function,
+    called in the same order, and the fire/resend/clear loop is its own
+    step; for testers who call it by keyword,
+    `Monitor.history_points(limit)` -> `history_points(max_points)`
+    (positional calls, the `/api/history` route and its `?limit=` query
+    are unaffected). Every alert key, message and the order
+    notifications go out in are as they were. (2026-10-29)
+  - `agent/drobo_agent/config.py`: reading the file is its own step, and
+    the docstrings say why the merge is deep and the save atomic. Both
+    error messages, their order, the first-run token and every config
+    key are as they were. (2026-10-29)
+  - `agent/drobo_agent/notify.py`: one builder per notification backend
+    and one SMTP path, with STARTTLS, login and send in the same order
+    as before. Every skip message, timeout and config key is as it was.
+    (2026-10-29)
+  - `agent/drobo_agent/backup.py`: the destination refusals and the copy
+    are named steps; for testers whose scripts read it, `BackupJob.plan`
+    -> `backup_plan`, which no longer shadows the module's `plan()`
+    function. Every refusal, its wording and order, the robocopy command
+    and the JSON keys are as they were. (2026-10-29)
+  - `agent/drobo_agent/photos.py`: the upload steps the single-shot and
+    chunked paths share are named helpers, and the limits are named with
+    their units. Private helpers and local names only; every check,
+    refusal message, its order, the lock and every JSON key are as they
+    were. (2026-10-29)
+  - `agent/drobo_agent/qr.py`: each stage of the QR encoder is its own
+    named step, with the specification's reasons in the docstrings.
+    Private helpers and local names only; every matrix and SVG it draws
+    is identical. (2026-10-29)
+  - `agent/drobo_agent/updates.py`: `check()` and `main()` read as named
+    steps, and a helper that only checks a checksum's shape is no longer
+    called "verified". Every message, exit status and the order of the
+    checks are as they were, and nothing is downloaded or installed.
+    (2026-10-29)
+  - `agent/run_agent.py`: `main()` reads as its start-up steps, and says
+    why `--once` connects by itself and why shutdown runs on its own
+    thread. The flags, `--help` text, banner lines and shutdown order
+    are as they were. (2026-10-29)
+  - `agent/check_updates.py`: `main()` says why any failure to run
+    becomes exit status 3 rather than Python's 1. Docstring only; no
+    code changed. (2026-10-29)
+  - `tools/nasd_dissect.py`: the capture readers and reports are split
+    into named steps, and the header-shape search is one walk in the
+    same order as before, so a tie still keeps the same shape. Private
+    helpers and local names only; the printed output, the `-o` JSON
+    report and its keys, and the command line are as they were.
+    (2026-10-29)
+  - `tools/extract_commands.py`: one helper per printed section and per
+    scan; for testers who import it, `DEFAULT_PORT` ->
+    `DEFAULT_COMMAND_PORT` (still 5001). The printed report, the
+    `--json` file, the exit codes, the command line and the `port=`
+    keyword are as they were. (2026-10-29)
+  - `tools/drobo_probe.py`: one runner per sub-command, and the
+    timeouts and sizes are named with their units; for testers who
+    import it, `SWEEP_RANGE` -> `SWEEP_PORT_RANGE` and `PROBES` ->
+    `FINGERPRINT_PROBES`. Every sub-command prints the same lines,
+    sends the same bytes and writes the same report, and the command
+    line and `--help` are unchanged. (2026-10-29)
+  - `tools/fwtool.py`: the JFFS2 rebuild reads as its steps; for testers
+    who import it, `Section`'s fields `offset`, `size`, `build` and
+    `kind` -> `absolute_offset`, `size_bytes`, `build_number` and
+    `payload_format`. Every sub-command prints the same lines and
+    writes the same files, and the command line and `--help` are
+    unchanged. (2026-10-29)
+  - `tools/fw_params.py`: `main` reads as three steps and the binary is
+    named as bytes. The listing, the `--validate` report, the exit
+    codes, the `--min` and `--window` flags, the `window=` keyword and
+    the returned keys are as they were. (2026-10-29)
+  - `tools/dashboard_strings.py`: one function per report, and the
+    credential regexes are named for what they match (same patterns
+    and flags). Every report prints the same lines and returns the
+    same exit code, and the command line is unchanged. (2026-10-29)
+  - `tools/nasd_probe.py`: one helper per attempt, and the timeouts are
+    named in seconds; for testers who import it, `read_available`'s
+    `first_timeout` and `idle_timeout` -> `first_timeout_seconds` and
+    `idle_timeout_seconds`, `connect_to_status_port(timeout)` ->
+    `timeout_seconds` and `hexdump(limit)` -> `limit_bytes` (positional
+    calls are unaffected). The bytes sent, the order of attempts, the
+    console output, the JSON report and the command line are as they
+    were. (2026-10-29)
+  - `tools/nasd_sweep.py`: the login, the command and the reply are each
+    their own helper. Every except clause and its order, the bytes sent,
+    every record and its keys (`elapsed_s` included), the console output,
+    the report and the command line are as they were, and the keyword
+    parameters other tools pass keep their names. (2026-10-29)
+  - `tools/nasd_tap.py`: `main` reads as its steps, and the tap's file
+    writing and console printing are apart; for testers who import it,
+    `Tap` -> `TrafficTap` and its `bin_path` -> `client_bytes_path`. The
+    relayed bytes, both capture files and their JSONL keys, the console
+    output, the exit codes and the command line are as they were.
+    (2026-10-29)
+  - `tools/sweep_last_six.py`: one helper per step, and the port and
+    waits are named with their units. The commands sent, their order,
+    the health checks between them, the console output, the report and
+    the exit codes are as they were. (2026-10-29)
+  - `tools/sweep_remainder.py`: `main` reads as its steps, and its
+    timeouts and pauses are named in seconds. The safety check, the
+    commands sent and their order, the console output, the report and
+    the exit codes are as they were. (2026-10-29)
+  - `tools/access_codes.py`: one function per step, and the snapshot's
+    `share<TAB>user` key is explained. The reads from the device, the
+    `before.json` snapshot and its keys, the console output, the exit
+    codes and the command line are as they were. (2026-10-29)
+  - `scripts/check_versions.py`: the version map is named, and the
+    per-file read and the four-part comparison are their own steps. The
+    files read, the table, the problem sentences and the exit codes are
+    as they were. (2026-10-29)
+  - `scripts/scan_for_pii.py`: the six-deep scan loop and the long
+    `main` are split into named steps. Every label, note, message, exit
+    code, command-line option and the order of the accept rules are as
+    they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/Assets/generate_icon.py`: the shape
+    builder and the renderer are split into named steps, and sizes are
+    named in pixels. Both icons it draws come out byte-identical; the
+    committed `.ico` files were not regenerated. (2026-10-29)
+  - `windows/DroboDashboardReborn/AlertNotifier.cs`: the remembered
+    alert keys and the first-pass flag are named for what they hold.
+    Private names only; every category id, key prefix and the rules
+    that decide which alerts notify are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/AlertRow.cs`: each alert-row property
+    says what it is for. Doc comments only; no property is renamed here
+    (`SortTime` -> `SortTimeUnixSeconds` came with the app's earlier
+    names commit, and nothing binds to it). (2026-10-29)
+  - `windows/DroboDashboardReborn/App.xaml.cs`: start-up reads as its
+    steps, reading `--agent-config` and installing the last-chance
+    error handlers in the same order as before. The flag, the message
+    and its caption are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/ConnectShareDialog.xaml.cs`: the
+    dialog's set-up and its Connect button read as named steps, with
+    early returns in place of nested branches. Every message, the drive
+    letters offered and the order of connect, save and close are as
+    they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/CredentialStore.cs`: the unmanaged
+    pointers are named as pointers, and zeroing and freeing them are
+    their own helpers, called in the same order. Every message and the
+    Windows API calls are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/DeleteShareDialog.xaml.cs`: the
+    delete callback and the typed-name check are named for what they
+    do. The route, its `confirm_name` key, the comparison and every
+    string the dialog shows are as they were. (2026-10-29)
+  - `windows/DroboDashboardReborn/DiagnosticsChoiceDialog.xaml.cs`: the
+    choice and why it defaults to Cancelled are documented. Doc
+    comments only. (2026-10-29)
+  - `windows/DroboDashboardReborn/DiagnosticsReport.cs`: one helper per
+    report section, in the same order as before. Every heading, label,
+    format and JSON key read is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/DiscoveredDeviceRow.cs`: each
+    picker-row property says what it holds and where it comes from. Doc
+    comments only; no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/DriveRow.cs`: each bay-row property
+    says what it shows and what an empty bay gets. Doc comments only;
+    no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/DroboAppRow.cs`: each DroboApp-row
+    property says what it is for, including why an app's name is never
+    reworded. Doc comments only; no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/DroboSettings.cs`: one reader per
+    `settings.json` section, called in the same order inside the same
+    error handling. Every settings key and value is as it was.
+    (2026-10-29)
+  - `windows/DroboDashboardReborn/EventLogRow.cs`: the chip fields say
+    what they hold and why the label falls back to "LOG". Comments
+    only; no property is renamed. (2026-10-29)
+  - `windows/DroboDashboardReborn/JsonHelpers.cs`: the getters say why
+    a missing or mistyped key falls back instead of throwing; locals
+    spelled out. Every formatted size is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/MarkdownGuide.cs`: one helper per kind
+    of block, tried in the same order as before. The HTML written for
+    the Shares guide is unchanged. (2026-10-29)
+  - `windows/DroboDashboardReborn/NewShareDialog.xaml.cs`: names say
+    what they return or hold, and the 27-character limit is named.
+    Every message is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/NotificationCategoryRow.cs`: `Id`
+    says it is the key saved in `settings.json`; bound properties keep
+    their names. (2026-10-29)
+  - `windows/DroboDashboardReborn/ShareBrowserWindow.xaml.cs`: the
+    folder read and its failures get a method of their own, called at
+    the same point. Every message is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/ShareRow.cs`: each plain field says
+    what it holds. Comments only; no property is renamed here
+    (`TimeMachine` -> `IsTimeMachine` came with the app's earlier names
+    commit, and nothing binds to it). (2026-10-29)
+  - `windows/DroboDashboardReborn/SmbConnections.cs`: the connection
+    enumeration is split into named steps with the same cleanup on
+    every path, and its buffer size is named in bytes. (2026-10-29)
+  - `windows/DroboDashboardReborn/SplashWindow.xaml.cs`: `Done` ->
+    `Dismiss` and `Report` -> `ReportStatus`, callers moved with them.
+    (2026-10-29)
+  - `windows/DroboDashboardReborn/TrayIconManager.cs`: the tooltip,
+    balloon and timeout limits are named constants with their reasons;
+    every value is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/WriteOutcome.cs`: the two verdicts a
+    write's answer is weighed by have names. The outcome strings and
+    their mapping are unchanged. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: fields, brushes,
+    helpers and poll intervals say what they are. Every JSON key, route,
+    user-visible string and XAML name is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: every doc
+    comment sits on the member it describes. Comments only.
+    (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the start-up,
+    device picker and settings methods are split into named helpers
+    called at the same points. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Status,
+    Alerts and Shares renderers are split into named helpers; every
+    control is written in the same order. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: the Settings and
+    Tools tab handlers are split into named helpers. Every JSON key,
+    string and message is as it was. (2026-10-29)
+  - `windows/DroboDashboardReborn/MainWindow.xaml.cs`: no method nests
+    more than two levels deep. (2026-10-29)
+- **The command gate refuses anything it does not know.** The SDK's
+  check for a command that must never be sent answered "not refused" for
+  an id the firmware's table does not hold (such as 200 or -1) and for a
+  misspelt name, and the older experimental client would have framed and
+  sent such an id. Now an unknown id, an unknown name, or a value that is
+  neither a name nor a plain number counts as refused, and that client asks
+  the same check before anything is sent. Stricter only: every command the
+  software sends is in the table, so nothing it sends today changes.
+  (2026-11-02)
+- **`eCmdGetNASUsernamePassword` is refused.** By its name this command
+  returns share usernames and passwords. It was sent once, by the second
+  command sweep on 2026-07-27, and answered empty, but one empty answer on
+  one firmware is no promise for another, and nothing here needs what it
+  would return. It is now in the list of commands that are never sent, in a
+  group of its own (it is a read, not a write), which takes that list from
+  53 names to 54. `tools/sweep_remainder.py` no longer lists it (its own
+  safety check would otherwise stop the sweep) and records why. Nothing the
+  software sends otherwise changes. (2026-11-02)
 
 ### Removed
 - **Five pieces of code that nothing used.** An unused `_text` helper in

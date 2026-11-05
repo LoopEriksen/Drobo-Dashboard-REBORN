@@ -735,8 +735,8 @@ since its MIT line was removed, now declares GPL-3.0-or-later, in the table
 form the pinned setuptools floor accepts, with the matching classifier. The
 installer build copies `LICENSE` into the program folder beside `TESTING.md`;
 the bundled Python already ships its own `LICENSE.txt`, because the build
-unpacks the embeddable zip whole. That one-line build change has not been
-through a Windows build yet.
+unpacks the embeddable zip whole. That one-line build change had not been
+through a Windows build yet; it went through one on 11-05 (see below).
 
 ## Kept figures say how old they are (2026-10-19)
 
@@ -751,8 +751,9 @@ carries `measured_at`, and the browser dashboard and the Windows app show
 "Last read ... ago" once the figures are more than three minutes old, one
 missed two-minute refresh plus slack. The browser note that said the figures
 were "refreshed every couple of minutes" now says the agent asks for them that
-often, which stays true while the Drobo is not answering. The Windows half has
-not been through a Windows build yet.
+often, which stays true while the Drobo is not answering. The Windows half had
+not been through a Windows build yet; CI's Windows job compiles it on every
+push, and on 11-05 it went into the 1.2.0 MSI (see below).
 
 ## A redactor that redacts (2026-10-19)
 
@@ -1089,6 +1090,37 @@ checks cover the code, the claim, the phone's token on and off the
 photo routes, the saved file and revocation, and each one fails when
 the agent's old `api.py` is put back.
 
+## 1.2.0 goes out (2026-11-05)
+
+**11-05.** With the recorded-fault fixes and the pairing fix on one branch,
+the installer workflow built the 1.2.0 MSI from that branch's head, commit
+1483dafaaaa29d8b633e20a2f1b2007cf1d9927b, together with a throwaway 1.2.1
+for the upgrade leg, and ran the lifecycle test with both on GitHub's
+`windows-latest` runner, which runs elevated: `test-installer.ps1: ALL PASS
+(72 checks)`, exit 0, with `PASS  LICENSE present in the install folder`
+for `C:\Program Files\Drobo Dashboard REBORN`. The MSI,
+`DroboDashboardReborn-1.2.0-win-x64.msi`, was 71,438,336 bytes (68 MB; the
+build reported 68.1 MB), SHA-256
+`df14c1dd91126ead5a136c5c1cd32857a195facca168e8addbc18c29e8c94362`. Every
+elevated run before 11-05, 1.1.0's included, was on the maintainer's PC;
+this one, like the workflow's first runs earlier the same day, was on a
+runner thrown away afterwards, and it is the run this release records. No
+run on a tester's own PC, or on the maintainer's, has been
+recorded for 1.2.0.
+
+**11-05.** At the maintainer's direction everything under the changelog's
+Unreleased heading, landed after 1.2.0 was numbered on 10-29 -- the
+readability pass, the recorded-fault fixes of 11-02, the installer workflow
+and the pairing fix -- was folded into 1.2.0 under its own sub-headings, and
+the section dated 2026-11-05. Its opening note on renamed names now points
+at the readability pass's list as well as the PEP 8 one. 1.2.0 is then
+merged and tagged `v1.2.0`, and on that tag the workflow builds the MSI
+again from the tagged tree, runs the same test and publishes that MSI on
+this repository's Releases page with its SHA-256 beside it. Two builds of
+the same payload differ by a few kilobytes and in their hash (see 11-05
+above), so the hash that matters to a tester is the one published beside
+the file, not the one recorded here.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -1118,10 +1150,8 @@ None of these were written down first. Each was learned.
 
 What is built, what is in progress, and what is planned is kept current in
 [`capabilities.md`](capabilities.md). The open items, in the order they are
-worth doing: date 1.2.0's changelog, merge, and push its `v1.2.0` tag, whose
-installer run builds the MSI, runs the elevated lifecycle test (passed on CI
-on 2026-11-05) and publishes it, which is what puts everything since 1.1.0
-into testers' hands; re-run share create on
+worth doing: an elevated run of 1.2.0's lifecycle test on a real PC, since
+its only recorded run so far is on GitHub's runner; re-run share create on
 hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
 watching the unit; copy a real Drobo share to an external drive once, which
 backup's grade waits on; start and stop a DroboApp on hardware for the first time;
