@@ -724,7 +724,8 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   the app list itself. These now answer as their other read failures
   do: "could not read the app list", "accepted, unconfirmed", and a 502
   with no apps. Nothing sent to the Drobo changes, and nothing is ever
-  re-sent. `test_droboapps_api.py` gains eight checks. (2026-11-02)
+  re-sent. `test_droboapps_api.py` gains twelve checks: eight with the
+  fix and four more for the two app-list reads. (2026-11-02)
 - **A photo-library rescan keeps what it cannot vouch for.** For the
   photo-upload API, which waits for a phone app: a rescan dropped from
   its index any photo it could not open at that moment (a share
@@ -881,17 +882,6 @@ Landed after 1.2.0 was numbered, so not part of it unless it is merged first.
   moved over it in one step. The file's name and contents are unchanged.
   The Windows test program gains 18 checks, working in a temporary
   folder. (2026-11-02)
-- **A DroboApps Start or Stop is answered even when the app-list read
-  around it is cut off.** The agent reads the Drobo's app list before an
-  action (to check the app is installed) and after it (to show whether it
-  took). When the Drobo hung up during either read without replying, the
-  agent dropped the connection with no answer, and after the device had
-  accepted the action that read as a failure inviting a second try. A
-  hang-up on the first read is now answered 502 "could not read the app
-  list", with nothing sent, and on the second the action is reported
-  accepted, unconfirmed, as any other failed re-read already was. Nothing
-  sent to the Drobo changes. `test_droboapps_api.py` gains four checks,
-  45 to 49. (2026-11-02)
 - **A write whose answer is slow is no longer shown as a failure in the
   Windows app.** The app gave up on every agent request after 8 seconds,
   the same as one of the agent's own waits for the Drobo, so when the
