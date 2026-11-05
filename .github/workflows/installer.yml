@@ -181,7 +181,11 @@ jobs:
           msi="${{ steps.version.outputs.msi_name }}"
           # The format of 1.1.0's SHA256SUMS.txt: the hash, two spaces, the
           # file name, so `sha256sum -c SHA256SUMS.txt` checks a download.
-          sha256sum "$msi" > SHA256SUMS.txt
+          # Written out by hand because Git Bash's sha256sum reads in binary
+          # mode on Windows and marks the name with a `*` (the first run of
+          # this workflow wrote "<hash> *<name>").
+          sha256=$(sha256sum "$msi" | cut -d' ' -f1)
+          printf '%s  %s\n' "$sha256" "$msi" > SHA256SUMS.txt
           size_bytes=$(stat -c %s "$msi")
           echo "MSI: $msi, $size_bytes bytes ($(( size_bytes / 1048576 )) MB)"
           cat SHA256SUMS.txt
