@@ -18,21 +18,26 @@ released. Every push to this repository carries this file.
   only how the agent starts, and `--once` never goes through that. It now
   prints the reason and advice the agent gives at start-up, from the same
   code, on stderr, without "starting anyway", and it still exits with
-  status 1. A reading prints exactly as before, and anything else that
-  goes wrong still shows its traceback, as a bug should. `test_agent.py`
-  gains sixteen checks for this. (2026-11-06)
+  status 1. A reading prints exactly as before, with status 0, and so
+  does a reading marked unreachable, which is what `--once` prints if
+  the Drobo stops answering after it was found. Any other exception from
+  the connection step still shows its traceback, as a bug should.
+  `test_agent.py` gains sixteen checks for this. (2026-11-06)
 - **Closing a browser-dashboard tab no longer leaves a traceback in the
   agent's window on Windows.** The dashboard's live updates come over one
   long-lived connection. When the tab closed or reloaded, the agent ended
   that stream and then went back to read another request from the same
   connection, which the browser had already reset. On Windows that read
-  raised `ConnectionResetError`, and a traceback appeared in the agent's
-  console, the window testers are asked to copy into an issue. Nothing was
-  wrong underneath, and on Linux nothing was printed. The agent now
-  closes the connection when its stream ends. Traced on Linux with
-  Windows' behaviour simulated; not yet watched on Windows. `test_agent.py`
-  gains two checks for this, which with the sixteen above takes it from 333
-  checks to 351. (2026-11-06)
+  raised `ConnectionResetError` or `ConnectionAbortedError`, and a
+  traceback appeared in the agent's console, the window testers are asked
+  to copy into an issue. Nothing was wrong underneath, and on Linux
+  nothing was printed. The agent now closes the connection when its
+  stream ends. GitHub's Windows test runner shows both sides: at 1.2.0
+  the agent suite's output there carried the traceback (WinError 10054 in
+  one run, 10053 in another), and with the fix it carries none. It has
+  not yet been watched on a tester's own PC. `test_agent.py` gains two
+  checks for this, which with the sixteen above takes it from 333 checks
+  to 351. (2026-11-06)
 
 ## 1.2.0 -- 2026-11-05
 

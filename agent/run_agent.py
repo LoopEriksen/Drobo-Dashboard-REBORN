@@ -80,7 +80,8 @@ def main(argv: list[str] | None = None) -> int:
 def _print_one_reading(monitor: Monitor) -> int:
     """
     --once: connect, print one reading as JSON, and return the exit
-    status -- 0 with a reading, 1 when no Drobo could be read.
+    status -- 0 with a reading (one marked unreachable included), 1
+    when connecting found no Drobo it could read.
 
     No Drobo to read is answered in sentences on stderr, with the
     reasons and advice Monitor.start gives, because --once is the "can

@@ -1144,7 +1144,10 @@ issue. The reasons and the advice now come from one function both use,
 so they cannot drift apart: `--once` prints them on stderr, without
 "starting anyway", and exits 1, while anything else `connect()` raises
 still surfaces as the bug it is, and a reading prints the same JSON as
-before.
+before, with status 0. That includes a reading marked unreachable: if
+the Drobo stops answering between being found and being read, the poll
+turns the failure into such a reading, as it always has, so `--once`
+reports it as JSON rather than as an error.
 
 The other was a `ConnectionResetError` traceback in `test_agent.py`'s
 output, which the handoff called pre-existing. It came from the agent's
@@ -1156,7 +1159,11 @@ tab that closes or reloads. On Linux that read finds the end of the
 stream and nothing is printed; on Windows the reset sticks, the read
 raises, and socketserver prints a traceback into the agent's console. The
 stream now closes its connection when it ends. That was traced on Linux,
-with Windows' behaviour simulated; it has not been watched on Windows.
+with Windows' behaviour simulated, and GitHub's Windows test runner had
+already been showing it: at 1.2.0 the Python suites' log there carries
+the traceback, as `ConnectionResetError` (WinError 10054) in one run and
+`ConnectionAbortedError` (WinError 10053) in another, and on the fixed
+commit it carries none. It has not been watched on a tester's own PC.
 
 The last item stays open: the fix has still not been tried on a real
 boot with the Drobo out of reach, so it is listed below. The handoff
