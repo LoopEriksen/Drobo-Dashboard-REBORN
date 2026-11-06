@@ -26,7 +26,8 @@ import webbrowser
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from drobo_agent import api, config, notify, pairing  # noqa: E402
-from drobo_agent.monitor import Monitor  # noqa: E402
+from drobo_agent.monitor import (  # noqa: E402
+    CANNOT_READ_DROBO_ERRORS, Monitor, why_drobo_cannot_be_read)
 from drobo_agent.photos import PhotoStore  # noqa: E402
 
 DEFAULT_CONFIG_PATH = os.path.join(
@@ -45,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     --once is the exception: it connects explicitly (Monitor.start(),
     which would otherwise do it, is never called), prints one reading
     and exits, without the photo store or the HTTP server -- a quick
-    "can it see my Drobo?" with nothing left running.
+    "can it see my Drobo?" with nothing left running. When it can read
+    no Drobo it says why and exits 1 (see _print_one_reading).
     """
     args = _parse_args(argv)
     loaded_config = config.load(args.config)
@@ -54,9 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     monitor = Monitor(loaded_config, notifier)
 
     if args.once:
-        monitor.driver.connect()
-        print(json.dumps(monitor.poll_once().to_dict(), indent=2))
-        return 0
+        return _print_one_reading(monitor)
 
     photo_store = PhotoStore(loaded_config["photos"])
     photo_store.load()
@@ -74,6 +74,31 @@ def main(argv: list[str] | None = None) -> int:
             f"{dashboard_url}?token={loaded_config['agent']['token']}")
 
     _serve_until_stopped(http_server, monitor, photo_store)
+    return 0
+
+
+def _print_one_reading(monitor: Monitor) -> int:
+    """
+    --once: connect, print one reading as JSON, and return the exit
+    status -- 0 with a reading, 1 when no Drobo could be read.
+
+    No Drobo to read is answered in sentences on stderr, with the
+    reasons and advice Monitor.start gives, because --once is the "can
+    it see my Drobo?" check docs/testers-tasks.md hands a tester, and
+    what it prints is what gets pasted into an issue. Until 2026-11-06
+    --once called connect() with nothing around it, so each of those
+    failures ended in a Python traceback. Monitor.start then starts
+    anyway; --once has no poll loop to hand over to, so it stops.
+    Anything else connect() raises is a bug and still surfaces as one.
+    """
+    try:
+        monitor.driver.connect()
+    except CANNOT_READ_DROBO_ERRORS as exc:
+        print("[agent] no reading taken: "
+              + why_drobo_cannot_be_read(monitor.driver, exc),
+              file=sys.stderr, flush=True)
+        return 1
+    print(json.dumps(monitor.poll_once().to_dict(), indent=2))
     return 0
 
 

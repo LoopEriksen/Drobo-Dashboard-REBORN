@@ -1121,6 +1121,56 @@ the same payload differ by a few kilobytes and in their hash (see 11-05
 above), so the hash that matters to a tester is the one published beside
 the file, not the one recorded here.
 
+## The start-up handoff, closed (2026-11-06)
+
+**11-06.** The session that let the agent start before its Drobo, on
+2026-09-26 (above), had ended with a handoff listing four items still
+open, which the maintainer passed on once 1.2.0 was out. The first,
+merging the work, was long done: the fix is in this history and true of
+the code, and run again against loopback stand-ins in a namespace with
+no network, an agent with nothing to find stayed up, raised the critical
+alert, and picked up a stand-in that appeared later, with no restart.
+Two more were fixed that day.
+
+`run_agent.py --once` still ended in a Python traceback whenever it read
+no Drobo: discovery finding nothing, a device that is provably not this
+Drobo, a reply that is not a Drobo's, or nothing answering at a fixed
+address. The handoff named the first two; all four did it. Monitor.start
+answers each of them, but `--once` never calls it, and the 2026-09-26
+fix had changed only Monitor.start. That mattered because
+`testers-tasks.md` gives `--once` to a tester with a model this project
+has never seen, and a traceback is what would have been pasted into an
+issue. The reasons and the advice now come from one function both use,
+so they cannot drift apart: `--once` prints them on stderr, without
+"starting anyway", and exits 1, while anything else `connect()` raises
+still surfaces as the bug it is, and a reading prints the same JSON as
+before.
+
+The other was a `ConnectionResetError` traceback in `test_agent.py`'s
+output, which the handoff called pre-existing. It came from the agent's
+own server, not the tests. An event stream ends only when its client has
+gone, yet its connection stayed marked keep-alive, so http.server went
+back to read a next request from a socket the client had reset: the
+suite's early-closed stream did it, and so does every browser-dashboard
+tab that closes or reloads. On Linux that read finds the end of the
+stream and nothing is printed; on Windows the reset sticks, the read
+raises, and socketserver prints a traceback into the agent's console. The
+stream now closes its connection when it ends. That was traced on Linux,
+with Windows' behaviour simulated; it has not been watched on Windows.
+
+The last item stays open: the fix has still not been tried on a real
+boot with the Drobo out of reach, so it is listed below. The handoff
+also left one choice with the maintainer. By that session's own account,
+treating a reply that is not a Drobo's, at a fixed address, as "start
+anyway" was its judgement call, not the maintainer's, and is the
+maintainer's to reverse; the alternative is to stop at start-up with a
+message, as a mismatched serial does. `test_agent.py` goes from 333
+checks to 351. The twelve on `--once`'s four failures fail when the old
+`run_agent.py` is put back, and the one on the stream's connection when
+the old `api.py` is; the other five guard what must not change: a
+`KeyError` from `connect()` still escapes, a reading still prints whole,
+and a stream still lets go of its subscription.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -1155,6 +1205,8 @@ its only recorded run so far is on GitHub's runner; re-run share create on
 hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
 watching the unit; copy a real Drobo share to an external drive once, which
 backup's grade waits on; start and stop a DroboApp on hardware for the first time;
+start the agent on a real PC before its Drobo can be found, which so far
+has been tested only against simulated discovery;
 give the remaining command-channel reads the whole-frame deadline the
 settings reads already have; one elevated install of the
 fallback scripts into the real Program Files;

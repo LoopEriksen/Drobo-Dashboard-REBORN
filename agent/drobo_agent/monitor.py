@@ -351,6 +351,54 @@ def _warmest_temperature_c(snapshot: Snapshot) -> float | None:
     return max(temperatures) if temperatures else None
 
 
+# -- why no Drobo could be read ----------------------------------------
+#
+# Two places make the first connection and have to explain a failure to
+# a person: Monitor.start, and run_agent.py --once. Both use these, so
+# the reasons and the advice cannot drift apart between them.
+
+#: What a driver's connect() raises when it read no Drobo: something
+#: answered that is provably not this Drobo, discovery found nothing,
+#: something answered that is not a Drobo, or nothing answered at a
+#: fixed address. Monitor.start refuses to start on the first and
+#: starts anyway on the rest; --once reports each one and exits 1.
+#: Anything else connect() raises is a bug, left to surface as one.
+CANNOT_READ_DROBO_ERRORS = (discovery.IdentityMismatchError,
+                            drivers.DroboNotFoundError, esatm.FrameError,
+                            OSError)
+
+
+def why_drobo_cannot_be_read(driver: drivers.DroboDriver,
+                             exc: Exception) -> str:
+    """
+    Why `driver` read no Drobo, for any of CANNOT_READ_DROBO_ERRORS:
+    what happened, and what to do where there is something to do.
+
+    Monitor.start adds what the agent does next; run_agent.py --once
+    adds nothing, because it does not stay up. Until 2026-11-06 the
+    words lived only in Monitor.start, and --once, which never calls
+    it, ended each of these in a Python traceback instead.
+    """
+    if isinstance(exc, discovery.IdentityMismatchError):
+        # discovery's message already names both serials. Whether the
+        # Drobo was replaced or something else is answering as it is
+        # the user's call, so the advice says how to accept a
+        # replacement rather than guessing which it is.
+        return (f"{exc}\n"
+                "If your Drobo really was replaced, change expected_esa_id "
+                'in the "drobo" block of config.json to the serial it '
+                "reports (or remove it to pair with the next Drobo found), "
+                "then start the agent again.")
+    if isinstance(exc, drivers.DroboNotFoundError):
+        # The driver's message says what was tried and what to check.
+        return f"no Drobo found yet. {exc}"
+    if isinstance(exc, esatm.FrameError):
+        where = driver.target_host() or "the configured address"
+        return (f"the reply from {where} was not a Drobo status message "
+                f"({exc}).")
+    return f"cannot reach the Drobo yet ({exc})."
+
+
 class Monitor:
     """
     The agent's one watcher of the Drobo, shared by every route.
@@ -439,7 +487,9 @@ class Monitor:
         """
         The first connection attempt. Raises SystemExit only for an
         identity mismatch; any other failure prints why the agent is
-        starting anyway, and returns.
+        starting anyway, and returns. Each reason is
+        why_drobo_cannot_be_read's, which run_agent.py --once prints
+        too.
         """
         try:
             self.driver.connect()
@@ -454,11 +504,8 @@ class Monitor:
             # in a raw traceback; discovery's message already names both
             # serials, so exit with that instead.
             raise SystemExit(
-                f"\n[monitor] not starting: {exc}\n"
-                "If your Drobo really was replaced, change expected_esa_id "
-                'in the "drobo" block of config.json to the serial it reports '
-                "(or remove it to pair with the next Drobo found), then "
-                "start the agent again.\n") from exc
+                f"\n[monitor] not starting: "
+                f"{why_drobo_cannot_be_read(self.driver, exc)}\n") from exc
         except drivers.DroboNotFoundError as exc:
             # Discovery ran and nothing answered. Until 2026-09-26 this
             # exited the agent, under a comment calling it "a
@@ -480,7 +527,8 @@ class Monitor:
             # over. Drobo5NDriver.read_snapshot runs discovery again on
             # every poll until something answers, and poll_once turns
             # each miss into the critical "unreachable" alert.
-            print(f"[monitor] no Drobo found yet. {exc}", flush=True)
+            print(f"[monitor] {why_drobo_cannot_be_read(self.driver, exc)}",
+                  flush=True)
             print(f"[monitor] starting anyway: the dashboard stays up, the "
                   f"'cannot reach' alert is raised, and discovery runs again "
                   f"every {poll_seconds}s.", flush=True)
@@ -494,10 +542,9 @@ class Monitor:
             # transient: a Drobo still booting can accept a connection
             # and drop it. So it gets the OSError answer below, with its
             # own wording, instead of the traceback it used to end in.
-            where = self.driver.target_host() or "the configured address"
-            print(f"[monitor] the reply from {where} was not a Drobo status "
-                  f"message ({exc}). Starting anyway and will keep trying "
-                  f"every {poll_seconds}s.", flush=True)
+            print(f"[monitor] {why_drobo_cannot_be_read(self.driver, exc)} "
+                  f"Starting anyway and will keep trying every "
+                  f"{poll_seconds}s.", flush=True)
         except OSError as exc:
             # The Drobo is not answering right now. That is NOT a reason
             # to refuse to start.
@@ -516,9 +563,9 @@ class Monitor:
             # unreachable alert fires through the normal path. If the
             # Drobo comes back, the next poll picks it up with no
             # restart.
-            print(f"[monitor] cannot reach the Drobo yet ({exc}). Starting "
-                  f"anyway and will keep trying every {poll_seconds}s.",
-                  flush=True)
+            print(f"[monitor] {why_drobo_cannot_be_read(self.driver, exc)} "
+                  f"Starting anyway and will keep trying every "
+                  f"{poll_seconds}s.", flush=True)
 
     def stop(self) -> None:
         """

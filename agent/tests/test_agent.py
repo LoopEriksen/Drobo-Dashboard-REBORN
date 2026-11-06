@@ -5,7 +5,8 @@ Starts a real agent on a spare port using the mock driver and a
 temporary photo folder, exercises every endpoint, and checks the
 answers. Then starts one on the real driver with discovery made to find
 nothing, as a PC that boots before its Drobo would, and checks it still
-serves and alerts. No hardware needed, and no Drobo is contacted.
+serves and alerts, and that --once says why it took no reading. No
+hardware needed, and no Drobo is contacted.
 
     py test_agent.py
 
@@ -19,6 +20,7 @@ import http.client
 import io
 import json
 import os
+import queue
 import re
 import shutil
 import socket
@@ -41,6 +43,7 @@ from drobo_agent.photos import PhotoStore  # noqa: E402
 from drobo_nasd import (  # noqa: E402
     config_cmd, discovery, droboapps, drobosync)
 from drobo_nasd import esatm, eventlog, netcheck, sysinfo  # noqa: E402
+import run_agent  # noqa: E402
 
 temp_dir = tempfile.mkdtemp(prefix="droboagent-")
 # Removed when the script exits, however it exits: a failed check or an
@@ -2300,6 +2303,72 @@ for _description, _write_log_line in (
           and "<redacted>" in _logged_output,
           _logged_output.replace(TOKEN, "<THE TOKEN>"))
 
+
+# An event stream ends only when its client has gone -- a dashboard tab
+# closed or refreshed -- and until 2026-11-06 its connection was still
+# marked keep-alive, so http.server went back to read a next request
+# from a socket the client had reset. On Linux that read finds the end
+# of the stream. On Windows the reset sticks, so the read raised
+# ConnectionResetError and socketserver printed a traceback into the
+# agent's console when a tab closed. The early-closed stream under
+# "auth" does what a closed tab does, and is the likely source of the
+# ConnectionResetError traceback seen in this suite's output on
+# 2026-09-26. Windows' sticky reset cannot be made here, so this checks
+# what now prevents it.
+class _MonitorWithOneEvent:
+    """Publishes one event, and records whether the stream let go of
+    its subscription."""
+
+    def __init__(self):
+        self.unsubscribed = False
+
+    def subscribe(self):
+        events = queue.Queue()
+        events.put({"type": "alert", "data": {}})
+        return events
+
+    def unsubscribe(self, event_queue):
+        self.unsubscribed = True
+
+    def snapshot_dict(self):
+        return {}
+
+
+class _StreamWriterWhoseClientLeaves:
+    """Takes the response head and the first frame, then finds the
+    client gone, as a closed dashboard tab leaves it."""
+
+    def __init__(self):
+        self.write_count = 0
+
+    def write(self, data):
+        self.write_count += 1
+        if self.write_count > 2:
+            raise ConnectionResetError("simulated: the dashboard tab closed")
+        return len(data)
+
+    def flush(self):
+        pass
+
+
+_stream_handler = object.__new__(api._ApiRequestHandler)
+_stream_handler.client_address = ("127.0.0.1", 0)
+_stream_handler.request_version = "HTTP/1.1"
+_stream_handler.requestline = "GET /api/events HTTP/1.1"
+_stream_handler.path = "/api/events"
+_stream_handler.command = "GET"
+_stream_handler.close_connection = False
+_stream_handler.monitor = _MonitorWithOneEvent()
+_stream_handler.wfile = _StreamWriterWhoseClientLeaves()
+with contextlib.redirect_stdout(io.StringIO()):
+    _stream_handler._stream_events()
+check("an event stream whose client has gone closes its connection, so no "
+      "next request is read from the reset socket",
+      _stream_handler.close_connection is True,
+      _stream_handler.close_connection)
+check("-- and its subscription is released",
+      _stream_handler.monitor.unsubscribed)
+
 # The startup banner lands in the console Run-Agent.bat tells testers to
 # paste. It printed ?token=<the real token> until 2026-09-14.
 with open(os.path.join(
@@ -2726,6 +2795,129 @@ check("a KeyError from connect() is not mistaken for 'no Drobo found yet'",
       isinstance(_startup_error, KeyError), repr(_startup_error))
 check("-- and no poll loop was started",
       _key_error_monitor._poll_thread is None)
+
+# --once answers "can it see my Drobo?", the check docs/testers-tasks.md
+# gives a tester with a model this project has never seen. Until
+# 2026-11-06 it called connect() with nothing around it, so each way of
+# reading no Drobo below ended in a Python traceback, and a traceback is
+# what would have been pasted into an issue. The same fakes stand in for
+# discovery and the status read, so no device is contacted.
+print("\n== --once says why it took no reading ==")
+
+
+def _run_once(name, drobo_section):
+    """
+    run_agent.py --once on a config with this drobo section: (the exit
+    status it returned, or None if something escaped; what it printed
+    to stdout; what it printed to stderr; what escaped, or None).
+    """
+    _write_agent_config(name, drobo_section)  # the token is written too
+    once_config_path = os.path.join(temp_dir, f"config.{name}.json")
+    printed, printed_errors = io.StringIO(), io.StringIO()
+    exit_status = escaped = None
+    try:
+        with contextlib.redirect_stdout(printed), \
+                contextlib.redirect_stderr(printed_errors):
+            exit_status = run_agent.main(
+                ["--once", "--config", once_config_path])
+    except BaseException as exc:  # noqa: BLE001 - what escapes is the point
+        escaped = exc
+    return (exit_status, printed.getvalue(), printed_errors.getvalue(),
+            escaped)
+
+
+def _check_once_reads_no_drobo(description, name, drobo_section,
+                               expected_words):
+    """The three things --once owes a tester when it can read no
+    Drobo: exit 1 rather than a traceback, the reason in words, and no
+    claim that it is staying up."""
+    once_status, once_out, once_errors, once_escaped = _run_once(
+        name, drobo_section)
+    check(f"--once with {description} exits 1, not with a traceback",
+          once_escaped is None and once_status == 1,
+          (once_status, repr(once_escaped)))
+    check("-- saying why on stderr: "
+          + ", ".join(repr(word) for word in expected_words),
+          all(word in once_errors for word in expected_words), once_errors)
+    check("-- not that it is starting anyway, and with nothing on stdout",
+          "no reading taken" in once_errors
+          and "starting anyway" not in (once_out + once_errors).lower()
+          and once_out == "", (once_out, once_errors))
+
+
+def _refuse_connection(host, port=5000, timeout=8.0):
+    _device_calls.append(("esatm.read_snapshot", host))
+    raise ConnectionRefusedError(111, "Connection refused")
+
+
+def _read_greeting_with_a_bug(host, port=5000, timeout=8.0):
+    raise KeyError("a bug, not a missing Drobo")
+
+
+def _reading_printed(once_out):
+    """The JSON reading --once printed, after any lines the driver
+    printed first, or {} when there is none."""
+    printed_lines = once_out.splitlines()
+    if "{" not in printed_lines:
+        return {}
+    try:
+        return json.loads("\n".join(
+            printed_lines[printed_lines.index("{"):]))
+    except ValueError:
+        return {}
+
+
+discovery.resolve = _resolve_nothing
+esatm.read_snapshot = _must_not_reach("esatm.read_snapshot")
+_check_once_reads_no_drobo(
+    "no Drobo to be found", "once-nodrobo",
+    {"driver": "drobo5n", "host": "auto"},
+    ("no Drobo found", "switched on", "same network"))
+discovery.resolve = _resolve_stranger
+_check_once_reads_no_drobo(
+    "a device that is not this Drobo", "once-stranger",
+    {"driver": "drobo5n", "host": "auto",
+     "expected_esa_id": _SIMULATED_ESA_ID},
+    ("drb000000OTHER", "expected_esa_id"))
+discovery.resolve = _resolve_nothing
+esatm.read_snapshot = _not_a_greeting
+_check_once_reads_no_drobo(
+    "a fixed address that answers with something else", "once-notadrobo",
+    {"driver": "drobo5n", "host": "192.0.2.10"},
+    ("192.0.2.10", "not a Drobo status message"))
+esatm.read_snapshot = _refuse_connection
+_check_once_reads_no_drobo(
+    "nothing answering at a fixed address", "once-refused",
+    {"driver": "drobo5n", "host": "192.0.2.10"},
+    ("cannot reach the Drobo", "Connection refused"))
+
+esatm.read_snapshot = _read_greeting_with_a_bug
+_once_status, _once_out, _once_errors, _once_escaped = _run_once(
+    "once-buggy", {"driver": "drobo5n", "host": "192.0.2.10"})
+check("--once still lets a bug in connect() surface: a KeyError escapes, "
+      "not a 'no reading taken'",
+      isinstance(_once_escaped, KeyError)
+      and "no reading taken" not in _once_errors,
+      (repr(_once_escaped), _once_errors))
+
+sysinfo.get_sysinfo_and_performance = (
+    lambda host, esa_id, port=None, timeout=8.0: {})
+eventlog.get_event_log = lambda host, esa_id, port=None, timeout=8.0: []
+esatm.read_snapshot = _fake_greeting
+_once_status, _once_out, _once_errors, _once_escaped = _run_once(
+    "once-reading", {"driver": "drobo5n", "host": "192.0.2.10"})
+_once_reading = _reading_printed(_once_out)
+check("--once with a Drobo that answers still prints its reading as JSON "
+      "and exits 0",
+      _once_escaped is None and _once_status == 0
+      and _once_reading.get("reachable") is True
+      and _once_reading.get("device", {}).get("serial") == _SIMULATED_ESA_ID,
+      (_once_status, repr(_once_escaped), _once_out[-300:]))
+check("-- the same JSON as before: a whole snapshot, every key",
+      set(_once_reading)
+      == set(Snapshot(reachable=False, source="test").to_dict()),
+      sorted(_once_reading))
+check("-- and nothing on stderr", _once_errors == "", _once_errors)
 
 (discovery.resolve, esatm.read_snapshot, sysinfo.get_sysinfo_and_performance,
  eventlog.get_event_log) = _saved_sdk_functions

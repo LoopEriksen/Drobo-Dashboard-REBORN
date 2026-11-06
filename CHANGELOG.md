@@ -4,6 +4,36 @@ Every release lists what changed since the one before, so anyone building on
 this can see what moved. Dates are the day the work landed, not the day it was
 released. Every push to this repository carries this file.
 
+## Unreleased
+
+### Fixed
+- **`run_agent.py --once` says why it took no reading instead of ending in
+  a Python traceback.** `--once` takes one reading and exits, and
+  `docs/testers-tasks.md` gives it to testers as the quick "can it see my
+  Drobo?" check, so what it prints is what gets pasted into an issue. When
+  it could read no Drobo -- automatic discovery finding nothing, a device
+  that is not your Drobo, something answering that is not a Drobo, or
+  nothing answering at a fixed address -- it ended in a traceback, because
+  the 2026-09-26 fix that keeps the agent running without a Drobo changed
+  only how the agent starts, and `--once` never goes through that. It now
+  prints the reason and advice the agent gives at start-up, from the same
+  code, on stderr, without "starting anyway", and it still exits with
+  status 1. A reading prints exactly as before, and anything else that
+  goes wrong still shows its traceback, as a bug should. `test_agent.py`
+  gains sixteen checks for this. (2026-11-06)
+- **Closing a browser-dashboard tab no longer leaves a traceback in the
+  agent's window on Windows.** The dashboard's live updates come over one
+  long-lived connection. When the tab closed or reloaded, the agent ended
+  that stream and then went back to read another request from the same
+  connection, which the browser had already reset. On Windows that read
+  raised `ConnectionResetError`, and a traceback appeared in the agent's
+  console, the window testers are asked to copy into an issue. Nothing was
+  wrong underneath, and on Linux nothing was printed. The agent now
+  closes the connection when its stream ends. Traced on Linux with
+  Windows' behaviour simulated; not yet watched on Windows. `test_agent.py`
+  gains two checks for this, which with the sixteen above takes it from 333
+  checks to 351. (2026-11-06)
+
 ## 1.2.0 -- 2026-11-05
 
 Everything below has landed since 1.1.0.

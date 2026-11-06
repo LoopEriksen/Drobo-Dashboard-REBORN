@@ -162,7 +162,9 @@ class DroboDriver:
         starts anyway and the poll loop keeps trying.
         discovery.IdentityMismatchError means something answered and it
         is provably not this Drobo: the agent refuses to start. Anything
-        else is a bug and is left to surface as one.
+        else is a bug and is left to surface as one. run_agent.py --once
+        sorts the same four (monitor.CANNOT_READ_DROBO_ERRORS) and says
+        why it took no reading.
         """
 
     def read_snapshot(self) -> Snapshot:

@@ -2873,6 +2873,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             pass
         finally:
             self.monitor.unsubscribe(event_queue)
+            # A stream ends only when its client has gone, so no next
+            # request can follow on this connection. Until 2026-11-06
+            # it was left keep-alive and http.server went back to read
+            # one: harmless on Linux, where the dead socket reads as
+            # its end, but on Windows the reset sticks, so that read
+            # raised ConnectionResetError and socketserver printed a
+            # traceback into the agent's console when a dashboard tab
+            # closed.
+            self.close_connection = True
 
     def _send_next_event_or_keepalive(self, event_queue) -> None:
         """The next published event, or a keep-alive if none comes."""

@@ -68,7 +68,10 @@ Report which number moved and the exact word the dropdown showed.
 
 **What to do:** `py tools/drobo_probe.py mdns` and then the agent with
 `--once`. Both are read-only. Report the model, firmware, and whether the
-status document parsed cleanly.
+status document parsed cleanly. If `--once` can read no Drobo, it says why
+in a few lines, starting `[agent] no reading taken:`, and stops; report
+those lines instead. Read them first: like a reading, they can name your
+Drobo's serial and its address.
 
 ## 6. The iOS app -- needs a Mac
 

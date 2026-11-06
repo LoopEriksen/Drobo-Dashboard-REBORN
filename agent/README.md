@@ -82,6 +82,9 @@ py run_agent.py --once
 ```
 
 Takes a single reading, prints it as JSON, exits. Useful for checking a driver.
+When it can read no Drobo -- none found, one that is not yours, a reply that
+is not a Drobo's, or nothing answering at a fixed address -- it says why on
+stderr, in the words the agent uses at start-up, and exits with status 1.
 
 ```bash
 py tests/test_agent.py
@@ -91,7 +94,8 @@ Starts a real agent on port 7431 of this PC (a fixed port, so run one copy
 of the tests at a time), exercises every endpoint, checks the answers, and
 stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
-raises the "cannot reach" alert; no Drobo is contacted. 333 checks as of 2026-11-05 (the number grows with
+raises the "cannot reach" alert, and that `--once` says why it took no
+reading; no Drobo is contacted. 351 checks as of 2026-11-06 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.
