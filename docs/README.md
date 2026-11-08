@@ -51,6 +51,7 @@ For developers and Claude sessions.
 |---|---|
 | [`archive/`](archive/README.md) | Finished or superseded documents, kept for the record. Nothing there describes the software as it is today |
 | [`captures/`](captures/README.md) | Packet captures, kept only on your PC; git ignores them. Read its README before handling one: captures can contain the Drobo password |
+| [`images/`](images/) | The README's screenshots: the browser dashboard against the simulated Drobo, so every name, serial and address in them is made up. The README links them by path, so do not rename or move them |
 
 ## Not in git
 

@@ -97,12 +97,15 @@ happen), is `docs/capabilities.md` in the repository.
 
 ## Reporting what you find
 
-Open an issue on the repository. The most useful report has:
+Open an issue on the repository with the **Tester report** form:
+<https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/issues/new?template=tester-report.yml>.
+It asks for what the most useful report has:
 
 1. What you did, what you expected, what happened.
 2. **Tools tab -> Copy diagnostics** in the app, pasted in. It leads with why
    the Drobo was unreachable, if it was.
-3. Your Drobo model and firmware version (both are on the Status tab).
+3. Your Drobo model and firmware version (both are on the Status tab), the
+   app's version (on the Tools tab), and your Windows version.
 
 ### Read the diagnostics before you paste them
 
@@ -119,7 +122,8 @@ at the top of the file itself:
 None of that is dangerous to someone on the far side of the internet: private
 addresses are not reachable from outside your home, and a drive serial is
 useful for a warranty claim and very little else. It is still yours. Read the
-file, delete anything you would rather not publish, and send the rest. If you
+file, delete the serial numbers, addresses, your Drobo's name and your share
+names -- the form asks you to confirm you have -- and send the rest. If you
 would rather not post it at all, say so in the issue and it can be dealt with
 another way.
 

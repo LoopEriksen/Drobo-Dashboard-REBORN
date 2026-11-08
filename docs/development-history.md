@@ -1178,6 +1178,40 @@ the old `api.py` is; the other five guard what must not change: a
 `KeyError` from `connect()` still escapes, a reading still prints whole,
 and a stream still lets go of its subscription.
 
+## Ready for testers who did not build it (2026-11-08)
+
+**11-08.** Before inviting Drobo owners to try 1.2.0, the maintainer
+approved three changes aimed at someone arriving cold from a Release page.
+The Release body, tracked as `.github/release-notes.md`, had assumed the
+reader already knew the project: it now opens with what the software is
+and that it is verified on a 5N only, links the tester guide, the tester
+tasks and a new issue form, and carries the Smart App Control way round
+that `TESTING.md` already gave, in its plain words. The installer
+workflow still fills only its four placeholders, so nothing new in braces
+was added.
+
+The issue form, **Tester report**, asks for what `TESTING.md` had listed
+as the most useful report, plus the app and Windows versions, and will
+not submit until two boxes are ticked: serials, IP and MAC addresses, the
+Drobo's name and share names removed, and no packet capture attached. It
+is stricter than `TESTING.md` had been, which said the diagnostics' contents
+were harmless but yours to trim; the guide now says to remove them, so
+the two agree. Blank issues stay allowed and no labels are set, since a
+label the form names is not created for it.
+
+The README gained three screenshots of the browser dashboard, the only
+interface that can be run here. They were taken against the mock driver
+inside a network namespace with no route out, so nothing could reach a
+real Drobo, with Chromium at twice scale, getting past the token prompt
+the way a user would. The overview stops at the drive bays on purpose:
+the simulator also shows a cache battery, PSU and fan reading that a real
+5N never gives, and a screenshot of them would promise what the hardware
+does not deliver. The alert list shows a drive failed and another warned
+through the simulator's own controls. Every string in every image was
+read before it was kept: the simulator's name, serials and addresses
+only, no token, host name or path. Screenshots of the Windows app remain
+the maintainer's to take.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

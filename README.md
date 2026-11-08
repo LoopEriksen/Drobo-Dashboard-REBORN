@@ -15,10 +15,31 @@ keeps that software updatable as Windows and iOS move on.
 
 ---
 
+## What it looks like
+
+These screenshots are of the browser dashboard, taken against the built-in
+simulated Drobo, so every name, serial and address in them is made up. The
+Windows app shows the same readings in its own tabs.
+
+![The status overview: the Drobo's name, model and firmware, an "ok" health
+badge, a capacity bar with used, free, usable, protection and raw space, and
+five drive bays, four with a drive (model, size, serial and temperature each)
+and one empty](docs/images/browser-dashboard-status.png)
+
+![The active alerts list with a drive failed on purpose in the simulator: a
+critical alert saying the drive in bay 2 has failed and should be replaced, a
+warning that the pack is 85% full, and a warning that the drive in bay 4
+reports a problem](docs/images/browser-dashboard-alerts.png)
+
+![The network and shares panel: the Drobo's address, subnet, gateway, DNS and
+workgroup, then its four shares, each with the network path to type into
+Explorer and a Delete button](docs/images/browser-dashboard-shares.png)
+
 ## Installing
 
 Download `DroboDashboardReborn-<version>-win-x64.msi` from this repository's
-**Releases** page and double-click it. It installs into
+[**Releases** page](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases/latest)
+and double-click it. It installs into
 `C:\Program Files\Drobo Dashboard REBORN` for everyone on the PC, so Windows
 asks for administrator approval, and it **bundles its own Python runtime** so
 nothing else needs installing. It adds a Start Menu entry that starts the agent

@@ -6,9 +6,10 @@ says what is already built, what is unknown, and exactly what a person with
 the right setup would run and report. Every step is read-only unless it says
 otherwise, and nothing here risks data if the notes are followed.
 
-Results come back as an issue on this repository: paste the decoded
-output, never the capture file itself. Captures of this protocol can contain
-the Drobo password in plain text.
+Results come back as an issue on this repository, through the
+[Tester report](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/issues/new?template=tester-report.yml)
+form: paste the decoded output, never the capture file itself. Captures of
+this protocol can contain the Drobo password in plain text.
 
 ## 1. DroboSync between two units -- needs two Drobos on one network
 

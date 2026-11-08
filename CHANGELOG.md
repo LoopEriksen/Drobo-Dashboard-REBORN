@@ -6,6 +6,27 @@ released. Every push to this repository carries this file.
 
 ## Unreleased
 
+### Added
+- **A Tester report issue form.** Opening an issue on this repository now
+  offers a form that asks for what `TESTING.md` already called the most
+  useful report: the app's version, how it was run (the MSI, from source,
+  or the simulated Drobo), the Windows app or the browser dashboard, the
+  Drobo model and firmware, the Windows version, what was done, and what
+  happened against what was expected, with an optional box for Tools >
+  Copy diagnostics or the agent window's output. Before it can be sent,
+  two boxes must be ticked: that serial numbers, IP and MAC addresses, the
+  Drobo's name and share names have been removed, and that no packet
+  capture is attached, since one can hold the Drobo's password. A blank
+  issue is still allowed, and the issue chooser links the tester guide.
+  `TESTING.md` and `docs/testers-tasks.md` now point at the form.
+  (2026-11-08)
+- **Screenshots in the README.** A short "What it looks like" section
+  shows the browser dashboard's status overview, its alert list with a
+  drive failed on purpose, and its network and shares panel, all taken
+  against the simulated Drobo, so every name, serial and address in them
+  is made up. They are in `docs/images/`. Screenshots of the Windows app
+  are still to come: they need a Windows PC. (2026-11-08)
+
 ### Fixed
 - **`run_agent.py --once` says why it took no reading instead of ending in
   a Python traceback.** `--once` takes one reading and exits, and
@@ -38,6 +59,16 @@ released. Every push to this repository carries this file.
   not yet been watched on a tester's own PC. `test_agent.py` gains two
   checks for this, which with the sixteen above takes it from 333 checks
   to 351. (2026-11-06)
+
+### Changed
+- **Release notes say what this is and where to start.** Every Release's
+  notes now open with one sentence on what the software is and which
+  Drobos it has been verified on, and link the tester guide, the tester
+  tasks and the Tester report form. They say what to do when Smart App
+  Control will not run the app: start the agent from the Start Menu entry
+  and use the browser dashboard at http://127.0.0.1:7420, or switch Smart
+  App Control off while testing. "Report problems" now links the form.
+  The README's Installing section links the latest release. (2026-11-08)
 
 ## 1.2.0 -- 2026-11-05
 

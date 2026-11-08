@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Tester guide
+    url: https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/blob/main/windows/installer/TESTING.md
+    about: Installing, first run, Smart App Control, and what a useful report holds.
