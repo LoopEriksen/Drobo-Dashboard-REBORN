@@ -15,11 +15,14 @@ released. Every push to this repository carries this file.
   happened against what was expected, with an optional box for Tools >
   Copy diagnostics or the agent window's output. Before it can be sent,
   two boxes must be ticked: that serial numbers, IP and MAC addresses, the
-  Drobo's name and share names have been removed, and that no packet
-  capture is attached, since one can hold the Drobo's password. A blank
-  issue is still allowed, and the issue chooser links the tester guide.
-  `TESTING.md` and `docs/testers-tasks.md` now point at the form.
-  (2026-11-08)
+  Drobo's name, share names and the tester's Windows user name have been
+  removed (the agent's window can print a path under `C:\Users\`), and
+  that no packet capture is attached, since one can hold the Drobo's
+  password. A blank issue is still allowed, and the issue chooser links
+  the tester guide. `TESTING.md` and `docs/testers-tasks.md` now point at
+  the form, and `TESTING.md`, which ships in the install folder, now names
+  what to remove before sending diagnostics instead of saying "anything
+  you would rather not publish". (2026-11-08)
 - **Screenshots in the README.** A short "What it looks like" section
   shows the browser dashboard's status overview, its alert list with a
   drive failed on purpose, and its network and shares panel, all taken

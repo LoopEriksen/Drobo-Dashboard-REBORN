@@ -1193,7 +1193,10 @@ was added.
 The issue form, **Tester report**, asks for what `TESTING.md` had listed
 as the most useful report, plus the app and Windows versions, and will
 not submit until two boxes are ticked: serials, IP and MAC addresses, the
-Drobo's name and share names removed, and no packet capture attached. It
+Drobo's name, share names and the tester's Windows user name removed, and
+no packet capture attached. The user name was added the same day, after
+review: the agent's window prints the path it saved the token file to,
+and on an installed copy that path runs through `C:\Users\<name>\`. It
 is stricter than `TESTING.md` had been, which said the diagnostics' contents
 were harmless but yours to trim; the guide now says to remove them, so
 the two agree. Blank issues stay allowed and no labels are set, since a

@@ -79,16 +79,18 @@ body:
         Optional. In the app, Tools > Copy diagnostics, or what the agent's
         window printed. **Read it first and remove serial numbers (the
         Drobo's own and every drive's), IP and MAC addresses, the Drobo's
-        name and share names.** It never contains a password or the access
-        token, but it does contain those. Never paste a packet capture: it
-        can carry your Drobo password in plain text.
+        name, share names and your Windows user name** (the agent's window
+        can print a path such as C:\Users\your-name\AppData\...). It never
+        contains a password or the access token, but it can contain those.
+        Never paste a packet capture: it can carry your Drobo password in
+        plain text.
       render: text
   - type: checkboxes
     id: privacy
     attributes:
       label: Before you submit
       options:
-        - label: I removed serial numbers, IP and MAC addresses, the Drobo's name and share names from everything above
+        - label: I removed serial numbers, IP and MAC addresses, the Drobo's name, share names and my Windows user name from everything above
           required: true
         - label: I have not attached a packet capture (it can hold the Drobo's password)
           required: true

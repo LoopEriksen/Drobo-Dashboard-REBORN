@@ -122,8 +122,10 @@ at the top of the file itself:
 None of that is dangerous to someone on the far side of the internet: private
 addresses are not reachable from outside your home, and a drive serial is
 useful for a warranty claim and very little else. It is still yours. Read the
-file, delete the serial numbers, addresses, your Drobo's name and your share
-names -- the form asks you to confirm you have -- and send the rest. If you
+file, delete the serial numbers, addresses, your Drobo's name, your share
+names and your Windows user name (it can appear in a path such as
+`C:\Users\your-name\...`) -- the form asks you to confirm you have -- and
+send the rest. If you
 would rather not post it at all, say so in the issue and it can be dealt with
 another way.
 
