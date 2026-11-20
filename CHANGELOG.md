@@ -7,6 +7,28 @@ released. Every push to this repository carries this file.
 ## Unreleased
 
 ### Added
+- **The Drobo picked is the Drobo watched.** A new agent route, `POST
+  /api/drobo/select`, takes `{"host": ..., "esa_id": ...}` (`esa_id`
+  optional). It reads that address's status greeting -- no login, and
+  nothing sent that changes the Drobo -- checks the serial, keeps the
+  choice in `config.json`, and switches the running agent with no
+  restart. On a first run it accepts whatever answers and pins its
+  serial; the paired Drobo is accepted at any new address; a different
+  Drobo only when `esa_id` names it; and nothing is saved when nothing
+  answers, the serial is not the one asked for, or the file cannot be
+  written. In automatic discovery the address goes first in
+  `manual_discovery_ips` and `host` stays `"auto"`, so mDNS still finds a
+  Drobo that later moves; a fixed `host` is replaced. Choosing the Drobo
+  the agent is already reading, and that answers, changes nothing and
+  rewrites nothing. The browser dashboard gains a "Find the Drobo"
+  address box while the Drobo cannot be reached; a Drobo that is not the
+  paired one is refused there with both serials named, and the box then
+  offers a deliberate "Watch <name> (<serial>) instead" button. On the
+  simulated Drobo, a real address is refused with advice to start the
+  real agent. Tested against loopback fakes, not yet on a real Drobo or
+  in the Windows app on a PC. Known limit: a page already open on one
+  Drobo sends its writes to whichever Drobo the agent watches when they
+  are sent, so reload any open page after switching. (2026-11-20)
 - **A Tester report issue form.** Opening an issue on this repository now
   offers a form that asks for what `TESTING.md` already called the most
   useful report: the app's version, how it was run (the MSI, from source,
@@ -31,6 +53,29 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **Connect in the Windows app opens the Drobo that was clicked.** The
+  "type its address" box probed the address, said "Found <name>", and
+  Connect then opened a dashboard that stayed unreachable, because
+  nothing could change the address the agent used; with two Drobos,
+  clicking the second opened the first. Connect on any picker row --
+  found, typed, or the remembered Drobo at start-up -- now asks the agent
+  for that row's Drobo first, and the dashboard opens only once the
+  agent has switched; otherwise the agent's sentence is shown and the
+  rows stay. While the agent answers, the picker says "Asking the agent
+  to watch <name>…" and its rows are disabled. The start-up reconnect to
+  the remembered Drobo sends the address alone, so launching the app
+  never moves the agent onto another Drobo, and it leaves `config.json`
+  as it is; only a click switches. (2026-11-20)
+- **Switching to another Drobo never reports the first one's problems as
+  resolved.** A change of Drobo forgets the previous Drobo's alerts,
+  latest reading and graph without sending any notification, so a failed
+  drive in the Drobo just left is not reported "Resolved" by the new
+  one's first reading. A reading begun before the switch is dropped.
+  (2026-11-20)
+- **A malformed name in the address box is answered.** `/api/discover?host=`
+  with a name such as `drobo..local` used to drop the connection without
+  an answer, and the app said it could not reach the agent; it now
+  answers that nothing was found. (2026-11-20)
 - **Protection no longer shows a measured-looking "0 B".** A real Drobo
   5N's status greeting carries no protection figure, yet the browser
   dashboard, the Windows app's Status tab and the diagnostics report
@@ -104,6 +149,16 @@ released. Every push to this repository carries this file.
   to 351. (2026-11-06)
 
 ### Changed
+- **The agent names the config file it really uses.** The browser's token
+  page said `agent/config.json` and the agent's start-up banner "this
+  agent's config.json"; both now name the file the agent was started with, with the user's own folder
+  written as `%LOCALAPPDATA%`, `%USERPROFILE%` or `~` (an installed copy's
+  is `%LOCALAPPDATA%\DroboDashboardReborn\config.json`). The "cannot
+  reach" advice names that file too, says to disconnect a VPN, points to
+  the address box, and gives the `py tools/drobo_probe.py mdns` hint only
+  in a copy of the source, the only place that tool exists. An agent that
+  finds only a different Drobo at start-up still refuses to start, and
+  its message now names the actual file to edit. (2026-11-20)
 - **Release notes say what this is and where to start.** Every Release's
   notes now open with one sentence on what the software is and which
   Drobos it has been verified on, and link the tester guide, the tester

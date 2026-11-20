@@ -17,6 +17,7 @@ from collections import deque
 from drobo_nasd import discovery, esatm, firmware, netcheck
 
 from . import drivers
+from .config import display_path
 from .models import (
     SEVERITY_CRITICAL,
     SEVERITY_INFO,
@@ -411,12 +412,14 @@ def why_drobo_cannot_be_read(driver: drivers.DroboDriver,
         # discovery's message already names both serials. Whether the
         # Drobo was replaced or something else is answering as it is
         # the user's call, so the advice says how to accept a
-        # replacement rather than guessing which it is.
+        # replacement rather than guessing which it is. It names the
+        # file the agent was started with (since 2026-11-20): an
+        # installed copy's is not the config.json beside the agent.
         return (f"{exc}\n"
                 "If your Drobo really was replaced, change expected_esa_id "
-                'in the "drobo" block of config.json to the serial it '
-                "reports (or remove it to pair with the next Drobo found), "
-                "then start the agent again.")
+                f'in the "drobo" block of {driver.config_file_display} to '
+                "the serial it reports (or remove it to pair with the next "
+                "Drobo found), then start the agent again.")
     if isinstance(exc, drivers.DroboNotFoundError):
         # The driver's message says what was tried and what to check.
         return f"no Drobo found yet. {exc}"
@@ -457,10 +460,20 @@ class Monitor:
     #: reconnecting clears the warning within half a minute.
     NETWORK_HINT_TTL_SECONDS = 30.0
 
-    def __init__(self, config: dict, notifier):
+    def __init__(self, config: dict, notifier, config_path: str = ""):
+        """
+        Build the driver config.json names. `config_path` is the file
+        `config` was loaded from: the select route saves the Drobo it
+        is pointed at there, and the driver's advice names it (shown
+        as config.display_path writes it). "" -- as the test suites
+        that never save leave it -- means there is no file to save to.
+        """
         self.config = config
+        self.config_path = config_path
         self.notifier = notifier
         self.driver = drivers.build(config["drobo"])
+        if config_path:
+            self.driver.config_file_display = display_path(config_path)
 
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
@@ -482,6 +495,10 @@ class Monitor:
         self._last_sent_at_by_key: dict[str, float] = {}
         self._subscribers: list[queue.Queue] = []
         self.started_at = time.time()
+        # Counts the changes of Drobo (begin_watching_another_drobo).
+        # A poll notes it before reading and drops its reading if it
+        # has moved on by the time the reading is recorded.
+        self._drobo_generation = 0
 
         # Why the Drobo can't be reached, when the answer is "this PC
         # isn't on its network". None whenever the Drobo is reachable,
@@ -653,13 +670,15 @@ class Monitor:
         turn into the "cannot reach" alert. The notifications and live
         events go out after the lock is released, so a slow notifier
         never holds up an API reader.
+
+        A reading begun before the agent was pointed at another Drobo
+        is returned but not recorded: it describes the Drobo watched
+        until then, and recording it would raise that Drobo's alerts
+        again, or clear them, against the one now watched.
         """
-        try:
-            snapshot = self.driver.read_snapshot()
-        # Any driver failure means "unreachable".
-        except Exception as exc:  # noqa: BLE001
-            snapshot = Snapshot(
-                reachable=False, source=self.driver.name, error=str(exc))
+        with self._lock:
+            generation = self._drobo_generation
+        snapshot = self._take_reading()
 
         # Worked out BEFORE the lock is taken: this can shell out to
         # `ipconfig`, and no /api/status reader should ever be made to
@@ -670,6 +689,8 @@ class Monitor:
                         if not snapshot.reachable else None)
 
         with self._lock:
+            if generation != self._drobo_generation:
+                return snapshot
             self.latest = snapshot
             self.network_hint = network_hint
             self.history.append(snapshot)
@@ -687,6 +708,45 @@ class Monitor:
         for alert in fired_alerts:
             self._dispatch(alert)
         return snapshot
+
+    def _take_reading(self) -> Snapshot:
+        """The driver's reading, or an unreachable snapshot carrying
+        the reason when it could not be taken."""
+        try:
+            return self.driver.read_snapshot()
+        # Any driver failure means "unreachable".
+        except Exception as exc:  # noqa: BLE001
+            return Snapshot(
+                reachable=False, source=self.driver.name, error=str(exc))
+
+    def begin_watching_another_drobo(self, serial_changes: bool) -> None:
+        """
+        Get ready for the driver to be pointed at another address.
+        POST /api/drobo/select calls it with the driver's readings
+        held (Drobo5NDriver.readings_held), just before it repoints
+        the driver, so no poll reads in between.
+
+        Every reading already under way is dropped when it finishes
+        (see poll_once). When `serial_changes` -- a different Drobo,
+        not the same one at a new address -- the previous Drobo's
+        alerts, latest reading and history are forgotten, without a
+        notification. Kept, the first reading of the new Drobo would
+        clear each of the old one's standing alerts and send it as
+        "Resolved": a failed drive in the Drobo just left reported
+        fixed, and sent again as new on switching back, the false
+        all-clear the 2026-11-02 fix removed for unreachable polls.
+        The history goes too, so the graph does not join two Drobos'
+        figures into one line.
+        """
+        with self._lock:
+            self._drobo_generation += 1
+            if not serial_changes:
+                return
+            self.alerts.clear()
+            self._last_sent_at_by_key.clear()
+            self.history.clear()
+            self.latest = None
+            self.network_hint = None
 
     # -- why we can't reach it -----------------------------------------
 
@@ -932,6 +992,18 @@ class Monitor:
         payload["firmware_advisory"] = firmware.assess(
             self.latest.device.firmware).to_dict()
         return payload
+
+    def is_watching(self, esa_id: str) -> bool:
+        """
+        True when the latest reading is of the Drobo `esa_id` and it
+        answered. POST /api/drobo/select asks, so that choosing the
+        Drobo already being read -- the Windows app does at every
+        launch -- leaves config.json and the driver as they are.
+        """
+        with self._lock:
+            latest = self.latest
+            return (latest is not None and latest.reachable
+                    and bool(esa_id) and latest.device.serial == esa_id)
 
     def snapshot_dict(self) -> dict:
         """The latest snapshot as /api/status serves it."""

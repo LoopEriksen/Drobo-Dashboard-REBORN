@@ -228,6 +228,49 @@ var diagnosticsProtection = ProtectionLine(DiagnosticsReport.BuildText(
 Check("the diagnostics say not reported by this Drobo, not 0 B",
       diagnosticsProtection.EndsWith("not reported by this Drobo"), diagnosticsProtection);
 
+// ---------------------------------------------------------------------------
+// DroboSelection -- what a picker row's Connect asks the agent for. Until
+// 2026-11-20 Connect asked nothing, and opened whichever Drobo the agent
+// already watched (readiness M2, S8). Placed before the CredentialStore
+// checks, which need Windows, so these run on any machine.
+Console.WriteLine("\n== DroboSelection: the picker asks the agent for the row clicked ==");
+var rowBody = DroboSelection.RequestBody(" 192.0.2.22 ", "drb000000SAMPLEB");
+Check("a row with a serial sends its address and serial",
+      rowBody.Count == 2 && rowBody["host"] == "192.0.2.22" && rowBody["esa_id"] == "drb000000SAMPLEB",
+      string.Join(",", rowBody.Select(kv => kv.Key + "=" + kv.Value)));
+var typedBody = DroboSelection.RequestBody("192.0.2.21", "");
+Check("-- a row with no serial (a typed address that did not answer) sends the address alone",
+      typedBody.Count == 1 && typedBody["host"] == "192.0.2.21");
+var reconnectBody = DroboSelection.RequestBody("192.0.2.22", "drb000000SAMPLEB", chosenByPerson: false);
+Check("-- the start-up reconnect sends the address alone, so it cannot re-pair the agent without a click",
+      reconnectBody.Count == 1 && reconnectBody["host"] == "192.0.2.22");
+
+static JsonElement AgentAnswer(string json) => JsonDocument.Parse(json).RootElement.Clone();
+var (selectedOutcome, selectedProblem) = DroboSelection.ReadAnswer(200, AgentAnswer("{\"ok\": true}"));
+Check("a 200 opens the dashboard", selectedOutcome == DroboSelection.Outcome.Selected && selectedProblem is null);
+const string agentRefusal = "The Drobo at 192.0.2.22 identifies as 'drb000000SAMPLEB', not 'drb000000SAMPLEA'.";
+var (refusedOutcome, refusedProblem) = DroboSelection.ReadAnswer(
+    409, AgentAnswer("{\"error\": \"" + agentRefusal + "\", \"reason\": \"paired_with_another\"}"));
+Check("a refusal does not open it, and shows the agent's own sentence",
+      refusedOutcome == DroboSelection.Outcome.Refused && refusedProblem == agentRefusal, refusedProblem);
+var (_, reconnectProblem) = DroboSelection.ReadAnswer(
+    409, AgentAnswer("{\"error\": \"" + agentRefusal + "\", \"reason\": \"paired_with_another\"}"),
+    chosenByPerson: false);
+Check("-- and a start-up reconnect refused that way also says which click switches",
+      reconnectProblem == agentRefusal + " " + DroboSelection.ClickToSwitch, reconnectProblem);
+var (bareOutcome, bareProblem) = DroboSelection.ReadAnswer(500, AgentAnswer("{}"));
+Check("-- a refusal with no sentence still says something, with the HTTP code",
+      bareOutcome == DroboSelection.Outcome.Refused && bareProblem is not null && bareProblem.Contains("500"), bareProblem);
+var (tokenOutcome, tokenProblem) = DroboSelection.ReadAnswer(401, AgentAnswer("{\"error\": \"unauthorised\"}"));
+Check("-- a refused token says so in the picker's words",
+      tokenOutcome == DroboSelection.Outcome.Refused && tokenProblem is not null && tokenProblem.Contains("token"), tokenProblem);
+var (oldAgentOutcome, _) = DroboSelection.ReadAnswer(
+    404, AgentAnswer("{\"error\": \"not found\", \"path\": \"/api/drobo/select\"}"));
+Check("an agent without the route (older than the app) still opens as before",
+      oldAgentOutcome == DroboSelection.Outcome.AgentWithoutRoute);
+var (otherNotFound, _) = DroboSelection.ReadAnswer(404, AgentAnswer("{\"error\": \"not found\", \"path\": \"/elsewhere\"}"));
+Check("-- but a 404 about some other path is a refusal, not that",
+      otherNotFound == DroboSelection.Outcome.Refused);
 
 // ---------------------------------------------------------------------------
 // CredentialStore -- saving a Drobo login on this PC.

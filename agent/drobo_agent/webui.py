@@ -16,6 +16,13 @@ the page asks for the token once and keeps it in sessionStorage.
 
 from __future__ import annotations
 
+import html
+
+#: Where the token page names the agent's config file; render_page
+#: fills it in. A marker rather than str.format, because the page is
+#: full of braces.
+CONFIG_FILE_MARKER = "__AGENT_CONFIG_FILE__"
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -215,7 +222,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   <!-- shown until a token is supplied -->
   <div id="gate" class="panel" hidden>
     <h1>Drobo Agent</h1>
-    <p class="sub">Paste the access token from <code>agent/config.json</code>.</p>
+    <p class="sub">Paste the access token from <code>__AGENT_CONFIG_FILE__</code>
+       (the <code>"token"</code> line under <code>"agent"</code>).</p>
     <p><input type="password" id="tokenInput" placeholder="access token" autocomplete="off"></p>
     <p><button id="tokenSave">Connect</button>
        <span id="tokenError" class="sub" style="color:var(--crit)"></span></p>
@@ -243,6 +251,28 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       <p id="netHeadline" class="netheadline"></p>
       <p id="netDetail"></p>
       <p id="netCaveat" class="sub"></p>
+    </section>
+
+    <!-- The way in when the agent cannot find the Drobo by itself: type its
+         address. POST /api/drobo/select reads that address's status greeting
+         (no login, nothing sent that changes anything), checks its serial,
+         and only then points the agent at it and keeps it in config.json.
+         Until 2026-11-20 this page had no such box, and the Windows app's
+         box was checked and then never used. Shown only while the Drobo
+         cannot be reached; the simulator always can be. -->
+    <section class="panel" id="findPanel" hidden>
+      <h2>Find the Drobo</h2>
+      <p class="sub">If the agent cannot find the Drobo by itself, type its
+        address here. Disconnect any VPN on this PC first: a VPN can hide the
+        Drobo from the search.</p>
+      <div class="toolrow">
+        <input type="text" id="findHost" placeholder="IP address or name"
+               autocomplete="off" spellcheck="false">
+        <button type="button" id="findBtn" class="btn">Watch this Drobo</button>
+      </div>
+      <p class="set-result" id="findResult" hidden></p>
+      <p id="findInsteadRow" hidden>
+        <button type="button" id="findInsteadBtn" class="btn btn-quiet"></button></p>
     </section>
 
     <!-- Standing note about the running firmware. Shown only for the two builds
@@ -613,6 +643,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       $("fwHeadline").textContent = fw.headline || "";
       $("fwDetail").textContent = fw.detail || "";
     }
+
+    $("findPanel").hidden = !!s.reachable || s.source === "mock";
 
     var net = s.network_hint;
     $("netPanel").hidden = !net;
@@ -1612,6 +1644,53 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       .then(function () { btn.disabled = false; });
   });
 
+  // The "Find the Drobo" box. The agent's answer is shown in its own words,
+  // like every write's. A Drobo that answers but is not the one this agent is
+  // paired with is refused unless it is named by its serial, so that case
+  // offers a second button that names it -- a deliberate second click, never
+  // an automatic retry.
+  function selectDrobo(host, esaId) {
+    var btn = $("findBtn");
+    btn.disabled = true;
+    $("findInsteadRow").hidden = true;
+    setResult("findResult", "warn", "Checking " + host + "…");
+    var body = { host: host };
+    if (esaId) body.esa_id = esaId;
+    return sendJson("/api/drobo/select", body)
+      .then(function (res) {
+        if (res.ok) {
+          setResult("findResult", true, res.j.message || "Done.");
+          return refresh();
+        }
+        setResult("findResult", false,
+                  res.j.error || "The agent did not take that address.");
+        offerWatchInstead(host, res.j);
+      })
+      .catch(function (e) {
+        setResult("findResult", false, "Couldn't reach the agent: " + e.message);
+      })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function offerWatchInstead(host, j) {
+    if (j.reason !== "paired_with_another" || !j.esa_id_found) return;
+    var name = (j.device && j.device.name) || "this Drobo";
+    $("findInsteadBtn").textContent =
+      "Watch " + name + " (" + j.esa_id_found + ") instead";
+    $("findInsteadBtn").onclick = function () {
+      selectDrobo(host, j.esa_id_found);
+    };
+    $("findInsteadRow").hidden = false;
+  }
+
+  $("findBtn").addEventListener("click", function () {
+    var host = $("findHost").value.trim();
+    if (host) selectDrobo(host, "");
+  });
+  $("findHost").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") $("findBtn").click();
+  });
+
   function connectStream() {
     var es = new EventSource("/api/events?token=" + encodeURIComponent(token));
     es.addEventListener("snapshot", function (e) {
@@ -1675,3 +1754,19 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
 </body>
 </html>
 """
+
+
+def render_page(config_file_display: str) -> str:
+    """
+    The page, with the token page naming the config file the agent is
+    using.
+
+    It said "agent/config.json" until 2026-11-20, which is where a
+    source tree keeps it; an installed copy keeps it in
+    %LOCALAPPDATA%\\DroboDashboardReborn, and this page is where Smart
+    App Control testers are sent. The page is served without a token,
+    so `config_file_display` should come from config.display_path,
+    which writes the user's own folder as a placeholder.
+    """
+    return PAGE.replace(CONFIG_FILE_MARKER,
+                        html.escape(config_file_display))

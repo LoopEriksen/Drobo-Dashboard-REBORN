@@ -91,6 +91,12 @@ share permissions, creating and deleting shares, starting and stopping
 DroboApps -- is in the README, with how each write is checked. **Deleting a
 share deletes everything in it**, and the app makes you retype the name.
 
+If you have more than one Drobo: the agent watches one at a time, and every
+change goes to the Drobo it watches when the change is sent. After you switch
+it to another Drobo (Connect on another row, or the browser's address box),
+reload any dashboard page that was already open before changing anything on
+it, or the change lands on the Drobo you just switched to.
+
 The complete inventory, every capability with its status (working on real
 hardware, built but unproven, planned, blocked, or deliberately not going to
 happen), is `docs/capabilities.md` in the repository.

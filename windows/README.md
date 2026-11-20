@@ -29,7 +29,7 @@ dashboard. All Drobo logic stays in `agent/` and `sdk/`.
 
 ## The app's source files
 
-`DroboDashboardReborn/` holds 38 files. Start with `MainWindow.xaml` (the main
+`DroboDashboardReborn/` holds 39 files. Start with `MainWindow.xaml` (the main
 window: the Drobo picker and the five tabs) and `MainWindow.xaml.cs` (what they
 do).
 
@@ -60,6 +60,7 @@ share) and `VolumeRow` (a volume).
 | `CredentialStore.cs` | Saved share logins, kept in Windows Credential Manager |
 | `SmbConnections.cs` | Connecting to a share as a named user, through Windows itself |
 | `DroboSettings.cs` | What the app remembers between launches (`settings.json`); never a password |
+| `DroboSelection.cs` | What a picker row's **Connect** asks the agent for: watch that row's Drobo, by its address and serial, before the dashboard opens. The start-up reconnect to the remembered Drobo sends the address alone, so launching the app never re-pairs the agent |
 | `DiagnosticsReport.cs` | The readable report "Copy diagnostics" saves to a file |
 | `MarkdownGuide.cs` | Shows the guide to reaching your files, opened from the Tools tab, as a readable page. The button appears only where the app can find `docs/accessing-your-files.md` within six folders above itself. A plain `dotnet build -c Release` inside a checkout is close enough; a `win-x64` publish sits one folder deeper, and an installed copy has no `docs/` at all, so in both of those the button hides instead of offering a page it does not have |
 | `TrayIconManager.cs` | The icon in the notification area, by the clock |

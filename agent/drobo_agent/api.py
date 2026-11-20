@@ -36,6 +36,15 @@ nothing else; see pairing.py.
                                  of typing an address. ?host= adds one
                                  typed address to the search, for
                                  networks that filter mDNS entirely
+    POST /api/drobo/select      {"host": H, "esa_id": S} (S optional)
+                                 watch the Drobo at H from now on, no
+                                 restart, and keep it in config.json.
+                                 Reads H's status greeting first (no
+                                 login, nothing that changes the
+                                 Drobo) and refuses a device that does
+                                 not answer, does not carry S, or is
+                                 not the paired Drobo when S is left
+                                 out. See selection.py
     GET  /api/netcheck[?host=]  whether this PC is even on the same
                                  network as a given Drobo -- the usual
                                  reason one "vanishes"
@@ -168,11 +177,12 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree
 
-from . import backup, drivers, notify, pairing, qr, updates, webui
+from . import backup, drivers, notify, pairing, qr, selection, updates, webui
 from drobo_nasd import shares as nasd_shares
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
                         identify as nasd_identify, netcheck, sharewrite)
 from drobo_nasd.shareedit import ShareEditError
+from .config import ConfigFileError, display_path, save_drobo_settings
 from .drivers import MockDriver, SimulatedWriteUnconfirmedError
 from .photos import PhotoStoreError
 
@@ -496,6 +506,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     # one. (time.time() it was cached at, payload), or None.
     _update_cache: tuple[float, dict] | None = None
     _update_lock = threading.Lock()
+
+    # One change of Drobo at a time: each reads a device, saves
+    # config.json and repoints the driver, and two interleaved would
+    # leave the file naming one Drobo and the driver watching another.
+    _select_lock = threading.Lock()
 
     # injected by build_http_server()
     monitor = None
@@ -837,7 +852,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             return self._serve_ping()
         if path == "/":
-            return self._send_text(webui.PAGE, content_type="text/html")
+            return self._send_text(
+                webui.render_page(self._config_file_display()),
+                content_type="text/html")
         if not self._request_authorised("GET", path):
             return self._send_unauthorised(self.query_params, "GET", path)
         route = self._get_routes().get(path)
@@ -922,6 +939,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "/api/shares/create": self._serve_share_create,
             "/api/shares/delete": self._serve_share_delete,
             "/api/droboapps/action": self._serve_droboapps_action,
+            "/api/drobo/select": self._serve_drobo_select,
             "/api/mock/sign-in": self._mock_sign_in,
         }
 
@@ -2589,7 +2607,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         ElementTree.ParseError from verify_candidate, and is skipped
         like any other peer that is not a usable Drobo. Until 2026-11-02
         it was not caught, and the agent dropped the /api/discover
-        connection without an answer.
+        connection without an answer. A typed ?host= the resolver
+        cannot encode ("drobo..local", a label over 63 characters)
+        raises UnicodeError, a ValueError, and did the same until
+        2026-11-20.
         """
         devices_found: list[dict] = []
         hosts_seen: set[str] = set()
@@ -2603,7 +2624,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 # still happens in the driver when you actually connect.
                 verified_candidate = discovery.verify_candidate(
                     candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
-            except (OSError, discovery.IdentityMismatchError,
+            except (OSError, ValueError, discovery.IdentityMismatchError,
                     esatm.FrameError, ElementTree.ParseError):
                 # answered badly or not at all;
                 # not a Drobo we can use
@@ -2748,6 +2769,187 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "advice": nasd_shares.access_advice(share_summaries, accounts),
             "link": link_health_report,
         }
+
+    # -- POST: which Drobo the agent watches ---------------------------
+
+    def _serve_drobo_select(self) -> None:
+        """
+        POST /api/drobo/select: point the agent at the Drobo at "host",
+        checked by its serial, and keep the choice in config.json.
+
+        Added 2026-11-20 for the typed address and the two-Drobo picker
+        (readiness M2, S8): until then the app could only probe an
+        address, never have it watched. Who may be chosen is decided in
+        selection.py. Reaching the device is one status-greeting read,
+        the check /api/discover?host= makes; nothing is sent that
+        changes the Drobo, and no write gate is involved.
+        """
+        try:
+            body = self._read_json_body()
+        except ValueError as exc:
+            return self._send_bad_json(exc)
+        request, bad_request = selection.parse_select_request(body)
+        if bad_request:
+            return self._send_json(bad_request, 400)
+        driver = self.monitor.driver
+        if isinstance(driver, MockDriver):
+            return self._answer_select_on_simulator(request)
+        if not hasattr(driver, "watch_drobo_at"):
+            return self._send_json(selection.refusal(
+                "unsupported",
+                f"The {driver.name!r} driver cannot be pointed at an "
+                f"address. Nothing was changed."), 409)
+        with _ApiRequestHandler._select_lock:
+            return self._select_identified_drobo(driver, request)
+
+    def _select_identified_drobo(self, driver, request) -> None:
+        """
+        Read the device at request.host, refuse it if selection says
+        so, otherwise save the choice, then apply it. Saved first, so a
+        choice that cannot be kept changes nothing at all.
+
+        The Drobo the agent is already reading, reachable, is answered
+        as it is, with nothing saved or repointed. The Windows app
+        reconnects to the Drobo it remembers at every launch, through
+        this route; until the review of 2026-11-20 that reconnect wrote
+        the mDNS-found address into manual_discovery_ips (or replaced
+        a fixed host name with its IP), so a launch alone, with no
+        click, rewrote config.json and changed how the agent searches.
+        """
+        identity = self._identity_at(request.host, driver.port)
+        if identity is None:
+            return self._send_json(
+                selection.nothing_answered(request.host), 502)
+        identity_problem = selection.identity_refusal(
+            request, identity, driver._known_esa_id)
+        if identity_problem:
+            status, refusal_body = identity_problem
+            return self._send_json(refusal_body, status)
+        esa_id = identity["esa_id"]
+        if self.monitor.is_watching(esa_id):
+            return self._send_json(selection.already_watching_answer(
+                request.host, identity, self.monitor.snapshot_dict()))
+        previous_esa_id = driver._known_esa_id
+        try:
+            saved_to = self._save_drobo_settings(
+                driver.drobo_settings_for(request.host, esa_id))
+        except (ConfigFileError, OSError) as exc:
+            return self._send_json(selection.refusal(
+                "not_saved",
+                f"The Drobo at {request.host} answered, but the choice "
+                f"could not be kept, so nothing was changed: {exc}"), 500)
+        self._repoint_driver(driver, request.host, esa_id)
+        first_reading = self.monitor.poll_once()
+        return self._send_json(selection.selected_answer(
+            request.host, identity, previous_esa_id, saved_to,
+            first_reading.reachable))
+
+    def _repoint_driver(self, driver, host: str, esa_id: str) -> None:
+        """
+        Point the running driver at `esa_id` at `host`, with the
+        driver's readings held so no poll reads in between, and with
+        the Monitor told first. A different Drobo's alerts are then
+        forgotten rather than sent as "Resolved" by its successor's
+        first reading (see Monitor.begin_watching_another_drobo).
+        """
+        previous_esa_id = driver._known_esa_id
+        with driver.readings_held():
+            self.monitor.begin_watching_another_drobo(
+                serial_changes=bool(previous_esa_id)
+                and previous_esa_id != esa_id)
+            driver.watch_drobo_at(host, esa_id)
+        self._forget_answers_about_the_previous_drobo()
+
+    def _identity_at(self, host: str, port: int) -> dict | None:
+        """
+        The device's own claims at host:port, from its status greeting,
+        or None when nothing there answered as a Drobo. The same check,
+        timeout and refusals as /api/discover?host=.
+
+        ValueError is among them because a name the resolver cannot
+        encode (an empty or over-long label, as "drobo..local" has)
+        raises UnicodeError, not OSError. parse_select_request refuses
+        the shapes known to do that; this catches the rest, which
+        would otherwise end the handler and drop the connection with
+        no answer.
+        """
+        candidate = discovery.Candidate(host=host, port=port,
+                                        source="manual")
+        try:
+            verified = discovery.verify_candidate(
+                candidate, timeout=self.DISCOVERY_LISTEN_SECONDS)
+        except (OSError, ValueError, discovery.IdentityMismatchError,
+                esatm.FrameError, ElementTree.ParseError):
+            return None
+        return verified.identity
+
+    def _save_drobo_settings(self, settings: dict) -> str:
+        """
+        Write `settings` into config.json's "drobo" block, and into
+        the agent's copy in memory, returning the file as
+        display_path shows it. Nothing is written when the file
+        already says all of it, so a repeated choice does not rewrite
+        a file people edit by hand (the app's start-up reconnect to the
+        Drobo already watched never gets here: see
+        _select_identified_drobo). Raises ConfigFileError when the
+        agent has no file to save to.
+        """
+        config_path = getattr(self.monitor, "config_path", "")
+        if not config_path:
+            raise ConfigFileError("this agent was started without a "
+                                  "config file to save to")
+        drobo_config = self.monitor.config.setdefault("drobo", {})
+        if any(drobo_config.get(key) != value
+               for key, value in settings.items()):
+            save_drobo_settings(config_path, settings)
+            drobo_config.update(settings)
+        return display_path(config_path)
+
+    @classmethod
+    def _forget_answers_about_the_previous_drobo(cls) -> None:
+        """
+        Drop the cached /api/shares and /api/discover answers: both
+        describe the Drobo watched until now (its shares, which row is
+        "in use"), and a dashboard opened on the new one must not be
+        handed them.
+        """
+        cls._invalidate_shares_cache()
+        with cls._discover_lock:
+            cls._discover_cache = None
+
+    def _answer_select_on_simulator(self, request) -> None:
+        """
+        The select route on the simulated Drobo: its own picker row
+        opens it, and any real address is refused, because this agent
+        cannot watch one without being started on the real driver.
+
+        The advice is to start the real agent, not to edit a config
+        file: the simulated launcher runs the agent on its own
+        config.mock.json, and setting "driver": "drobo5n" there would
+        quietly turn the testing launcher into a real-device one.
+        """
+        if request.host == selection.SIMULATED_HOST:
+            return self._send_json({
+                "ok": True, "simulated": True,
+                "message": "Now watching the simulated Drobo.",
+                "selected": self._simulated_device_entry(),
+                "previous_esa_id": "", "saved_to": "", "reachable": True})
+        return self._send_json(selection.refusal(
+            "simulated",
+            f"This agent is running the simulated Drobo, so it cannot "
+            f"watch the Drobo at {request.host}. Nothing was changed. To "
+            f"watch a real one, close the simulated agent's window, "
+            f"then start the real agent with START DROBO DASHBOARD.bat, "
+            f"or with Drobo Dashboard REBORN from the Start menu if it "
+            f"is installed.", host=request.host), 409)
+
+    def _config_file_display(self) -> str:
+        """The agent's config file as display_path shows it, or
+        "this agent's config.json" when it was started without one."""
+        config_path = getattr(self.monitor, "config_path", "")
+        if not config_path:
+            return "this agent's config.json"
+        return display_path(config_path)
 
     # -- POST: the mock driver's controls ------------------------------
 

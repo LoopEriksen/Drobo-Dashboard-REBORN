@@ -116,6 +116,10 @@ public partial class MainWindow : Window
     /// generated from AlertNotifier.Categories.</summary>
     private readonly ObservableCollection<NotificationCategoryRow> _notificationRows = new();
     private bool _autoConnectAttempted;
+    // True while a row's Connect waits for the agent's answer to
+    // POST /api/drobo/select, which can take several seconds; see
+    // ShowPickerBusy.
+    private bool _selectInProgress;
 
     // Whether /api/discover gets called at all. Persisted (see DroboSettings),
     // default ON. When off, SearchForDevices skips the network call entirely
@@ -730,8 +734,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Put back afterwards: when the agent turns the reconnect down, the
+        // picker stays with its reason shown, and "Reconnecting…" over it
+        // would say something that is no longer happening.
+        var landingText = LandingSub.Text;
         LandingSub.Text = $"Reconnecting to {match.Name}…";
-        await ConnectAndShowDashboard(match);
+        await ConnectAndShowDashboard(match, chosenByPerson: false);
+        LandingSub.Text = landingText;
     }
 
     /// <summary>
@@ -914,13 +923,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The row's Connect button. A card shows a Drobo the agent found on the
-    /// LAN via mDNS, but this app never opens a socket to the Drobo itself
-    /// (see the ports 5000/5001 rule) -- it only ever talks to the agent's
-    /// HTTP API. So clicking Connect doesn't dial that device's own address;
-    /// it proceeds to connect to the agent that's already configured, which
-    /// in the normal one-agent-one-Drobo setup is exactly the same thing
-    /// from the user's point of view: click your Drobo, you're in.
+    /// The row's Connect button. This app never opens a socket to the Drobo
+    /// itself (see the ports 5000/5001 rule) -- it only ever talks to the
+    /// agent's HTTP API. So Connect asks the agent to watch the clicked row's
+    /// Drobo (POST /api/drobo/select, see SelectClickedDrobo) and opens the
+    /// dashboard only once the agent has. Until 2026-11-20 it opened the
+    /// agent's current Drobo whichever row was clicked, which was the wrong
+    /// one with two Drobos and an unreachable one for a typed address.
     /// </summary>
     private async void DeviceConnectButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1301,9 +1310,14 @@ public partial class MainWindow : Window
     /// <param name="device">The card that was clicked, if this connect came from
     /// one -- null for the manual Connect button. Only ever remembered when we
     /// actually have a serial to remember it by.</param>
-    private async Task ConnectAndShowDashboard(DiscoveredDeviceRow? device = null)
+    /// <param name="chosenByPerson">False for the start-up reconnect to the
+    /// remembered Drobo, which must not re-pair the agent (see
+    /// DroboSelection.RequestBody).</param>
+    private async Task ConnectAndShowDashboard(DiscoveredDeviceRow? device = null, bool chosenByPerson = true)
     {
+        if (device is not null && _selectInProgress) return;
         _statusPollTimer.Stop();
+        if (device is not null && !await SelectClickedDrobo(device, chosenByPerson)) return;
         var (ok, error) = await RefreshStatus();
         if (ok)
         {
@@ -1315,6 +1329,86 @@ public partial class MainWindow : Window
         {
             ShowDiscoverError(error ?? "Could not connect.");
         }
+    }
+
+    /// <summary>
+    /// Asks the agent to watch the Drobo on <paramref name="device"/>'s row,
+    /// by its address and, when the row has one, its serial. Returns true
+    /// when the dashboard should open; otherwise the agent's reason is on
+    /// screen under the picker, whose rows stay as they are so another one
+    /// can be tried.
+    ///
+    /// The agent reads the address's status greeting before it changes
+    /// anything, so a row whose Drobo has gone, or whose address now answers
+    /// as another box, is refused rather than opened. Sent with the write
+    /// client's timeout: the agent answers only after its first reading of
+    /// the chosen Drobo, which can take longer than a plain read.
+    /// </summary>
+    private async Task<bool> SelectClickedDrobo(DiscoveredDeviceRow device, bool chosenByPerson)
+    {
+        if (string.IsNullOrWhiteSpace(device.Host))
+        {
+            ShowConnectError("That row has no address for the agent to watch.");
+            return false;
+        }
+        var landingTextBefore = LandingSub.Text;
+        ShowPickerBusy(device);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + DroboSelection.Route);
+            request.Headers.Add("X-Agent-Token", Token.Password);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(DroboSelection.RequestBody(device.Host, device.EsaId, chosenByPerson)),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await _agentWriteHttpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var (outcome, problem) = DroboSelection.ReadAnswer((int)response.StatusCode, doc.RootElement, chosenByPerson);
+            if (outcome != DroboSelection.Outcome.Refused) return true;
+            ShowConnectError(problem ?? "The agent could not switch to that Drobo.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ShowConnectError("Cannot reach the agent. Is it running?  (" + ex.Message + ")");
+            return false;
+        }
+        finally
+        {
+            ShowPickerBusy(null, landingTextBefore);
+        }
+    }
+
+    /// <summary>
+    /// While <paramref name="device"/> is being asked for, says so and
+    /// disables the picker's rows; with null, enables them again and puts
+    /// <paramref name="landingText"/> back. The agent answers only after a
+    /// greeting read and a full first reading of the chosen Drobo, several
+    /// seconds at worst, and without this the Connect button looked dead and
+    /// each further click queued another change of Drobo behind the first.
+    /// </summary>
+    private void ShowPickerBusy(DiscoveredDeviceRow? device, string? landingText = null)
+    {
+        _selectInProgress = device is not null;
+        DiscoveredDevices.IsEnabled = device is null;
+        ManualDevicesList.IsEnabled = device is null;
+        if (device is null)
+        {
+            if (landingText is not null) LandingSub.Text = landingText;
+            return;
+        }
+        DiscoverErrorBox.Visibility = Visibility.Collapsed;
+        var name = string.IsNullOrWhiteSpace(device.Name) ? device.Host : device.Name;
+        LandingSub.Text = $"Asking the agent to watch {name}…";
+    }
+
+    /// <summary>Shows why Connect did not open a Drobo. Unlike
+    /// ShowDiscoverError it leaves the picker's rows in place: the search
+    /// worked, and the person may want the next row.</summary>
+    private void ShowConnectError(string message)
+    {
+        DiscoverErrorText.Text = message;
+        DiscoverErrorBox.Visibility = Visibility.Visible;
     }
 
     private void RememberDevice(DiscoveredDeviceRow? device)

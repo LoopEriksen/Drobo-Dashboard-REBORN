@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import math
+import os
 import random
 import threading
 import time
@@ -129,6 +130,14 @@ WRITE_FAULTS = (WRITE_FAULT_NONE, WRITE_FAULT_HANGS_UP, WRITE_FAULT_REFUSED,
 #: greeting.
 _COMMAND_TIMEOUT_CAP_SECONDS = 6.0
 
+#: The read-only mDNS finder the "cannot reach" advice names. It exists
+#: in a source tree, beside the agent folder, and not in an installed
+#: copy, whose MSI stages no tools folder; advice naming a command that
+#: is not there was the readiness audit's S9.2 (2026-11-20).
+PROBE_TOOL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "tools", "drobo_probe.py")
+
 
 class DroboDriver:
     """Base class.
@@ -145,6 +154,12 @@ class DroboDriver:
     """
 
     name = "base"
+
+    #: How the advice in this driver's messages names the config file.
+    #: Monitor replaces it with the file the agent was started with,
+    #: written by config.display_path; "config.json" is for a driver
+    #: built without one, as the test suites build them.
+    config_file_display = "config.json"
 
     def __init__(self, drobo_config: dict):
         """Take the drobo section of the agent's config.
@@ -1482,6 +1497,12 @@ class Drobo5NDriver(DroboDriver):
         super().__init__(drobo_config)
         self._read_connection_settings(drobo_config)
         self._init_command_port_caches(drobo_config)
+        # Held for a whole poll and for a change of Drobo
+        # (watch_drobo_at), so a poll already under way against the old
+        # address cannot finish after the change and put that address
+        # back. Re-entrant because the select route polls straight
+        # after making the change.
+        self._reading_lock = threading.RLock()
 
     def _read_connection_settings(self, drobo_config: dict) -> None:
         """Where to find the device and how to know it is the right
@@ -1535,6 +1556,24 @@ class Drobo5NDriver(DroboDriver):
         # _read_sysinfo().
         self.sysinfo_seconds = float(
             drobo_config.get("sysinfo_seconds", 120.0))
+        # The device's own event log (eCmdGetUserEventLog), cached like
+        # the temperature but on a slower clock: it costs its own
+        # command-port connection, and a log changes far less often than
+        # a fan spins. See _read_event_log() for the failure handling.
+        self.eventlog_seconds = float(
+            drobo_config.get("eventlog_seconds", 600.0))
+        self._forget_command_port_readings()
+
+    def _forget_command_port_readings(self) -> None:
+        """
+        Empty every cached command-port reading, so the next poll asks
+        the device afresh.
+
+        Run at start, and when the agent is pointed at a different
+        Drobo: the cached temperature, uptime, throughput and event log
+        belong to the device that gave them, and the new one's
+        dashboard must not show them as its own.
+        """
         self._temperature_c: int | None = None
         self._temperature_read_at: float | None = None
         self._sysinfo_tried_at: float = 0.0
@@ -1552,12 +1591,6 @@ class Drobo5NDriver(DroboDriver):
         # `_temperature_read_at`. A failed fetch keeps the old figures,
         # so this, not the poll time, is their age.
         self._performance_read_at: float | None = None
-        # The device's own event log (eCmdGetUserEventLog), cached like
-        # the temperature but on a slower clock: it costs its own
-        # command-port connection, and a log changes far less often than
-        # a fan spins. See _read_event_log() for the failure handling.
-        self.eventlog_seconds = float(
-            drobo_config.get("eventlog_seconds", 600.0))
         self._event_log: list[EventLogEntry] = []
         self._eventlog_tried_at: float = 0.0
         self._eventlog_last_warning: str = ""
@@ -1653,17 +1686,35 @@ class Drobo5NDriver(DroboDriver):
         the same thing; the agent no longer exits here, so the text has
         to carry the first thing to check itself. The config.json route
         is for a network that blocks mDNS, which is the rarer case.
+
+        Since 2026-11-20 it also names a VPN, which can carry the
+        search away from the Drobo's network; offers the address box
+        the app and the browser dashboard have (POST /api/drobo/select);
+        names the config file the agent was started with rather than a
+        bare "config.json", which an installed copy keeps in
+        %LOCALAPPDATA%; and names the probe tool only where it exists.
         """
         return (
             "Could not find the Drobo automatically (tried "
             + ", ".join(self._discovery_steps_tried(last_known_host))
             + f"). {exc}\n"
             "Check the Drobo is switched on and this PC is on the same "
-            "network. If both are true and this network blocks mDNS, set "
-            '"drobo": {"driver": "drobo5n", "host": "<drobo-ip>"} in '
-            "config.json, or find the IP with:  "
-            "py tools/drobo_probe.py mdns"
+            "network, and disconnect any VPN on this PC, which can hide "
+            "the Drobo from the search. If all of that is so, this "
+            "network may block the search (mDNS): type the Drobo's "
+            "address in the app or the browser dashboard, or set "
+            '"host": "<drobo-ip>" in the "drobo" block of '
+            f"{self.config_file_display}."
+            + self._probe_tool_hint()
         )
+
+    @staticmethod
+    def _probe_tool_hint() -> str:
+        """The sentence naming the mDNS probe tool, or "" where there
+        is no tools folder beside the agent (an installed copy)."""
+        if not os.path.isfile(PROBE_TOOL_PATH):
+            return ""
+        return " To find its address:  py tools/drobo_probe.py mdns"
 
     def _discovery_steps_tried(self, last_known_host: str) -> list[str]:
         """
@@ -1754,7 +1805,13 @@ class Drobo5NDriver(DroboDriver):
         The command-port top-ups run on their own slower clocks and
         never raise, so a poll fails only when the greeting itself
         cannot be read, or comes only from a Drobo that is not ours.
+        Holds _reading_lock throughout: see watch_drobo_at.
         """
+        with self._reading_lock:
+            return self._read_snapshot_holding_lock()
+
+    def _read_snapshot_holding_lock(self) -> Snapshot:
+        """read_snapshot's work, run with _reading_lock held."""
         host, port, snapshot = self._read_greeting_from_our_drobo()
         self._remember_working_address(snapshot.device.serial, host, port)
         snapshot.device.ip = host
@@ -1824,6 +1881,69 @@ class Drobo5NDriver(DroboDriver):
                 f"{self._known_esa_id!r}. "
                 f"This is not your Drobo; not reading it.")
         return host, port, snapshot
+
+    def drobo_settings_for(self, host: str, esa_id: str) -> dict:
+        """
+        The "drobo" config keys that make a restarted agent watch the
+        Drobo `esa_id` at `host`, without changing this driver.
+
+        With automatic discovery the address goes first in
+        manual_discovery_ips, which discovery tries before mDNS, and
+        "host" is left as "auto", so a Drobo that later moves is still
+        found by mDNS; addresses typed earlier stay after it. With a
+        fixed "host" that address is replaced, because a fixed address
+        is the one connect() dials and the old one would win at the
+        next start. Either way the serial is pinned in expected_esa_id,
+        so a stranger at that address is refused, never trusted.
+        """
+        settings = {"expected_esa_id": esa_id}
+        if self._uses_auto_discovery:
+            settings["manual_discovery_ips"] = [host] + [
+                address for address in self.manual_discovery_ips
+                if address != host]
+        else:
+            settings["host"] = host
+        return settings
+
+    def readings_held(self) -> threading.RLock:
+        """
+        The lock every poll holds, for `with` around a change of Drobo.
+
+        POST /api/drobo/select holds it while it tells the Monitor a
+        change is coming and while it repoints the driver, so no poll
+        can read the device in between. Without it a poll could read
+        the new Drobo before the Monitor knew of the change, and send
+        the previous Drobo's standing alerts as "Resolved".
+        """
+        return self._reading_lock
+
+    def watch_drobo_at(self, host: str, esa_id: str) -> None:
+        """
+        Point the running driver at the Drobo `esa_id`, found at
+        `host`, with no restart: the settings drobo_settings_for
+        gives, applied in memory.
+
+        The caller (POST /api/drobo/select) has already read that
+        device's greeting and checked its serial. Until 2026-11-20 no
+        route could change the driver's address at all, so a typed
+        address was probed, reported as found, and never watched, and
+        the two-Drobo picker opened whichever Drobo the agent already
+        had. Taken under _reading_lock so a poll under way finishes
+        first; the cached command-port readings are emptied when the
+        serial changes, since they describe the previous Drobo.
+        """
+        settings = self.drobo_settings_for(host, esa_id)
+        with self._reading_lock:
+            self.manual_discovery_ips = list(settings.get(
+                "manual_discovery_ips", self.manual_discovery_ips))
+            self.host = settings.get("host", self.host)
+            if esa_id != self._known_esa_id:
+                self._forget_command_port_readings()
+            self.expected_esa_id = esa_id
+            self._known_esa_id = esa_id
+            self._resolved_host = host
+            self._resolved_port = self.port
+            self.answering_as_another_drobo = False
 
     def _is_pinned_drobo(self, snapshot: Snapshot) -> bool:
         """True when no serial is pinned yet, or the greeting carries

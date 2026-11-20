@@ -10,11 +10,9 @@ namespace DroboDashboardReborn;
 /// that did not answer this pass (see DroboSettings.ManualDevice).
 ///
 /// Host/Port are the Drobo's own address (its command port, not the agent's
-/// HTTP port) -- shown for information only. This app never opens a socket
-/// to the Drobo directly, so clicking a row doesn't dial this address; it
-/// connects to the agent that's already configured (see
-/// MainWindow.DeviceConnectButton_Click for why that's the right thing to do
-/// with only one agent and one Drobo in the picture).
+/// HTTP port). This app never opens a socket to the Drobo directly: clicking
+/// a row sends Host and EsaId to the agent, which watches that Drobo from
+/// then on (see MainWindow.SelectClickedDrobo and DroboSelection).
 /// </summary>
 public sealed class DiscoveredDeviceRow
 {

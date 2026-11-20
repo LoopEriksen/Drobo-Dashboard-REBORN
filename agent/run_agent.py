@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     loaded_config = config.load(args.config)
 
     notifier = notify.build(loaded_config["notify"])
-    monitor = Monitor(loaded_config, notifier)
+    monitor = Monitor(loaded_config, notifier, config_path=args.config)
 
     if args.once:
         return _print_one_reading(monitor)
@@ -68,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     http_server = api.build_http_server(loaded_config, monitor, photo_store,
                                         paired_devices)
 
-    dashboard_url = _print_banner(loaded_config["agent"])
+    dashboard_url = _print_banner(loaded_config["agent"],
+                                  config.display_path(args.config))
     if args.open:
         _open_browser_soon(
             f"{dashboard_url}?token={loaded_config['agent']['token']}")
@@ -116,11 +117,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _print_banner(agent_settings: dict) -> str:
+def _print_banner(agent_settings: dict, config_file_display: str) -> str:
     """
-    Say where the agent is listening, and return the dashboard's URL.
-    An all-interfaces bind is shown as 127.0.0.1, the address a browser
-    on this PC can actually open.
+    Say where the agent is listening, and where its token is, and
+    return the dashboard's URL. An all-interfaces bind is shown as
+    127.0.0.1, the address a browser on this PC can actually open.
+    The config file is named as config.display_path writes it: an
+    installed copy keeps it in %LOCALAPPDATA%, not beside the agent.
     """
     bind_address = agent_settings["bind"]
     agent_port = agent_settings["port"]
@@ -137,8 +140,8 @@ def _print_banner(agent_settings: dict) -> str:
     # the session; --open, below, still hands it straight to the browser
     # without printing it.
     print(f"[agent] open http://{display_host}:{agent_port}/ - the page asks "
-          f"once for the access token, which is in this agent's "
-          f"config.json", flush=True)
+          f"once for the access token, which is in {config_file_display}",
+          flush=True)
     if bind_address == "0.0.0.0":
         print("[agent] bound to all interfaces - "
               "LAN only, never port-forward this",

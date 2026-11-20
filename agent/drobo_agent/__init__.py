@@ -15,6 +15,8 @@ Layout (run_agent.py, one folder up, starts it):
     backup.py    copying the Drobo to an external drive, with robocopy
     updates.py   the update check, off unless switched on
     config.py    config loading and first-run token generation
+    selection.py which Drobo the agent watches: the decisions behind
+                 POST /api/drobo/select
     qr.py        the QR code a phone scans to pair with the agent
     models.py    the shapes the agent adds (alerts); the device shapes
                  come from drobo_nasd.models and are re-exported here

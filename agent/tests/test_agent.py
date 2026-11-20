@@ -3030,6 +3030,392 @@ check("-- and nothing on stderr", _once_errors == "", _once_errors)
 (discovery.resolve, esatm.read_snapshot, sysinfo.get_sysinfo_and_performance,
  eventlog.get_event_log) = _saved_sdk_functions
 
+# A typed address, or a row clicked in the picker, has to become the
+# Drobo the agent watches. Until 2026-11-20 nothing could change it: the
+# app's address box was probed, said "Found", and Connect opened a
+# dashboard that stayed unreachable; with two Drobos the picker opened
+# whichever the agent already had (readiness M2 and S8). Two fake Drobos
+# at documentation addresses stand in, behind the same fakes as above:
+# the identity check, the status read and the mDNS browse are all
+# replaced, so no device and no network are reached.
+print("\n== POST /api/drobo/select: the Drobo picked is the one watched ==")
+
+_SELECT_ESA_ID_A, _SELECT_ESA_ID_B = "drb000000SAMPLEA", "drb000000SAMPLEB"
+_SELECT_DROBOS = {
+    "192.0.2.21": {"esa_id": _SELECT_ESA_ID_A, "name": "SimDroboA",
+                   "model": "Drobo 5N", "firmware": "4.2.2"},
+    "192.0.2.22": {"esa_id": _SELECT_ESA_ID_B, "name": "SimDroboB",
+                   "model": "Drobo 5N", "firmware": "4.2.2"},
+}
+# Drobo A has a failed drive in bay 3, so it raises a standing alert
+# that a switch to B must not report as "Resolved".
+_SELECT_FAILED_BAYS = {_SELECT_ESA_ID_A: 3}
+# A name that passes the select route's shape check but that the
+# resolver still cannot encode: getaddrinfo raises UnicodeError (a
+# ValueError, not an OSError) for such names, and the fake does too.
+_UNENCODABLE_HOST = "resolver-refuses.example"
+_select_device_reads = []
+_saved_select_functions = (
+    discovery.verify_candidate, discovery.discover_mdns, esatm.read_snapshot,
+    sysinfo.get_sysinfo_and_performance, eventlog.get_event_log)
+
+
+def _verify_select_drobo(candidate, expected_esa_id="", expected_mac="",
+                         timeout=5.0):
+    """discovery.verify_candidate for the two fake Drobos: the identity
+    their greeting would carry, refused like the real one when it is
+    not the serial expected."""
+    _select_device_reads.append(("greeting", candidate.host))
+    if candidate.host == _UNENCODABLE_HOST:
+        raise UnicodeError("simulated: label empty or too long")
+    identity = _SELECT_DROBOS.get(candidate.host)
+    if identity is None:
+        raise OSError("simulated: nothing answers at this address")
+    if expected_esa_id and identity["esa_id"] != expected_esa_id:
+        raise discovery.IdentityMismatchError(
+            f"refusing {candidate.host} -- it identifies as "
+            f"{identity['esa_id']!r}, not {expected_esa_id!r}")
+    return discovery.VerificationResult(
+        candidate=candidate, identity=dict(identity),
+        first_run=not expected_esa_id)
+
+
+def _read_select_drobo(host, port=5000, timeout=8.0):
+    """esatm.read_snapshot for the two fake Drobos."""
+    _select_device_reads.append(("status", host))
+    identity = _SELECT_DROBOS.get(host)
+    if identity is None:
+        raise OSError("simulated: nothing answers at this address")
+    drives = [DriveSlot(bay=1, present=True, state="ok", capacity_bytes=1)]
+    failed_bay = _SELECT_FAILED_BAYS.get(identity["esa_id"])
+    if failed_bay:
+        drives.append(DriveSlot(bay=failed_bay, present=True,
+                                state="failed", capacity_bytes=1))
+    return Snapshot(reachable=True, source="drobo5n",
+                    device=DeviceInfo(name=identity["name"],
+                                      model=identity["model"],
+                                      serial=identity["esa_id"],
+                                      firmware=identity["firmware"]),
+                    capacity=Capacity(), drives=drives)
+
+
+def _read_config_file_bytes(path):
+    with open(path, "rb") as config_file:
+        return config_file.read()
+
+
+def _saved_drobo_block(path):
+    with open(path, encoding="utf-8") as config_file:
+        return json.load(config_file).get("drobo", {})
+
+
+discovery.verify_candidate = _verify_select_drobo
+discovery.discover_mdns = lambda timeout=3.0: []
+esatm.read_snapshot = _read_select_drobo
+sysinfo.get_sysinfo_and_performance = (
+    lambda host, esa_id, port=None, timeout=8.0: {})
+eventlog.get_event_log = lambda host, esa_id, port=None, timeout=8.0: []
+_select_config_path = os.path.join(temp_dir, "config.select.json")
+_select_config = _write_agent_config(
+    "select", {"driver": "drobo5n", "host": "auto"})
+_select_notifier = _RecordingNotifier()
+_select_monitor = Monitor(_select_config, _select_notifier,
+                          config_path=_select_config_path)
+_select_server = None
+try:
+    _start_monitor(_select_monitor)
+    _select_server = api.build_http_server(_select_config, _select_monitor,
+                                           photo_store)
+    threading.Thread(target=_select_server.serve_forever,
+                     daemon=True).start()
+    _SELECT_TOKEN = _select_config["agent"]["token"]
+
+    def _call_select_agent(path, body=None, token=_SELECT_TOKEN,
+                           raw_body=None):
+        """(status, parsed reply) from the select test's agent: a
+        POST of `body` as JSON (or `raw_body` as it is), else a GET.
+        (None, {"dropped": why}) when the agent closed the connection
+        without answering, so that fails a check instead of the run."""
+        data = raw_body if raw_body is not None else (
+            None if body is None else json.dumps(body).encode())
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{_NO_DROBO_AGENT_PORT}{path}", data=data,
+            headers={"X-Agent-Token": token} if token else {},
+            method="POST" if data is not None else "GET")
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                reply_bytes = response.read()
+                status = response.status
+        except urllib.error.HTTPError as http_error:
+            reply_bytes, status = http_error.read(), http_error.code
+        except (http.client.HTTPException, OSError) as dropped:
+            return None, {"dropped": repr(dropped)}
+        try:
+            return status, json.loads(reply_bytes)
+        except ValueError:
+            return status, reply_bytes.decode("utf-8", "replace")
+
+    def _select(body, **kwargs):
+        return _call_select_agent("/api/drobo/select", body, **kwargs)
+
+    _wait_for(lambda: _call_select_agent("/api/status")[1].get(
+        "reachable") is False)
+    _config_before = _read_config_file_bytes(_select_config_path)
+
+    status, reply = _select({"host": ""})
+    _select_route_exists = status != 404
+    check("an empty host is a 400 with a sentence saying what to send",
+          status == 400 and reply.get("reason") == "bad_request"
+          and '"host"' in reply.get("error", ""), (status, reply))
+    check("-- as is a host that is not one, a non-text serial, and a "
+          "body that is not JSON",
+          [_select({"host": "192.0.2.21 /x"})[0],
+           _select({"host": 21})[0],
+           _select({"host": "192.0.2.21", "esa_id": 7})[0],
+           _select(None, raw_body=b"not json")[0]] == [400, 400, 400, 400])
+    check("-- and a name with an empty or over-long label (a typo such "
+          "as drobo..local) is a 400 too, answered, not dropped",
+          [_select({"host": "drobo..local"})[0],
+           _select({"host": "x" * 64 + ".local"})[0]] == [400, 400])
+    status, reply = _select({"host": _UNENCODABLE_HOST})
+    check("-- and a name the resolver refuses with UnicodeError is "
+          "answered as nothing found (502), not dropped",
+          status == 502 and reply.get("reason") == "not_found",
+          (status, reply))
+    status, reply = _call_select_agent(
+        "/api/discover?host=" + _UNENCODABLE_HOST)
+    check("-- as /api/discover?host= answers for it, not dropped",
+          status == 200 and reply.get("manual_found") is False,
+          (status, reply))
+
+    _select_device_reads.clear()
+    status, reply = _select({"host": "192.0.2.21"}, token="")
+    check("without the token it is a 401, and no device is read",
+          _select_route_exists and status == 401
+          and _select_device_reads == [], (status, _select_device_reads))
+
+    status, reply = _select({"host": "192.0.2.99"})
+    check("an address where nothing answers is refused with a 502 naming "
+          "it", status == 502 and reply.get("reason") == "not_found"
+          and "192.0.2.99" in reply.get("error", ""), (status, reply))
+    check("-- and the advice covers the address, power, network and VPN",
+          all(word in reply.get("error", "") for word in (
+              "address", "powered on", "same network", "VPN")),
+          reply.get("error"))
+
+    status, reply = _select({"host": "192.0.2.21",
+                             "esa_id": _SELECT_ESA_ID_B})
+    check("a device that does not carry the serial picked is refused with "
+          "a 409 naming both serials",
+          status == 409 and reply.get("reason") == "serial_mismatch"
+          and _SELECT_ESA_ID_A in reply.get("error", "")
+          and _SELECT_ESA_ID_B in reply.get("error", ""), (status, reply))
+    check("none of those refusals saved anything or pinned a serial",
+          _select_route_exists
+          and _read_config_file_bytes(_select_config_path) == _config_before
+          and _select_monitor.driver._known_esa_id == ""
+          and _call_select_agent("/api/status")[1].get("reachable") is False)
+
+    # First run: nothing pinned yet, so the typed address is taken.
+    status, reply = _select({"host": "192.0.2.21"})
+    check("a typed address that answers is selected (200), naming the "
+          "Drobo", status == 200 and reply.get("selected", {}).get("esa_id")
+          == _SELECT_ESA_ID_A and "SimDroboA" in reply.get("message", ""),
+          (status, reply))
+    _status_after = _call_select_agent("/api/status")[1]
+    check("-- and the very next /api/status is that Drobo, reachable",
+          _status_after.get("reachable") is True
+          and _status_after.get("device", {}).get("ip") == "192.0.2.21"
+          and _status_after.get("device", {}).get("serial")
+          == _SELECT_ESA_ID_A, _status_after.get("device"))
+    _saved_block = _saved_drobo_block(_select_config_path)
+    check("-- and config.json keeps it: the address first in "
+          "manual_discovery_ips, its serial pinned, discovery still on",
+          _saved_block.get("manual_discovery_ips") == ["192.0.2.21"]
+          and _saved_block.get("expected_esa_id") == _SELECT_ESA_ID_A
+          and _saved_block.get("host") == "auto", _saved_block)
+    with open(_select_config_path, encoding="utf-8") as _config_file:
+        _saved_agent_block = json.load(_config_file).get("agent", {})
+    check("-- with the rest of the file as it was, the token included",
+          _saved_agent_block.get("token") == _SELECT_TOKEN
+          and reply.get("saved_to")
+          == config.display_path(_select_config_path),
+          (reply.get("saved_to"), sorted(_saved_agent_block)))
+
+    # The second Drobo, typed without a serial: not the paired one.
+    _config_before = _read_config_file_bytes(_select_config_path)
+    status, reply = _select({"host": "192.0.2.22"})
+    check("another Drobo typed without its serial is refused with a 409 "
+          "naming both", status == 409
+          and reply.get("reason") == "paired_with_another"
+          and reply.get("esa_id_found") == _SELECT_ESA_ID_B
+          and _SELECT_ESA_ID_A in reply.get("error", ""), (status, reply))
+    check("-- and nothing changed: same file, same Drobo watched",
+          _read_config_file_bytes(_select_config_path) == _config_before
+          and _call_select_agent("/api/status")[1].get("device", {}).get(
+              "serial") == _SELECT_ESA_ID_A)
+
+    _wait_for(lambda: any("bay 3 has failed" in message
+                          for _title, message, _severity
+                          in _select_notifier.sent))
+    _sent_before_switch = len(_select_notifier.sent)
+
+    # The picker's row for it carries its serial: that names it.
+    status, reply = _select({"host": "192.0.2.22",
+                             "esa_id": _SELECT_ESA_ID_B})
+    _status_after = _call_select_agent("/api/status")[1]
+    check("the second Drobo picked by its row (serial named) is selected, "
+          "and the next status is it",
+          status == 200 and _status_after.get("device", {}).get("serial")
+          == _SELECT_ESA_ID_B
+          and _status_after.get("device", {}).get("ip") == "192.0.2.22",
+          (status, reply, _status_after.get("device")))
+    check("-- saying which Drobo it replaces",
+          _SELECT_ESA_ID_A in reply.get("message", ""), reply)
+    time.sleep(1.5)  # a poll or two of B by the monitor's own thread
+    _sent_after_switch = _select_notifier.sent[_sent_before_switch:]
+    check("-- and the first Drobo's failed drive is not sent as "
+          "'Resolved': it is still failed, only no longer watched",
+          not any("Resolved" in message
+                  for _title, message, _severity in _sent_after_switch),
+          _sent_after_switch)
+    _alerts_after = _call_select_agent("/api/alerts?all=1")[1]
+    check("-- and neither its alerts nor its readings are shown as the "
+          "second Drobo's",
+          not any(alert.get("key") == "drive-failed-3"
+                  for alert in _alerts_after.get("alerts", []))
+          and all(snapshot.device.serial == _SELECT_ESA_ID_B
+                  for snapshot in list(_select_monitor.history)),
+          _alerts_after)
+    _saved_block = _saved_drobo_block(_select_config_path)
+    check("-- and config.json now pins it, its address tried first",
+          _saved_block.get("expected_esa_id") == _SELECT_ESA_ID_B
+          and _saved_block.get("manual_discovery_ips")
+          == ["192.0.2.22", "192.0.2.21"], _saved_block)
+    _restarted_driver = drivers.build(_saved_block)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            _restarted_driver.connect()
+        _restart_error = None
+    except (LookupError, OSError, discovery.IdentityMismatchError) as exc:
+        _restart_error = exc
+    check("-- so an agent started again on that file finds the same Drobo",
+          _restart_error is None
+          and _restarted_driver.target_host() == "192.0.2.22"
+          and _restarted_driver._known_esa_id == _SELECT_ESA_ID_B,
+          (repr(_restart_error), _restarted_driver.target_host()))
+
+    # Readiness S9.1: the token page named agent/config.json, which an
+    # installed copy does not have.
+    status, page = _call_select_agent("/")
+    check("the browser's token page names the config file this agent "
+          "uses", status == 200
+          and config.display_path(_select_config_path) in page
+          and "agent/config.json" not in page, status)
+    check("-- and has the address box, which calls the select route",
+          'id="findHost"' in page and "/api/drobo/select" in page)
+
+    # Readiness S9.2: the "cannot reach" advice.
+    _advice = _select_monitor.driver._not_found_message("", LookupError("x"))
+    check("the not-found advice names the config file the agent was "
+          "started with, a VPN, and (in a source tree) the probe tool",
+          config.display_path(_select_config_path) in _advice
+          and "VPN" in _advice
+          and "py tools/drobo_probe.py mdns" in _advice, _advice)
+    _saved_probe_tool_path = drivers.PROBE_TOOL_PATH
+    drivers.PROBE_TOOL_PATH = os.path.join(temp_dir, "no-tools", "x.py")
+    try:
+        _advice = _select_monitor.driver._not_found_message(
+            "", LookupError("x"))
+    finally:
+        drivers.PROBE_TOOL_PATH = _saved_probe_tool_path
+    check("-- but not where there is no tools folder (an installed copy)",
+          "py tools" not in _advice and "VPN" in _advice, _advice)
+finally:
+    if _select_server:
+        _select_server.shutdown()
+        _select_server.server_close()
+    _select_monitor.stop()
+
+# The simulator has no address: its own picker row opens it, and a real
+# address is refused rather than "selected" while the simulator goes on
+# being watched.
+_mock_select_config = _write_agent_config("select-mock", {"driver": "mock"})
+_mock_select_monitor = Monitor(
+    _mock_select_config, _RecordingNotifier(),
+    config_path=os.path.join(temp_dir, "config.select-mock.json"))
+_mock_select_server = api.build_http_server(
+    _mock_select_config, _mock_select_monitor, photo_store)
+threading.Thread(target=_mock_select_server.serve_forever,
+                 daemon=True).start()
+try:
+    _mock_token = _mock_select_config["agent"]["token"]
+    status, reply = _select({"host": "simulated"}, token=_mock_token)
+    check("on the simulator, its own row is selected",
+          status == 200 and reply.get("simulated") is True, (status, reply))
+    _select_device_reads.clear()
+    status, reply = _select({"host": "192.0.2.21"}, token=_mock_token)
+    check("-- and a real address is refused (409), with no device read",
+          status == 409 and reply.get("reason") == "simulated"
+          and _select_device_reads == [], (status, reply))
+    check("-- telling the tester to start the real agent, not to put "
+          "the real driver in the simulator's own config file",
+          "START DROBO DASHBOARD.bat" in reply.get("error", "")
+          and "drobo5n" not in reply.get("error", ""), reply.get("error"))
+finally:
+    _mock_select_server.shutdown()
+    _mock_select_server.server_close()
+
+# The Windows app reconnects to the Drobo it remembers at every launch,
+# through the select route, with the address alone. Until the review of
+# 2026-11-20 that rewrote config.json with no click: an mDNS-found
+# address became a "manually-added" one, and a fixed host name was
+# replaced by its IP. Choosing the Drobo already watched must change
+# nothing.
+_SELECT_DROBOS["drobo-a.example"] = _SELECT_DROBOS["192.0.2.21"]
+discovery.discover_mdns = lambda timeout=3.0: [
+    discovery.Candidate("192.0.2.21", source="mdns")]
+for _watched_label, _watched_drobo_block in (
+        ("found by mDNS", {"driver": "drobo5n", "host": "auto"}),
+        ("at a fixed host name",
+         {"driver": "drobo5n", "host": "drobo-a.example"})):
+    _watched_config = _write_agent_config("select-watched",
+                                          _watched_drobo_block)
+    _watched_config_path = os.path.join(temp_dir,
+                                        "config.select-watched.json")
+    _watched_monitor = Monitor(_watched_config, _RecordingNotifier(),
+                               config_path=_watched_config_path)
+    _watched_server = None
+    try:
+        _start_monitor(_watched_monitor)
+        _watched_server = api.build_http_server(
+            _watched_config, _watched_monitor, photo_store)
+        threading.Thread(target=_watched_server.serve_forever,
+                         daemon=True).start()
+        _watched_token = _watched_config["agent"]["token"]
+        _wait_for(lambda: _call_select_agent(
+            "/api/status", token=_watched_token)[1].get("reachable"))
+        _config_before = _read_config_file_bytes(_watched_config_path)
+        status, reply = _select({"host": "192.0.2.21"},
+                                token=_watched_token)
+        check(f"choosing the Drobo already watched ({_watched_label}), "
+              f"as the app's start-up reconnect does, answers 200 and "
+              f"leaves config.json byte for byte as it was",
+              status == 200 and reply.get("already_watching") is True
+              and _read_config_file_bytes(_watched_config_path)
+              == _config_before,
+              (status, reply, _saved_drobo_block(_watched_config_path)))
+    finally:
+        if _watched_server:
+            _watched_server.shutdown()
+            _watched_server.server_close()
+        _watched_monitor.stop()
+del _SELECT_DROBOS["drobo-a.example"]
+
+(discovery.verify_candidate, discovery.discover_mdns, esatm.read_snapshot,
+ sysinfo.get_sysinfo_and_performance,
+ eventlog.get_event_log) = _saved_select_functions
+
 # An unreachable Drobo says nothing about its drives. Until 2026-11-02
 # every poll that failed cleared each standing drive, capacity,
 # temperature, battery and pack alert and sent it as "Resolved", and the

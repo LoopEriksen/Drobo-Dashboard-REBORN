@@ -1265,6 +1265,48 @@ has never been seen on hardware. No byte or XML sent to a Drobo changed.
 The drive warning's text, which put the note's lowercase start after a
 full stop, now capitalises it.
 
+**Choosing the Drobo.** Nothing could change which Drobo a running agent
+watched. The app's "type its address" box probed the address, said
+"Found <name>", and Connect opened a dashboard that stayed unreachable;
+with two Drobos the picker opened whichever one the agent already had
+(M2 and S8, both reproduced at 1.2.0 with loopback fakes, the first as
+`/api/discover?host=` saying `manual_found` true while `/api/status`
+stayed unreachable). `POST /api/drobo/select` now makes the same
+read-only identity check (one status-greeting read, no login), refuses
+with one plain sentence and a fixed `reason`, saves the choice to
+`config.json` before it switches, and repoints the running driver under
+its reading lock. The rules are in `selection.py`: a first run accepts
+what answers; the paired Drobo is accepted at any address; another
+serial only when the request names it, which a picker row does with the
+serial its own device reported. A change of serial forgets the previous
+Drobo's alerts, reading and history with no notification, because kept
+they would have been sent as "Resolved" by the new Drobo's first
+reading. The Windows app's Connect calls the route and opens the
+dashboard only once the agent has switched; the browser dashboard has
+the same address box while the Drobo cannot be reached. The token page,
+the banner and the "cannot reach" advice now name the config file the
+agent really uses, say to disconnect a VPN, and name the probe tool only
+where a tools folder exists (S9.1, S9.2). The package's review found one
+thing the merge fixed: the app's reconnect at every launch went through
+the route, so the first launch turned an mDNS-found address into a
+permanent "manually-added" one, and replaced a fixed host name with its
+IP, with no click; choosing the Drobo already being read, and
+answering, now changes nothing, and two checks prove the file stays
+byte for byte as it was (both fail on the package's own code). It also
+found a limit left to the maintainer rather than guessed at: a page
+already open on one Drobo sends its writes to whichever Drobo the agent
+watches when they are sent, so after a switch a stale Shares or Advanced
+Configuration page would write to the new one; `TESTING.md`,
+`docs/capabilities.md` and the roadmap say so. Proven here:
+`test_agent.py` went from 360 checks to 391, each new one failing on the
+code before its fix; the Windows test program's ten new DroboSelection
+checks run on Linux before its Credential Manager section (70 run here,
+from 60); the 31 Python suites pass as before, with the backup suite's
+two Windows-only robocopy checks; flake8 is clean and both .NET builds
+give no warnings. Not proven here: the WPF picker itself, which needs
+Windows, and any of it against a real Drobo or two. No device write was
+added, no gate changed, and no byte sent to a Drobo is different.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
