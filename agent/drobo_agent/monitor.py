@@ -31,8 +31,8 @@ from .models import (
 # Health-telemetry baseline: observed on ONE healthy Drobo 5N, firmware
 # 4.3.1, 2026-07-24. NOT a specification -- we don't know what these
 # codes mean, only what a working unit reports. A deviation is flagged
-# as "changed, worth a look", never as an assertion about what the new
-# value means. Keyed by the PackHealth attribute name so
+# as "different, worth a look", never as an assertion about what the
+# new value means. Keyed by the PackHealth attribute name so
 # _evaluate_alerts can walk it generically.
 _PACK_STATUS_BASELINE = {
     "disk_pack_status": 0,
@@ -40,6 +40,10 @@ _PACK_STATUS_BASELINE = {
     "device_status": 98304,
     "status_ex": 0,
 }
+# Where the baseline came from, as the alert text names it. Kept beside
+# the values so the two are changed together if a second unit is ever
+# measured.
+_PACK_STATUS_BASELINE_SOURCE = "one Drobo 5N on firmware 4.3.1"
 
 
 def _format_bytes(size_bytes: float) -> str:
@@ -123,10 +127,13 @@ def _drive_state_rules(seen: dict[str, tuple[str, str]], drive) -> None:
             "Replace it as soon as possible.",
         )
     elif drive.state == STATE_WARNING:
+        # The note is written to sit beside a bay ("disk state code
+        # 0 ..."), so it starts lowercase; here it opens a sentence.
+        note_sentence = drive.note[:1].upper() + drive.note[1:]
         seen[f"drive-warning-{drive.bay}"] = (
             SEVERITY_WARNING,
             f"Drive in {where} reports a problem. "
-            f"{drive.note}".strip(),
+            f"{note_sentence}".strip(),
         )
     # mErrorCount is unambiguous -- above zero is a real problem,
     # regardless of the drive's overall state.
@@ -302,9 +309,9 @@ def _pack_health_rules(
 ) -> None:
     """
     Pack-level health the status greeting already sends: degraded and
-    relayout counts, and any status code that has moved off the
-    healthy baseline (see _PACK_STATUS_BASELINE for why a change is
-    only ever "worth a look").
+    relayout counts, and any status code that differs from the healthy
+    baseline (see _PACK_STATUS_BASELINE for why a difference is only
+    ever "worth a look").
     """
     if pack_health.double_degraded_count > 0:
         seen["double-degraded"] = (
@@ -326,11 +333,32 @@ def _pack_health_rules(
             continue
         seen[f"pack-status-{pack_status_field}"] = (
             SEVERITY_WARNING,
-            f"{pack_status_field} changed from the healthy "
-            f"baseline ({baseline}) "
-            f"to {current_value}. We don't know what this code means -- "
-            "just that it's different from before.",
+            _pack_status_message(pack_status_field, current_value,
+                                 baseline),
         )
+
+
+def _pack_status_message(
+    pack_status_field: str, current_value: int, baseline: int,
+) -> str:
+    """
+    The words for a pack status code that differs from the baseline.
+
+    Worded so it is true on any Drobo. Until 2026-11-20 it said the
+    code had "changed from the healthy baseline ... different from
+    before", which is untrue the first time a unit is seen: the
+    baseline is one 5N's values, not this Drobo's past, and on another
+    model or firmware the same code may be perfectly normal. So it
+    names where the healthy value came from, says the difference may be
+    normal, and asks for a report rather than implying a fault.
+    """
+    return (
+        f"This Drobo reports {pack_status_field}={current_value}. The "
+        f"only healthy value this software has seen is {baseline}, "
+        f"from {_PACK_STATUS_BASELINE_SOURCE}; on another model or "
+        "firmware this may be normal. What the code means is not "
+        "known. Please report it."
+    )
 
 
 def _warmest_temperature_c(snapshot: Snapshot) -> float | None:

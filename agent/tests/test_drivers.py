@@ -855,6 +855,18 @@ check("a DroboApps list read before an action keeps what it said",
 check("-- and the simulator's next read shows the action",
       first_mock.get_droboapps()["apps"][0]["running"] != was_running)
 
+# The simulator computes a protection figure, so it is a reported one;
+# the real 5N's greeting carries none (sdk/tests/test_esatm.py checks
+# that side). The flag is what tells the apps to show the figure.
+print("\n== the simulator's protection figure is marked reported ==")
+simulated_capacity = drivers.MockDriver({}).read_snapshot().capacity
+check("the simulator reports protection_reported true",
+      simulated_capacity.to_dict().get("protection_reported") is True,
+      simulated_capacity.to_dict())
+check("-- with a figure above zero",
+      simulated_capacity.protection_bytes > 0,
+      simulated_capacity.protection_bytes)
+
 # The "cannot reach" alert lists what discovery tried. Until 2026-11-02
 # it put mDNS ahead of the typed addresses, which discovery tries first.
 print("\n== the not-found message lists the search in discovery's order ==")

@@ -547,6 +547,15 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     return (i === 0 ? n : n.toFixed(n < 10 ? 2 : 1)) + " " + units[i];
   }
 
+  // The Protection figure, or words when the Drobo gave none. A real 5N
+  // reports no protection figure, so the agent sends protection_bytes 0
+  // with protection_reported false; printing that 0 as "0 B" beside real
+  // figures read as "my data is unprotected" (until 2026-11-20).
+  function protectionText(cap) {
+    if (!cap.protection_reported) return "not reported by this Drobo";
+    return bytes(cap.protection_bytes);
+  }
+
   function ago(ts) {
     if (!ts) return "never";
     var s = Math.max(0, Math.round(Date.now() / 1000 - ts));
@@ -622,7 +631,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     $("capUsed").textContent = bytes(cap.used_bytes);
     $("capFree").textContent = bytes(cap.free_bytes);
     $("capUsable").textContent = bytes(cap.usable_bytes);
-    $("capProt").textContent = bytes(cap.protection_bytes);
+    $("capProt").textContent = protectionText(cap);
     $("capRaw").textContent = bytes(cap.raw_bytes);
 
     var host = $("bays");

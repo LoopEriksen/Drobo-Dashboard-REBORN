@@ -31,6 +31,46 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **Protection no longer shows a measured-looking "0 B".** A real Drobo
+  5N's status greeting carries no protection figure, yet the browser
+  dashboard, the Windows app's Status tab and the diagnostics report
+  printed "Protection 0 B" beside real figures, which reads as "my data
+  is unprotected". The agent's status now carries a new key,
+  `capacity.protection_reported`: false from a real Drobo, true from the
+  simulated one, which computes its own figure; `protection_bytes` is
+  sent as before. Where the key is false, all three show "not reported by
+  this Drobo". A Windows app talking to an agent older than the key reads
+  a 0 as not reported too. `test_esatm.py`, `test_drivers.py`,
+  `test_agent.py` and the Windows test program gain checks for this.
+  (2026-11-20)
+- **A disk that is present but reports state code 0 is now a warning.**
+  The parser mapped `mDiskState` 0 to "empty", so a bay that holds a disk
+  and reports 0 was badged empty and raised no alert, against the
+  parser's own rule that a code it does not know is shown as a warning,
+  and in a way that could hide a failing disk. Whether a bay is empty is
+  still decided first, from `mStatus` 128 or no reported size; after
+  that only 16 reads as healthy. A present disk reporting 0 now reads as
+  a warning with the note "disk state code 0 (not seen on a healthy
+  disk)" and raises the existing drive warning for its bay, once, not on
+  every poll. Empty bays and the 5N's phantom sixth slot still read
+  empty. A populated bay reporting 0 has not been seen on hardware; this
+  was tested against the sanitised status sample with one bay's code
+  changed. The drive warning's text now starts the note with a capital
+  letter, so it reads "... reports a problem. Disk state code 0 ...".
+  (2026-11-20)
+- **The pack status alert is true on any Drobo.** When one of the four
+  pack status codes differs from the values a healthy unit reports, the
+  alert said the code had "changed from the healthy baseline ... different
+  from before". That is untrue for a Drobo seen for the first time: the
+  baseline is the values of one Drobo 5N, not this unit's past. It now
+  reads: "This Drobo reports <field>=<value>. The only healthy value this
+  software has seen is <baseline>, from one Drobo 5N on firmware 4.3.1;
+  on another model or firmware this may be normal. What the code means
+  is not known. Please report it." The alert's name, its severity
+  (warning) and the baseline values are unchanged, and nothing is refused
+  by model. The Windows app's "Disk pack health" notification setting now
+  describes these as status codes that differ from the only healthy
+  Drobo seen so far. (2026-11-20)
 - **`run_agent.py --once` says why it took no reading instead of ending in
   a Python traceback.** `--once` takes one reading and exits, and
   `docs/testers-tasks.md` gives it to testers as the quick "can it see my

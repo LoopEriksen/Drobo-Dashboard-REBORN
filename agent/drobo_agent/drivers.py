@@ -1302,6 +1302,9 @@ class MockDriver(DroboDriver):
             used_bytes=used_bytes,
             free_bytes=max(usable_bytes - used_bytes, 0),
             protection_bytes=largest_drive_bytes,
+            # The simulator computes its own figure, so it is a
+            # reported one; the real 5N reports none (esatm.py).
+            protection_reported=True,
         )
 
     def _simulated_volumes(self, used_bytes: int) -> list[Volume]:

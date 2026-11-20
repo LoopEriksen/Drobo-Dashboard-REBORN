@@ -52,11 +52,22 @@ MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 # longer than this is read in several calls, never cut short.
 _RECEIVE_CHUNK_BYTES = 65536
 
-# mDiskState -> our state. 16 = healthy, confirmed across five good
-# drives. 0 with an empty slot means no disk. Any other non-zero value
-# is unknown, so it maps to WARNING rather than being silently treated
-# as OK.
-_STATE_BY_DISK_STATE_CODE = {16: STATE_OK, 0: STATE_EMPTY}
+# mDiskState -> our state, for a slot already known to hold a disk.
+# 16 = healthy, confirmed across five good drives. Every other value,
+# 0 included, is unknown, so it maps to WARNING rather than being
+# silently treated as OK. 0 is what an EMPTY bay reports, but whether
+# a bay is empty is decided before this is consulted (mStatus 128 or
+# no capacity, see _parse_drive_slot). Until 2026-11-20 this also
+# mapped 0 to EMPTY, so a disk that was present and reported 0 was
+# badged "empty" and raised no alert: the opposite of this parser's
+# own fail-safe rule, and a health monitor hiding a disk.
+_STATE_BY_PRESENT_DISK_STATE_CODE = {16: STATE_OK}
+# The note shown beside a state code that needs more words than the
+# number alone. 0 on a present disk has never been seen, and the bare
+# "disk state code 0" reads like "nothing wrong".
+_NOTE_BY_DISK_STATE_CODE = {
+    0: "disk state code 0 (not seen on a healthy disk)",
+}
 _EMPTY_SLOT_STATUS = 128  # mStatus for a bay with no disk
 
 
@@ -469,6 +480,12 @@ def _parse_drive_slot(slot) -> DriveSlot:
     One bay. Either an mStatus of 128 or no reported capacity marks it
     empty, so a disk is recorded only when the slot says it is
     populated AND reports a size.
+
+    Presence is settled first and from those two fields alone, so the
+    disk state code is only ever read for a bay that holds a disk. That
+    is what lets a present disk reporting state 0 fall to WARNING while
+    an empty bay (and a 5N's phantom sixth slot, which reports 128, 0
+    and no capacity) still reads empty.
     """
     # device is 0-indexed; UI is 1-indexed
     bay = _child_int(slot, "mSlotNumber") + 1
@@ -477,7 +494,8 @@ def _parse_drive_slot(slot) -> DriveSlot:
     if slot_status == _EMPTY_SLOT_STATUS or physical_capacity_bytes <= 0:
         return DriveSlot(bay=bay, present=False, state=STATE_EMPTY)
     disk_state_code = _child_int(slot, "mDiskState")
-    state = _STATE_BY_DISK_STATE_CODE.get(disk_state_code, STATE_WARNING)
+    state = _STATE_BY_PRESENT_DISK_STATE_CODE.get(
+        disk_state_code, STATE_WARNING)
     drive_temperature_c = _child_int(slot, "mTemperature")
     return DriveSlot(
         bay=bay,
@@ -490,8 +508,7 @@ def _parse_drive_slot(slot) -> DriveSlot:
         # reported" rather than a real and alarming 0 C.
         temperature_c=(float(drive_temperature_c)
                        if drive_temperature_c > 0 else None),
-        note=("" if state == STATE_OK
-              else f"disk state code {disk_state_code}"),
+        note=_disk_state_note(state, disk_state_code),
         # Surfaced; not previously parsed. mErrorCount is the one
         # unambiguous per-drive signal here -- above zero is bad.
         error_count=_child_int(slot, "mErrorCount"),
@@ -502,16 +519,39 @@ def _parse_drive_slot(slot) -> DriveSlot:
     )
 
 
+def _disk_state_note(state: str, disk_state_code: int) -> str:
+    """
+    The words beside a present disk's state: nothing for a healthy
+    disk, otherwise the raw code, with a reason where the bare number
+    would mislead (see _NOTE_BY_DISK_STATE_CODE).
+
+    The code is quoted rather than interpreted because no meaning is
+    known for any value but 16; the alert that carries this note says
+    only that the disk reports a problem.
+    """
+    if state == STATE_OK:
+        return ""
+    return _NOTE_BY_DISK_STATE_CODE.get(
+        disk_state_code, f"disk state code {disk_state_code}")
+
+
 def _parse_capacity(root, raw_capacity_bytes: int) -> Capacity:
     """
     The pack's capacity figures. Raw is the sum of the disks (see
     _parse_drives); the rest are the device's own protected figures.
+
+    The greeting carries no protection figure, so protection_bytes is
+    left at 0 and protection_reported is set False to say so. Without
+    that flag both apps showed "Protection 0 B" beside real figures,
+    which reads as "my data is unprotected" when the Drobo has simply
+    not said.
     """
     return Capacity(
         raw_bytes=raw_capacity_bytes,
         usable_bytes=_child_int(root, "mTotalCapacityProtected"),
         used_bytes=_child_int(root, "mUsedCapacityProtected"),
         free_bytes=_child_int(root, "mFreeCapacityProtected"),
+        protection_reported=False,
     )
 
 

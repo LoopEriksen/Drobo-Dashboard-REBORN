@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-11-08_
+_Last updated: 2026-11-20_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded
@@ -823,10 +823,15 @@ would mangle, Identify's `--compare` with `--interval` or `--none` (and a
 
 *SDK — reads and discovery*
 
-- `esatm`: a present disk reporting `mDiskState` 0 is recorded as empty,
-  not as a warning (plausible; depends on whether a populated bay can
-  report 0). `Capacity.protection_bytes` is never filled from a real 5N,
-  so both apps show a measured-looking 0 B (plausible; may be a known gap).
+The two `esatm` readings were fixed on 2026-11-20, with tests that failed
+before the fix; what changed is in `CHANGELOG.md` under Unreleased. A
+present disk reporting `mDiskState` 0 now reads as a warning and raises
+its bay's drive warning instead of being recorded as empty, and since a
+real 5N never fills `Capacity.protection_bytes`, the agent now says so
+(`protection_reported`) and both apps and the diagnostics show "not
+reported by this Drobo" instead of a measured-looking 0 B. A populated
+bay reporting 0 has still not been seen on hardware.
+
 - XML replies (found 2026-11-05, reviewing the LED and DroboSync hang-up
   fix): a reply whose XML declaration names an encoding Python does not
   know (`encoding="bogus"`) makes ElementTree raise `LookupError`, not

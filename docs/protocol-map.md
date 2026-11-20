@@ -637,7 +637,7 @@ Sanitized sample committed at `sdk/tests/fixtures/esatm-sample.xml`.
 |---|---|
 | `mSlotNumber` | bay index (0-based; UI shows +1) |
 | `mStatus` | `3` = populated, `128` = empty bay |
-| `mDiskState` | `16` = healthy (confirmed on every healthy drive observed); other non-zero → treated as warning until a degraded disk is observed |
+| `mDiskState` | `16` = healthy (confirmed on every healthy drive observed); any other value on a populated bay, `0` included, → treated as warning until a degraded disk is observed. An empty bay also reports `0`, but emptiness is decided first, by `mStatus` `128` or no `mPhysicalCapacity`; until 2026-11-20 the parser read `0` as empty even on a populated bay |
 | `mPhysicalCapacity` | disk size in bytes (`0` when empty) |
 | `mSerial` | disk serial |
 | `mMake` | manufacturer, as the short vendor code the drive reports |

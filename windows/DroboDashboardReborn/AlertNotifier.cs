@@ -74,7 +74,7 @@ internal sealed class AlertNotifier
         ("unreachable", "Drobo unreachable",
                         "The Drobo stopped answering."),
         ("pack",        "Disk pack health",
-                        "Rebuilds, double-degraded events, and status codes changing from their healthy baseline."),
+                        "Rebuilds, double-degraded events, and status codes that differ from the only healthy Drobo seen so far."),
         ("hardware",    "Power supply and fan",
                         "The PSU or a cooling fan has failed or is reporting a problem."),
     };

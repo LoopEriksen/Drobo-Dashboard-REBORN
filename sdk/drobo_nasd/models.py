@@ -90,6 +90,14 @@ class Capacity:
     used_bytes: int = 0
     free_bytes: int = 0
     protection_bytes: int = 0
+    # Whether protection_bytes is a figure the source actually gave.
+    # A real Drobo 5N's status greeting carries none, so from the real
+    # device protection_bytes stays 0 and this is False; only the
+    # simulator computes one. Defaults to False so a Capacity nobody
+    # filled in (an unreachable reading, say) never presents 0 as
+    # measured. Front ends show "not reported" instead of 0 B when it
+    # is False.
+    protection_reported: bool = False
 
     @property
     def used_fraction(self) -> float:

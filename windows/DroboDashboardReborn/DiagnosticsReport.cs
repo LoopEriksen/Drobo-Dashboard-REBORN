@@ -152,7 +152,7 @@ internal static class DiagnosticsReport
         AppendField(report, "Used", $"{FormatBytes(GetInt64OrZero(capacity, "used_bytes"))}  ({usedFraction * 100:0.0}%)");
         AppendField(report, "Free", FormatBytes(GetInt64OrZero(capacity, "free_bytes")));
         AppendField(report, "Usable", FormatBytes(GetInt64OrZero(capacity, "usable_bytes")));
-        AppendField(report, "Protection", FormatBytes(GetInt64OrZero(capacity, "protection_bytes")));
+        AppendField(report, "Protection", FormatProtection(capacity));
         AppendField(report, "Raw", FormatBytes(GetInt64OrZero(capacity, "raw_bytes")));
         report.AppendLine();
     }

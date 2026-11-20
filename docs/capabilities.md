@@ -114,8 +114,8 @@ convention.
 | Capability | Status | Notes |
 |---|---|---|
 | Identity: name, model, serial, firmware, with an advisory on the withdrawn 4.3.x builds | **Complete** | |
-| Per-bay drive health: state, model, serial, capacity, error count, SSD life, drive firmware | **Complete** | |
-| Capacity: raw, usable, used, free, and what is held back for protection | **Complete** | |
+| Per-bay drive health: state, model, serial, capacity, error count, SSD life, drive firmware | **Complete** | Only state 16 reads as healthy. A bay is first judged empty or not from `mStatus` 128 or no reported size; a present disk reporting any other state, 0 included, reads as a warning and raises its bay's drive warning once. Until 2026-11-20 a present disk reporting 0 was badged empty and raised no alert; the fix is tested against the sanitised status sample with one bay's code changed, and a populated bay reporting 0 has not been seen on hardware |
+| Capacity: raw, usable, used and free; what is held back for protection where the Drobo reports it | **Complete** | A 5N's status greeting carries no protection figure, so the agent sends `protection_reported` false beside a `protection_bytes` of 0, and the browser dashboard, the Windows Status tab and the diagnostics report say "not reported by this Drobo". Until 2026-11-20 this row claimed protection without qualification, and all three printed "Protection 0 B" beside real figures, which reads as unprotected. Only the simulated Drobo gives a figure. The Windows helper behind both Windows views is tested on every push; seeing the Status tab draw the words needs Windows |
 | Volumes (what Windows shows as drive letters) | **Complete** | |
 | Chassis temperature and uptime, always with the age of the reading | **Complete** | Per-drive temperature reads 0 on a 5N; the chassis reading stands in, in the browser dashboard's 24-hour temperature graph too since 2026-11-02 (it plotted drive readings only, so on a 5N it was always empty) |
 | Throughput and IOPS, with the age of a kept reading | **Complete** | Units inferred as megabytes per second; counters lag ~25 s. A failed fetch keeps the last figures, which carry `measured_at` (the time the Drobo sent them) since 2026-10-19; both UIs show their age once it passes three minutes, and the Windows diagnostics report gives the time. Before that, kept figures looked fresh. The Windows side is compiled by CI's Windows job on every push, and on 2026-11-05 it was built into the 1.2.0 MSI, installed and launched by the installer's elevated lifecycle test; no check looks at the age line itself |
@@ -125,7 +125,7 @@ convention.
 | Installed DroboApps and their state | **Complete** | |
 | LED brightness and spin-down delay (read) | **Complete** | |
 | The device's own event log | **In progress** | Fetch is complete; the per-line timestamp/severity format is uncaptured, so those fields are marked not decoded |
-| Meanings of the pack status codes (`mStatus`, `DNASStatus`) | **Blocked** | Needs a degraded array to observe; unknown codes read as a warning meanwhile |
+| Meanings of the pack status codes (`mStatus`, `DNASStatus`) | **Blocked** | Needs a degraded array to observe; unknown codes read as a warning meanwhile. The warning names the only healthy values seen, from one Drobo 5N on firmware 4.3.1, says that on another model or firmware the code may be normal, and asks for a report; until 2026-11-20 it said the code had "changed ... different from before", untrue on a unit seen for the first time. Nothing is refused by model |
 | Cache battery, fan and PSU readings | **Blocked** | A 5N answers empty or times out; the firmware appears to have no code path for them. Alert rules and UI exist and light up if another model reports them |
 | DroboSync (Drobo-to-Drobo replication) status | **Built, dormant** | Reports "not configured" honestly on one unit |
 

@@ -2785,12 +2785,13 @@ public partial class MainWindow : Window
         var capacity = status.GetProperty("capacity");
         long usedBytes = GetInt64OrZero(capacity, "used_bytes"), freeBytes = GetInt64OrZero(capacity, "free_bytes");
         long usableBytes = GetInt64OrZero(capacity, "usable_bytes"), rawBytes = GetInt64OrZero(capacity, "raw_bytes");
-        long protectionBytes = GetInt64OrZero(capacity, "protection_bytes");
         double usedFraction = GetDoubleOrZero(capacity, "used_fraction");
         CapUsed.Text = FormatBytes(usedBytes);
         CapFree.Text = FormatBytes(freeBytes);
         CapUsable.Text = FormatBytes(usableBytes);
-        CapProt.Text = FormatBytes(protectionBytes);
+        // A real 5N reports no protection figure; FormatProtection says so
+        // in words rather than printing an unmeasured 0 B.
+        CapProt.Text = FormatProtection(capacity);
         CapRaw.Text = FormatBytes(rawBytes);
 
         // The device reports its own alert levels (mRedThreshold/mYellowThreshold,

@@ -95,7 +95,7 @@ of the tests at a time), exercises every endpoint, checks the answers, and
 stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
 raises the "cannot reach" alert, and that `--once` says why it took no
-reading; no Drobo is contacted. 351 checks as of 2026-11-06 (the number grows with
+reading; no Drobo is contacted. 360 checks as of 2026-11-20 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.

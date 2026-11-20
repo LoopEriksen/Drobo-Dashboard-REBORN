@@ -361,6 +361,100 @@ check(
 check("a greeting with no mLUNUpdates gives no volumes",
       esatm._parse_volumes(ElementTree.fromstring("<r/>")) == [])
 
+print("\n== protection is not reported by a real 5N, and says so ==")
+# The greeting carries no protection figure. protection_bytes stays 0
+# (the key never changes), and protection_reported says the 0 was never
+# measured, so neither app shows "Protection 0 B" as if it had been.
+check("the greeting's protection figure is marked not reported",
+      capacity.get("protection_reported") is False,
+      capacity.get("protection_reported"))
+check("-- and protection_bytes is still serialised, as 0",
+      capacity.get("protection_bytes") == 0, capacity.get("protection_bytes"))
+
+
+def _greeting_with_slot_fields(slot_number, **slot_fields):
+    """
+    The sanitised greeting with some fields of one slot replaced, for
+    the synthetic variants below. The slot is found by its mSlotNumber
+    so the per-LUN <nN> nodes are never touched.
+    """
+    payload = GREETING_PAYLOAD
+    slot_anchor = b"<mSlotNumber>%d</mSlotNumber>" % slot_number
+    for tag, value in slot_fields.items():
+        pattern = (re.escape(slot_anchor) + rb"(.*?<" + tag.encode()
+                   + rb">)[^<]*(</" + tag.encode() + rb">)")
+        payload, replaced = re.subn(
+            pattern, slot_anchor + rb"\g<1>" + str(value).encode()
+            + rb"\g<2>", payload, count=1, flags=re.DOTALL)
+        assert replaced == 1, (slot_number, tag)
+    return payload
+
+
+def _greeting_with_model(payload, model):
+    """The same greeting reporting another model, so the 5N's phantom
+    slot trimming does not apply and the sixth slot stays visible."""
+    return payload.replace(b"<mModel>Drobo 5N</mModel>",
+                           b"<mModel>" + model.encode() + b"</mModel>")
+
+
+print("\n== a present disk reporting state 0 is a warning, not empty ==")
+# Until 2026-11-20 mDiskState 0 mapped to EMPTY even when the slot held
+# a disk, so a present disk reporting 0 was badged "empty" and raised no
+# alert. Presence is decided by mStatus 128 and capacity first; state 0
+# on a present disk is unknown and so a warning.
+_state_zero_snapshot = esatm.parse_esatm(
+    _greeting_with_slot_fields(2, mDiskState=0))
+_state_zero_bay = _state_zero_snapshot.drives[2]
+check("bay 3 with state 0 is still present",
+      _state_zero_bay.present is True, _state_zero_bay)
+check("-- and is a warning, not empty",
+      _state_zero_bay.state == "warning", _state_zero_bay.state)
+check("-- with a note naming the code and why it is suspect",
+      _state_zero_bay.note
+      == "disk state code 0 (not seen on a healthy disk)",
+      _state_zero_bay.note)
+check("-- so the whole device reads warning",
+      _state_zero_snapshot.overall_state == "warning",
+      _state_zero_snapshot.overall_state)
+check("-- and its capacity still counts towards raw",
+      _state_zero_snapshot.capacity.raw_bytes
+      == snapshot.capacity.raw_bytes,
+      _state_zero_snapshot.capacity.raw_bytes)
+check("-- while the other four stay ok",
+      [drive.state for drive in _state_zero_snapshot.drives
+       if drive.bay != 3] == ["ok"] * 4,
+      [drive.state for drive in _state_zero_snapshot.drives])
+_odd_state_bay = esatm.parse_esatm(
+    _greeting_with_slot_fields(2, mDiskState=7)).drives[2]
+check("any other unknown code is a warning with the bare code",
+      (_odd_state_bay.state, _odd_state_bay.note)
+      == ("warning", "disk state code 7"),
+      (_odd_state_bay.state, _odd_state_bay.note))
+
+print("\n== an empty bay still reads empty ==")
+# The phantom sixth slot (mStatus 128, state 0, no capacity) is trimmed
+# on a 5N; on any other model it stays, and must still read empty.
+_other_model_drives = esatm.parse_esatm(
+    _greeting_with_model(GREETING_PAYLOAD, "Drobo B810n")).drives
+check("on another model the sixth slot is kept",
+      len(_other_model_drives) == 6, len(_other_model_drives))
+check("-- and reads empty, not warning",
+      (_other_model_drives[5].present, _other_model_drives[5].state)
+      == (False, "empty"),
+      _other_model_drives[5])
+_pulled_disk_drives = esatm.parse_esatm(_greeting_with_slot_fields(
+    1, mStatus=128, mDiskState=0, mPhysicalCapacity=0)).drives
+check("a bay reporting 128, state 0 and no capacity reads empty",
+      (_pulled_disk_drives[1].present, _pulled_disk_drives[1].state)
+      == (False, "empty"),
+      _pulled_disk_drives[1])
+_no_capacity_drives = esatm.parse_esatm(_greeting_with_slot_fields(
+    1, mDiskState=0, mPhysicalCapacity=0)).drives
+check("a bay with state 0 and no capacity reads empty even without 128",
+      (_no_capacity_drives[1].present, _no_capacity_drives[1].state)
+      == (False, "empty"),
+      _no_capacity_drives[1])
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

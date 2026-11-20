@@ -162,7 +162,8 @@ something else answering on the same address can never be silently accepted.
 
 - **Drive health, per bay** — which drives are fine, which are complaining,
   which have failed
-- **Capacity** — used, free, usable, and how much is held back for protection
+- **Capacity** — used, free and usable; how much is held back for protection
+  where the Drobo reports it (a 5N does not, and the apps say so)
 - **Chassis temperature and uptime**, always shown with the age of the reading
 - **Drive model, serial and firmware** for every bay, so you can order a
   replacement without opening the box

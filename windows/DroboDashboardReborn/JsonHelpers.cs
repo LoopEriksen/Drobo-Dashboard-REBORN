@@ -105,6 +105,32 @@ internal static class JsonHelpers
         return parsed && port is >= 1 and <= 65535 ? port : fallback;
     }
 
+    /// <summary>What the Protection figure reads when the Drobo gave
+    /// none.</summary>
+    public const string ProtectionNotReportedText = "not reported by this Drobo";
+
+    /// <summary>
+    /// The Protection figure of a capacity object, as the Status tab and
+    /// the diagnostics show it: the bytes when the Drobo reported them,
+    /// otherwise <see cref="ProtectionNotReportedText"/>.
+    ///
+    /// A real Drobo 5N reports no protection figure, so the agent sends
+    /// protection_bytes 0 with protection_reported false. Until 2026-11-20
+    /// the app printed that 0 as "0 B" beside real figures, which reads as
+    /// "my data is unprotected". An agent older than the flag sends no
+    /// protection_reported at all; then only a figure above zero counts as
+    /// reported, since every real Drobo it read sent a 0 it never
+    /// measured.
+    /// </summary>
+    public static string FormatProtection(JsonElement capacity)
+    {
+        long protectionBytes = GetInt64OrZero(capacity, "protection_bytes");
+        bool reported = TryGetMember(capacity, "protection_reported", out var reportedFlag)
+            ? reportedFlag.ValueKind == JsonValueKind.True
+            : protectionBytes > 0;
+        return reported ? FormatBytes(protectionBytes) : ProtectionNotReportedText;
+    }
+
     /// <summary>Auto-scaling byte formatter -- B/KB/MB/GB/TB/PB, same thresholds
     /// and rounding as webui.py's own `bytes()`. The old version always divided
     /// by 1e12, so anything under ~5 GB rendered as a flat "0.00 TB", which

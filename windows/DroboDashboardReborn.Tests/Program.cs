@@ -193,6 +193,43 @@ Check("a category missing from settings counts as off", missingCat.Count == 0, m
 
 
 // ---------------------------------------------------------------------------
+// Protection -- a figure a real Drobo 5N never reports.
+//
+// The agent sends protection_bytes 0 with protection_reported false for the
+// real device. Until 2026-11-20 the Status tab and the diagnostics printed
+// that 0 as "0 B" beside real figures, which reads as "my data is
+// unprotected". Kept before the CredentialStore section so these run on any
+// machine, not only on Windows.
+Console.WriteLine("\n== Protection: an unreported figure says so ==");
+string ProtectionOf(string capacityJson) =>
+    Attempt(() => JsonHelpers.FormatProtection(ParseJson(capacityJson))) as string ?? "(not a string)";
+var unreportedProtection = ProtectionOf("{\"protection_bytes\":0,\"protection_reported\":false}");
+Check("an unreported 0 reads not reported by this Drobo",
+      unreportedProtection == "not reported by this Drobo", unreportedProtection);
+var reportedProtection = ProtectionOf("{\"protection_bytes\":4000787030016,\"protection_reported\":true}");
+Check("a reported figure reads as bytes", reportedProtection == "4.00 TB", reportedProtection);
+var reportedZero = ProtectionOf("{\"protection_bytes\":0,\"protection_reported\":true}");
+Check("a reported 0 is a real 0 B", reportedZero == "0 B", reportedZero);
+var olderAgentZero = ProtectionOf("{\"protection_bytes\":0}");
+Check("an agent older than the flag: a 0 reads not reported",
+      olderAgentZero == "not reported by this Drobo", olderAgentZero);
+var olderAgentFigure = ProtectionOf("{\"protection_bytes\":2000000000000}");
+Check("-- and a figure above 0 still reads as bytes", olderAgentFigure == "2.00 TB", olderAgentFigure);
+var nullCapacityProtection = ProtectionOf("null");
+Check("a null capacity does not throw", nullCapacityProtection == "not reported by this Drobo",
+      nullCapacityProtection);
+
+static string ProtectionLine(string report) =>
+    report.Split('\n').FirstOrDefault(line => line.TrimStart().StartsWith("Protection"))?.Trim()
+    ?? "(no Protection line)";
+var diagnosticsProtection = ProtectionLine(DiagnosticsReport.BuildText(
+    "{\"reachable\":true,\"device\":{\"name\":\"n\"},"
+    + "\"capacity\":{\"used_bytes\":1,\"protection_bytes\":0,\"protection_reported\":false}}"));
+Check("the diagnostics say not reported by this Drobo, not 0 B",
+      diagnosticsProtection.EndsWith("not reported by this Drobo"), diagnosticsProtection);
+
+
+// ---------------------------------------------------------------------------
 // CredentialStore -- saving a Drobo login on this PC.
 //
 // These touch the REAL Windows Credential Manager, deliberately: a store that

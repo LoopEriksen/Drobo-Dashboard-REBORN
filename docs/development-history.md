@@ -1215,6 +1215,56 @@ read before it was kept: the simulator's name, serials and addresses
 only, no token, host name or path. Screenshots of the Windows app remain
 the maintainer's to take.
 
+## Readiness for outside testers (2026-11-20)
+
+**11-20.** Before inviting Drobo owners who did not build it, a
+read-only audit of `main` at f939f86 asked one question: what would stop,
+mislead or endanger an outside tester with a network Drobo in their first
+session, or keep their report from reaching the maintainer in a usable
+form? It ran four audits (first run, write safety, the feedback loop, the
+release itself), each checked by a sceptic, edited nothing, and contacted
+no Drobo. The maintainer then decided eight questions it raised. D1: the
+writes never proven on hardware (share create, share delete, DroboApps
+start and stop) are labelled, not hidden. D2: share writes on a Drobo
+with user accounts get a warning in words, not a refusal. D3: nothing is
+blocked by model in code; a Drobo that is not a 5N gets a true alert and
+a note to stay read-only. D4: the Identify wording changes now. D5:
+testers without GitHub, or with something sensitive, use GitHub's private
+vulnerability reporting through a short `SECURITY.md`, the setting
+switched on by the maintainer. D6: blank issues are switched off. D7:
+the update check stays dormant, and "Check for Updates" points at the
+Releases page. D8: checking the mail server's certificate waits. The
+fixes land as packages, one commit each, and the version stays 1.2.0
+until the maintainer's own hardware session.
+
+**Readings.** Three things a tester on real hardware would have seen
+were not true. A 5N's status greeting carries no protection figure, so
+`Capacity.protection_bytes` stayed at its default of 0 and both apps and
+the diagnostics printed "Protection 0 B" beside real figures, which
+reads as "my data is unprotected"; the agent now sends
+`protection_reported`, false from the real driver and true from the
+simulator, and all three say "not reported by this Drobo" (a Windows app
+talking to an agent older than the key counts only a figure above 0 as
+reported). The parser mapped `mDiskState` 0 to empty, so a present disk
+reporting 0 was badged empty and raised nothing, the opposite of the
+parser's own rule that an unknown code is a warning; presence is now
+settled first, from `mStatus` 128 or no size, and after that only 16 is
+healthy, so such a disk warns, once, with a note saying 0 has not been
+seen on a healthy disk. And the pack status alert said a code had
+"changed ... different from before", untrue on a unit seen for the first
+time, since the baseline is one 5N's values; it now names where the
+healthy value came from, says it may be normal on another model or
+firmware, and asks for a report. That is the alert half of D3. Proven
+here: every new check that can fail failed against f939f86's code, the 31
+Python suites pass as before (the backup suite's two robocopy checks are
+Windows-only, as always), flake8 is clean, and both .NET builds compile,
+with the Windows test program's seven new checks run on Linux before its
+Credential Manager section. Not proven here: the WPF Status tab drawing
+the words, which needs Windows, and a populated bay reporting 0, which
+has never been seen on hardware. No byte or XML sent to a Drobo changed.
+The drive warning's text, which put the note's lowercase start after a
+full stop, now capitalises it.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.
@@ -1262,8 +1312,8 @@ answered rather than drop the connection (found 2026-11-05, in review),
 the two faults left in the roadmap's list that wait on the maintainer
 (the faults the readability pass recorded on 2026-10-29 were fixed on
 2026-11-02 and the LED and DroboSync hang-up found that day on
-2026-11-05, leaving in the list besides those two only two `esatm`
-readings that need a real device to settle); and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
+2026-11-05, and the list's two `esatm` readings on 2026-11-20,
+leaving those two alone); and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
 redundant pack to degrade for the status codes. The licence is no longer
 open: it was settled as GPL-3.0-or-later on 2026-10-19.
 

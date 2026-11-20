@@ -24,6 +24,7 @@ import queue
 import re
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -333,6 +334,19 @@ check("pack status message quotes old and new values "
       "without interpreting them",
       messages and "0" in messages[0] and "1" in messages[0],
       messages)
+# Until 2026-11-20 this said the code had "changed from the healthy
+# baseline ... different from before", untrue for a Drobo seen for the
+# first time: the baseline is one 5N's values, not this unit's past.
+check("pack status message is true on a Drobo seen for the first time",
+      messages and messages[0] == (
+          "This Drobo reports disk_pack_status=1. The only healthy "
+          "value this software has seen is 0, from one Drobo 5N on "
+          "firmware 4.3.1; on another model or firmware this may be "
+          "normal. What the code means is not known. Please report it."),
+      messages)
+check("-- and no longer claims the value changed",
+      messages and "changed" not in messages[0]
+      and "before" not in messages[0], messages)
 
 with monitor._lock:
     fired = monitor._evaluate_alerts(
@@ -410,6 +424,62 @@ check("a pack matching the healthy baseline exactly raises no NEW alert",
       new_alarms == [], new_alarms)
 check("...and returning to baseline resolves the earlier one",
       any(a.key.endswith("-cleared") for a in fired), [a.key for a in fired])
+
+print("\n== a present disk reporting state 0 raises one warning ==")
+# esatm used to badge a present disk with mDiskState 0 as "empty", so
+# the drive rules (which skip empty bays) never saw it. Parsed from the
+# sanitised greeting with bay 3's state set to 0, it must raise
+# drive-warning-3 with the note, and be sent once, not on every poll.
+# A Monitor of its own, never started, so the suite's background poll
+# cannot clear the alert between the two polls here; its driver is a
+# stand-in that hands back the parsed greeting.
+_ESATM_FIXTURE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))),
+    "sdk", "tests", "fixtures", "esatm-sample.xml")
+with open(_ESATM_FIXTURE_PATH, "rb") as _fixture_file:
+    _state_zero_greeting = re.sub(
+        rb"(<mSlotNumber>2</mSlotNumber>.*?<mDiskState>)16(</mDiskState>)",
+        rb"\g<1>0\g<2>", _fixture_file.read(), count=1, flags=re.DOTALL)
+
+
+class _GreetingDriver:
+    """A driver that returns one parsed greeting on every poll."""
+
+    name = "drobo5n"
+
+    def read_snapshot(self):
+        return esatm.parse_esatm(_state_zero_greeting)
+
+
+class _RecordingNotifier(notify.Notifier):
+    """Keeps every message it is asked to send, and sends nothing."""
+
+    def __init__(self):
+        self.sent_messages = []
+
+    def send(self, title, message, severity):
+        self.sent_messages.append(message)
+
+
+_state_zero_notifier = _RecordingNotifier()
+_state_zero_monitor = Monitor(agent_config, _state_zero_notifier)
+_state_zero_monitor.driver = _GreetingDriver()
+_state_zero_monitor.poll_once()
+_after_first_poll = list(_state_zero_notifier.sent_messages)
+_state_zero_monitor.poll_once()
+_after_second_poll = list(_state_zero_notifier.sent_messages)
+_warning_alert = _state_zero_monitor.alerts.get("drive-warning-3")
+check("a present disk with state 0 raises drive-warning-3",
+      _warning_alert is not None and _warning_alert.active
+      and _warning_alert.severity == "warning",
+      sorted(_state_zero_monitor.alerts))
+check("-- naming the code and why it is suspect",
+      _after_first_poll == ["Drive in bay 3 reports a problem. Disk "
+                            "state code 0 (not seen on a healthy disk)"],
+      _after_first_poll)
+check("-- and sent once, not again on the next poll",
+      _after_second_poll == _after_first_poll, _after_second_poll)
 
 print("\n== chassis temperature alerting ==")
 # Added 2026-07-26. The per-drive temperature rules above never fire on
@@ -1189,6 +1259,44 @@ check("dashboard has no data baked in",
 check("dashboard wires up the API",
       b"/api/status" in reply and b"/api/events" in reply)
 check("token is scrubbed from the URL", b"history.replaceState" in reply)
+# Protection: a real 5N reports none, so the page shows words, not an
+# unmeasured "0 B". Checked in the page source, and -- where node is
+# installed (it is on the CI runners) -- by running the page's own two
+# functions on a reported and an unreported capacity.
+_page_text = reply.decode("utf-8")
+check("the dashboard renders protection through protectionText",
+      '$("capProt").textContent = protectionText(cap);' in _page_text)
+check("-- which has the words for an unreported figure",
+      '"not reported by this Drobo"' in _page_text)
+
+
+def _page_function_source(page_text, function_name):
+    """One `function name(...) { ... }` of the page, as text."""
+    match = re.search(r"\n  function " + function_name
+                      + r"\(.*?\n  \}\n", page_text, re.DOTALL)
+    return match.group(0) if match else ""
+
+
+_node_path = shutil.which("node")
+if _node_path is None:
+    print("  SKIP  node is not installed, so the page's protectionText "
+          "is not run")
+else:
+    _node_script = (
+        _page_function_source(_page_text, "bytes")
+        + _page_function_source(_page_text, "protectionText")
+        + "console.log(JSON.stringify(["
+        "protectionText({protection_bytes: 0, protection_reported: false}),"
+        "protectionText({protection_bytes: 4000787030016,"
+        " protection_reported: true})]));")
+    _node_run = subprocess.run([_node_path, "-e", _node_script],
+                               capture_output=True, text=True, timeout=30)
+    _rendered = (json.loads(_node_run.stdout)
+                 if _node_run.returncode == 0 else _node_run.stderr)
+    check("the page shows an unreported protection figure in words",
+          _rendered[0:1] == ["not reported by this Drobo"], _rendered)
+    check("-- and a reported one as bytes",
+          _rendered[1:2] == ["4.00 TB"], _rendered)
 
 print("\n== shares/discovery: /api/shares (503 before the device has ever "
       "been identified) ==")
