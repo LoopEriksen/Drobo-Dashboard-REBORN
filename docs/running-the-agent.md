@@ -149,7 +149,8 @@ Draw the main screen from `GET /api/status`, subscribe to `GET /api/events` for
 live updates instead of polling, and read `GET /api/history` for graphs. If the
 agent isn't running, the app says so in its state pills and stays usable; it
 does not try to talk to the Drobo itself, and it starts no scheduled task —
-the launcher starts the agent alongside the app. **Only one component
+the launcher starts the agent alongside the app, unless one already answers
+on its port. **Only one component
 ever speaks the Drobo protocol.**
 
 ---

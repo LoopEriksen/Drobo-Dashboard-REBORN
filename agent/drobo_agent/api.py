@@ -167,6 +167,7 @@ import functools
 import http
 import json
 import math
+import os
 import queue
 import re
 import socket
@@ -3142,6 +3143,45 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
+class AgentHTTPServer(ThreadingHTTPServer):
+    """
+    The agent's HTTP server: one agent per port, on every platform.
+
+    http.server's HTTPServer asks for SO_REUSEADDR (allow_reuse_address
+    = 1). On Linux and macOS that only lets a restarted agent bind over
+    connections still in TIME_WAIT; it never lets two sockets listen on
+    one port. On Windows it means something else entirely: a second
+    socket that sets it may bind a port another socket is already
+    listening on, and Windows then hands connections to either. So a
+    second agent, started by a second launch from the Start Menu while
+    the first was still running, bound beside the first without an
+    error, and both polled the Drobo (readiness review S4, 2026-11-20).
+    Left off on Windows, the second bind fails with WSAEADDRINUSE and
+    run_agent.py can say so in a sentence. Windows needs no
+    SO_REUSEADDR to rebind over TIME_WAIT, which is why asyncio and
+    libuv set it only on Unix too. The double bind was reasoned from
+    Windows' documented behaviour, not seen on a PC; the second-agent
+    checks in agent/tests/test_agent.py and windows/test-installer.ps1
+    are what show it on a Windows runner.
+
+    SO_EXCLUSIVEADDRUSE was considered and left out. It guards against
+    a different program binding beside the agent with SO_REUSEADDR,
+    which is not the case here, and it costs a restart: while
+    connections the old agent accepted are still winding down, a new
+    exclusive bind is refused, so closing the agent window and
+    starting it again could be told "another program is using the
+    port" for a minute or two.
+
+    SO_REUSEPORT is refused everywhere, explicitly: where it exists it
+    is exactly two listeners on one port, and a later Python changing
+    the inherited default must not bring that back quietly.
+    """
+
+    allow_reuse_address = os.name != "nt"
+    allow_reuse_port = False
+    daemon_threads = True
+
+
 def build_http_server(config: dict, monitor, photo_store,
                       paired_devices=None):
     """Build the agent's HTTP server without starting it.
@@ -3153,19 +3193,23 @@ def build_http_server(config: dict, monitor, photo_store,
     because http.server makes a fresh handler for every connection, so
     a second server built in the same process replaces the first one's.
 
+    The port is claimed first, and the handler class is filled in only
+    once it has been: a bind that fails (another agent on the port)
+    raises OSError and leaves a server already running in this process
+    serving with its own monitor and token, not the refused one's.
+
     `paired_devices` is a pairing.PairedDevices. run_agent.py gives it
     the file beside config.json; left out, as the test suites that
     never pair a phone leave it, the phones are kept in memory only, so
     a test can never write into a real agent's folder.
     """
+    bind_address = config["agent"]["bind"]
+    port = int(config["agent"]["port"])
+    httpd = AgentHTTPServer((bind_address, port), _ApiRequestHandler)
     _ApiRequestHandler.monitor = monitor
     _ApiRequestHandler.photo_store = photo_store
     _ApiRequestHandler.paired_devices = (
         paired_devices if paired_devices is not None
         else pairing.PairedDevices())
     _ApiRequestHandler.token = config["agent"]["token"]
-    bind_address = config["agent"]["bind"]
-    port = int(config["agent"]["port"])
-    httpd = ThreadingHTTPServer((bind_address, port), _ApiRequestHandler)
-    httpd.daemon_threads = True
     return httpd

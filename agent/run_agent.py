@@ -16,11 +16,14 @@ all the hardware knowledge lives in drobo_agent/drivers.py.
 from __future__ import annotations
 
 import argparse
+import errno
+import http.client
 import json
 import os
 import signal
 import sys
 import threading
+import urllib.request
 import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +41,31 @@ DEFAULT_CONFIG_PATH = os.path.join(
 #: bound its port before the browser knocks.
 BROWSER_OPEN_DELAY_SECONDS = 1.0
 
+#: The exit status when this agent closed because another one already
+#: answers on its port. Distinct from 1, every other startup failure,
+#: so Run-Agent.bat can close its window quietly instead of showing
+#: "The agent stopped" over an agent that is in fact running.
+EXIT_ALREADY_RUNNING = 3
+
+#: How long the "is that another agent?" question waits for /api/ping
+#: on the taken port. A running agent answers on loopback in
+#: milliseconds, but one that is itself still starting holds its port
+#: while it looks for the Drobo, and answers only once that is done --
+#: a few seconds, longer on a PC whose network is still coming up. Two
+#: launches a moment apart meet exactly that agent, and a shorter wait
+#: would call it "another program". Only a program that accepts and
+#: then says nothing makes this agent wait the whole time.
+AGENT_PING_TIMEOUT_SECONDS = 15.0
+
+#: The bind failures that mean "something already has this port":
+#: EADDRINUSE everywhere, and on Windows WSAEADDRINUSE (10048) and
+#: WSAEACCES (10013), which a port held exclusively by another program,
+#: or reserved by Windows itself, gives instead. Any other bind failure
+#: (an agent.bind address this PC does not have, say) is not this, and
+#: still surfaces as itself.
+PORT_TAKEN_ERRNOS = frozenset({errno.EADDRINUSE})
+PORT_TAKEN_WINERRORS = frozenset({10048, 10013})
+
 
 def main(argv: list[str] | None = None) -> int:
     """
@@ -48,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     and exits, without the photo store or the HTTP server -- a quick
     "can it see my Drobo?" with nothing left running. When it can read
     no Drobo it says why and exits 1 (see _print_one_reading).
+
+    The port is claimed before the monitor starts, not after as it was
+    until 2026-11-20. A second agent, started while the first was still
+    running, then closes with one sentence before it has looked for
+    the Drobo at all, instead of running discovery and reading the
+    Drobo first and only then failing to bind (see
+    _explain_taken_port). The listening socket queues connections
+    while the monitor starts, and serving begins once it has.
     """
     args = _parse_args(argv)
     loaded_config = config.load(args.config)
@@ -64,9 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     paired_devices = pairing.PairedDevices(
         pairing.path_beside_config(args.config))
 
-    monitor.start()
-    http_server = api.build_http_server(loaded_config, monitor, photo_store,
-                                        paired_devices)
+    try:
+        http_server = api.build_http_server(loaded_config, monitor,
+                                            photo_store, paired_devices)
+    except OSError as exc:
+        if not _port_is_taken(exc):
+            raise
+        return _explain_taken_port(loaded_config["agent"], args.config)
+    _start_monitor_or_release_port(monitor, http_server)
 
     dashboard_url = _print_banner(loaded_config["agent"],
                                   config.display_path(args.config))
@@ -127,8 +168,7 @@ def _print_banner(agent_settings: dict, config_file_display: str) -> str:
     """
     bind_address = agent_settings["bind"]
     agent_port = agent_settings["port"]
-    display_host = ("127.0.0.1" if bind_address in ("0.0.0.0", "")
-                    else bind_address)
+    display_host = _local_host_for(bind_address)
     print(f"[agent] listening on http://{display_host}:{agent_port}",
           flush=True)
     # The address only, never the token. This line used to end in
@@ -147,6 +187,88 @@ def _print_banner(agent_settings: dict, config_file_display: str) -> str:
               "LAN only, never port-forward this",
               flush=True)
     return f"http://{display_host}:{agent_port}/"
+
+
+def _explain_taken_port(agent_settings: dict, config_path: str) -> int:
+    """
+    Say in one sentence why the agent cannot have its port, and return
+    the exit status.
+
+    Until 2026-11-20 a taken port ended the agent in a raw OSError
+    traceback ("[Errno 98] Address already in use") under
+    Run-Agent.bat's "The agent stopped" footer, and the usual cause
+    was harmless: the agent window stays open after the app closes, so
+    the next launch from the Start Menu started a second agent beside
+    the first. Which sentence is printed is decided by asking
+    /api/ping on that port whether the program holding it is an agent.
+    """
+    agent_port = int(agent_settings["port"])
+    ping_host = _local_host_for(agent_settings["bind"])
+    if _agent_answers_on(ping_host, agent_port):
+        print(f"[agent] An agent is already running on port {agent_port}; "
+              f"this one will close.", file=sys.stderr, flush=True)
+        return EXIT_ALREADY_RUNNING
+    print(f"[agent] Another program is using port {agent_port}; change "
+          f"agent.port in {os.path.abspath(config_path)}.",
+          file=sys.stderr, flush=True)
+    return 1
+
+
+def _start_monitor_or_release_port(monitor: Monitor, http_server) -> None:
+    """
+    Monitor.start(), closing the already-bound server if it raises: an
+    identity mismatch ends the agent with SystemExit, and Ctrl+C during
+    discovery with KeyboardInterrupt, and neither may leave the port
+    held by a socket nobody will serve.
+    """
+    try:
+        monitor.start()
+    except BaseException:
+        http_server.server_close()
+        raise
+
+
+def _port_is_taken(bind_error: OSError) -> bool:
+    """
+    True when a bind failed because something already has the port,
+    by errno or, on Windows, by the WSA code.
+    """
+    if bind_error.errno in PORT_TAKEN_ERRNOS:
+        return True
+    return getattr(bind_error, "winerror", None) in PORT_TAKEN_WINERRORS
+
+
+def _agent_answers_on(host: str, port: int) -> bool:
+    """
+    True when http://host:port/api/ping answers as a Drobo agent.
+
+    Through an opener with no proxy handler: urllib otherwise takes the
+    proxy from the environment, or on Windows from the system settings,
+    and a loopback question must never be sent to a proxy. Any failure
+    to get that answer -- refused, silent, not HTTP, not JSON, some
+    other service's JSON -- means "not an agent", which is what the
+    caller needs to tell the two sentences apart.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    ping_url = f"http://{host}:{port}/api/ping"
+    try:
+        with opener.open(ping_url,
+                         timeout=AGENT_PING_TIMEOUT_SECONDS) as response:
+            reply = json.loads(response.read())
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    return isinstance(reply, dict) and reply.get("agent") == "drobo-agent"
+
+
+def _local_host_for(bind_address: str) -> str:
+    """
+    The address a program on this PC uses to reach an agent bound to
+    `bind_address`: an all-interfaces bind is reached at 127.0.0.1,
+    and a named address at itself.
+    """
+    if bind_address in ("0.0.0.0", ""):
+        return "127.0.0.1"
+    return bind_address
 
 
 def _open_browser_soon(url: str) -> None:

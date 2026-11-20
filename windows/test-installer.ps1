@@ -7,14 +7,17 @@
       1. msiexec /i  (per-machine, quiet, verbose log)
       2. Verify what landed: exe present and full size, agent + SDK source,
          the BUNDLED PYTHON runtime present and able to start, the launcher
-         wired to it, TESTING.md and LICENSE, Start Menu + Desktop + Uninstall shortcuts,
+         wired to it, TESTING.md and LICENSE, the shares guide where the
+         app's Tools tab looks for it, Start Menu + Desktop + Uninstall shortcuts,
          an ARP entry with the right version, and -- critically -- no
          config.json and no hardcoded access token shipped.
       3. Run the installed product the way a tester would: the Start Menu
          launcher. Wait for the agent to answer /api/ping on its port, check
          the app process is alive, check the agent wrote its config.json to
-         %LOCALAPPDATA%\DroboDashboardReborn (not the install folder), then
-         stop both. Then run the Start Menu "Check for Updates" shortcut's
+         %LOCALAPPDATA%\DroboDashboardReborn (not the install folder). With
+         the first agent still running, launch again and start a second
+         agent by hand, and require exactly one agent afterwards, then
+         stop everything. Then run the Start Menu "Check for Updates" shortcut's
          own target, as a double-click does, and require its "switched off"
          answer and exit status 0 (update checks ship off).
       4. msiexec /x  (quiet, verbose log)
@@ -134,6 +137,26 @@ function Stop-Product {
         Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($InstallRoot, [System.StringComparison]::OrdinalIgnoreCase) } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 800
+}
+
+# The agent as a process: the bundled python.exe, from the install folder,
+# running agent\run_agent.py. The command line is part of the test because
+# the launcher also runs that python.exe for a moment to read the port from
+# config.json, and that is not an agent.
+function Get-AgentProcesses {
+    @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($InstallRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+            $_.CommandLine -match 'run_agent\.py'
+        })
+}
+
+# The agent's window: the cmd.exe running Run-Agent.bat that the launcher
+# starts. A second one is what a launcher that started a second agent leaves
+# behind, for at least the ten seconds Run-Agent.bat shows "already running".
+function Get-AgentWindows {
+    @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'Run-Agent\.bat' })
 }
 
 # --- 0. Find the MSI, refuse to run if something's already installed -------
@@ -304,6 +327,7 @@ Check "Run-Agent.bat present" (Test-Path $runAgentBat)
 if (Test-Path $launcherBat) {
     $launcherText = Get-Content -LiteralPath $launcherBat -Raw
     Check "launcher starts the agent through Run-Agent.bat" ($launcherText -match 'Run-Agent\.bat')
+    Check "launcher asks the agent's /api/ping before starting one" ($launcherText -match '/api/ping')
 }
 if (Test-Path $runAgentBat) {
     $runAgentText = Get-Content -LiteralPath $runAgentBat -Raw
@@ -321,6 +345,16 @@ $licencePath = Join-Path $InstallRoot 'LICENSE'
 $licenceIsFile = Test-Path -LiteralPath $licencePath -PathType Leaf
 $licenceIsGpl = $licenceIsFile -and (Select-String -LiteralPath $licencePath -Pattern 'GNU GENERAL PUBLIC LICENSE' -SimpleMatch -Quiet)
 Check "LICENSE present in the install folder" $licenceIsGpl "file: $licenceIsFile, GPL text: $licenceIsGpl"
+# The shares guide ships since 2026-11-20. The app looks for
+# docs\accessing-your-files.md in its own folder first, then up to five
+# folders above it (FindGuidePath in MainWindow.xaml.cs), and hides the
+# Tools tab's "Open the guide" button when it finds none -- which it did in
+# every installed copy until then. A file with a Markdown heading in it,
+# so that an empty or misplaced copy does not pass.
+$guidePath = Join-Path $InstallRoot 'docs\accessing-your-files.md'
+$guideIsFile = Test-Path -LiteralPath $guidePath -PathType Leaf
+$guideHasHeading = $guideIsFile -and (Select-String -LiteralPath $guidePath -Pattern '^#' -Quiet)
+Check "shares guide present beside the app, where its Tools tab looks (docs\accessing-your-files.md)" $guideHasHeading "file: $guideIsFile, heading: $guideHasHeading"
 
 # The one non-negotiable: never ship a real device token or a config.json
 # that would make every install share the same access token.
@@ -360,6 +394,10 @@ if (Test-Path $desktopLnk) {
 if (Test-Path $uninstallLnk) {
     $u = $shell.CreateShortcut($uninstallLnk)
     Check "Uninstall shortcut runs msiexec /x by ProductCode" (($u.TargetPath -match 'msiexec\.exe$') -and ($u.Arguments -match '^/x \{[0-9A-Fa-f-]{36}\}$')) "target=$($u.TargetPath) args=$($u.Arguments)"
+    # Its tooltip claimed until 2026-11-20 that it removed the tester's
+    # settings and access token; both are kept (checked after the uninstall
+    # below), and the tooltip now says so.
+    Check "Uninstall shortcut's tooltip says the settings are kept" ($u.Description -match 'kept') "description: $($u.Description)"
 }
 
 # ARP entry. WiX v4+ perUser packages register this under HKLM's Uninstall
@@ -472,6 +510,84 @@ if (Test-Path $launcherBat) {
     }
 } else {
     Check "launcher started" $false 'skipped -- launcher missing'
+}
+
+# --- 3a. A second launch, and a second agent, with the first still running ---
+
+Section 'Second launch while the first agent runs (exactly one agent)'
+
+# The agent's window stays open after the app closes, so a tester's next
+# launch from the Start Menu meets a running agent. Until 2026-11-20 the
+# launcher started another one regardless; on Windows SO_REUSEADDR let it
+# bind beside the first, and one more piled up per launch. The port check
+# in Preflight refuses to start with port 7420 busy, so no run met that
+# case. Now the launcher asks /api/ping first, and an agent that cannot
+# have its port closes with one sentence and exit status 3.
+#
+# Two ways in, both against the running simulated agent: the launcher
+# again, and the agent started by hand with the same config.json. Each must
+# leave exactly one agent. The second launch also opens a second app
+# window; Stop-Product closes every one.
+if ((Test-Path $launcherBat) -and $pingOk) {
+    $secondLaunch = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "`"$launcherBat`"") -WorkingDirectory $InstallRoot -PassThru -WindowStyle Minimized
+    $null = $secondLaunch.Handle   # without this, ExitCode can read empty once it has exited
+    $secondLaunchDone = $secondLaunch.WaitForExit(60000)
+    if (-not $secondLaunchDone) { Stop-Process -Id $secondLaunch.Id -Force -ErrorAction SilentlyContinue }
+    Check "second launch finished within 60 s" $secondLaunchDone
+    # Counted at once: a second agent window, had the launcher started one,
+    # lives on for at least ten seconds after its agent closes.
+    $agentWindows = Get-AgentWindows
+    Check "still exactly one agent window after the second launch (got $($agentWindows.Count))" ($agentWindows.Count -eq 1) "$($agentWindows.CommandLine -join ' | ')"
+    $agentsAfterLaunch = Get-AgentProcesses
+    Check "still exactly one agent process after the second launch (got $($agentsAfterLaunch.Count))" ($agentsAfterLaunch.Count -eq 1)
+
+    $secondAgentIn = Join-Path $LogDir 'second-agent-stdin.txt'
+    $secondAgentOut = Join-Path $LogDir 'second-agent-stdout.txt'
+    $secondAgentErr = Join-Path $LogDir 'second-agent-stderr.txt'
+    Set-Content -LiteralPath $secondAgentIn -Value '' -NoNewline -Encoding ascii
+    $secondAgent = Start-Process -FilePath $pyExe -ArgumentList @("`"$(Join-Path $agentDir 'run_agent.py')`"", '--config', "`"$plantedConfig`"") `
+        -WorkingDirectory $InstallRoot -NoNewWindow -PassThru `
+        -RedirectStandardInput $secondAgentIn -RedirectStandardOutput $secondAgentOut -RedirectStandardError $secondAgentErr
+    $null = $secondAgent.Handle
+    $secondAgentDone = $secondAgent.WaitForExit(60000)
+    if (-not $secondAgentDone) { Stop-Process -Id $secondAgent.Id -Force -ErrorAction SilentlyContinue }
+    $secondAgentText = '' + (Get-Content -LiteralPath $secondAgentOut -Raw -ErrorAction SilentlyContinue) + (Get-Content -LiteralPath $secondAgentErr -Raw -ErrorAction SilentlyContinue)
+    Check "a second agent started by hand closes by itself within 60 s (it did not bind beside the first)" $secondAgentDone $secondAgentText
+    Check "-- with exit status 3, already running (got $(if ($secondAgentDone) { $secondAgent.ExitCode } else { 'no exit' }))" ($secondAgentDone -and $secondAgent.ExitCode -eq 3) $secondAgentText
+    Check "-- saying so in one sentence, with no traceback" (($secondAgentText -match "An agent is already running on port $AgentPort; this one will close\.") -and ($secondAgentText -notmatch 'Traceback')) $secondAgentText
+    $agentsAfterSecond = Get-AgentProcesses
+    Check "still exactly one agent process after it (got $($agentsAfterSecond.Count))" ($agentsAfterSecond.Count -eq 1)
+
+    # Run-Agent.bat itself, started the way the launcher starts it (cmd's
+    # START, which runs a batch file under cmd /K), must close its window
+    # once its agent has closed with exit status 3. With "exit /b" it ended
+    # only the script and left a second window titled as the agent's at a
+    # prompt, while it promised to close by itself. Its agent closes at once
+    # (the first answers /api/ping), then the window waits ten seconds, so
+    # 45 s is ample.
+    $startWrapper = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "start `"Drobo Dashboard REBORN - Agent`" /min `"$runAgentBat`"") -WorkingDirectory $InstallRoot -PassThru -WindowStyle Minimized
+    $null = $startWrapper.WaitForExit(15000)
+    $sawSecondWindow = $false
+    $windowsGoneBack = $false
+    $windowDeadline = (Get-Date).AddSeconds(45)
+    while ((Get-Date) -lt $windowDeadline) {
+        $windowCount = (Get-AgentWindows).Count
+        if ($windowCount -gt 1) { $sawSecondWindow = $true }
+        if ($sawSecondWindow -and $windowCount -eq 1) { $windowsGoneBack = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+    $leftWindows = Get-AgentWindows
+    Check "a second Run-Agent.bat window, started as the launcher starts it, closes by itself (agent windows back to $($leftWindows.Count), want 1)" ($sawSecondWindow -and $windowsGoneBack) "saw it open: $sawSecondWindow; $($leftWindows.CommandLine -join ' | ')"
+    $agentsAfterWindow = Get-AgentProcesses
+    Check "still exactly one agent process after that window (got $($agentsAfterWindow.Count))" ($agentsAfterWindow.Count -eq 1)
+    $stillAnswers = $false
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$AgentPort/api/ping" -UseBasicParsing -TimeoutSec 5
+        $stillAnswers = ($resp.StatusCode -eq 200) -and ($resp.Content -match 'drobo-agent')
+    } catch { }
+    Check "the first agent still answers /api/ping" $stillAnswers
+} else {
+    Check "second launch ran" $false 'skipped -- the launcher is missing or the first agent never answered'
 }
 
 Stop-Product

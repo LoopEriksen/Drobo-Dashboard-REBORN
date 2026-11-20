@@ -75,6 +75,47 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **Opening the app again no longer starts a second agent.** The Start
+  Menu and desktop launcher started the agent every time and then waited
+  a fixed 2 seconds. The agent's window stays open after the app closes,
+  so every later launch added another agent, and 2 seconds is shorter
+  than the agent's own start-up (looking for the Drobo alone listens for
+  3 seconds), so the app could open to "Is the agent running?" or ask
+  for a token the agent had not yet written. The launcher now reads
+  `agent.port` from `%LOCALAPPDATA%\DroboDashboardReborn\config.json`
+  (7420 if it is not there yet) and asks the agent's `/api/ping` on it.
+  If the agent answers, it only opens the app. Otherwise it starts the
+  agent and waits up to about 20 seconds for it to answer before opening
+  the app; if it never answers, the app opens anyway and the launcher
+  says to look at the agent's window. On a Windows 10 older than version
+  1803, which has no `curl.exe`, it starts the agent and waits 5 seconds
+  instead. Proven only by CI's installer job, not yet on a tester's PC.
+  (2026-11-20)
+- **A second agent explains itself and closes.** The agent now claims
+  its port before it looks for the Drobo. When the port is taken it
+  prints one sentence instead of a traceback: "An agent is already
+  running on port N; this one will close." (exit status 3), or "Another
+  program is using port N; change agent.port in <config path>." (exit
+  status 1). It tells the two apart by asking `/api/ping` on that port,
+  and waits long enough to recognise an agent that is itself still
+  starting. In an installed copy, `Run-Agent.bat` treats exit status 3
+  as nothing wrong: it says the agent is already running and closes its
+  own window after 10 seconds. On Windows the agent's server no longer
+  asks for `SO_REUSEADDR`, which there lets a second agent bind beside
+  the first, both then reading the Drobo (reasoned from Windows'
+  documented behaviour; CI's Windows runner checks that the second bind
+  now fails); `SO_REUSEPORT` is refused everywhere. `test_agent.py` gains twelve checks for this, all on
+  loopback, and `windows/test-installer.ps1` gains thirteen for the
+  launcher, the guide and the tooltip below. (2026-11-20)
+- **The Uninstall shortcut no longer claims to remove your settings.**
+  Its tooltip said it removed "its settings and its access token". It
+  never did: both are kept in `%LOCALAPPDATA%\DroboDashboardReborn`, as
+  `TESTING.md` says. The tooltip now says they are kept. (2026-11-20)
+- **The shares guide is in the installed copy.** The Tools tab's "Open
+  the guide" button appears only where the app finds
+  `docs\accessing-your-files.md`, and no install carried that file, so
+  the button was hidden in every installed copy. The MSI now puts the
+  guide in a `docs` folder beside the app. (2026-11-20)
 - **An unexpected error in the Windows app shows the whole error, and
   leaves it in `app.log`.** The last-chance handler showed the
   exception's message alone, and errors in background tasks were

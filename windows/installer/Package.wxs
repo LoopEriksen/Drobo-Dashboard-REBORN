@@ -26,9 +26,10 @@
   StagingDir (passed by windows/build-installer.ps1 with -d StagingDir=...)
   is the fully-assembled payload: the published WPF exe, the agent's Python
   source (no config.json; see config.py, the token is generated on first
-  run), the launcher .bat, and the updater script. Files are harvested with
-  a glob so adding a file to the agent later doesn't require editing this
-  source.
+  run), the launcher .bat, the updater script, and since 2026-11-20 the
+  shares guide at docs\accessing-your-files.md. Files are harvested with
+  a glob, subfolders included, so adding a file to the agent later, or the
+  guide's docs folder, doesn't require editing this source.
 
   Building this requires the WixToolset.UI.wixext extension (for the custom
   desktop-shortcut checkbox dialog below); build-installer.ps1 passes
@@ -102,10 +103,14 @@
                 WorkingDirectory="INSTALLFOLDER" />
       <!-- A visible way out. Settings > Apps works too, but a tester who
            installed from a Start Menu entry expects to remove it from one.
-           msiexec /x by ProductCode is exactly what Apps & Features runs. -->
+           msiexec /x by ProductCode is exactly what Apps & Features runs.
+           Its tooltip said until 2026-11-20 that it removed "its settings
+           and its access token". It never did: both are kept on purpose
+           (see Clean removal below), so the tooltip made a false claim
+           about the tester's own data, and now says what happens. -->
       <Shortcut Id="StartMenuUninstallShortcut"
                 Name="Uninstall Drobo Dashboard REBORN"
-                Description="Remove Drobo Dashboard REBORN, its settings and its access token"
+                Description="Remove Drobo Dashboard REBORN. Your settings and access token are kept"
                 Target="[System64Folder]msiexec.exe"
                 Arguments="/x [ProductCode]" />
       <RemoveFolder Id="RemoveStartMenuAppFolder" On="uninstall" />

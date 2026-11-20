@@ -1397,6 +1397,55 @@ window most of all, which nothing masks. No device write was added, no
 gate moved, and no byte or XML sent to a Drobo changed; the update check
 stays dormant.
 
+**One agent, and a launcher that waits for it.** The installed launcher
+started an agent on every launch and then waited a fixed 2 seconds
+(S4). The agent's window stays open after the app closes, so each later
+launch added an agent: on Linux the second died in an `OSError`
+traceback, reproduced here; on Windows, by its documented behaviour,
+`SO_REUSEADDR` let it bind beside the first, both then reading the
+Drobo. And 2 seconds is shorter than the agent's start-up, whose mDNS
+browse alone listens for 3, so the app could open to "Is the agent
+running?". The launcher now reads `agent.port` from the agent's
+`config.json` and asks `/api/ping` with `curl.exe`, never through a
+proxy: an answer means it opens only the app; otherwise it starts the
+agent and waits up to about 20 seconds before opening the app anyway.
+The agent claims its port before it looks for the Drobo and, when the
+port is taken, says in one sentence whether another agent (exit 3) or
+another program (exit 1) holds it, telling them apart by asking
+`/api/ping` and waiting long enough for an agent that is itself still
+starting. `Run-Agent.bat` takes exit 3 as nothing wrong and closes its
+window with `exit`, not `exit /b`, because the launcher's `start` runs
+it under `cmd /K`, where `exit /b` would leave a second window titled as
+the agent's. The server leaves `SO_REUSEADDR` off on Windows and
+`SO_REUSEPORT` off everywhere; `SO_EXCLUSIVEADDRUSE` was left out
+because it can refuse a restarted agent for a minute or two. A bind now
+happens before the handler class is filled in, so a refused second
+server cannot replace a running one's monitor or token. In passing, the
+Uninstall shortcut's tooltip, which claimed it removed the settings and
+the token (S9), now says they are kept, and the MSI carries the shares
+guide where the app looks for it, so the Tools tab's guide button,
+hidden in every install until now, appears (C2). Proven here:
+`test_agent.py` went from 394 checks to 406 after the merge (351 to 363
+on the package's own base), and in the package's review, with the new
+checks run against f939f86's agent code, nine failed (the traceback, and
+the Drobo monitor started before the bind); an offline loopback run gave
+the agent sentence with exit 3, the other-program sentence with exit 1
+after the 15-second ping wait, and the first agent still answering; an
+offline simulation of the launcher's `curl` flags against a mock agent;
+the 31 Python suites pass as before, with the backup suite's two
+Windows-only robocopy checks; flake8 is clean; and the Windows test
+program is unchanged by this package. Not proven here: anything in the
+`.bat`, `.ps1` and `.wxs` files, which this container cannot run, and
+the Windows bind without `SO_REUSEADDR`. CI's `tests.yml` shows the
+second, and `installer.yml` the rest: `windows/test-installer.ps1` gains
+thirteen checks (about 85 with the upgrade leg, from 72), among them a
+second launch, a second agent started by hand and a second
+`Run-Agent.bat` started as the launcher starts it, each leaving exactly
+one agent and one agent window. None of it has run on a tester's PC.
+`TESTING.md` now says the launcher only opens the app when the agent is
+already running. No device write was added, no gate moved, and no byte
+sent to a Drobo changed.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

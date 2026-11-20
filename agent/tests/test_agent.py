@@ -3580,6 +3580,167 @@ _graph_point = _graph_monitor.history_points()[-1]
 check("-- and a poll with neither graphs nothing",
       _graph_point["max_temp_c"] is None, _graph_point["max_temp_c"])
 
+# A second agent on a taken port. Until 2026-11-20 it died in an
+# OSError traceback ("[Errno 98] Address already in use") once it had
+# already run discovery, and on Windows SO_REUSEADDR let it bind beside
+# the first one instead. Now the port is claimed before the monitor
+# starts, and the agent closes with one sentence that says whether the
+# port's holder is an agent. Only loopback sockets are used: the
+# "running agent" is a simulated one in this process, and the "other
+# program" a bare listening socket that never answers.
+print("\n== a second agent on a taken port says why in one sentence ==")
+
+
+def _free_loopback_port():
+    """A port nothing on loopback is using, chosen by the OS."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _write_config_on_port(name, port):
+    """A simulated-driver config.json on `port`; returns its path."""
+    path = os.path.join(temp_dir, f"config.{name}.json")
+    with open(path, "w") as config_file:
+        json.dump({"agent": {"bind": "127.0.0.1", "port": port,
+                             "poll_seconds": 1},
+                   "drobo": {"driver": "mock"},
+                   "photos": {"enabled": False}},
+                  config_file)
+    with contextlib.redirect_stdout(io.StringIO()):  # the "new token" line
+        config.load(path)
+    return path
+
+
+_monitor_start_calls = []
+
+
+def _record_monitor_start(self):
+    _monitor_start_calls.append(self)
+
+
+def _run_second_agent(config_path_for_port):
+    """
+    run_agent.main on that config, with Monitor.start recorded instead
+    of run: (the exit status or None, what it printed to stderr, what
+    escaped or None).
+    """
+    printed_errors = io.StringIO()
+    exit_status = escaped = None
+    saved_start = Monitor.start
+    Monitor.start = _record_monitor_start
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(printed_errors):
+            exit_status = run_agent.main(["--config", config_path_for_port])
+    except BaseException as exc:  # noqa: BLE001 - what escapes is the point
+        escaped = exc
+    finally:
+        Monitor.start = saved_start
+    return exit_status, printed_errors.getvalue(), escaped
+
+
+check("the agent's server never asks for SO_REUSEPORT",
+      api.AgentHTTPServer.allow_reuse_port is False)
+check("-- and asks for SO_REUSEADDR only where it cannot mean two "
+      "listeners on one port (not on Windows)",
+      api.AgentHTTPServer.allow_reuse_address == (os.name != "nt"),
+      api.AgentHTTPServer.allow_reuse_address)
+
+_first_agent_port = _free_loopback_port()
+_first_agent_config_path = _write_config_on_port("first",
+                                                 _first_agent_port)
+_first_agent_config = config.load(_first_agent_config_path)
+_first_agent_server = api.build_http_server(
+    _first_agent_config,
+    Monitor(_first_agent_config, _RecordingNotifier()),
+    PhotoStore(_first_agent_config["photos"]))
+threading.Thread(target=_first_agent_server.serve_forever,
+                 daemon=True).start()
+try:
+    _second_status, _second_errors, _second_escaped = _run_second_agent(
+        _write_config_on_port("second", _first_agent_port))
+    with urllib.request.urlopen(
+            f"http://127.0.0.1:{_first_agent_port}/api/ping",
+            timeout=5) as _first_ping:
+        _first_still_answers = _first_ping.status == 200
+finally:
+    _first_agent_server.shutdown()
+    _first_agent_server.server_close()
+check("a second agent on a running agent's port closes without a "
+      "traceback", _second_escaped is None, repr(_second_escaped))
+check("-- with exit status 3, which Run-Agent.bat closes quietly on",
+      _second_status == run_agent.EXIT_ALREADY_RUNNING, _second_status)
+check("-- saying so in one sentence",
+      _second_errors.strip() == (
+          f"[agent] An agent is already running on port "
+          f"{_first_agent_port}; this one will close."),
+      _second_errors)
+check("-- before it has started its monitor (no discovery, no Drobo)",
+      _monitor_start_calls == [], len(_monitor_start_calls))
+check("-- and the first agent still answers", _first_still_answers)
+
+
+def _serve_after_a_start_up(server, start_up_seconds):
+    """Serve `server` once a pretend start-up has taken this long."""
+    time.sleep(start_up_seconds)
+    server.serve_forever()
+
+
+# Two launches a moment apart: the first agent holds its port but is
+# still starting (looking for the Drobo) when the second asks who it
+# is. It must be recognised as an agent once it answers, not called
+# "another program" because it did not answer at once.
+_starting_agent_port = _free_loopback_port()
+_starting_agent_config = config.load(
+    _write_config_on_port("starting", _starting_agent_port))
+_starting_agent_server = api.build_http_server(
+    _starting_agent_config,
+    Monitor(_starting_agent_config, _RecordingNotifier()),
+    PhotoStore(_starting_agent_config["photos"]))
+threading.Thread(target=_serve_after_a_start_up,
+                 args=(_starting_agent_server, 1.5), daemon=True).start()
+try:
+    _racing_status, _racing_errors, _racing_escaped = _run_second_agent(
+        _write_config_on_port("racing", _starting_agent_port))
+finally:
+    _starting_agent_server.shutdown()
+    _starting_agent_server.server_close()
+check("a second agent started while the first is still starting waits "
+      "for it and says it is already running",
+      _racing_escaped is None
+      and _racing_status == run_agent.EXIT_ALREADY_RUNNING
+      and "already running" in _racing_errors,
+      (_racing_status, _racing_errors, repr(_racing_escaped)))
+
+# The holder accepts and never answers, the slowest case there is, so
+# the agent's wait for an answer is shortened here to keep the suite
+# quick; what is checked is the sentence it ends with.
+_other_program_port = _free_loopback_port()
+_other_program_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+_saved_ping_timeout = run_agent.AGENT_PING_TIMEOUT_SECONDS
+run_agent.AGENT_PING_TIMEOUT_SECONDS = 1.0
+try:
+    _other_program_socket.bind(("127.0.0.1", _other_program_port))
+    _other_program_socket.listen(1)
+    _other_config_path = _write_config_on_port("other",
+                                               _other_program_port)
+    _other_status, _other_errors, _other_escaped = _run_second_agent(
+        _other_config_path)
+finally:
+    _other_program_socket.close()
+    run_agent.AGENT_PING_TIMEOUT_SECONDS = _saved_ping_timeout
+check("an agent on a port another program holds closes without a "
+      "traceback", _other_escaped is None, repr(_other_escaped))
+check("-- with exit status 1", _other_status == 1, _other_status)
+check("-- naming the port and the config file to change it in",
+      _other_errors.strip() == (
+          f"[agent] Another program is using port {_other_program_port}; "
+          f"change agent.port in {os.path.abspath(_other_config_path)}."),
+      _other_errors)
+check("-- also before it has started its monitor",
+      _monitor_start_calls == [], len(_monitor_start_calls))
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

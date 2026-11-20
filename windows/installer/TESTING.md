@@ -70,7 +70,8 @@ test**:
 
 Start it from the Start Menu ("Drobo Dashboard REBORN") or the desktop
 shortcut. That starts the agent -- the piece that talks to the Drobo -- in a
-minimised window, then opens the app.
+minimised window, waits for it to answer, then opens the app. If the agent is
+already running, for example from an earlier launch, it only opens the app.
 
 - The first time, pick your Drobo from the list it finds. It remembers your
   choice by the Drobo's permanent serial, so it still finds it after your

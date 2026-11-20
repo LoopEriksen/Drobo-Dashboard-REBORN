@@ -413,9 +413,23 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "   bundled Python $pyProbe"
 
-Write-Host '-- Adding launcher, updater, the testers guide and the licence...'
+Write-Host '-- Adding launcher, updater, the testers guide, the shares guide and the licence...'
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'TESTING.md') -Destination $StagingDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StagingDir
+
+# The shares guide, at docs\accessing-your-files.md under the install folder:
+# exactly where the app's FindGuidePath (MainWindow.xaml.cs) looks first, a
+# docs folder beside the exe. Until 2026-11-20 no installed copy carried it,
+# so the Tools tab's "Open the guide" button hid itself in every install and
+# only a source checkout ever showed it. test-installer.ps1 checks the file
+# landed there.
+$guideSrc = Join-Path $RepoRoot 'docs\accessing-your-files.md'
+if (-not (Test-Path -LiteralPath $guideSrc)) {
+    Fail "the shares guide is missing from the repo at $guideSrc -- the Tools tab's guide button would hide in this build."
+}
+$guideDst = Join-Path $StagingDir 'docs'
+New-Item -ItemType Directory -Force -Path $guideDst | Out-Null
+Copy-Item -LiteralPath $guideSrc -Destination $guideDst
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'Run-Agent.bat') -Destination $StagingDir
 
 Copy-Item -LiteralPath (Join-Path $InstallerDir 'Launch-DroboDashboardReborn.bat') -Destination $StagingDir

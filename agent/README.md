@@ -86,6 +86,15 @@ When it can read no Drobo -- none found, one that is not yours, a reply that
 is not a Drobo's, or nothing answering at a fixed address -- it says why on
 stderr, in the words the agent uses at start-up, and exits with status 1.
 
+The agent claims its port before it looks for the Drobo. When the port is
+taken it says so in one sentence instead of a traceback, and closes:
+"An agent is already running on port 7420; this one will close." (exit
+status 3, which `Run-Agent.bat` treats as nothing wrong), or "Another program
+is using port 7420; change agent.port in <its config.json>." (exit status 1).
+On Windows it does not ask for `SO_REUSEADDR`, which there would let a second
+agent listen beside the first; `drobo_agent/api.py`'s `AgentHTTPServer` says
+why.
+
 ```bash
 py tests/test_agent.py
 ```
@@ -96,7 +105,9 @@ stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
 raises the "cannot reach" alert, and that `--once` says why it took no
 reading, and that `POST /api/drobo/select` watches the Drobo picked and
-refuses the rest; no Drobo is contacted. 394 checks as of 2026-11-20 (the number grows with
+refuses the rest. Last, it starts a second agent on a port a simulated agent
+already holds, and on one a bare socket holds, and checks the sentence each
+closes with; no Drobo is contacted. 406 checks as of 2026-11-20 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.
