@@ -80,22 +80,133 @@ public partial class App : Application
     /// is the Windows crash dialog and a dead app. The handlers catch what
     /// they expect; this catches what they did not. It reports and keeps
     /// the app alive rather than pretending nothing happened.
+    ///
+    /// Since 2026-11-20 every one of them writes the whole exception to
+    /// app.log (AppErrorLog), and the dialog shows the whole of it too: until
+    /// then it showed the message alone, one sentence with no clue where it
+    /// came from, and an unobserved task fault was dropped without a trace.
     /// </summary>
     private void InstallLastChanceExceptionHandlers()
     {
         DispatcherUnhandledException += (_, args) =>
         {
-            string newLine = Environment.NewLine;
-            System.Windows.MessageBox.Show(
-                "Something went wrong inside the app:" + newLine + newLine
-                + args.Exception.Message + newLine + newLine
-                + "The app will keep running. If this keeps happening, use "
-                + "\"Copy diagnostics\" on the Tools tab and report it.",
-                "Drobo Dashboard REBORN", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportUnexpectedError(args.Exception, "UI thread", appKeepsRunning: true);
             args.Handled = true;
         };
-        // A faulted Task nobody awaited would otherwise surface only in the
-        // finalizer, long after the cause. Observe it so it cannot escalate.
-        TaskScheduler.UnobservedTaskException += (_, args) => args.SetObserved();
+        // An exception on a thread of the app's own, outside the dispatcher.
+        // The runtime ends the process after this whatever the handler does,
+        // so the most it can do is write it down and say so first.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception exception)
+                ReportUnexpectedError(exception, "background thread", appKeepsRunning: !args.IsTerminating);
+        };
+        // A faulted Task nobody awaited surfaces only in the finalizer, long
+        // after the cause. Observed so it cannot escalate, and logged so it
+        // is not lost; no dialog, because it arrives at a random later moment
+        // with nothing on screen to connect it to.
+        // This runs on the finalizer thread, where an exception of its own
+        // would end the process, so even the formatting is inside the try.
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            try
+            {
+                AppErrorLog.Append(AppErrorLog.FormatEntry(
+                    args.Exception, "unobserved task", AppErrorLog.AppVersion(), DateTimeOffset.Now));
+            }
+            catch
+            {
+                // Logging must never become the failure.
+            }
+            args.SetObserved();
+        };
+    }
+
+    /// <summary>The dialog shows at most this much of the error text; a
+    /// deep chain of inner exceptions would otherwise make a message box
+    /// taller than the screen. The log always holds all of it.</summary>
+    private const int MaxErrorCharactersShown = 6000;
+
+    /// <summary>
+    /// Writes the error to app.log, then shows it whole: type, message and
+    /// stack, which a standard Windows message box copies with Ctrl+C. The
+    /// dialog says where the log is only when the write worked. Never throws:
+    /// a failure inside a last-chance handler would be a second crash.
+    ///
+    /// The dialog's copy is masked (MaskedForPosting) because the dialog asks
+    /// for it to be pasted into a public report, and an exception's message
+    /// often quotes a path inside the Windows user's profile folder, which
+    /// carries the user name, or a \\server\share. app.log keeps the full
+    /// text, for the tester's own use.
+    /// </summary>
+    private static void ReportUnexpectedError(Exception exception, string caughtBy, bool appKeepsRunning)
+    {
+        try
+        {
+            var entry = AppErrorLog.FormatEntry(exception, caughtBy, AppErrorLog.AppVersion(), DateTimeOffset.Now);
+            bool logged = AppErrorLog.Append(entry);
+            System.Windows.MessageBox.Show(
+                DescribeForDialog(MaskedForPosting(entry), entry, logged, appKeepsRunning),
+                "Drobo Dashboard REBORN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch
+        {
+            // Nothing further can be done from here.
+        }
+    }
+
+    /// <summary>
+    /// The entry with names, addresses, serials and the Windows user name
+    /// replaced by placeholders, the remembered Drobo's values included.
+    /// Null when masking itself failed; the dialog then shows the full text
+    /// and asks for it to be read before it is posted, rather than show
+    /// nothing at all.
+    /// </summary>
+    private static string? MaskedForPosting(string entry)
+    {
+        DroboSettings.RememberedDevice? rememberedDevice = null;
+        try
+        {
+            rememberedDevice = DroboSettings.LoadAll().Remembered;
+        }
+        catch
+        {
+            // settings.json may be what failed; mask the shapes alone.
+        }
+        try
+        {
+            return DiagnosticsMasking.MaskText(entry, rememberedDevice);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The dialog's text: what happened to the app, the error
+    /// itself, and the next step. <paramref name="maskedEntry"/> is null
+    /// when the entry could not be masked; the full entry is shown then,
+    /// with a warning to read it first.</summary>
+    private static string DescribeForDialog(string? maskedEntry, string entry, bool logged, bool appKeepsRunning)
+    {
+        string newLine = Environment.NewLine;
+        var text = maskedEntry ?? entry;
+        var shown = text.Length > MaxErrorCharactersShown
+            ? text[..MaxErrorCharactersShown] + newLine + "... (the rest is in app.log)"
+            : text;
+        // Named by its variable rather than its full path, which would put
+        // the Windows user name back into the text a tester copies.
+        var where = logged
+            ? @"The full text, unmasked, was saved to %LOCALAPPDATA%\DroboDashboardReborn\app.log." + newLine
+            : "It could not be saved to app.log, so copy it now." + newLine;
+        var posting = maskedEntry is not null
+            ? "Names, addresses and the Windows user name above are replaced with placeholders "
+              + "such as USER-1, so you can paste it into a tester report; read it first all the same."
+            : "It could not be checked for names and addresses, so read it before you post it.";
+        return "Something went wrong inside the app."
+               + (appKeepsRunning ? " The app will keep running." : " The app has to close.")
+               + newLine + newLine + shown.TrimEnd() + newLine + newLine
+               + "Press Ctrl+C to copy this message. " + where + posting + newLine
+               + "If this keeps happening, add \"Copy diagnostics\" from the Tools tab to the report.";
     }
 }

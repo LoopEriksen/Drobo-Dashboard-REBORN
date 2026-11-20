@@ -21,8 +21,11 @@
     DiagnosticsReport, the text "Copy diagnostics" saves, and SharePaths,
     the file browser's rule for what is inside a share. And, since
     2026-11-20, DroboSelection: what the picker's Connect asks the agent
-    for, and what it makes of the answer; and TesterNotes: the words that
-    say which writes are not yet proven on a real Drobo.
+    for, and what it makes of the answer; TesterNotes: the words that say
+    which writes are not yet proven on a real Drobo; DiagnosticsMasking,
+    which makes the copy safe to post publicly; and AppErrorLog, what an
+    unexpected error leaves behind. All four are checked before the
+    CredentialStore section, so they run on any machine.
 
     Deliberately NOT a test framework. The Python suites in this project are
     hand-rolled (a check() function, printed PASS/FAIL, non-zero exit) for the
@@ -51,7 +54,9 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\DroboDashboardReborn\AlertNotifier.cs" Link="AlertNotifier.cs" />
+    <Compile Include="..\DroboDashboardReborn\AppErrorLog.cs" Link="AppErrorLog.cs" />
     <Compile Include="..\DroboDashboardReborn\CredentialStore.cs" Link="CredentialStore.cs" />
+    <Compile Include="..\DroboDashboardReborn\DiagnosticsMasking.cs" Link="DiagnosticsMasking.cs" />
     <Compile Include="..\DroboDashboardReborn\DiagnosticsReport.cs" Link="DiagnosticsReport.cs" />
     <Compile Include="..\DroboDashboardReborn\DroboSelection.cs" Link="DroboSelection.cs" />
     <Compile Include="..\DroboDashboardReborn\DroboSettings.cs" Link="DroboSettings.cs" />

@@ -308,6 +308,294 @@ Check("the DroboApps note says Start and Stop are untried on a real Drobo",
 
 
 // ---------------------------------------------------------------------------
+// DiagnosticsMasking -- the copy of the diagnostics that is safe to post.
+//
+// Since 2026-11-20 "Copy diagnostics" gives the public copy by default. Until
+// then the clipboard carried the raw JSON and the saved file every identifying
+// value twice, and testers were asked to remove them by hand. Every value
+// below is synthetic, in the shape the real one has; addresses are from the
+// documentation ranges. These run before the CredentialStore section, so they
+// run on any machine.
+Console.WriteLine("\n== DiagnosticsMasking: identifying values become placeholders ==");
+const string sampleStatusJson = """
+{
+  "reachable": false,
+  "source": "drobo5n",
+  "overall_state": "ok",
+  "device": {"name": "Bench5N", "model": "Drobo 5N", "serial": "TST5N0000001",
+             "firmware": "4.2.2", "ip": "192.0.2.10", "uptime_seconds": 7200},
+  "capacity": {"used_bytes": 1500000, "free_bytes": 2500000},
+  "drives": [
+    {"bay": 1, "present": true, "state": "ok", "model": "TESTDISK 4TB", "serial": "TSTDISK0001"},
+    {"bay": 2, "present": true, "state": "ok", "model": "TESTDISK 4TB", "serial": "TSTDISK0002"},
+    {"bay": 3, "present": true, "state": "ok", "model": "TESTDISK 4TB", "serial": "TSTDISK0001"},
+    {"bay": 4, "present": false, "state": "empty", "model": "", "serial": ""}
+  ],
+  "volumes": [{"lun": 0, "name": "Holiday Photos"}, {"lun": 1, "name": ""}],
+  "event_log": [
+    {"ts_iso": "2026-11-20T20:42:23", "severity": "info", "message": "Share Holiday Photos opened by tester"},
+    {"ts_iso": "", "severity": "info", "message": "Share Holiday Photos opened by tester"}
+  ],
+  "error": "connect to 192.0.2.10:5001 timed out at 20:42:23; see C:\\Users\\username\\AppData\\Local\\x.log",
+  "network_hint": {
+    "target": "192.0.2.10",
+    "addresses": ["198.51.100.7", "fe80::1c2b:3d4e:5f60:7182%12"],
+    "networks": ["198.51.100.0/24"],
+    "headline": "The Drobo (192.0.2.10) is not on this PC's network",
+    "detail": "It is on 192.0.2.10; this PC is on 198.51.100.0/24 (02:00:5E:10:00:01, bench5n.local).",
+    "caveat": "Mail tester@example.com or open \\\\192.0.2.10\\Holiday Photos to check TSTDISK0002."
+  }
+}
+""";
+var maskedText = Attempt(() => DiagnosticsMasking.MaskJson(sampleStatusJson)) as string ?? "";
+var syntheticRealValues = new[]
+{
+    "Bench5N", "TST5N0000001", "192.0.2.10", "TSTDISK0001", "TSTDISK0002", "Holiday Photos",
+    "opened by tester", "198.51.100", "fe80::", "02:00:5E", "bench5n", "username", "tester@example.com",
+};
+foreach (var realValue in syntheticRealValues)
+    Check($"the masked copy does not contain {realValue}",
+          !maskedText.Contains(realValue, StringComparison.OrdinalIgnoreCase), maskedText);
+
+var maskedRoot = Attempt(() => ParseJson(maskedText)) is JsonElement parsedMasked ? parsedMasked : default;
+static string Text(JsonElement element, params object[] path)
+{
+    foreach (var step in path)
+    {
+        if (element.ValueKind == JsonValueKind.Object && step is string key && element.TryGetProperty(key, out var member))
+            element = member;
+        else if (element.ValueKind == JsonValueKind.Array && step is int index && index < element.GetArrayLength())
+            element = element[index];
+        else
+            return "(missing)";
+    }
+    return element.ValueKind == JsonValueKind.String ? element.GetString() ?? "" : element.ToString();
+}
+Check("the masked copy is still JSON of the same shape",
+      maskedRoot.ValueKind == JsonValueKind.Object && maskedRoot.GetProperty("drives").GetArrayLength() == 4,
+      maskedText);
+Check("the Drobo's serial is SERIAL-1", Text(maskedRoot, "device", "serial") == "SERIAL-1",
+      Text(maskedRoot, "device", "serial"));
+Check("its name is NAME-1", Text(maskedRoot, "device", "name") == "NAME-1", Text(maskedRoot, "device", "name"));
+Check("its address is ADDRESS-1", Text(maskedRoot, "device", "ip") == "ADDRESS-1", Text(maskedRoot, "device", "ip"));
+Check("the drive serials are DRIVE-SERIAL-1 and -2",
+      Text(maskedRoot, "drives", 0, "serial") == "DRIVE-SERIAL-1" && Text(maskedRoot, "drives", 1, "serial") == "DRIVE-SERIAL-2",
+      Text(maskedRoot, "drives", 1, "serial"));
+Check("-- and the same serial in another bay gets the same placeholder",
+      Text(maskedRoot, "drives", 2, "serial") == "DRIVE-SERIAL-1", Text(maskedRoot, "drives", 2, "serial"));
+Check("an empty bay's empty serial stays empty", Text(maskedRoot, "drives", 3, "serial") == "",
+      Text(maskedRoot, "drives", 3, "serial"));
+Check("the volume name is VOLUME-1, an empty one stays empty",
+      Text(maskedRoot, "volumes", 0, "name") == "VOLUME-1" && Text(maskedRoot, "volumes", 1, "name") == "",
+      Text(maskedRoot, "volumes", 0, "name"));
+Check("event messages are EVENT-1, the same message twice the same placeholder",
+      Text(maskedRoot, "event_log", 0, "message") == "EVENT-1" && Text(maskedRoot, "event_log", 1, "message") == "EVENT-1",
+      Text(maskedRoot, "event_log", 1, "message"));
+Check("the hint's target is the device's own ADDRESS-1", Text(maskedRoot, "network_hint", "target") == "ADDRESS-1",
+      Text(maskedRoot, "network_hint", "target"));
+Check("this PC's addresses and network get placeholders of their own",
+      Text(maskedRoot, "network_hint", "addresses", 0) == "ADDRESS-2"
+      && Text(maskedRoot, "network_hint", "addresses", 1) == "ADDRESS-3"
+      && Text(maskedRoot, "network_hint", "networks", 0) == "NETWORK-1",
+      Text(maskedRoot, "network_hint", "addresses", 1));
+var maskedDetail = Text(maskedRoot, "network_hint", "detail");
+Check("inside a sentence, a known address reads as its field's placeholder",
+      maskedDetail.Contains("on ADDRESS-1;") && maskedDetail.Contains("NETWORK-1"), maskedDetail);
+Check("-- a MAC address and a .local name are masked too",
+      maskedDetail.Contains("MAC-1") && maskedDetail.Contains("NAME-2"), maskedDetail);
+var maskedCaveat = Text(maskedRoot, "network_hint", "caveat");
+Check("a UNC path keeps the placeholders of the address and volume it names",
+      maskedCaveat.Contains(@"\\ADDRESS-1\VOLUME-1"), maskedCaveat);
+var uncAlone = DiagnosticsMasking.ScrubText(@"open \\192.0.2.20\Backups\2026 and \\nas-two\Music",
+                                            new DiagnosticsMasking.PlaceholderMap());
+Check("-- and a server and share it has not seen become ADDRESS, NAME and SHARE",
+      uncAlone == @"open \\ADDRESS-1\SHARE-1\2026 and \\NAME-1\SHARE-2", uncAlone);
+Check("-- an email and a drive serial quoted in text are masked",
+      maskedCaveat.Contains("EMAIL-1") && maskedCaveat.Contains("DRIVE-SERIAL-2"), maskedCaveat);
+var maskedError = Text(maskedRoot, "error");
+Check("the error keeps its sense: address, port, time and the rest of the profile path",
+      maskedError.Contains("ADDRESS-1:5001") && maskedError.Contains("20:42:23")
+      && maskedError.Contains(@"\USER-1\AppData\Local\x.log"), maskedError);
+// A local account's profile folder can hold a space. Drive D: keeps the
+// synthetic path out of the privacy guard's C:-only pattern.
+var spacedProfile = DiagnosticsMasking.ScrubText(
+    @"Could not write D:\Users\Sample Tester\AppData\Local\x.json",
+    new DiagnosticsMasking.PlaceholderMap());
+Check("a user name with a space is masked whole, the second word included",
+      !spacedProfile.Contains("Tester") && !spacedProfile.Contains("Sample")
+      && spacedProfile.EndsWith(@"\USER-1\AppData\Local\x.json"), spacedProfile);
+var cutProfile = DiagnosticsMasking.ScrubText(
+    @"Could not open D:\Users\sampletester and gave up",
+    new DiagnosticsMasking.PlaceholderMap());
+Check("-- and a path with nothing after the name still stops at the space",
+      cutProfile.EndsWith(@"\USER-1 and gave up") && !cutProfile.Contains("sampletester"), cutProfile);
+Check("firmware, model, state and times are left as they are",
+      Text(maskedRoot, "device", "firmware") == "4.2.2" && Text(maskedRoot, "device", "model") == "Drobo 5N"
+      && Text(maskedRoot, "overall_state") == "ok" && Text(maskedRoot, "event_log", 0, "ts_iso") == "2026-11-20T20:42:23",
+      maskedText);
+Check("numbers are left as they are", Text(maskedRoot, "capacity", "used_bytes") == "1500000",
+      Text(maskedRoot, "capacity", "used_bytes"));
+
+Console.WriteLine("\n== DiagnosticsMasking: a Drobo still called \"Drobo\" ==");
+var defaultNamed = Attempt(() => ParseJson(DiagnosticsMasking.MaskJson(
+    "{\"device\":{\"name\":\"Drobo\"},\"error\":\"the Drobo did not answer\"}"))) is JsonElement defaultNamedRoot
+    ? defaultNamedRoot : default;
+Check("the name field is still masked", Text(defaultNamed, "device", "name") == "NAME-1", Text(defaultNamed, "device", "name"));
+Check("-- but \"the Drobo\" in a sentence is not turned into NAME-1",
+      Text(defaultNamed, "error") == "the Drobo did not answer", Text(defaultNamed, "error"));
+
+Console.WriteLine("\n== DiagnosticsMasking: another Drobo answering at the address ==");
+// The exact words of discovery.IdentityMismatchError, which monitor.poll_once
+// stores as the error with an empty device block: neither serial is a known
+// value then, so they are caught by where they stand in the sentence.
+const string mismatchError = "refusing 192.0.2.10:5000 -- it identifies as esa_id='TSTOTHER0002' "
+    + "('OtherBox'), not the expected 'TST5N0000001'. This is not your Drobo; not connecting.";
+var mismatchJson = "{\"reachable\": false, \"device\": {\"serial\": \"\", \"name\": \"\", \"ip\": \"\"}, "
+    + "\"error\": " + JsonSerializer.Serialize(mismatchError) + "}";
+var mismatchMasked = Attempt(() => DiagnosticsMasking.MaskJson(mismatchJson)) as string ?? "";
+foreach (var realValue in new[] { "TSTOTHER0002", "OtherBox", "TST5N0000001", "192.0.2.10" })
+    Check($"an identity mismatch's error does not keep {realValue}", mismatchMasked.Length > 0
+          && !mismatchMasked.Contains(realValue, StringComparison.OrdinalIgnoreCase), mismatchMasked);
+var mismatchMaskedError = Attempt(() => ParseJson(mismatchMasked)) is JsonElement mismatchRoot
+    ? Text(mismatchRoot, "error") : "";
+Check("-- the expected serial is SERIAL-1 and the other unit's SERIAL-2, its name NAME-1",
+      mismatchMaskedError.Contains("not the expected 'SERIAL-1'")
+      && mismatchMaskedError.Contains("esa_id='SERIAL-2' ('NAME-1')"), mismatchMaskedError);
+var rememberedBench = new DroboSettings.RememberedDevice
+{
+    EsaId = "TST5N0000001", Name = "Bench5N", Host = "192.0.2.10", Model = "Drobo 5N",
+};
+var rememberedMasked = Attempt(() => DiagnosticsMasking.MaskJson(
+    "{\"device\": {\"serial\": \"\"}, \"error\": \"Bench5N at 192.0.2.10 said: no answer from TST5N0000001\"}",
+    rememberedBench)) as string ?? "";
+Check("the remembered Drobo is masked even when the device block is empty",
+      rememberedMasked.Contains("NAME-1 at ADDRESS-1 said: no answer from SERIAL-1"), rememberedMasked);
+var rememberedReport = DiagnosticsReport.BuildPublicText(mismatchJson, rememberedBench);
+Check("-- and the public report of a mismatch carries neither serial nor either name",
+      !rememberedReport.Contains("TST5N0000001") && !rememberedReport.Contains("TSTOTHER0002")
+      && !rememberedReport.Contains("OtherBox") && rememberedReport.Contains("'SERIAL-1'"), rememberedReport);
+var driverMismatch = DiagnosticsMasking.ScrubText(
+    "refusing 192.0.2.10:5000 -- it identifies as esa_id=\"TST'ODD0003\", not the expected 'TST5N0000001'. "
+    + "Seen before (esa_id=TSTOTHER0002).", new DiagnosticsMasking.PlaceholderMap());
+Check("the driver's wording, a double-quoted serial and a bare one in brackets are masked too",
+      !driverMismatch.Contains("TST") && driverMismatch.Contains("esa_id=\"SERIAL-2\"")
+      && driverMismatch.Contains("(esa_id=SERIAL-3)"), driverMismatch);
+
+Console.WriteLine("\n== DiagnosticsMasking: values joined to other text, odd letters, assembly versions ==");
+var underscored = Attempt(() => DiagnosticsMasking.MaskJson(
+    "{\"device\": {\"serial\": \"TST5N0000001\"}, \"error\": \"wrote serial_TST5N0000001_backup.txt\"}"))
+    as string ?? "";
+Check("a serial joined by underscores is still masked",
+      !underscored.Contains("TST5N0000001") && underscored.Contains("serial_SERIAL-1_backup.txt"), underscored);
+var kelvinName = Attempt(() => DiagnosticsMasking.MaskJson(
+    "{\"device\": {\"name\": \"kitchen\"}, \"error\": \"\u212Aitchen did not answer\"}")) as string ?? "";
+Check("a name matched through a look-alike letter (the Kelvin sign) is masked, not a crash",
+      kelvinName.Contains("NAME-1 did not answer"), kelvinName);
+var assemblyText = DiagnosticsMasking.MaskText(
+    "Could not load 'Some.Library, Version=1.2.0.0' from 192.0.2.30");
+Check("an assembly version is kept, an address beside it is not",
+      assemblyText.Contains("Version=1.2.0.0") && assemblyText.Contains("ADDRESS-1"), assemblyText);
+
+Console.WriteLine("\n== DiagnosticsMasking: the error dialog's copy ==");
+Exception pathError;
+try { throw new IOException(@"Access to C:\Users\username\AppData\Local\x.json and \\bench5n\Photos was denied"); }
+catch (Exception ex) { pathError = ex; }
+var dialogEntry = AppErrorLog.FormatEntry(pathError, "UI thread", "9.9.9",
+                                          new DateTimeOffset(2026, 11, 20, 12, 0, 0, TimeSpan.Zero));
+var dialogText = DiagnosticsMasking.MaskText(dialogEntry, rememberedBench);
+Check("the dialog's copy masks the user name and the UNC server and share",
+      !dialogText.Contains("username") && !dialogText.Contains("bench5n", StringComparison.OrdinalIgnoreCase)
+      && !dialogText.Contains("Photos") && dialogText.Contains(@"\USER-1\AppData\Local\x.json"), dialogText);
+Check("-- and keeps the header, the type and the stack",
+      dialogText.StartsWith("=== 2026-11-20 12:00:00 +00:00  Drobo Dashboard REBORN v9.9.9  (UI thread)")
+      && dialogText.Contains("System.IO.IOException") && dialogText.Contains("   at "), dialogText);
+
+Console.WriteLine("\n== DiagnosticsReport: the public copy ==");
+var publicReport = DiagnosticsReport.BuildPublicText(sampleStatusJson);
+foreach (var realValue in syntheticRealValues)
+    Check($"the public report does not contain {realValue}",
+          !publicReport.Contains(realValue, StringComparison.OrdinalIgnoreCase), publicReport);
+Check("it says it is made for posting publicly", publicReport.Contains("made for posting in a public issue"), publicReport);
+Check("its summary shows the placeholders",
+      publicReport.Contains("SERIAL-1") || publicReport.Contains("DRIVE-SERIAL-1"), publicReport);
+Check("-- and still leads with why the Drobo could not be reached",
+      publicReport.Contains("WHY THE DROBO COULD NOT BE REACHED"), publicReport);
+var notJsonReport = DiagnosticsReport.BuildPublicText("<html>TST5N0000001 at 192.0.2.10</html>");
+Check("a reply that is not JSON is left out of the public copy, not posted unread",
+      !notJsonReport.Contains("TST5N0000001") && !notJsonReport.Contains("192.0.2.10")
+      && notJsonReport.Contains("none of"), notJsonReport);
+var unmaskedReport = DiagnosticsReport.BuildText(sampleStatusJson);
+Check("the unmasked copy keeps the real values, for the tester's own use",
+      unmaskedReport.Contains("TST5N0000001") && unmaskedReport.Contains("TSTDISK0001"), unmaskedReport);
+Check("-- and says it is the UNMASKED copy", unmaskedReport.Contains("UNMASKED"), unmaskedReport);
+
+
+// ---------------------------------------------------------------------------
+// AppErrorLog -- what an unexpected error leaves behind.
+//
+// Until 2026-11-20 the last-chance handler showed the exception's message
+// alone and wrote nothing down. Only the pure parts are checked here; Append
+// writes to the real %LOCALAPPDATA%, which a test must not touch.
+Console.WriteLine("\n== AppErrorLog: the whole error, with version and time ==");
+Exception caught;
+try { throw new InvalidOperationException("outer problem", new FormatException("inner problem")); }
+catch (Exception ex) { caught = ex; }
+var errorEntry = AppErrorLog.FormatEntry(caught, "UI thread", "9.9.9",
+                                         new DateTimeOffset(2026, 11, 20, 12, 0, 0, TimeSpan.Zero));
+Check("the entry names the exception type and its message",
+      errorEntry.Contains("System.InvalidOperationException") && errorEntry.Contains("outer problem"), errorEntry);
+Check("-- the inner exception too", errorEntry.Contains("System.FormatException: inner problem"), errorEntry);
+Check("-- and the stack", errorEntry.Contains("   at "), errorEntry);
+Check("the header carries the time, the version and the handler",
+      errorEntry.StartsWith("=== 2026-11-20 12:00:00 +00:00  Drobo Dashboard REBORN v9.9.9  (UI thread)"), errorEntry);
+
+Console.WriteLine("\n== AppErrorLog: no token and no password is written down ==");
+const string syntheticToken = "synthetic-token-0123456789abcdef";
+AppErrorLog.RememberAgentToken(syntheticToken);
+var tokenEntry = AppErrorLog.FormatEntry(new Exception("request with " + syntheticToken + " refused"),
+                                         "UI thread", "9.9.9", DateTimeOffset.Now);
+Check("the remembered agent token is removed", !tokenEntry.Contains(syntheticToken) && tokenEntry.Contains("[removed]"),
+      tokenEntry);
+AppErrorLog.RememberAgentToken("");
+var assignmentText = AppErrorLog.RemoveSecrets(
+    "password=hunter2 X-Agent-Token: abcdefgh12345678 \"token\": \"zyxwvut987\" pwd=x1");
+Check("token and password assignments are removed",
+      !assignmentText.Contains("hunter2") && !assignmentText.Contains("abcdefgh12345678")
+      && !assignmentText.Contains("zyxwvut987") && !assignmentText.Contains("x1"), assignmentText);
+Check("-- leaving ordinary words about passwords alone",
+      AppErrorLog.RemoveSecrets("the username or password is wrong") == "the username or password is wrong");
+AppErrorLog.RememberAgentToken("short");
+Check("a token still being typed (under 8 characters) is not hunted for",
+      AppErrorLog.RemoveSecrets("a short message") == "a short message");
+AppErrorLog.RememberAgentToken("");
+
+Console.WriteLine("\n== AppErrorLog: the log is capped ==");
+var longLog = string.Concat(Enumerable.Range(1, 400).Select(entryNumber =>
+    $"=== entry {entryNumber}\n" + new string('x', 3000) + "\n"));
+var newestHalf = AppErrorLog.NewestHalf(longLog);
+Check("the newest half starts at an entry header", newestHalf.StartsWith("=== entry "), newestHalf[..20]);
+Check("-- keeps the newest entry and drops the oldest",
+      newestHalf.Contains("=== entry 400\n") && !newestHalf.Contains("=== entry 1\n"));
+var trimFolder = Path.Combine(Path.GetTempPath(), "drobo-applog-test-" + Guid.NewGuid().ToString("N"));
+try
+{
+    Directory.CreateDirectory(trimFolder);
+    var trimPath = Path.Combine(trimFolder, "app.log");
+    File.WriteAllText(trimPath, longLog);
+    AppErrorLog.TrimIfTooLarge(trimPath);
+    var trimmedLength = new FileInfo(trimPath).Length;
+    Check("a log over the cap is cut to under it", trimmedLength < AppErrorLog.MaxLogSizeBytes, trimmedLength);
+    File.WriteAllText(trimPath, "=== small\n");
+    AppErrorLog.TrimIfTooLarge(trimPath);
+    Check("-- and one under the cap is left alone", File.ReadAllText(trimPath) == "=== small\n");
+}
+finally
+{
+    try { Directory.Delete(trimFolder, recursive: true); } catch { }
+}
+
+
+// ---------------------------------------------------------------------------
 // CredentialStore -- saving a Drobo login on this PC.
 //
 // These touch the REAL Windows Credential Manager, deliberately: a store that

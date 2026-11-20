@@ -1349,6 +1349,54 @@ added, no gate moved, no byte or XML sent to a Drobo changed, and the
 default Identify interval stays 15 until part F of the hardware session
 has tried 900.
 
+**Feedback, safe to send.** Three things stood between an outside tester
+and a usable report. Copy diagnostics put the raw status JSON on the
+clipboard, and the saved file held a summary followed by the same JSON,
+so about fifteen identifying values appeared twice and testers were
+asked to remove them by hand (S12); the last-chance error handler showed
+the exception's message alone and dropped unobserved task errors (S13);
+and "Check for Updates", dormant under D7, stopped at "switched off"
+(C4). Masking chose placeholders of the same shape (`SERIAL-1`,
+`DRIVE-SERIAL-n`, `ADDRESS-n`, `VOLUME-n`, `EVENT-n`, `NETWORK-n`), so a
+report still reads as one Drobo with five drives, and two passes: the
+fields known to identify someone first, then every other string in the
+reply through a text scrubber, which is what catches an address inside
+the agent's error or a field added later. Event-log messages are masked
+whole because their line format is still undecoded and could hold
+anything. "Drobo" on its own is not hunted for in text, so "the Drobo"
+stays readable. The package's first review found that an identity
+mismatch, where the agent's error quotes two serials and the device
+block is empty, passed both serials and the other unit's name through;
+the fix catches them by where they stand in that sentence and also seeds
+the known values from the Drobo remembered in `settings.json`. The same
+review moved the error dialog to a masked copy, because the dialog asks
+for it to be posted; `app.log` keeps the full text, with only the token
+and passwords removed, for the tester's own use. A turn worth recording:
+the privacy pre-commit hook refused a test line asserting a literal
+masked profile path, and the assertion was rewritten to check the path's
+tail; later the guard's scan flagged a docstring with a literal
+profile-path pattern, which was reworded. The hook was never bypassed.
+The second review found two more, fixed in the merge: a profile folder
+with a space in it (a local account's "First Last") kept its second word,
+because the user-name segment stopped at whitespace; it now runs to the
+next path separator, falling back to the old stop when nothing follows,
+and two checks, written on drive D: so the guard's C:-only pattern does
+not see a synthetic path, prove both. And one walk nested three deep
+against the readable-code rule; its object case is a helper now, with
+no change in behaviour. Proven here: the Windows test program runs 156
+checks before its Credential Manager section, from 76 (78 from the
+package, two from the merge's fix), all passing; `test_updates.py` gains
+one check (99); the 31 Python suites pass as before, the backup suite's
+two robocopy checks being Windows-only; flake8 is clean; both .NET
+builds give no warnings. Not proven here: the new buttons, the clipboard
+and the message box in the running app, and the handlers firing for
+real, all of which need a Windows PC, and the checks from the Credential
+Manager section on, which only CI runs. `TESTING.md` now says what the
+masking does and still asks testers to read what they paste, the agent's
+window most of all, which nothing masks. No device write was added, no
+gate moved, and no byte or XML sent to a Drobo changed; the update check
+stays dormant.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

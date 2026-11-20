@@ -116,24 +116,29 @@ It asks for what the most useful report has:
 ### Read the diagnostics before you paste them
 
 An issue on the repository is **public**. The diagnostics report contains no
-passwords and no access token, and it never has. It does contain, and says so
-at the top of the file itself:
+passwords and no access token, and it never has. Since 2026-11-20, **Copy
+diagnostics** also replaces what identifies you with placeholders: your
+Drobo's serial, name and address become `SERIAL-1`, `NAME-1` and
+`ADDRESS-1`, every drive serial `DRIVE-SERIAL-1` and so on, volume names and
+event-log messages `VOLUME-n` and `EVENT-n`, your PC's addresses and networks
+`ADDRESS-n` and `NETWORK-n`, and your Windows user name in a path `USER-1`.
+The model, firmware, states and figures are kept, because they are what
+explains a problem. The button beside it, **Unmasked copy (not for
+posting)**, gives the real values for your own use; its file name says
+UNMASKED.
 
-- your Drobo's **name, model, firmware and address on your network**,
-- the **serial number of every drive** in it,
-- your Drobo's **permanent hardware serial**,
-- the **private network addresses of your PC**, but only when the Drobo could
-  not be reached, since that is the information that explains why.
+The masking is a safety net, not a promise that nothing slipped through. Read
+what you paste anyway, and remove anything that still looks like a serial
+number, an address, your Drobo's name, a share name or your Windows user name
+-- the form asks you to confirm you have. That matters most for **the agent's
+window**, which is copied as it is and can print a path such as
+`C:\Users\your-name\...`. If you would rather not post it at all, say so in
+the issue and it can be dealt with another way.
 
-None of that is dangerous to someone on the far side of the internet: private
-addresses are not reachable from outside your home, and a drive serial is
-useful for a warranty claim and very little else. It is still yours. Read the
-file, delete the serial numbers, addresses, your Drobo's name, your share
-names and your Windows user name (it can appear in a path such as
-`C:\Users\your-name\...`) -- the form asks you to confirm you have -- and
-send the rest. If you
-would rather not post it at all, say so in the issue and it can be dealt with
-another way.
+If the app hits an unexpected error, its message box shows the whole error,
+masked the same way, and **Ctrl+C** copies it. The full, unmasked text is
+also kept in `%LOCALAPPDATA%\DroboDashboardReborn\app.log` for your own use;
+like the agent's `config.json`, it stays there after an uninstall.
 
 **Never attach a packet capture.** This protocol is unencrypted and a capture
 can carry your Drobo password in plain text. The same goes for the raw output

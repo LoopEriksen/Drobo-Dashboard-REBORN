@@ -82,6 +82,13 @@ MAX_MANIFEST_BYTES = 64 * 1024
 #: hung update check must never be why a status poll is late.
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
+#: Where every release is published. While the check is switched off --
+#: the shipping default, kept that way for now (2026-11-20) -- this page
+#: is how anyone finds out a newer version exists, so the switched-off
+#: answer names it rather than stopping at "off".
+RELEASES_PAGE_URL = (
+    "https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases")
+
 # no channel configured -- the shipping default
 STATE_DISABLED = "disabled"
 STATE_CURRENT = "current"        # checked, nothing newer
@@ -582,6 +589,8 @@ def _print_status(status: UpdateStatus, version: str, quiet: bool) -> int:
               else f"You are up to date (version {version}).")
         if status.state == STATE_DISABLED:
             print(status.reason)
+            print("To see whether there is a newer version, open the "
+                  f"Releases page: {RELEASES_PAGE_URL}")
     return 0
 
 

@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -219,6 +218,9 @@ public partial class MainWindow : Window
 
         _statusPollTimer.Tick += async (_, _) => await PollStatusOnce();
 
+        // Hooked before the token is filled in below, so app.log and the
+        // error dialog can remove it from anything they write (AppErrorLog).
+        Token.PasswordChanged += (_, _) => AppErrorLog.RememberAgentToken(Token.Password);
         TryAutoFillFromAgentConfig();
 
         var settings = DroboSettings.LoadAll();
@@ -1155,7 +1157,8 @@ public partial class MainWindow : Window
             var state = GetStringOr(root, "state", "");
             PrefUpdateStatus.Text = state switch
             {
-                "disabled"  => "Switched off. The agent is contacting nothing.",
+                "disabled"  => "Switched off. The agent is contacting nothing. To see whether there is a newer "
+                               + "version, open the Releases page (the button below).",
                 "current"   => $"You are on the latest version ({GetStringOr(root, "current_version", "?")}).",
                 "available" => GetStringOr(root, "reason", "An update is available."),
                 _           => GetStringOr(root, "reason", "Could not check just now."),
@@ -3350,15 +3353,11 @@ public partial class MainWindow : Window
     /// being connected to anything, so there's no reason to wait for that.</summary>
     private void InitToolsTab()
     {
-        var version = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        if (string.IsNullOrEmpty(version))
-            version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown";
         // The SDK appends a "+<git-sha>" build-metadata suffix automatically
         // (source-revision stamping) -- plumbing detail, not something the
-        // user needs on a version line. Keep just the x.y.z the csproj declares.
-        var metadataStart = version.IndexOf('+');
-        if (metadataStart >= 0) version = version[..metadataStart];
+        // user needs on a version line. AppVersion keeps just the x.y.z the
+        // csproj declares; app.log's entries use the same one.
+        var version = AppErrorLog.AppVersion();
         ToolsAppVersion.Text = $"Drobo Dashboard REBORN  v{version}";
         SettingsAppVersion.Text = $"Drobo Dashboard REBORN  v{version}";
 
@@ -3468,6 +3467,29 @@ public partial class MainWindow : Window
         return $"{Math.Max(1, minutes)}m";
     }
 
+    /// <summary>Where every release is published. The update check ships
+    /// switched off (decided 2026-11-20 to stay that way for now), so this
+    /// page is the way a tester finds out a newer version exists; the
+    /// agent's "Check for Updates" shortcut prints the same address.</summary>
+    private const string ReleasesPageUrl = "https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases";
+
+    /// <summary>Opens the Releases page in the default browser, from the
+    /// Updates card. Nothing in the app fetches it; the browser does, because
+    /// the person asked.</summary>
+    private void OpenReleasesPage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(ReleasesPageUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Could not open the Releases page: " + ex.Message + Environment.NewLine
+                + "The address is " + ReleasesPageUrl,
+                "Drobo Dashboard REBORN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void OpenWebDashboard_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -3482,14 +3504,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Sends the current /api/status JSON either to the clipboard (raw, exactly
-    /// as the agent returns it) or to a file (reformatted as readable text --
-    /// see DiagnosticsReport). This is the one Tools action that touches
-    /// something sensitive -- the payload includes drive serial numbers --
-    /// which is why the tab also carries a permanent warning about that, not
-    /// just this one-off status line, and why the warning is repeated inside
-    /// the saved file itself: a file can travel somewhere the on-screen
-    /// warning never will.
+    /// "Copy diagnostics": the current /api/status reply, as DiagnosticsReport's
+    /// readable text, either on the clipboard or in a file. Since 2026-11-20
+    /// this is the copy made for posting publicly (BuildPublicText), with the
+    /// serials, names and addresses replaced by placeholders: until then the
+    /// clipboard carried the raw JSON and the file every identifying value
+    /// twice, and testers were asked to remove them by hand, which in practice
+    /// meant leaving diagnostics out. The unmasked copy is a button of its own
+    /// (CopyUnmaskedDiagnostics_Click), clearly labelled as not for posting.
     ///
     /// The maintainer asked, in their own words, to be asked once ("copy to
     /// clipboard or save to a file") with a way to make it stick so they don't
@@ -3497,15 +3519,31 @@ public partial class MainWindow : Window
     /// stored answer, changeable afterwards from the combo box added next to
     /// this button. It lives here on the Tools tab,
     /// right next to the button it configures, so the setting and its
-    /// effect are visible in one glance.
+    /// effect are visible in one glance. Both buttons follow it.
     /// </summary>
-    private async void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
+    private async void CopyDiagnostics_Click(object sender, RoutedEventArgs e) =>
+        await CopyDiagnostics(masked: true);
+
+    /// <summary>The unmasked copy, for the tester's own use: the same
+    /// destination choice, with the real values in. Its status line and the
+    /// file's own header both say it is not for posting.</summary>
+    private async void CopyUnmaskedDiagnostics_Click(object sender, RoutedEventArgs e) =>
+        await CopyDiagnostics(masked: false);
+
+    /// <summary>
+    /// Fetches /api/status, builds the masked or unmasked report and sends it
+    /// where the stored preference (or this one answer) says. Every failure
+    /// lands on the status line, since this is a button press and a dialog
+    /// for "the agent is not running" would be louder than the problem.
+    /// </summary>
+    private async Task CopyDiagnostics(bool masked)
     {
-        var diagnosticsPreference = DroboSettings.LoadAll().DiagnosticsPreference;
+        var savedSettings = DroboSettings.LoadAll();
+        var diagnosticsPreference = savedSettings.DiagnosticsPreference;
 
         if (diagnosticsPreference == DroboSettings.DiagnosticsPreference.Ask)
         {
-            var answer = AskDiagnosticsPreference();
+            var answer = AskDiagnosticsPreference(masked);
             if (answer is null) return;
             diagnosticsPreference = answer.Value;
         }
@@ -3517,13 +3555,20 @@ public partial class MainWindow : Window
             using var response = await _agentHttpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
+            // The remembered Drobo is passed so its serial is masked even when
+            // the reply's device block is empty, as after an identity mismatch.
+            var reportText = masked
+                ? DiagnosticsReport.BuildPublicText(json, savedSettings.Remembered)
+                : DiagnosticsReport.BuildText(json);
 
             if (diagnosticsPreference == DroboSettings.DiagnosticsPreference.File)
-                SaveDiagnosticsToFile(json);
+                SaveDiagnosticsToFile(reportText, masked);
             else
             {
-                Clipboard.SetText(json);
-                ToolsActionStatus.Text = "Copied to the clipboard. It includes your drive serial numbers -- check where you paste it.";
+                Clipboard.SetText(reportText);
+                ToolsActionStatus.Text = masked
+                    ? "Copied to the clipboard, with serial numbers, names and addresses replaced by placeholders -- ready to paste into a public issue."
+                    : "Copied the UNMASKED diagnostics. They include your serial numbers, names and addresses -- for your own use, not for posting.";
             }
         }
         catch (Exception ex)
@@ -3539,9 +3584,9 @@ public partial class MainWindow : Window
     /// without re-saving it). Null when the dialog was cancelled, so nothing
     /// is copied.
     /// </summary>
-    private DroboSettings.DiagnosticsPreference? AskDiagnosticsPreference()
+    private DroboSettings.DiagnosticsPreference? AskDiagnosticsPreference(bool masked)
     {
-        var dialog = new DiagnosticsChoiceDialog { Owner = this };
+        var dialog = new DiagnosticsChoiceDialog(masked) { Owner = this };
         var answered = dialog.ShowDialog();
         if (answered != true || dialog.Result == DiagnosticsChoiceDialog.Choice.Cancelled)
             return null;
@@ -3561,14 +3606,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Standard Windows save dialog defaulting to Documents, then writes
-    /// DiagnosticsReport's human-readable text (raw JSON included at the end) --
-    /// not the JSON alone, since a file is meant to be read by a person, possibly
-    /// days later, possibly not by whoever clicked the button.</summary>
-    private void SaveDiagnosticsToFile(string json)
+    /// the report text the caller built -- readable text, not JSON alone, since
+    /// a file is meant to be read by a person, possibly days later, possibly
+    /// not by whoever clicked the button. The unmasked copy's file name says
+    /// UNMASKED, so it is not mistaken for the one to attach.</summary>
+    private void SaveDiagnosticsToFile(string reportText, bool masked)
     {
         var dialog = new SaveFileDialog
         {
-            FileName = $"drobo-diagnostics-{DateTime.Now:yyyy-MM-dd-HHmm}.txt",
+            FileName = masked
+                ? $"drobo-diagnostics-{DateTime.Now:yyyy-MM-dd-HHmm}.txt"
+                : $"drobo-diagnostics-UNMASKED-{DateTime.Now:yyyy-MM-dd-HHmm}.txt",
             DefaultExt = ".txt",
             Filter = "Text file (*.txt)|*.txt|All files (*.*)|*.*",
             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -3576,8 +3624,10 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true)
             return; // user cancelled -- leave ToolsActionStatus as it was, nothing happened
 
-        File.WriteAllText(dialog.FileName, DiagnosticsReport.BuildText(json));
-        ToolsActionStatus.Text = "Saved to " + dialog.FileName + ". It includes your drive serial numbers -- check who you send it to.";
+        File.WriteAllText(dialog.FileName, reportText);
+        ToolsActionStatus.Text = masked
+            ? "Saved to " + dialog.FileName + ", with serial numbers, names and addresses replaced by placeholders -- ready to attach to a public issue."
+            : "Saved the UNMASKED diagnostics to " + dialog.FileName + ". They include your serial numbers, names and addresses -- for your own use, not for posting.";
     }
 
     /// <summary>

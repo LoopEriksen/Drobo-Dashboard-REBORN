@@ -24,10 +24,18 @@ public partial class DiagnosticsChoiceDialog : Window
     /// chosen.</summary>
     public bool RememberChoice => RememberCheck.IsChecked == true;
 
-    /// <summary>The buttons and checkbox are all declared in the XAML.</summary>
-    public DiagnosticsChoiceDialog()
+    /// <summary>The buttons and checkbox are all declared in the XAML. The
+    /// note under the buttons says which copy this is: the masked one is safe
+    /// to post, the unmasked one is not, and the destination question is the
+    /// moment the tester decides where it goes.</summary>
+    public DiagnosticsChoiceDialog(bool masked = true)
     {
         InitializeComponent();
+        if (masked) return;
+        Title = "Unmasked copy";
+        PrivacyNote.Text = "This is the UNMASKED copy: it includes the Drobo's serial number, name and "
+                           + "address and your drive serial numbers. Keep it for your own use; to post "
+                           + "diagnostics, use \"Copy diagnostics\" instead.";
     }
 
     /// <summary>Answers "clipboard" and closes with DialogResult true.</summary>

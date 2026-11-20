@@ -8,29 +8,84 @@ namespace DroboDashboardReborn;
 /// <summary>
 /// Turns the agent's /api/status JSON into a plain-text report a person can
 /// actually skim -- the same fields the Status tab already renders, laid out
-/// as labeled lines instead of a JSON blob. Used only by "Copy diagnostics"
-/// -> "Save to a file"; the clipboard path still copies the raw JSON exactly
-/// as before, since that's what someone pastes into a bug tracker that wants
-/// structured data.
+/// as labeled lines instead of a JSON blob, then the JSON itself for exact
+/// numbers. Used by "Copy diagnostics" for the clipboard and the saved file
+/// alike.
+///
+/// Two copies, since 2026-11-20. BuildPublicText, the default, runs the JSON
+/// through DiagnosticsMasking first, so the copy can be posted in a public
+/// issue as it is. BuildText is the unmasked copy, for the tester's own use.
+/// Before that the clipboard carried raw JSON and the file carried every
+/// identifying value twice, which testers were asked to remove by hand.
 /// </summary>
 internal static class DiagnosticsReport
 {
-    /// <summary>Builds the full file contents: a human-readable summary, then the
-    /// raw JSON under its own heading for anyone who wants it (or whose forum
-    /// thread wants exact numbers). The serial-number warning is repeated here,
-    /// not just on the Tools tab, because this text can end up saved to a file
-    /// and forwarded on somewhere the on-screen warning is long gone.</summary>
+    /// <summary>The unmasked report: summary, then the raw JSON. For the
+    /// tester's own use; its header says so, because this text can be saved
+    /// to a file and forwarded somewhere the on-screen warning is long
+    /// gone.</summary>
     public static string BuildText(string json)
     {
         var report = new StringBuilder();
+        AppendTitle(report);
+        report.AppendLine("This is the UNMASKED copy, for your own use. It includes the Drobo's serial");
+        report.AppendLine("number, name and address, your drive serial numbers and, when the Drobo could");
+        report.AppendLine("not be reached, the private network addresses of this PC. To post diagnostics");
+        report.AppendLine("in a public issue, use \"Copy diagnostics\", which replaces those with");
+        report.AppendLine("placeholders.");
+        report.AppendLine();
+        AppendSummaryOrNote(report, json);
+        AppendJsonSection(report, json);
+        return report.ToString();
+    }
+
+    /// <summary>
+    /// The copy made for posting publicly: the same summary and JSON, built
+    /// from DiagnosticsMasking's copy of the reply, so the serials, names and
+    /// addresses never reach it. When the reply is not JSON at all nothing of
+    /// it is included: text that could not be inspected is not posted.
+    /// The remembered Drobo, when given, is masked wherever it appears, even
+    /// when the reply's device block is empty (see DiagnosticsMasking).
+    /// </summary>
+    public static string BuildPublicText(string json, DroboSettings.RememberedDevice? rememberedDevice = null)
+    {
+        var report = new StringBuilder();
+        AppendTitle(report);
+        report.AppendLine("This copy is made for posting in a public issue. The Drobo's serial, name and");
+        report.AppendLine("address, every drive serial, volume names, event-log messages, other network");
+        report.AppendLine("addresses and the Windows user name in any path are replaced with placeholders");
+        report.AppendLine("such as SERIAL-1 and ADDRESS-1; the same value always gets the same placeholder.");
+        report.AppendLine("Give it a quick read before you post it all the same.");
+        report.AppendLine();
+
+        string maskedJson;
+        try
+        {
+            maskedJson = DiagnosticsMasking.MaskJson(json, rememberedDevice);
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine("Could not read the agent's response as JSON (" + ex.GetType().Name + "), so none of");
+            report.AppendLine("it is included here. The unmasked copy shows it, for your own look.");
+            return report.ToString();
+        }
+        AppendSummaryOrNote(report, maskedJson);
+        AppendJsonSection(report, maskedJson);
+        return report.ToString();
+    }
+
+    /// <summary>The first two lines, the same in both copies.</summary>
+    private static void AppendTitle(StringBuilder report)
+    {
         report.AppendLine("Drobo Dashboard REBORN -- Diagnostics");
         report.AppendLine("Generated " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
         report.AppendLine();
-        report.AppendLine("This file includes your drive serial numbers, and -- when the Drobo could");
-        report.AppendLine("not be reached -- the private network addresses of this PC. Check who you");
-        report.AppendLine("send it to before sharing it anywhere public (forums, support tickets, etc).");
-        report.AppendLine();
+    }
 
+    /// <summary>The readable summary, or one line saying the reply could not
+    /// be read as JSON, so the raw text below is all there is.</summary>
+    private static void AppendSummaryOrNote(StringBuilder report, string json)
+    {
         try
         {
             using var doc = JsonDocument.Parse(json);
@@ -41,12 +96,17 @@ internal static class DiagnosticsReport
             report.AppendLine("Could not read the agent's response as JSON (" + ex.Message + ") -- see the raw text below.");
             report.AppendLine();
         }
+    }
 
+    /// <summary>The JSON under its own heading, for anyone who wants exact
+    /// numbers or the fields the summary leaves out (pack health, the
+    /// battery, fan and power blocks).</summary>
+    private static void AppendJsonSection(StringBuilder report, string json)
+    {
         report.AppendLine(new string('-', 72));
-        report.AppendLine("RAW JSON (for support tickets or advanced troubleshooting)");
+        report.AppendLine("JSON (for support tickets or advanced troubleshooting)");
         report.AppendLine(new string('-', 72));
         report.AppendLine(json);
-        return report.ToString();
     }
 
     /// <summary>
@@ -169,8 +229,9 @@ internal static class DiagnosticsReport
         report.AppendLine();
     }
 
-    /// <summary>One bay's line. The serial is included on purpose, which is
-    /// why BuildText's header warns about sharing the file.</summary>
+    /// <summary>One bay's line. The serial is included on purpose: in the
+    /// public copy it is already DRIVE-SERIAL-n, and in the unmasked copy it
+    /// is why the header warns about sharing it.</summary>
     private static void AppendDriveLine(StringBuilder report, JsonElement drive)
     {
         int bay = GetInt32Or(drive, "bay", 0);

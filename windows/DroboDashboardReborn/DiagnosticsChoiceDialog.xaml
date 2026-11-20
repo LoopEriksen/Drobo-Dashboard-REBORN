@@ -39,8 +39,8 @@
 
         <Border Background="#2E2311" BorderBrush="#4A3A16" BorderThickness="1" CornerRadius="4"
                 Padding="10,8" Margin="0,8,0,16">
-            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#E6EBF0"
-                       Text="Either way, this includes your drive serial numbers -- check where it ends up before sharing it anywhere public."/>
+            <TextBlock x:Name="PrivacyNote" TextWrapping="Wrap" FontSize="12" Foreground="#E6EBF0"
+                       Text="Either way, serial numbers, names and addresses are replaced with placeholders, so this copy is safe to post in a public issue."/>
         </Border>
 
         <CheckBox x:Name="RememberCheck" Content="Remember my choice" Foreground="#E6EBF0" Margin="0,0,0,4"/>

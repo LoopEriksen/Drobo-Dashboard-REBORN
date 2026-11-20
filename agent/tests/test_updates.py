@@ -506,6 +506,9 @@ with tempfile.TemporaryDirectory() as _temp_dir:
           (run_by_path.returncode, run_by_path.stdout, run_by_path.stderr))
     check("-- answering that update checking is switched off",
           "switched off" in run_by_path.stdout, run_by_path.stdout)
+    check("-- and naming the Releases page as the next step",
+          updates.RELEASES_PAGE_URL in run_by_path.stdout,
+          run_by_path.stdout)
     check("-- with no traceback", "Traceback" not in run_by_path.stderr,
           run_by_path.stderr)
 

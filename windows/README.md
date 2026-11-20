@@ -29,7 +29,7 @@ dashboard. All Drobo logic stays in `agent/` and `sdk/`.
 
 ## The app's source files
 
-`DroboDashboardReborn/` holds 39 files. Start with `MainWindow.xaml` (the main
+`DroboDashboardReborn/` holds 43 files. Start with `MainWindow.xaml` (the main
 window: the Drobo picker and the five tabs) and `MainWindow.xaml.cs` (what they
 do).
 
@@ -41,7 +41,7 @@ and a `.xaml.cs` file for the code.
 | `ConnectShareDialog` | "Connect as...": connects to a share with a Drobo user name and password, and can save that login |
 | `NewShareDialog` | "New share...": creates a share |
 | `DeleteShareDialog` | Deletes a share, once its name has been typed exactly |
-| `DiagnosticsChoiceDialog` | "Copy diagnostics": to the clipboard or to a file |
+| `DiagnosticsChoiceDialog` | "Copy diagnostics" and its unmasked copy: to the clipboard or to a file |
 | `ShareBrowserWindow` | Shows a share's files. It only looks: it never copies, moves, renames or deletes |
 | `SplashWindow` | The small window shown while the app starts |
 
@@ -55,13 +55,16 @@ share) and `VolumeRow` (a volume).
 
 | | |
 |---|---|
-| `App.xaml`, `App.xaml.cs` | Start-up, the splash screen, and the button and drop-down styles every window uses |
+| `App.xaml`, `App.xaml.cs` | Start-up, the splash screen, the last-chance error handlers, and the button and drop-down styles every window uses |
+| `AppErrorLog.cs` | What an unexpected error leaves behind: the whole error, with the app version and time, in `%LOCALAPPDATA%\DroboDashboardReborn\app.log` (capped at about 1 MB, never the token or a password; the error dialog shows the same text with names and addresses masked) |
 | `AlertNotifier.cs` | Which alerts may pop up a notification |
 | `CredentialStore.cs` | Saved share logins, kept in Windows Credential Manager |
 | `SmbConnections.cs` | Connecting to a share as a named user, through Windows itself |
 | `DroboSettings.cs` | What the app remembers between launches (`settings.json`); never a password |
 | `DroboSelection.cs` | What a picker row's **Connect** asks the agent for: watch that row's Drobo, by its address and serial, before the dashboard opens. The start-up reconnect to the remembered Drobo sends the address alone, so launching the app never re-pairs the agent |
-| `DiagnosticsReport.cs` | The readable report "Copy diagnostics" saves to a file |
+| `TesterNotes.cs` | The sentences that say, where the buttons are, which writes are not yet proven on a real Drobo (share create, share delete, DroboApps Start/Stop, share access beyond Everyone, Identify). Labels only: nothing in it changes what is sent. The browser dashboard carries the same words from `agent/drobo_agent/tester_notes.py` |
+| `DiagnosticsReport.cs` | The readable report "Copy diagnostics" copies or saves: the public copy by default, the unmasked one on request |
+| `DiagnosticsMasking.cs` | Makes that public copy: serials, names, addresses, volume names, event-log messages and the Windows user name in a path become placeholders such as `SERIAL-1` and `ADDRESS-1` |
 | `MarkdownGuide.cs` | Shows the guide to reaching your files, opened from the Tools tab, as a readable page. The button appears only where the app can find `docs/accessing-your-files.md` within six folders above itself. A plain `dotnet build -c Release` inside a checkout is close enough; a `win-x64` publish sits one folder deeper, and an installed copy has no `docs/` at all, so in both of those the button hides instead of offering a page it does not have |
 | `TrayIconManager.cs` | The icon in the notification area, by the clock |
 | `WriteOutcome.cs` | The four ways a settings change can end |
@@ -197,6 +200,10 @@ Two entry points, one engine:
   switched off, 1 an update is available, 2 could not tell, 3 the check could
   not run — and `windows/test-installer.ps1` runs it and requires the
   switched-off answer.
+
+While checking is off, both name the next step: the Releases page,
+<https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases>, where every
+version is published (the app's card also has a button that opens it).
 
 To turn checking on, set `"enabled": true` in that block and point
 `manifest_url` at either a GitHub Releases API URL:

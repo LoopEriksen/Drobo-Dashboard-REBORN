@@ -75,6 +75,25 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **An unexpected error in the Windows app shows the whole error, and
+  leaves it in `app.log`.** The last-chance handler showed the
+  exception's message alone, and errors in background tasks were
+  swallowed, so a tester had nothing to report. The message box now
+  shows the error's type, message and stack (up to 6000 characters), and
+  Ctrl+C copies it; since the box asks for it to be posted, names,
+  addresses, serials and the Windows user name in it are replaced with
+  placeholders, and if masking fails the box shows the full text and
+  asks for it to be read before posting. The full text, with the app
+  version and the time, is appended to
+  `%LOCALAPPDATA%\DroboDashboardReborn\app.log`, with only the agent
+  token and passwords removed, for the tester's own use; the folder is
+  created if needed, writing it never throws, and past 1 MB the file is
+  cut back to its newest half. An error on one of the app's own threads,
+  which still ends the app, is now logged and shown first, and an
+  unobserved background-task error is logged rather than swallowed. Like `config.json` and `settings.json`,
+  `app.log` is kept on uninstall. The formatting, masking and trimming
+  are tested off Windows; the handlers firing in the running app have
+  not yet been seen on a PC. (2026-11-20)
 - **Connect in the Windows app opens the Drobo that was clicked.** The
   "type its address" box probed the address, said "Found <name>", and
   Connect then opened a dashboard that stayed unreachable, because
@@ -171,6 +190,42 @@ released. Every push to this repository carries this file.
   to 351. (2026-11-06)
 
 ### Changed
+- **Copy diagnostics is safe to post in a public issue.** The Windows
+  app's Copy diagnostics put the raw status JSON on the clipboard, and
+  the saved file held a summary followed by the same JSON, so the
+  Drobo's serial, name and address, every drive serial, volume names and
+  event-log lines appeared twice, and testers were asked to remove them
+  by hand. The copy on the clipboard and in the saved file is now
+  masked: the Drobo's serial becomes `SERIAL-1`, its name `NAME-n` and
+  its address `ADDRESS-n`; every drive serial `DRIVE-SERIAL-n`, volume
+  names `VOLUME-n` and event-log messages `EVENT-n`; the PC's addresses
+  and networks in the network hint `ADDRESS-n` and `NETWORK-n`. Free
+  text such as the error keeps its meaning, but any of those values
+  inside it, both serials and the other unit's name in an
+  identity-mismatch error, IPv4, IPv6 and MAC addresses, emails, a UNC
+  server and share, `.local` host names and the Windows user name in a
+  profile path (a name with a space in it included) become placeholders
+  too. The Drobo this PC remembers in `settings.json` is masked as
+  well, even when the reply's device block is empty, as it is after an
+  identity mismatch. The same value always gets the same placeholder in
+  one report; models, firmware, states and figures are kept. The
+  clipboard now holds the readable report (summary plus masked JSON)
+  instead of bare JSON, and the saved file no longer carries a second,
+  raw copy. A labelled "Unmasked copy (not for posting)" button gives the
+  real values for the tester's own use; its file name contains UNMASKED.
+  The Tools tab's warning now says the copy is safe to post and the
+  unmasked one is for the tester's own use. `TESTING.md` says the same,
+  and still asks testers to read what they paste, the agent's window
+  most of all, which is not masked. The masking is tested by the
+  Windows test program, which runs off Windows; the buttons themselves
+  have not yet been clicked on a PC. (2026-11-20)
+- **Check for Updates names the next step.** The update check stays
+  switched off. Where it says so, the Start Menu shortcut now adds the
+  Releases page's address,
+  https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases, and the
+  Windows app's Updates card says new versions are published there, with
+  an "Open the Releases page" button. `test_updates.py` gains a check
+  for the shortcut's sentence. (2026-11-20)
 - **Identify no longer promises that the lights are blinking.** The
   Windows app's Identify card, the browser dashboard and the agent's
   reply after a click said the lights should be blinking now, which
