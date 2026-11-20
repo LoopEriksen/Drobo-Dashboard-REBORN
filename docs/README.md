@@ -32,6 +32,7 @@ or move them.
 | [`development-history.md`](development-history.md) | How it was built |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | What changed between releases |
 | [`../windows/installer/TESTING.md`](../windows/installer/TESTING.md) | Installing, first run, reporting problems and removing the program |
+| [`../SECURITY.md`](../SECURITY.md) | How to report something privately, through GitHub's private vulnerability reporting, instead of in a public issue |
 
 ## Protocol research
 

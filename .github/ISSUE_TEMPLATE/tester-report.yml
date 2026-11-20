@@ -9,6 +9,10 @@ body:
         paste before you send it. The tester guide,
         [`windows/installer/TESTING.md`](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/blob/main/windows/installer/TESTING.md),
         covers installing, first run and what a useful report holds.
+        Something you would rather not post publicly goes through the
+        private route in
+        [`SECURITY.md`](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/blob/main/SECURITY.md)
+        instead.
   - type: input
     id: app-version
     attributes:
@@ -37,6 +41,14 @@ body:
         - Both
     validations:
       required: true
+  - type: dropdown
+    id: found-drobo
+    attributes:
+      label: Did it find your Drobo?
+      options:
+        - By itself
+        - Only after I typed its address
+        - "No"
   - type: input
     id: drobo-model
     attributes:
@@ -71,26 +83,48 @@ body:
       description: The exact words of any message help most.
     validations:
       required: true
+  - type: checkboxes
+    id: changes-made
+    attributes:
+      label: What did you change on the Drobo?
+      description: Tick everything you used, even if it seemed to work. Share create, share delete and DroboApps start/stop are not yet proven on a real Drobo, so those reports matter most.
+      options:
+        - label: Nothing
+        - label: Identify (the front lights)
+        - label: LED brightness
+        - label: Drive spin-down
+        - label: Share access
+        - label: Created a share
+        - label: Deleted a share
+        - label: Started or stopped a DroboApp
+  - type: textarea
+    id: write-result
+    attributes:
+      label: What did the app say about it?
+      description: For each change, the colour of the result line (green, amber or red) and its exact words. For Identify, whether the lights blinked.
   - type: textarea
     id: diagnostics
     attributes:
       label: Diagnostics
       description: |
         Optional. In the app, Tools > Copy diagnostics, or what the agent's
-        window printed. **Read it first and remove serial numbers (the
-        Drobo's own and every drive's), IP and MAC addresses, the Drobo's
-        name, share names and your Windows user name** (the agent's window
-        can print a path such as C:\Users\your-name\AppData\...). It never
-        contains a password or the access token, but it can contain those.
-        Never paste a packet capture: it can carry your Drobo password in
-        plain text.
+        window printed. Copy diagnostics already replaces serial numbers,
+        names and addresses with placeholders; do not paste the unmasked
+        copy. Give it a quick read all the same. Version 1.2.0's Copy
+        diagnostics is not masked, and neither is the agent's window:
+        **from those, remove serial numbers (the Drobo's own and every
+        drive's), IP and MAC addresses, the Drobo's name, share names and
+        your Windows user name by hand** (the agent's window can print a
+        path such as C:\Users\your-name\AppData\...). None of them
+        contains a password or the access token. Never paste a packet
+        capture: it can carry your Drobo password in plain text.
       render: text
   - type: checkboxes
     id: privacy
     attributes:
       label: Before you submit
       options:
-        - label: I removed serial numbers, IP and MAC addresses, the Drobo's name, share names and my Windows user name from everything above
+        - label: I used the copy made for posting (Copy diagnostics), or removed serial numbers, IP and MAC addresses, the Drobo's name, share names and my Windows user name by hand
           required: true
         - label: I have not attached a packet capture (it can hold the Drobo's password)
           required: true

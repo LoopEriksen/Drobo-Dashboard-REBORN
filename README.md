@@ -45,7 +45,9 @@ asks for administrator approval, and it **bundles its own Python runtime** so
 nothing else needs installing. It adds a Start Menu entry that starts the agent
 and opens the app. Uninstall from the Start Menu entry or from Settings > Apps;
 that removes the program folder completely, including anything the agent
-generated in it. Upgrading from 1.0.0? Uninstall it first:
+generated in it. Before you upgrade or uninstall, close the app and the
+**Drobo Dashboard REBORN - Agent** window. 1.1.0 and 1.2.0 upgrade in place.
+Upgrading from 1.0.0? Uninstall it first:
 [CHANGELOG.md](CHANGELOG.md) explains why.
 
 Settings are per Windows account, not shared with the program: yours and the
@@ -82,7 +84,10 @@ the list; after that it remembers and goes straight there.
 
 No Drobo at hand? Double-click **`START WITH SIMULATED DROBO (testing).bat`**
 instead. It runs the same software against a built-in simulator, no hardware
-needed.
+needed. The simulated agent only ever shows the simulated Drobo. To use your
+real Drobo, close the simulated agent's window and start
+`START DROBO DASHBOARD.bat`, or Drobo Dashboard REBORN from the Start menu if
+it is installed.
 
 Doing it by hand, building the Windows app, and running the tests are covered
 under [Running it by hand](#running-it-by-hand) below.
@@ -97,31 +102,41 @@ blocked in code, not by convention: the send helpers check the block list
 themselves, so no code path reaches them by accident. Nothing here writes to
 the disk pack.
 
-It does make a small, deliberate set of changes, each through one audited path:
+It does make a small, deliberate set of changes, each through one audited
+path. How far each has been proven on a real Drobo is given with it; both
+apps show the same words beside the buttons:
 
-- **Identify** (asks the front lights to blink) -- the only command on the
-  safe list; the original Dashboard's own warning says it stops on its own
-  after 15 minutes. On the one Drobo 5N tested, the lights did not visibly
-  change at the setting this app sends, and both apps say so.
+- **Identify** (blink the front lights) -- the only command on the safe list.
+  The device accepts it, but on the one Drobo 5N tested so far the lights
+  did not visibly change at the setting this app sends. Both apps say to
+  press Stop when you are done: the original Dashboard's own warning says
+  the lights blink for 15 minutes, and that end has never been watched on
+  this project's unit.
 - **LED brightness** and **drive spin-down delay** -- written by reading the
   device's live settings block, changing only what was asked for (one field,
   or two when spin-down is switched off), and echoing the rest back
   exactly as read. Refused outright if the block holds a field this software
-  does not recognise.
+  does not recognise. **Proven** on a Drobo 5N.
 - **Per-user share access**, limited to read/write (confirmed against the
   original Dashboard), code 0 (most likely no access, but not confirmed --
   the safe direction to be wrong in), or a level already set on the device.
-  It will not guess a permission.
-  Only the Everyone row is proven on a real Drobo; rows for named
-  accounts are untried, and both apps say so.
+  It will not guess a permission. **Proven for the Everyone row only**: rows
+  for named accounts have not been tried yet, and both apps say so.
 - **Create a share** and **delete a share**. Deleting a share deletes
   everything in it; the API requires the name typed twice and the app makes
-  you retype it. Neither is yet proven on a real Drobo: create was applied
-  once, before its acknowledgement fix, and delete has never been sent to
-  one. Both apps say so where the buttons are.
+  you retype it. **Create is not yet proven** on a real Drobo: it was applied
+  once in testing, before a fix. **Delete has never been sent** to a real
+  Drobo. Both apps say so where the buttons are; use a throwaway share
+  for both.
 - **Start or stop an installed DroboApp**, validated against the list the
-  device itself reports. Not yet tried on a real Drobo, and both apps say
-  so beside the buttons.
+  device itself reports. **Not yet tried** on a real Drobo, and both apps
+  say so beside the buttons.
+
+Share changes on a Drobo that has user accounts -- share access, create and
+delete alike -- are untried: the one unit tested has none. On a Drobo that
+is not a 5N, keep your first session to reading; the tester guide's
+[If your Drobo is not a 5N](windows/installer/TESTING.md#if-your-drobo-is-not-a-5n)
+says what may look odd.
 
 Every settings and share write reads the device back afterwards and reports
 exactly one of: verified; verified but unacknowledged (the device closed the
@@ -165,12 +180,21 @@ so if your router hands the Drobo a different address, it still recognises it.
 Every candidate is confirmed against that serial before it's trusted, so
 something else answering on the same address can never be silently accepted.
 
+If it finds nothing, disconnect any VPN on the PC and press Refresh; if it
+still finds nothing, type the Drobo's address (the app's "Add one in
+Settings", or the browser dashboard's "Find the Drobo" box).
+`POST /api/drobo/select` points the agent at a Drobo by address. It reads that
+address's status greeting and checks its serial before changing anything,
+and it sends nothing that changes the Drobo.
+
 ### It shows you the array
 
 - **Drive health, per bay** — which drives are fine, which are complaining,
   which have failed
-- **Capacity** — used, free and usable; how much is held back for protection
-  where the Drobo reports it (a 5N does not, and the apps say so)
+- **Capacity** — used, free, usable, and how much is held back for protection.
+  A Drobo 5N does not report its protection figure, so on real hardware
+  Protection reads "not reported by this Drobo"; only the simulated Drobo
+  shows a number.
 - **Chassis temperature and uptime**, always shown with the age of the reading
 - **Drive model, serial and firmware** for every bay, so you can order a
   replacement without opening the box
@@ -211,17 +235,22 @@ yet proven, dormant, planned, blocked, or deliberately out of scope.
 ## Helping test
 
 This was built against one Drobo 5N. Anything that needs different hardware --
-a second unit, another model, a redundant pack you can safely degrade -- is
+a second unit, another model, a pack that is degraded or rebuilding -- is
 listed in [`docs/testers-tasks.md`](docs/testers-tasks.md) with exact,
 read-only steps. Results, problems and questions go in an **issue** on this
-repository. Never attach a packet capture: this protocol is unencrypted, and a
-capture can carry the Drobo password. An issue is public, so read the
-diagnostics report before pasting it; the testers' guide says what it
-contains.
+repository, through the
+[Tester report](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/issues/new?template=tester-report.yml)
+form. Never attach a packet capture: this protocol is unencrypted, and a
+capture can carry the Drobo password. An issue is public: the app's Tools tab
+-> Copy diagnostics gives a copy made for posting (from 1.2.1; 1.2.0's is not
+masked), with serials, names and addresses replaced by placeholders, and the
+testers' guide says what it masks. Read it before you paste it all the same.
+Something you would rather not post publicly goes through the private route
+in [`SECURITY.md`](SECURITY.md).
 
 This repository is published for people to run on their own hardware and
 report back. Nobody but the maintainer edits it, so there is no contribution
-or pull-request process: an issue is the way in.
+or pull-request process: an issue, or a private report, is the way in.
 
 ---
 
@@ -235,6 +264,7 @@ or pull-request process: an issue is the way in.
 | `README.md` | This page | — |
 | [`ROADMAP.md`](ROADMAP.md) | The plan of record: six phases, dated decisions, and what is complete, in progress or blocked | — |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed between releases | — |
+| [`SECURITY.md`](SECURITY.md) | How to report something privately instead of in a public issue | — |
 | [`CREDITS.md`](CREDITS.md) | Other people's work this project relies on, and why it was trusted | — |
 | [`LICENSE`](LICENSE) | The licence: GPL-3.0-or-later, the full text | — |
 | [`CLAUDE.md`](CLAUDE.md) | Working notes for the Claude sessions this project is developed with; not needed to use the software | — |
@@ -436,6 +466,10 @@ Installers are attached to this repository's **Releases** page, and what
 changed between releases is in [`CHANGELOG.md`](CHANGELOG.md). Release 1.0.0
 was published from a separate, code-only copy of this repository, which is now
 retired; from 1.1.0 on, releases come from here.
+
+Check for Updates is switched off on purpose. New versions are published on
+the Releases page, https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases.
+On GitHub, Watch > Custom > Releases tells you when one appears.
 
 ## License
 

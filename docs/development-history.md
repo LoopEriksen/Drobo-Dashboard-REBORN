@@ -1446,6 +1446,55 @@ one agent and one agent window. None of it has run on a tester's PC.
 already running. No device write was added, no gate moved, and no byte
 sent to a Drobo changed.
 
+**What the tester documents say.** The code packages fixed what the apps
+show; this one fixed what a tester reads before and after (S9.3-S9.6,
+S10, S11, S14, and the documents' halves of M2, M3 and S5-S7). Before
+it, `TESTING.md` pointed at the README for the writes without saying
+which were proven, told nobody how to type an address or to close the
+agent before an upgrade, and described an uninstall that "waits for you
+to press Enter", which Windows' own removal does not; `testers-tasks.md`
+gave the sweep no address, said it asked for the cache battery (it
+leaves that command out on purpose), claimed the agent logs every status
+document (nothing keeps that sequence), asked for a drive to be pulled
+for data nobody would see, and offered Identify, a write, on a page that
+promises read-only steps; three documents gave three different rules
+for pasting tool output; and `TESTING.md` promised "another way" to
+report that did not exist. Now `TESTING.md` carries a table of every
+change the app can make, each marked proven on a 5N or not yet proven
+in the same sentences `tester_notes.py` and `TesterNotes.cs` show, an
+"If your Drobo is not a 5N" section quoting the pack status alert's new
+words, the typed-address route (VPN off and Refresh first) and the
+two-Drobo behaviour from select-drobo, what to copy when the app never
+gets past the first screen, the masked copy and the error dialog's
+Ctrl+C from feedback, the launcher's wait from launcher, and an Updates
+section. One paste rule is written the same in three places. Under D5
+a short `SECURITY.md` sends anything that should not be public through
+GitHub's private vulnerability reporting, and under D6 blank issues are
+off, the issue chooser linking `SECURITY.md` instead. The report form
+asks what was changed on the Drobo, what the app said, and whether it
+found the Drobo; its option "No" is quoted, because YAML 1.1 reads a bare
+No as false and GitHub requires string options. The release text says
+reading is verified on a 5N and names the unproven writes. The merge
+met two conflicts, in the README's write list and in `TESTING.md`, where
+the code packages had already reworded the same lines; both sides were
+kept, the package's fuller wording with the code packages' "both apps
+say so", the two-Drobo reload advice moved under the new two-Drobo
+heading, and the list of placeholders and the warning that the agent's
+window is not masked carried into the new diagnostics section. The
+merge also moved the last two "stops on its own" claims for Identify,
+in `capabilities.md` and the roadmap, to the original Dashboard's
+15-minute warning, and added `SECURITY.md` to the document index.
+Proven here: both issue-form files parse as YAML with every option a
+string and every id unique, `release-notes.md` dry-fills with
+`installer.yml`'s `sed` leaving no placeholder, flake8 is clean, and the
+31 Python suites and the Windows test program are unchanged, since no
+code moved. Not proven here: how GitHub renders the form, which shows
+only once it is on the default branch, and the private-report link,
+which leads to a disabled form until the maintainer switches private
+vulnerability reporting on in the repository's settings; that must
+happen before this reaches `main`. Nothing here is code: no device
+write, no gate and no byte sent to a Drobo changed.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

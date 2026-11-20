@@ -7,6 +7,38 @@ released. Every push to this repository carries this file.
 ## Unreleased
 
 ### Added
+- **A private way to report.** A new `SECURITY.md` says how to report
+  something that should not be public -- a security problem, or
+  diagnostics a tester cannot redact -- through the repository's
+  **Security** tab -> **Report a vulnerability** (GitHub's private
+  vulnerability reporting). Only the tester, the maintainer and anyone
+  the maintainer adds can see it. It asks for no password, access token
+  or capture even there. The tester guide, the tester tasks, the report
+  form, the README and the release text link it. (2026-11-20)
+- **The tester guide says how far each change to a Drobo is proven.**
+  `TESTING.md`, which ships in the install folder, now has a table of
+  every change the app can make on a Drobo -- Identify, LED brightness,
+  spin-down, share access, share create, share delete and DroboApps
+  Start/Stop -- with where it is in each app and whether it is proven on
+  a Drobo 5N, in the same sentences both apps show. It asks testers to
+  use a throwaway share for create and delete and to report the result's
+  words and colour, and to close the original Drobo Dashboard first. A
+  new "If your Drobo is not a 5N" section says which warnings may look
+  odd there and asks for a first session of reading only. (2026-11-20)
+- **The tester guide covers the first session's dead ends.** `TESTING.md`
+  now says how to type the Drobo's address when it is not found
+  (disconnect any VPN and press Refresh first), what happens with two
+  Drobos, what to copy from the agent's window if the app never gets past
+  the first screen, what Copy diagnostics masks and that the error
+  dialog's text copies with Ctrl+C, what the browser's download warning
+  looks like, and, in a new Updates section, that Check for Updates is
+  off on purpose and new versions are on the Releases page. (2026-11-20)
+- **The tester tasks say what each one needs.** `docs/testers-tasks.md`
+  has a "What you need" section: the installed app for some tasks, and
+  for the `py` commands and the capture a copy of the repository and
+  Python 3, which the installer does not carry. It says where the
+  Drobo's address is shown, and gives other models an installer route.
+  (2026-11-20)
 - **Both apps say which writes are not yet proven on a real Drobo, where
   the buttons are.** Nothing a tester could see said that share delete
   and DroboApps Start/Stop have never been sent to a real Drobo, or that
@@ -62,8 +94,9 @@ released. Every push to this repository carries this file.
   Drobo's name, share names and the tester's Windows user name have been
   removed (the agent's window can print a path under `C:\Users\`), and
   that no packet capture is attached, since one can hold the Drobo's
-  password. A blank issue is still allowed, and the issue chooser links
-  the tester guide. `TESTING.md` and `docs/testers-tasks.md` now point at
+  password. A blank issue was still allowed (blank issues were switched
+  off on 2026-11-20, above), and the issue chooser links the tester
+  guide. `TESTING.md` and `docs/testers-tasks.md` now point at
   the form, and `TESTING.md`, which ships in the install folder, now names
   what to remove before sending diagnostics instead of saying "anything
   you would rather not publish". (2026-11-08)
@@ -231,6 +264,47 @@ released. Every push to this repository carries this file.
   to 351. (2026-11-06)
 
 ### Changed
+- **The Tester report form asks what was changed, and blank issues are
+  off.** The form now asks whether the app found the Drobo (by itself,
+  only after the address was typed, or not at all), what was changed on
+  the Drobo, and what the app said about each change, with its colour.
+  The privacy checkbox accepts the copy Copy diagnostics makes for
+  posting, as well as values removed by hand. Blank issues are switched
+  off, and the issue chooser links `SECURITY.md` beside the tester
+  guide. (2026-11-20)
+- **One rule for pasting tool output.** `TESTING.md`,
+  `docs/testers-tasks.md` and `docs/captures/README.md` now say the same
+  thing: the console output of `nasd_sweep.py` and `drobo_probe.py` may
+  be pasted after reading; the decoded command list and
+  `access_codes.py`'s output only with share names, user names, serials
+  and addresses removed; and a capture file or the sweep's JSON report
+  never. (2026-11-20)
+- **The tester tasks no longer ask for anything wrong or risky.**
+  `docs/testers-tasks.md` gives the sweep its address argument
+  (`py tools/nasd_sweep.py <address>`) and `access_codes.py` its
+  `--host`; it no longer says the sweep asks for the cache battery (it
+  leaves that command out on purpose) or that the agent logs every
+  status document; it no longer asks anyone to pull a drive, since
+  nothing the agent shows or saves would keep the codes, and asks
+  instead for repeated Copy diagnostics from a Drobo that is already
+  degraded or rebuilding; and its Identify step is labelled as a write,
+  for real hardware only, after a first read-only session. (2026-11-20)
+- **Upgrading and uninstalling, said correctly.** `TESTING.md`, the
+  README and the release text say to close the app and the **Drobo
+  Dashboard REBORN - Agent** window before upgrading or uninstalling, and
+  that 1.1.0 and 1.2.0 upgrade in place. `TESTING.md`'s uninstall
+  description said a window waits for Enter; the Start Menu entry runs
+  Windows' own removal, the same as Settings > Apps, and it now says so.
+  (2026-11-20)
+- **The release text and the README say what is proven.** Every
+  Release's notes now say reading is verified on a Drobo 5N and that
+  share create, share delete and DroboApps Start/Stop are built but not
+  yet proven; that a tester on another model should keep to reading;
+  what to do when the Drobo is not found; and where to report privately
+  and find new versions. The README's write list gives each write's
+  status, no longer says Identify "stops on its own", says a real 5N
+  does not report Protection, and links the not-a-5N advice and
+  `SECURITY.md`. (2026-11-20)
 - **Copy diagnostics is safe to post in a public issue.** The Windows
   app's Copy diagnostics put the raw status JSON on the clipboard, and
   the saved file held a summary followed by the same JSON, so the

@@ -551,7 +551,9 @@ anything in this section.
 
 For its whole life this project only read. `eCmdIdentify` — blink the front
 lights so you can tell which box is which — was the first command it would
-send that changes anything, and it stops on its own. *(Observed 2026-08-07:
+send that changes anything; the original Dashboard's own warning says the
+lights blink for 15 minutes, and both apps say to press Stop when you are
+done (this said "it stops on its own" until 2026-11-20). *(Observed 2026-08-07:
 on this unit the device accepts it and the lights do nothing visible; "stops
 on its own" is the Dashboard's own "blink for 15 minutes" string, not
 something seen. Noted 2026-09-26: that observation covers an empty parameter

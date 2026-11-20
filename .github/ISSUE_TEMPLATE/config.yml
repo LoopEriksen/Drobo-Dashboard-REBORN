@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Tester guide
     url: https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/blob/main/windows/installer/TESTING.md
     about: Installing, first run, Smart App Control, and what a useful report holds.
+  - name: Report something privately
+    url: https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/blob/main/SECURITY.md
+    about: A security problem, or a report you would rather not post publicly.

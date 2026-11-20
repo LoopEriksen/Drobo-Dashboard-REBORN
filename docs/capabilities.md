@@ -57,8 +57,11 @@ convention.
   hold counts as refused too (since 2026-11-02). The send helpers check the block list
   themselves, so no code path reaches them by accident.
 - **One command is on the safe list** (`SAFE_WRITES`): Identify, which asks
-  the front lights to blink and, by the original Dashboard's own warning,
-  stops on its own (no blink has been seen on the one 5N tested). A command joins that list only if it
+  the front lights to blink. By the original Dashboard's own warning they
+  blink for 15 minutes, so both apps say to press Stop when you are done; no
+  blink has been seen on the one 5N tested, and that end has never been
+  watched (this said it "stops on its own" until 2026-11-20). A command
+  joins that list only if it
   touches no file and no disk pack, affects no availability, is reversible,
   and costs nothing worse than mild confusion when it goes wrong.
 - **Two commands are vetted** (`VETTED_WRITES`): they stay on the refused
@@ -235,6 +238,28 @@ convention.
   exact steps in [`testers-tasks.md`](testers-tasks.md). The README shows
   three screenshots of the browser dashboard, taken against the simulated
   Drobo; none of the Windows app yet, since those need a Windows PC.
+  Since 2026-11-20 (readiness S9-S11, S14; decisions D5, D6) the tester
+  documents say what an outside tester needs before a first session.
+  `TESTING.md` has a table of every change the app can make on a Drobo,
+  each marked proven on a Drobo 5N or not yet proven in the sentences both
+  apps show, an "If your Drobo is not a 5N" section, how to type the
+  Drobo's address (VPN off and Refresh first), the two-Drobo behaviour,
+  what to copy when the app never gets past the first screen, the masked
+  Copy diagnostics, closing the app and the Agent window before upgrading
+  or uninstalling, and an Updates section pointing at the Releases page.
+  One rule for pasting tool output is written the same in `TESTING.md`,
+  `testers-tasks.md` and `docs/captures/README.md`. `testers-tasks.md`
+  gained a "What you need" section, gives the sweep its address argument,
+  no longer asks anyone to pull a drive, and labels its Identify step as a
+  write. The Tester report form asks what was changed on the Drobo, what
+  the app said and whether it found the Drobo; blank issues are off; and
+  `SECURITY.md` offers a private route through GitHub's private
+  vulnerability reporting, which the maintainer switches on in the
+  repository's settings (until then its link leads to a disabled form).
+  The release text says reading is verified on a 5N and names the
+  unproven writes. None of this text has yet been read by an outside
+  tester; the form's YAML was checked to parse here, and GitHub renders
+  it only once it is on the default branch.
 - **License:** GPL-3.0-or-later since 2026-10-19 (the maintainer's
   decision; until then all rights were reserved). The verbatim text is
   `LICENSE` at the repository root, the SDK's package metadata declares the
