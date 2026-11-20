@@ -1,6 +1,7 @@
 ﻿<Window x:Class="DroboDashboardReborn.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DroboDashboardReborn"
         Title="Drobo Dashboard REBORN"
         Icon="Assets/AppIcon.ico"
         MinHeight="440" MinWidth="620"
@@ -1346,8 +1347,9 @@
                             <!-- IDENTIFY: the one control in the whole app that reaches out and
                                  changes something on the hardware, so it gets a card of its own
                                  rather than sitting alongside the read-only Actions row above.
-                                 Not scary, though — it only flashes the front lights, and it
-                                 stops on its own; see IdentifyBtn_Click in the code-behind for
+                                 Not scary, though — it only asks for the front lights to blink,
+                                 and the original Dashboard's own warning says the mode ends after
+                                 15 minutes (never watched on this unit); see IdentifyBtn_Click in the code-behind for
                                  the full reasoning. The plain-English line below is shown up
                                  front, before anyone clicks anything, on purpose — the user
                                  should never have to click first to find out what a button does. -->
@@ -1358,9 +1360,13 @@
                                          "stop on its own", which described a brief flash. Drobo
                                          Dashboard's own warning string says they blink CONTINUOUSLY
                                          for 15 minutes and the same button stops them — so it is a
-                                         mode, and a mode needs a way out. Hence the Stop button. -->
+                                         mode, and a mode needs a way out. Hence the Stop button.
+                                         Corrected again 2026-11-20: it promised blinking, and on
+                                         the one 5N tested no light moved at this setting. It now
+                                         says so and asks the tester to report what theirs did.
+                                         The words live in TesterNotes.cs. -->
                                     <TextBlock TextWrapping="Wrap" FontSize="13" Margin="0,0,0,10"
-                                               Text="Blinks the Drobo's front lights so you can tell which box is which. The original Dashboard's own warning says they blink for 15 minutes, so press Stop once you have found it. Nothing else on the device changes."/>
+                                               Text="{x:Static local:TesterNotes.IdentifyCardText}"/>
                                     <StackPanel Orientation="Horizontal">
                                         <Button x:Name="IdentifyBtn" Content="Identify" Style="{StaticResource PrimaryButton}"
                                                 Padding="14,5" Click="IdentifyBtn_Click"/>
@@ -1435,6 +1441,14 @@
                                         <Button x:Name="DroboAppsRefreshBtn" Grid.Column="1" Content="Refresh"
                                                 Style="{StaticResource SecondaryButton}" Click="DroboAppsRefreshBtn_Click"/>
                                     </Grid>
+
+                                    <!-- Start and Stop sit on every row below and have never been
+                                         sent to a real Drobo. Said here, before the first press,
+                                         in amber: nothing is wrong, but it is untried. The words
+                                         live in TesterNotes.cs. -->
+                                    <TextBlock TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                                               Foreground="#E9C98A" Background="#2E2311" Padding="10,8" Margin="0,0,0,10"
+                                               Text="{x:Static local:TesterNotes.DroboAppsActionUnproven}"/>
 
                                     <TextBlock x:Name="DroboAppsError" FontFamily="Consolas" FontSize="11"
                                                Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
@@ -1766,6 +1780,10 @@
                                                 </StackPanel>
                                                 <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
                                                            Text="Two levels are offered. 1 = read/write is confirmed. 0 is most likely no access (every share seen with it was unreachable), but that is not confirmed. A third level exists on the Drobo but its meaning has never been confirmed, so this app will not set it. 'Everyone' is the guest account every share has."/>
+                                                <!-- What has and has not been proven, from TesterNotes.cs. -->
+                                                <TextBlock TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
+                                                           Foreground="#E9C98A" Background="#2E2311" Padding="8,6" Margin="0,6,0,0"
+                                                           Text="{x:Static local:TesterNotes.ShareAccessNote}"/>
                                                 <TextBlock x:Name="AccessResult" Style="{StaticResource Label}" FontSize="12" FontFamily="Consolas"
                                                            TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                                             </StackPanel>

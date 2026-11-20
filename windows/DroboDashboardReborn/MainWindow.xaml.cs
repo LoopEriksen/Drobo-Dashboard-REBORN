@@ -4054,17 +4054,20 @@ public partial class MainWindow : Window
     /// SendAsync rather than the bare PostAsync(url, content) overload -- see
     /// the inline comment below for why.
     ///
-    /// Still genuinely low-stakes -- it only blinks some lights and stops on
-    /// its own -- so this doesn't dress it up as scary: no confirmation
-    /// dialog, no red styling, just the same PrimaryButton look as an
-    /// ordinary "do a thing" action elsewhere in the app. What it does get is
-    /// weight appropriate to being the only write in the app: a plain-English
-    /// line explaining the effect BEFORE the click (see the XAML, shown
-    /// unconditionally, not just on hover/tooltip), the button disabled for
-    /// the duration of the request so it can't be double-fired, and an honest
-    /// result afterwards -- the agent's own message text, never a guess, with
-    /// a SIMULATED chip whenever "simulated" comes back true so a demo blink
-    /// can never be mistaken for the real thing.
+    /// Still genuinely low-stakes -- it only asks for some lights to blink,
+    /// and the original Dashboard's own warning says the mode ends after 15
+    /// minutes (an end never watched on this unit) -- so this doesn't dress
+    /// it up as scary (on the one 5N tested, the default setting moved no
+    /// light at all; TesterNotes.IdentifyCardText says so before the click):
+    /// no confirmation dialog, no red styling, just the same PrimaryButton
+    /// look as an ordinary "do a thing" action elsewhere in the app. What it
+    /// does get is weight appropriate to being the only write in the app: a
+    /// plain-English line explaining the effect BEFORE the click (see the
+    /// XAML, shown unconditionally, not just on hover/tooltip), the button
+    /// disabled for the duration of the request so it can't be double-fired,
+    /// and an honest result afterwards -- the agent's own message text, never
+    /// a guess, with a SIMULATED chip whenever "simulated" comes back true so
+    /// a demo blink can never be mistaken for the real thing.
     /// </summary>
     private async void IdentifyBtn_Click(object sender, RoutedEventArgs e) =>
         await SendIdentify(query: "", busyLabel: "Identifying…");

@@ -177,7 +177,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree
 
-from . import backup, drivers, notify, pairing, qr, selection, updates, webui
+from . import (backup, drivers, notify, pairing, qr, selection,
+               tester_notes, updates, webui)
 from drobo_nasd import shares as nasd_shares
 from drobo_nasd import (config_cmd, discovery, droboapps, drobosync, esatm,
                         identify as nasd_identify, netcheck, sharewrite)
@@ -403,8 +404,13 @@ def _identify_message(interval, simulated: bool = False) -> str:
     been sent while someone watches the unit (see identify.py).
 
     Still unobserved, recorded 2026-09-26 and left for a separate
-    decision: the reply says the lights "should be blinking now", which
-    nobody has seen happen on this unit.
+    decision: the reply said the lights "should be blinking now", which
+    nobody has seen happen on this unit. The maintainer took that
+    decision on 2026-11-20: a tester told the lights should be
+    blinking, who then sees nothing, may doubt every other message in
+    the app. So the reply now says what was sent, what was seen on the
+    one 5N tested, and asks the tester to report what theirs did. The
+    sentences live in tester_notes, shared with the browser page.
     """
     device_label = "Simulated Drobo" if simulated else "The Drobo"
     if interval == nasd_identify.STOP_INTERVAL:
@@ -413,10 +419,43 @@ def _identify_message(interval, simulated: bool = False) -> str:
         return ("Sent with no interval -- the control case. If the lights "
                 "stay still now but blink when an interval is sent, that "
                 "settles what the parameter does.")
-    return (f"Sent with interval {interval}. {device_label}'s lights "
-            f"should be blinking now. The original Dashboard sent 900, "
-            f"and its own warning says the lights blink for 15 minutes, "
-            f"so use Stop when you have found the box.")
+    return (f"Sent with interval {interval}. "
+            f"{_identify_observation(interval, simulated)} The original "
+            f"Dashboard sent 900, and its own warning says the lights "
+            f"blink for 15 minutes, so press Stop when you are done.")
+
+
+#: The intervals sent to a real Drobo while someone watched it: 15, on
+#: 2026-08-07 (the empty control case went with it). Tied to that
+#: record rather than to DEFAULT_INTERVAL, so a later change of default
+#: cannot quietly claim a test that was never run. Add 900 here once
+#: part F of docs/hardware-session.md has sent it, and reword
+#: tester_notes.IDENTIFY_NOT_SEEN to match what was seen.
+_IDENTIFY_INTERVALS_WATCHED_ON_HARDWARE = (15,)
+
+
+#: What a simulated Identify says in place of the hardware record. No
+#: light exists to blink, so asking the tester to report one would ask
+#: for a result that cannot be had.
+_IDENTIFY_SIMULATED_OBSERVATION = (
+    "This is the simulated Drobo, so there are no lights to watch.")
+
+
+def _identify_observation(interval: int, simulated: bool = False) -> str:
+    """
+    What is known about this interval on real hardware, in a sentence.
+
+    Only one value has been watched on a real Drobo, and its lights did
+    not move; any other value has not been tried at all. Saying one
+    thing for both would either repeat an observation nobody made or
+    hide one that was. A simulated send gets neither, because both end
+    by asking the tester to report what the lights did.
+    """
+    if simulated:
+        return _IDENTIFY_SIMULATED_OBSERVATION
+    if interval in _IDENTIFY_INTERVALS_WATCHED_ON_HARDWARE:
+        return tester_notes.IDENTIFY_NOT_SEEN
+    return tester_notes.IDENTIFY_UNTRIED_INTERVAL
 
 
 def _app_action_message(name: str, action: str, read_back: dict | None,

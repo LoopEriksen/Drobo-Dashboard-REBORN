@@ -574,7 +574,8 @@ turned up seven more claims the code did not support:
 - The Windows app's admin sign-in was described as the device's own. It is a
   safety catch inside the app.
 - Two records said the software admits that nothing visibly changes on
-  Identify. It says the opposite: the lights "should be blinking now".
+  Identify. It says the opposite: the lights "should be blinking now"
+  (changed on 11-20, by decision D4; see below).
 - Share access code 0 was called confirmed in the Windows app's and the
   browser dashboard's help text, in two comments and in the capture script.
   Only code 1 is confirmed; the help text now says so.
@@ -895,7 +896,9 @@ in both apps' help text, is attributed to the original Dashboard's own
 warning, which is where it comes from. The default stays at 15, and the bytes
 sent are unchanged: 900 is sent only once someone is watching the unit, and
 the default moves only if the lights blink. The reply's "should be blinking
-now", which nobody has seen on this unit, is left for its own decision.
+now", which nobody has seen on this unit, is left for its own decision
+(taken on 11-20 as D4: the wording now says what was seen; see
+"Readiness for outside testers").
 
 ## Code written to be read (2026-10-29)
 
@@ -1306,6 +1309,45 @@ two Windows-only robocopy checks; flake8 is clean and both .NET builds
 give no warnings. Not proven here: the WPF picker itself, which needs
 Windows, and any of it against a real Drobo or two. No device write was
 added, no gate changed, and no byte sent to a Drobo is different.
+
+**Unproven writes, labelled.** Share create, share delete and DroboApps
+Start/Stop were offered in both apps, and nothing a tester could see
+said that delete and Start/Stop had never been sent to a real Drobo, or
+that create was applied once, before its acknowledgement fix, and not
+re-run since (M3); a tester could have been the first person ever to
+send one, on a device with no recovery tool, without knowing to use a
+throwaway share. Identify promised the lights "should be blinking now",
+which nobody had seen on this unit (S7). Under D1, D2 and D4 the writes
+are labelled at the point of use, not hidden: the New share dialog and
+the browser's "Add or remove shares", both delete confirmations, the
+DroboApps card and panel, and the share-access editor each carry one
+sentence saying what is unproven, and create and delete add that share
+changes on a Drobo with user accounts are untried, because every share
+write resends the user list as read and a populated one has never been
+seen (S3, a warning in words with no refusal, since refusing would also
+switch off share access, which is proven). Identify's card, in both
+apps, now says the lights did not visibly change on the one 5N tested at
+the setting this app sends and asks for a report; the agent's reply says
+the same at interval 15, the one value watched, calls any other interval
+untried, and on the simulator asks for nothing; the browser button reads
+"Identify". The sentences live in `tester_notes.py` and `TesterNotes.cs`,
+one place per front end, so they can be reworded after the hardware
+session, and a `test_agent.py` check fails, naming the sentence, if the
+two copies drift. Proven here: `test_agent.py` went from 391 checks to
+394, `test_identify_api.py` from 31 to 35 and `test_shares_api.py` from
+111 to 117, and with f939f86's `api.py` and `webui.py` restored, ten of
+the thirteen new Python checks failed (the package's review); the 31
+Python suites pass as before (the backup suite's two robocopy checks
+are Windows-only); flake8 is clean; both .NET builds give no warnings,
+which shows every `x:Static` name exists; and the Windows test
+program's six new TesterNotes checks run on Linux before its Credential
+Manager section (76 run here, from 70). Not proven
+here: that the amber notes render as intended in the WPF windows, which
+only a Windows PC can show, and the C# checks from the Credential
+Manager section on, which only CI runs. Words only: no device write was
+added, no gate moved, no byte or XML sent to a Drobo changed, and the
+default Identify interval stays 15 until part F of the hardware session
+has tried 900.
 
 ## The principles that emerged
 

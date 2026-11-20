@@ -16,6 +16,7 @@ switching the driver over to the real Drobo 5N.
 import atexit
 import contextlib
 import hashlib
+import html
 import http.client
 import io
 import json
@@ -36,7 +37,7 @@ from xml.etree import ElementTree
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from drobo_agent import api, config, drivers, notify, pairing, qr  # noqa: E402
-from drobo_agent import photos  # noqa: E402
+from drobo_agent import photos, tester_notes  # noqa: E402
 from drobo_agent.models import (  # noqa: E402
     Capacity, DeviceInfo, DriveSlot, PackHealth, SEVERITY_CRITICAL, Snapshot)
 from drobo_agent.monitor import Monitor, _PACK_STATUS_BASELINE  # noqa: E402
@@ -1297,6 +1298,49 @@ else:
           _rendered[0:1] == ["not reported by this Drobo"], _rendered)
     check("-- and a reported one as bytes",
           _rendered[1:2] == ["4.00 TB"], _rendered)
+
+# Said where the buttons are, since 2026-11-20: DroboApps Start/Stop
+# have never been sent to a real Drobo, and Identify moved no light on
+# the one 5N tested. The share-write notes are checked in
+# test_shares_api.py.
+check("the DroboApps panel says Start and Stop are untried",
+      html.escape(tester_notes.DROBOAPPS_ACTION_UNPROVEN).encode() in reply)
+check("Identify says what was seen instead of promising a blink",
+      html.escape(tester_notes.IDENTIFY_NOT_SEEN).encode() in reply
+      and b"Makes the Drobo blink" not in reply)
+
+
+def _windows_tester_notes():
+    """
+    The plain-literal sentences in the Windows app's TesterNotes.cs, by
+    C# name. The two front ends keep their own copy of the same words,
+    so this is what notices when one is reworded and the other is not.
+    """
+    notes_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "windows",
+        "DroboDashboardReborn", "TesterNotes.cs")
+    with open(notes_path, encoding="utf-8-sig") as notes_file:
+        source = notes_file.read()
+    sentences = {}
+    for match in re.finditer(
+            r'public const string (\w+) =((?:\s*\+?\s*"[^"]*")+);', source):
+        csharp_name, literals = match.groups()
+        sentences[csharp_name] = "".join(re.findall(r'"([^"]*)"', literals))
+    return sentences
+
+
+windows_notes = _windows_tester_notes()
+mismatched_notes = [
+    csharp_name for csharp_name, python_name in (
+        ("ShareCreateUnproven", "SHARE_CREATE_UNPROVEN"),
+        ("ShareDeleteUnproven", "SHARE_DELETE_UNPROVEN"),
+        ("DroboAppsActionUnproven", "DROBOAPPS_ACTION_UNPROVEN"),
+        ("ShareAccessUnproven", "SHARE_ACCESS_UNPROVEN"),
+        ("ShareWritesWithUserAccounts", "SHARE_WRITES_WITH_USER_ACCOUNTS"),
+        ("IdentifyNotSeen", "IDENTIFY_NOT_SEEN"))
+    if windows_notes.get(csharp_name) != getattr(tester_notes, python_name)]
+check("the Windows app says the same words as this page",
+      not mismatched_notes, mismatched_notes)
 
 print("\n== shares/discovery: /api/shares (503 before the device has ever "
       "been identified) ==")

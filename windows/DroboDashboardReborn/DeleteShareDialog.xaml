@@ -1,6 +1,7 @@
 ﻿<Window x:Class="DroboDashboardReborn.DeleteShareDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DroboDashboardReborn"
         Title="Delete share"
         Width="440" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -30,7 +31,15 @@
         <!-- Honest about the stakes, in the app's error colours: this is the
              one action in the app that destroys data on the Drobo. -->
         <TextBlock x:Name="WarningText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
-                   Foreground="#E2564B" Background="#301714" Padding="10,8" Margin="0,0,0,16"/>
+                   Foreground="#E2564B" Background="#301714" Padding="10,8" Margin="0,0,0,8"/>
+
+        <!-- This app's delete has never been sent to a real Drobo. Said
+             before the name is typed, in amber beside the red warning: the
+             red one is about the data, this one about the app. The words
+             live in TesterNotes.cs. -->
+        <TextBlock TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                   Foreground="#E9C98A" Background="#2E2311" Padding="10,8" Margin="0,0,0,16"
+                   Text="{x:Static local:TesterNotes.ShareDeleteNote}"/>
 
         <TextBlock Text="TYPE THE SHARE NAME TO CONFIRM" Style="{StaticResource Label}"/>
         <!-- Deliberately empty at first: the whole point is that the name has

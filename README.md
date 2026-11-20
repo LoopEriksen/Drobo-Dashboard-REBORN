@@ -99,8 +99,10 @@ the disk pack.
 
 It does make a small, deliberate set of changes, each through one audited path:
 
-- **Identify** (blink the front lights) -- the only command on the safe list;
-  it stops on its own.
+- **Identify** (asks the front lights to blink) -- the only command on the
+  safe list; the original Dashboard's own warning says it stops on its own
+  after 15 minutes. On the one Drobo 5N tested, the lights did not visibly
+  change at the setting this app sends, and both apps say so.
 - **LED brightness** and **drive spin-down delay** -- written by reading the
   device's live settings block, changing only what was asked for (one field,
   or two when spin-down is switched off), and echoing the rest back
@@ -110,11 +112,16 @@ It does make a small, deliberate set of changes, each through one audited path:
   original Dashboard), code 0 (most likely no access, but not confirmed --
   the safe direction to be wrong in), or a level already set on the device.
   It will not guess a permission.
+  Only the Everyone row is proven on a real Drobo; rows for named
+  accounts are untried, and both apps say so.
 - **Create a share** and **delete a share**. Deleting a share deletes
   everything in it; the API requires the name typed twice and the app makes
-  you retype it.
+  you retype it. Neither is yet proven on a real Drobo: create was applied
+  once, before its acknowledgement fix, and delete has never been sent to
+  one. Both apps say so where the buttons are.
 - **Start or stop an installed DroboApp**, validated against the list the
-  device itself reports.
+  device itself reports. Not yet tried on a real Drobo, and both apps say
+  so beside the buttons.
 
 Every settings and share write reads the device back afterwards and reports
 exactly one of: verified; verified but unacknowledged (the device closed the

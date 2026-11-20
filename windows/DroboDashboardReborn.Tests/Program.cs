@@ -273,6 +273,41 @@ Check("-- but a 404 about some other path is a refusal, not that",
       otherNotFound == DroboSelection.Outcome.Refused);
 
 // ---------------------------------------------------------------------------
+// TesterNotes -- the words that say which writes are not yet proven.
+//
+// Labels, not gates (decided 2026-11-20). What matters is that every place
+// a write is offered carries its sentence, and that the Identify card stops
+// promising a blink nobody has seen. Placed before the CredentialStore
+// section so it runs on any machine, not only on Windows.
+Console.WriteLine("\n== TesterNotes: unproven writes are labelled ==");
+Check("the Identify card no longer promises blinking",
+      !TesterNotes.IdentifyCardText.Contains("should be blinking")
+      && !TesterNotes.IdentifyCardText.StartsWith("Blinks"),
+      TesterNotes.IdentifyCardText);
+Check("-- it says what was seen and asks for the tester's result",
+      TesterNotes.IdentifyCardText.Contains(TesterNotes.IdentifyNotSeen));
+foreach (var (place, note, sentence) in new[]
+{
+    ("new-share dialog", TesterNotes.ShareCreateNote, TesterNotes.ShareCreateUnproven),
+    ("delete dialog", TesterNotes.ShareDeleteNote, TesterNotes.ShareDeleteUnproven),
+})
+{
+    Check($"the {place} names what is unproven and warns about user accounts",
+          note.StartsWith(sentence) && note.EndsWith(TesterNotes.ShareWritesWithUserAccounts), note);
+}
+// The share-access sentence folds the user-accounts warning into itself,
+// so the card's note is that sentence alone, not one with the warning
+// appended a second time.
+Check("the share-access card names what is unproven and warns about user accounts",
+      TesterNotes.ShareAccessNote == TesterNotes.ShareAccessUnproven
+      && TesterNotes.ShareAccessNote.Contains("user accounts")
+      && !TesterNotes.ShareAccessNote.EndsWith(TesterNotes.ShareWritesWithUserAccounts),
+      TesterNotes.ShareAccessNote);
+Check("the DroboApps note says Start and Stop are untried on a real Drobo",
+      TesterNotes.DroboAppsActionUnproven.Contains("real Drobo"));
+
+
+// ---------------------------------------------------------------------------
 // CredentialStore -- saving a Drobo login on this PC.
 //
 // These touch the REAL Windows Credential Manager, deliberately: a store that

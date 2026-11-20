@@ -7,6 +7,28 @@ released. Every push to this repository carries this file.
 ## Unreleased
 
 ### Added
+- **Both apps say which writes are not yet proven on a real Drobo, where
+  the buttons are.** Nothing a tester could see said that share delete
+  and DroboApps Start/Stop have never been sent to a real Drobo, or that
+  share create was applied once, before its acknowledgement fix, and not
+  re-run since. Now the Windows app's New share dialog and the browser's
+  "Add or remove shares" say creating a share is not yet proven and to
+  try a throwaway name first; both delete confirmations say this app's
+  delete has never been sent to a real Drobo and to try it first on an
+  empty share made for the purpose; the DroboApps card and the browser's
+  "Installed on the Drobo" panel say Start and Stop have not yet been
+  tried and ask for a Tester report if one misbehaves; and the share
+  access editor in both says, in one sentence, that only the Everyone
+  row is proven and that rows for named accounts, and share changes on a
+  Drobo with user accounts, are untried. The create and delete notes
+  also say share changes on a Drobo with user accounts have not been
+  tried, because every share write resends the Drobo's user list as it
+  was read and a list with accounts in it has never been seen. These are
+  labels, not refusals: nothing is hidden or blocked, no gate moves, and
+  nothing sent to a Drobo changes. The sentences live in
+  `agent/drobo_agent/tester_notes.py` for the agent and the browser and
+  in `TesterNotes.cs` for the Windows app, and `test_agent.py` checks the
+  two copies say the same words. (2026-11-20)
 - **The Drobo picked is the Drobo watched.** A new agent route, `POST
   /api/drobo/select`, takes `{"host": ..., "esa_id": ...}` (`esa_id`
   optional). It reads that address's status greeting -- no login, and
@@ -149,6 +171,20 @@ released. Every push to this repository carries this file.
   to 351. (2026-11-06)
 
 ### Changed
+- **Identify no longer promises that the lights are blinking.** The
+  Windows app's Identify card, the browser dashboard and the agent's
+  reply after a click said the lights should be blinking now, which
+  nobody has seen on the one Drobo 5N tested (2026-08-07: interval 15,
+  this app's default, and the empty control case; neither blinked). The
+  card text in both apps now says that on that unit the lights did not
+  visibly change at the setting this app sends, and asks the tester to
+  say in their report whether theirs blinked. The reply says the same
+  at interval 15; any other interval, 900 included, is called untried
+  on a real Drobo; and a send to the simulated Drobo says there are no
+  lights to watch and asks for no report. The browser's "Blink the
+  lights" button now reads "Identify", as in the Windows app; its id is
+  unchanged. The interval sent stays 15 until part F of
+  `docs/hardware-session.md` has tried 900. (2026-11-20)
 - **The agent names the config file it really uses.** The browser's token
   page said `agent/config.json` and the agent's start-up banner "this
   agent's config.json"; both now name the file the agent was started with, with the user's own folder

@@ -18,12 +18,18 @@ from __future__ import annotations
 
 import html
 
+from . import tester_notes
+
 #: Where the token page names the agent's config file; render_page
 #: fills it in. A marker rather than str.format, because the page is
 #: full of braces.
 CONFIG_FILE_MARKER = "__AGENT_CONFIG_FILE__"
 
-PAGE = r"""<!doctype html>
+#: The page as written, with @@NAME@@ where a sentence from
+#: tester_notes goes. _with_tester_notes() fills them in once, at
+#: import, so what is served is still one fixed page (render_page
+#: then fills in only the config file's name).
+_PAGE_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -325,6 +331,10 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
          never, and each fetch costs a command-port connection. -->
     <section class="panel" id="appsPanel" hidden>
       <h2>Installed on the Drobo</h2>
+      <!-- Start and Stop are offered on every row below, and neither has
+           been sent to a real Drobo yet. Said here, where the buttons are,
+           rather than only in the documents. -->
+      <p class="notice" id="appsUnproven">@@DROBOAPPS_ACTION_UNPROVEN@@</p>
       <div id="appsList"></div>
       <p class="set-result" id="appsResult" hidden></p>
       <p class="quiet activity-note" id="appsSdk"></p>
@@ -336,16 +346,20 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     <section class="panel" id="toolsPanel">
       <h2>Tools</h2>
       <div class="toolrow">
-        <button type="button" id="identifyBtn" class="btn">Blink the lights</button>
+        <!-- "Identify", as in the Windows app, since 2026-11-20. It read
+             "Blink the lights", which on the one 5N tested it has not
+             visibly done; the text beside it says so. -->
+        <button type="button" id="identifyBtn" class="btn">Identify</button>
         <button type="button" id="identifyStopBtn" class="btn btn-quiet">Stop</button>
         <!-- "It stops on its own" until 2026-08-06, which described a brief
              flash. Dashboard's own warning says the lights blink CONTINUOUSLY
              for 15 minutes and the same button stops them, so there is a Stop
-             here now. -->
-        <span class="quiet" id="identifyMsg">Makes the Drobo blink its front lights, so you
-          can tell which box is which. The original Dashboard's own warning
-          says they blink for 15 minutes -- press Stop once you have found
-          it.</span>
+             here now. Until 2026-11-20 this also promised blinking, which
+             nobody has seen on the one 5N tested; it now says so and asks. -->
+        <span class="quiet" id="identifyMsg">Asks the Drobo to blink its front
+          lights, so you can tell which box is which. @@IDENTIFY_NOT_SEEN@@
+          The original Dashboard's own warning says they blink for 15 minutes
+          -- press Stop when you are done.</span>
       </div>
       <div class="toolrow" style="margin-top:.6rem">
         <button type="button" id="appsBtn" class="btn btn-quiet">Show installed software</button>
@@ -433,6 +447,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
            unreachable), but that is not confirmed. A third level exists on the
            Drobo but its meaning has never been confirmed, so this page will not
            set it. "Everyone" is the guest entry every share has.</p>
+        <!-- The user-accounts warning is inside this sentence already. -->
+        <p class="notice" id="accessUnproven">@@SHARE_ACCESS_UNPROVEN@@</p>
         <p class="set-result" id="accessResult" hidden></p>
       </div>
       <!-- Static shell for creating and deleting shares; the per-share Delete
@@ -453,6 +469,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
            hyphens, starting with a letter or digit. The name is sent exactly
            as typed, so stray spaces around it are refused rather than
            silently trimmed.</p>
+        <p class="notice" id="createUnproven">@@SHARE_CREATE_UNPROVEN@@
+           @@SHARE_WRITES_WITH_USER_ACCOUNTS@@</p>
         <!-- The type-the-name confirmation, same gate as the Windows app's
              delete dialog: the button stays off until the box matches the
              share's name exactly, and what was typed is what gets sent as
@@ -461,6 +479,10 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
         <div class="notice" id="deleteConfirm" hidden>
           <b id="deleteHeadline"></b>
           <span id="deleteDetail"></span>
+          <!-- Static, so armShareDelete() cannot drop it: every delete
+               confirmation says that delete is unproven. -->
+          <span id="deleteUnproven" style="display:block;margin-top:.35rem">@@SHARE_DELETE_UNPROVEN@@
+            @@SHARE_WRITES_WITH_USER_ACCOUNTS@@</span>
           <div class="setrow" style="margin-top:.55rem">
             <input type="text" id="deleteConfirmInput" autocomplete="off"
                    placeholder="type the share's name">
@@ -852,7 +874,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // Both buttons share one function so start and stop cannot drift apart in
   // their error handling, and both go down together while either is in
   // flight: they hit the same command port, which measurably dislikes
-  // connection volume, and a Stop racing a Blink would land in an order
+  // connection volume, and a Stop racing an Identify would land in an order
   // nobody chose.
   function sendIdentify(query, working) {
     var btn = $("identifyBtn"), stop = $("identifyStopBtn"), msg = $("identifyMsg");
@@ -1754,6 +1776,36 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
 </body>
 </html>
 """
+
+#: Which tester_notes sentence fills which @@NAME@@ in the page.
+_TESTER_NOTE_PLACEHOLDERS = {
+    "@@DROBOAPPS_ACTION_UNPROVEN@@": tester_notes.DROBOAPPS_ACTION_UNPROVEN,
+    "@@IDENTIFY_NOT_SEEN@@": tester_notes.IDENTIFY_NOT_SEEN,
+    "@@SHARE_ACCESS_UNPROVEN@@": tester_notes.SHARE_ACCESS_UNPROVEN,
+    "@@SHARE_CREATE_UNPROVEN@@": tester_notes.SHARE_CREATE_UNPROVEN,
+    "@@SHARE_DELETE_UNPROVEN@@": tester_notes.SHARE_DELETE_UNPROVEN,
+    "@@SHARE_WRITES_WITH_USER_ACCOUNTS@@":
+        tester_notes.SHARE_WRITES_WITH_USER_ACCOUNTS,
+}
+
+
+def _with_tester_notes(page_template: str) -> str:
+    """
+    The page with every tester note written in, HTML-escaped.
+
+    Filled in Python rather than by the page's script, so the notes are
+    in the page as served and read even before the script runs -- and
+    so the agent's tests can find them there. Escaped because the
+    sentences are plain text with apostrophes in, kept in tester_notes
+    for the agent's replies as well as for this page.
+    """
+    page = page_template
+    for placeholder, sentence in _TESTER_NOTE_PLACEHOLDERS.items():
+        page = page.replace(placeholder, html.escape(sentence))
+    return page
+
+
+PAGE = _with_tester_notes(_PAGE_TEMPLATE)
 
 
 def render_page(config_file_display: str) -> str:

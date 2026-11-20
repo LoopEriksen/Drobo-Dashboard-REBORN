@@ -48,7 +48,7 @@ sys.path.insert(
     ),
 )
 
-from drobo_agent import api, config, notify  # noqa: E402
+from drobo_agent import api, config, notify, tester_notes  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 from drobo_nasd import identify  # noqa: E402
@@ -130,11 +130,31 @@ try:
           and "sent 900" in message
           and f"interval {identify.DEFAULT_INTERVAL}." in message,
           message)
+    # Until 2026-11-20 the reply promised blinking. On the one 5N
+    # tested, the default setting moved no light, so a tester who was
+    # promised one sees the app contradicted.
+    check("the reply no longer promises the lights are blinking",
+          "should be blinking" not in message, message)
+    # The HTTP replies here come from the simulated driver, which has no
+    # lights, so it must not ask the tester to report what they did.
+    check("-- and a simulated one does not ask what the lights did",
+          "Please say in your report" not in message, message)
+    # What a real Drobo's reply says is built by the same function; the
+    # hardware path itself needs a device, so it is asked directly.
+    real_message = api._identify_message(identify.DEFAULT_INTERVAL)
+    check("-- a real one says what was seen at this setting, and asks",
+          tester_notes.IDENTIFY_NOT_SEEN in real_message
+          and "should be blinking" not in real_message, real_message)
 
     status, reply = post("/api/identify?interval=45")
     check("a chosen interval is accepted", status == 200, (status, reply))
     check("...and arrives at the driver unchanged",
           driver._identify_last_interval == 45, driver._identify_last_interval)
+    untried_message = api._identify_message(45)
+    check("an interval nobody has watched is called untried, not unseen",
+          tester_notes.IDENTIFY_UNTRIED_INTERVAL in untried_message
+          and tester_notes.IDENTIFY_NOT_SEEN not in untried_message,
+          untried_message)
 
     # Zero is the stop guess, and it is falsy -- exactly the value an
     # `if interval:` somewhere in the chain would quietly turn into

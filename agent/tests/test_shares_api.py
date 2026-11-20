@@ -33,6 +33,7 @@ what the device actually holds afterwards. The two middles matter most
 failed, and one nobody can settle must never read as done.
 """
 import atexit
+import html
 import json
 import os
 import shutil
@@ -53,7 +54,7 @@ sys.path.insert(
     ),
 )
 
-from drobo_agent import api, config, notify  # noqa: E402
+from drobo_agent import api, config, notify, tester_notes  # noqa: E402
 from drobo_agent.drivers import MockDriver  # noqa: E402
 from drobo_agent.monitor import Monitor  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
@@ -676,6 +677,21 @@ try:
           b".set-result.warn" in page)
     check("-- chosen from the agent's outcome flag, not from the wording",
           b'j.outcome === "unknown" ? "warn" : false' in page)
+
+    print("\n== the web dashboard says which share writes are unproven ==")
+    # Labels, not gates (decided 2026-11-20): a tester must not be
+    # the first person ever to send a delete without being told so.
+    page_text = page.decode("utf-8")
+    for label, sentence in (
+            ("create", tester_notes.SHARE_CREATE_UNPROVEN),
+            ("delete", tester_notes.SHARE_DELETE_UNPROVEN),
+            ("share access", tester_notes.SHARE_ACCESS_UNPROVEN),
+            ("user accounts", tester_notes.SHARE_WRITES_WITH_USER_ACCOUNTS)):
+        check(f"the {label} note is on the page",
+              html.escape(sentence) in page_text, sentence)
+    check("the delete note is static, so arming a delete cannot drop it",
+          'id="deleteUnproven"' in page_text)
+    check("no note was left as a placeholder", "@@" not in page_text)
 finally:
     http_server.shutdown()
     monitor.stop()
