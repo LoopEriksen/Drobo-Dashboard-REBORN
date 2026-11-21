@@ -1234,7 +1234,11 @@ blocked by model in code; a Drobo that is not a 5N gets a true alert and
 a note to stay read-only. D4: the Identify wording changes now. D5:
 testers without GitHub, or with something sensitive, use GitHub's private
 vulnerability reporting through a short `SECURITY.md`, the setting
-switched on by the maintainer. D6: blank issues are switched off. D7:
+switched on by the maintainer. That covers the sensitive half only: a
+private report needs a GitHub account just as an issue does, so a tester
+without one still has no route in the repository itself, and reaches the
+maintainer only where the maintainer announces the release. D6: blank
+issues are switched off. D7:
 the update check stays dormant, and "Check for Updates" points at the
 Releases page. D8: checking the mail server's certificate waits. The
 fixes land as packages, one commit each, and the version stays 1.2.0
@@ -1481,20 +1485,20 @@ kept, the package's fuller wording with the code packages' "both apps
 say so", the two-Drobo reload advice moved under the new two-Drobo
 heading, and the list of placeholders and the warning that the agent's
 window is not masked carried into the new diagnostics section. The
-merge also moved the last two "stops on its own" claims for Identify,
-in `capabilities.md` and the roadmap, to the original Dashboard's
-15-minute warning, and added `SECURITY.md` to the document index.
-Proven here: both issue-form files parse as YAML with every option a
-string and every id unique, `release-notes.md` dry-fills with
-`installer.yml`'s `sed` leaving no placeholder, flake8 is clean, and the
-31 Python suites and the Windows test program are unchanged, since no
-code moved. Not proven here: how GitHub renders the form, which shows
-only once it is on the default branch. The private-report link was
-written as if private vulnerability reporting were still to be switched
-on, and this said that had to happen before the link reached `main`; the
-final review found it already on, a read-only query of the repository's
-setting answering enabled on 2026-11-20. Nothing here is code: no device
-write, no gate and no byte sent to a Drobo changed.
+merge also moved the last two "stops on its own" claims for Identify in
+the documents, in `capabilities.md` and the roadmap, to the original
+Dashboard's 15-minute warning (two SDK docstrings still say it), and added
+`SECURITY.md` to the document index. Proven here: both issue-form files
+parse as YAML with every option a string and every id unique,
+`release-notes.md` dry-fills with `installer.yml`'s `sed` leaving no
+placeholder, flake8 is clean, and the 31 Python suites and the Windows test
+program are unchanged, since no code moved. Not proven here: how GitHub
+renders the form, which shows only once it is on the default branch. The
+private-report link was written as if private vulnerability reporting were
+still to be switched on, and this said that had to happen before the link
+reached `main`; the final review found it already on, a read-only query of
+the repository's setting answering enabled on 2026-11-20. Nothing here is
+code: no device write, no gate and no byte sent to a Drobo changed.
 
 **11-21.** A final review of the six packages, made before any of them
 was pushed, found records claiming more than had happened and tester
@@ -1544,38 +1548,37 @@ serial. The same could happen before the route existed, when an agent
 with no serial pinned restarted on the other unit. Every route that
 changes a Drobo now takes an optional `esa_id` and is refused with a 409
 (`"reason": "another_drobo"`, labelled failed, both serials named)
-before any device is touched, on the simulator as on the real driver,
-when that serial is not the Drobo the agent watches; left out, the change goes ahead, so nothing that calls
-the API today breaks. `/api/shares` says which Drobo its list came
-from, which share changes send back, and a cached list of the previous
-Drobo is no longer handed out after a switch: a read begun before one
-could otherwise refill the cache the switch had emptied. The browser
-sends the list's serial with share changes (an armed delete the one it
-was armed on) and the latest reading's with the rest, and on a reading
-of another Drobo disarms the delete and reads its shares, settings and
-app list again; the app sends the same, its share dialogs keeping the
-serial their row was read from, and on a reading of another Drobo it
-clears the DroboApps list and the Settings tab and re-reads the Advanced
-Configuration card. Proven here: `test_agent.py` went from 407 checks to
-421 and `test_shares_api.py` from 117 to 122, and with the previous
-commit's agent code fifteen of the nineteen new checks failed, the
-recorder catching the delete sent to B's share as the review's had; the
-four that passed there check that a change named for the Drobo watched,
-or naming none, still goes through. A live run of the agent on
-two loopback greeting fakes, its share delete a recorder, answered the
-stale delete with the 409 and recorded nothing, then recorded the delete
-made against B. The page's own script, run in node against a stub page
-and a fake agent, sent the first Drobo's serial with a delete armed
-before the switch, disarmed it when the second Drobo's reading came, and
-sent the second's serial from the list read again. The Windows test
-program gains five checks of the body and of what counts as another
-Drobo, run here before its Credential Manager section (161, from 156);
-both .NET builds give no warnings; the 31 Python suites pass as before,
-the backup suite's two robocopy checks being Windows-only; flake8 is
-clean. Not proven here: the WPF app sending the serial and clearing its
-views, which only a Windows PC can show, and anything with two real
-Drobos. No device write was added, no gate moved, and no byte or XML
-sent to a Drobo changed.
+before any device is touched, on the simulator as on the real driver, when
+that serial is not the Drobo the agent watches; left out, the change goes
+ahead, so nothing that calls the API today breaks. `/api/shares` says which
+Drobo its list came from, which share changes send back, and a cached list
+of the previous Drobo is no longer handed out after a switch: a read begun
+before one could otherwise refill the cache the switch had emptied. The
+browser sends the list's serial with share changes (an armed delete the one
+it was armed on) and the latest reading's with the rest, and on a reading of
+another Drobo disarms the delete, reads its shares and settings again and
+puts its app list away until it is asked for; the app sends the same, its
+share dialogs keeping the serial their row was read from, and on a reading
+of another Drobo it clears the DroboApps list and the Settings tab and
+re-reads the Advanced Configuration card. Proven here: `test_agent.py` went
+from 407 checks to 421 and `test_shares_api.py` from 117 to 122, and with
+the previous commit's agent code fifteen of the nineteen new checks failed,
+the recorder catching the delete sent to B's share as the review's had; the
+four that passed there check that a change named for the Drobo watched, or
+naming none, still goes through. A live run of the agent on two loopback
+greeting fakes, its share delete a recorder, answered the stale delete with
+the 409 and recorded nothing, then recorded the delete made against B. The
+page's own script, run in node against a stub page and a fake agent, sent
+the first Drobo's serial with a delete armed before the switch, disarmed it
+when the second Drobo's reading came, and sent the second's serial from the
+list read again. The Windows test program gains five checks of the body and
+of what counts as another Drobo, run here before its Credential Manager
+section (161, from 156); both .NET builds give no warnings; the 31 Python
+suites pass as before, the backup suite's two robocopy checks being
+Windows-only; flake8 is clean. Not proven here: the WPF app sending the
+serial and clearing its views, which only a Windows PC can show, and
+anything with two real Drobos. No device write was added, no gate moved, and
+no byte or XML sent to a Drobo changed.
 
 ## The principles that emerged
 
@@ -1608,30 +1611,31 @@ What is built, what is in progress, and what is planned is kept current in
 [`capabilities.md`](capabilities.md). The open items, in the order they are
 worth doing: an elevated run of 1.2.0's lifecycle test on a real PC, since
 its only recorded run so far is on GitHub's runner; re-run share create on
-hardware since the acknowledgement fix; send share delete to a device for the first time; send Identify at 900 while
-watching the unit; copy a real Drobo share to an external drive once, which
-backup's grade waits on; start and stop a DroboApp on hardware for the first time;
-start the agent on a real PC before its Drobo can be found, which so far
-has been tested only against simulated discovery;
-give the remaining command-channel reads the whole-frame deadline the
-settings reads already have; one elevated install of the
-fallback scripts into the real Program Files;
-record the original Dashboard creating and deleting a user, which user
-management now waits on; decide whether the email backend should check
-the mail server's certificate (found 2026-11-02, while adding port 465)
-and whether a reply naming an XML encoding Python does not know should be
-answered rather than drop the connection (found 2026-11-05, in review),
-the two faults left in the roadmap's list that wait on the maintainer
-(the faults the readability pass recorded on 2026-10-29 were fixed on
-2026-11-02 and the LED and DroboSync hang-up found that day on
-2026-11-05, and the list's two `esatm` readings on 2026-11-20,
-leaving those two alone); and then the phases that need what this project does not have: a Mac for iOS, a second unit for DroboSync, a
+hardware since the acknowledgement fix; send share delete to a device for
+the first time; send Identify at 900 while watching the unit; copy a real
+Drobo share to an external drive once, which backup's grade waits on; start
+and stop a DroboApp on hardware for the first time; start the agent on a
+real PC before its Drobo can be found, which so far has been tested only
+against simulated discovery; give the remaining command-channel reads the
+whole-frame deadline the settings reads already have; one elevated install
+of the fallback scripts into the real Program Files; record the original
+Dashboard creating and deleting a user, which user management now waits on;
+decide whether the email backend should check the mail server's certificate
+(found 2026-11-02, while adding port 465) and whether a reply naming an XML
+encoding Python does not know should be answered rather than drop the
+connection (found 2026-11-05, in review), the two faults left in the
+roadmap's list that wait on the maintainer (the faults the readability pass
+recorded on 2026-10-29 were fixed on 2026-11-02 and the LED and DroboSync
+hang-up found that day on 2026-11-05, and the list's two `esatm` readings on
+2026-11-20, leaving those two alone); and then the phases that need what
+this project does not have: a Mac for iOS, a second unit for DroboSync, a
 redundant pack to degrade for the status codes. The licence is no longer
 open: it was settled as GPL-3.0-or-later on 2026-10-19.
 
 One question was closed rather than answered on 2026-09-05: the software will
 not be code-signed, because this is not a for-profit project. That is a
-deliberate trade — an unsigned installer warns on first run, and a machine with
-Smart App Control switched on will not run the Windows app at all until its
-owner switches SAC off. The browser dashboard, served by a Python runtime that
-carries the Python Software Foundation's own signature, is unaffected.
+deliberate trade — an unsigned installer warns on first run, and a machine
+with Smart App Control switched on will not run the Windows app at all until
+its owner switches SAC off. The browser dashboard, served by a Python
+runtime that carries the Python Software Foundation's own signature, is
+unaffected.

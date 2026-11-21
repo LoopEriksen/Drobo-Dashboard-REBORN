@@ -239,7 +239,8 @@ passwords and no access token, and it never has.
 Tools tab -> Copy diagnostics gives you a copy made for posting in a public
 issue, on the clipboard or in a file. The Drobo's serial number, name and
 address, every drive serial, volume names, event-log messages, other network
-addresses and the Windows user name in any path are replaced with
+addresses and the Windows user name in a profile path such as `C:\Users\your-name\...`
+are replaced with
 placeholders such as SERIAL-1, NAME-1, ADDRESS-1, DRIVE-SERIAL-1, VOLUME-1,
 EVENT-1, NETWORK-1 and USER-1, and the same value always gets the same
 placeholder. The model, firmware, states and figures are kept, because they

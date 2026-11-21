@@ -18,7 +18,7 @@ form. Anything that should not be public goes through the private route in
   [Releases page](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/releases)
   -- see the [tester guide](../windows/installer/TESTING.md). Nothing else.
 - **For the `py tools/...` and `py agent/...` commands and the capture**
-  (entries 1, 3, 4 and the source route in 5): a copy of this repository
+  (entries 1, 3, 4, 7 and the source route in 5): a copy of this repository
   (on GitHub, **Code** -> **Download ZIP**, then unzip it), and Python 3 from
   [python.org](https://www.python.org/downloads/) with "Add Python to PATH"
   ticked during setup. Run each command in a Command Prompt opened in the
@@ -26,7 +26,8 @@ form. Anything that should not be public goes through the private route in
   `CAPTURE DROBO COMMANDS (run me).bat`, which runs a decoder from `tools/`
   with that Python.
 - **Your Drobo's address**, where a command asks for one: the Windows app
-  shows it on the **Settings** tab, under **The Drobo**, as **IP address**;
+  shows it on the **Settings** tab, under **The Drobo**, as **IP address**
+  once you press **Refresh** there;
   the browser dashboard shows it in its **Network & shares** panel. Where a
   command below says `<address>`, type that address in its place, for
   example `192.0.2.10`.
@@ -218,10 +219,16 @@ rejected.
 1. **Change Drobo finishes its search** (fixed 2026-11-02). Open the
    simulated Drobo, press **Change Drobo**, and wait. The picker must leave
    "Searching..." and list the Drobos it found. Then, on the picker, add
-   an address under **ADD A DROBO MANUALLY**, untick **Automatically
-   search the network for Drobos**, open a Drobo and press **Change
+   an address under **ADD A DROBO MANUALLY** and untick **Automatically
+   search the network for Drobos**. The picker now lists only the address
+   you added. Do not press its **Connect →**: on the simulator that is
+   refused on purpose, because the simulated agent only ever shows the
+   simulated Drobo. Instead open the simulated Drobo with the **Connect**
+   beside **AGENT** in the picker's **SETTINGS**, then press **Change
    Drobo** again: the picker must show the address you added, not
-   "Searching...".
+   "Searching...". Finish by ticking **Automatically search the network
+   for Drobos** again (the setting is remembered), so step 2's picker can
+   list the simulated Drobo.
 2. **Answers that arrive late stay with the Drobo they were for** (fixed
    2026-11-02). The fault itself needs an agent that answers some
    requests and stalls on others, which a tester cannot arrange, so this

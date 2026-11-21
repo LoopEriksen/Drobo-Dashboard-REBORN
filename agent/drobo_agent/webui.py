@@ -1252,8 +1252,9 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // was switched (POST /api/drobo/select, from here or from the Windows
   // app) or restarted on the other unit. What was read from the first one
   // and could be acted on -- the armed delete, the share list, the settings
-  // and the app list -- is put away with the results of its changes, and
-  // read again from the new one.
+  // and the app list -- is put away with the results of its changes. The
+  // shares and settings are read again from the new one; the app list
+  // waits until its button is pressed, as it always has.
   function noticeWhichDrobo(serial) {
     if (!serial || serial === shownEsaId) return;
     var switched = isAnotherDrobo(shownEsaId, serial);

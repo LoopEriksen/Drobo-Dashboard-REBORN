@@ -98,8 +98,8 @@ released. Every push to this repository carries this file.
   removed (the agent's window can print a path under `C:\Users\`), and
   that no packet capture is attached, since one can hold the Drobo's
   password. A blank issue was still allowed (blank issues were switched
-  off on 2026-11-20, below, under Changed), and the issue chooser links the tester
-  guide. `TESTING.md` and `docs/testers-tasks.md` now point at
+  off on 2026-11-20, below, under Changed), and the issue chooser links
+  the tester guide. `TESTING.md` and `docs/testers-tasks.md` now point at
   the form, and `TESTING.md`, which ships in the install folder, now names
   what to remove before sending diagnostics instead of saying "anything
   you would rather not publish". (2026-11-08)
@@ -131,8 +131,9 @@ released. Every push to this repository carries this file.
   one their share list came from (an armed delete the one its row was
   armed on), the rest the Drobo of the latest reading. A reading of
   another Drobo puts away what was read from the first: the browser
-  dashboard disarms an armed delete and reads its shares, settings and
-  app list again; the Windows app clears its DroboApps list and the
+  dashboard disarms an armed delete, reads its shares and settings
+  again, and puts its app list away until it is asked for again; the
+  Windows app clears its DroboApps list and the
   Settings tab's network settings and re-reads the Advanced
   Configuration card's values. Nothing sent to a Drobo changed, and no
   route, key or gate was renamed or moved. Tested against two loopback
@@ -198,8 +199,9 @@ released. Every push to this repository carries this file.
   created if needed, writing it never throws, and past 1 MB the file is
   cut back to its newest half. An error on one of the app's own threads,
   which still ends the app, is now logged and shown first, and an
-  unobserved background-task error is logged rather than swallowed. Like `config.json` and `settings.json`,
-  `app.log` is kept on uninstall. The formatting, masking and trimming
+  unobserved background-task error is logged rather than swallowed.
+  Like `config.json` and `settings.json`, `app.log` is kept on
+  uninstall. The formatting, masking and trimming
   are tested off Windows; the handlers firing in the running app have
   not yet been seen on a PC. (2026-11-20)
 - **Connect in the Windows app opens the Drobo that was clicked.** The
@@ -323,10 +325,11 @@ released. Every push to this repository carries this file.
   instead for repeated Copy diagnostics from a Drobo that is already
   degraded or rebuilding; and its Identify step is labelled as a write,
   for real hardware only, after a first read-only session. (2026-11-20)
-- **Upgrading and uninstalling, said correctly.** `TESTING.md`, the
-  README and the release text say to close the app and the **Drobo
-  Dashboard REBORN - Agent** window before upgrading or uninstalling, and
-  that 1.1.0 and 1.2.0 upgrade in place. `TESTING.md`'s uninstall
+- **Upgrading and uninstalling, said correctly.** `TESTING.md` and the
+  README say to close the app and the **Drobo Dashboard REBORN - Agent**
+  window before upgrading or uninstalling, the release text says it for
+  installing over an older version, and all three say that 1.1.0 and
+  1.2.0 upgrade in place. `TESTING.md`'s uninstall
   description said a window waits for Enter; the Start Menu entry runs
   Windows' own removal, the same as Settings > Apps, and it now says so.
   (2026-11-20)
@@ -391,14 +394,15 @@ released. Every push to this repository carries this file.
   `docs/hardware-session.md` has tried 900. (2026-11-20)
 - **The agent names the config file it really uses.** The browser's token
   page said `agent/config.json` and the agent's start-up banner "this
-  agent's config.json"; both now name the file the agent was started with, with the user's own folder
-  written as `%LOCALAPPDATA%`, `%USERPROFILE%` or `~` (an installed copy's
-  is `%LOCALAPPDATA%\DroboDashboardReborn\config.json`). The "cannot
-  reach" advice names that file too, says to disconnect a VPN, points to
-  the address box, and gives the `py tools/drobo_probe.py mdns` hint only
-  in a copy of the source, the only place that tool exists. An agent that
-  finds only a different Drobo at start-up still refuses to start, and
-  its message now names the actual file to edit. (2026-11-20)
+  agent's config.json"; both now name the file the agent was started with,
+  with the user's own folder written as `%LOCALAPPDATA%`, `%USERPROFILE%`
+  or `~` (an installed copy's is
+  `%LOCALAPPDATA%\DroboDashboardReborn\config.json`). The "cannot reach"
+  advice names that file too, says to disconnect a VPN, points to the
+  address box, and gives the `py tools/drobo_probe.py mdns` hint only in a
+  copy of the source, the only place that tool exists. An agent that finds
+  only a different Drobo at start-up still refuses to start, and its
+  message now names the actual file to edit. (2026-11-20)
 - **Release notes say what this is and where to start.** Every Release's
   notes now open with one sentence on what the software is and which
   Drobos it has been verified on, and link the tester guide, the tester

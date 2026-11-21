@@ -250,8 +250,9 @@ repository, through the
 [Tester report](https://github.com/LoopEriksen/Drobo-Dashboard-REBORN/issues/new?template=tester-report.yml)
 form. Never attach a packet capture: this protocol is unencrypted, and a
 capture can carry the Drobo password. An issue is public: the app's Tools tab
--> Copy diagnostics gives a copy made for posting (from 1.2.1; 1.2.0's is not
-masked), with serials, names and addresses replaced by placeholders, and the
+-> Copy diagnostics gives a copy made for posting (in releases after 1.2.0;
+1.2.0's is not masked), with serials, names and addresses replaced by
+placeholders, and the
 testers' guide says what it masks. Read it before you paste it all the same.
 Something you would rather not post publicly goes through the private route
 in [`SECURITY.md`](SECURITY.md).
