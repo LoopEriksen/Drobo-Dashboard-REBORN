@@ -29,7 +29,9 @@ released. Every push to this repository carries this file.
   now says how to type the Drobo's address when it is not found
   (disconnect any VPN and press Refresh first), what happens with two
   Drobos, what to copy from the agent's window if the app never gets past
-  the first screen, what Copy diagnostics masks and that the error
+  the first screen, what to do when another program holds the agent's
+  port (the app's AGENT address does not follow a changed `agent.port`,
+  so it is set by hand), what Copy diagnostics masks and that the error
   dialog's text copies with Ctrl+C, what the browser's download warning
   looks like, and, in a new Updates section, that Check for Updates is
   off on purpose and new versions are on the Releases page. (2026-11-20)
@@ -78,9 +80,10 @@ released. Every push to this repository carries this file.
   address box while the Drobo cannot be reached; a Drobo that is not the
   paired one is refused there with both serials named, and the box then
   offers a deliberate "Watch <name> (<serial>) instead" button. On the
-  simulated Drobo, a real address is refused with advice to start the
-  real agent. Tested against loopback fakes, not yet on a real Drobo or
-  in the Windows app on a PC. Known limit: a page already open on one
+  simulated Drobo, a real address is refused with advice to exit the
+  app, which stops the simulator, and start the real agent. Tested
+  against loopback fakes, not yet on a real Drobo or in the Windows app
+  on a PC. Known limit: a page already open on one
   Drobo sends its writes to whichever Drobo the agent watches when they
   are sent, so reload any open page after switching. (2026-11-20)
 - **A Tester report issue form.** Opening an issue on this repository now
@@ -95,7 +98,7 @@ released. Every push to this repository carries this file.
   removed (the agent's window can print a path under `C:\Users\`), and
   that no packet capture is attached, since one can hold the Drobo's
   password. A blank issue was still allowed (blank issues were switched
-  off on 2026-11-20, above), and the issue chooser links the tester
+  off on 2026-11-20, below, under Changed), and the issue chooser links the tester
   guide. `TESTING.md` and `docs/testers-tasks.md` now point at
   the form, and `TESTING.md`, which ships in the install folder, now names
   what to remove before sending diagnostics instead of saying "anything
@@ -122,8 +125,9 @@ released. Every push to this repository carries this file.
   the app; if it never answers, the app opens anyway and the launcher
   says to look at the agent's window. On a Windows 10 older than version
   1803, which has no `curl.exe`, it starts the agent and waits 5 seconds
-  instead. Proven only by CI's installer job, not yet on a tester's PC.
-  (2026-11-20)
+  instead. The checks for this run only in CI's installer job, which had
+  not run them when this was written, and it has not been tried on a
+  tester's PC. (2026-11-20)
 - **A second agent explains itself and closes.** The agent now claims
   its port before it looks for the Drobo. When the port is taken it
   prints one sentence instead of a traceback: "An agent is already
@@ -136,10 +140,12 @@ released. Every push to this repository carries this file.
   own window after 10 seconds. On Windows the agent's server no longer
   asks for `SO_REUSEADDR`, which there lets a second agent bind beside
   the first, both then reading the Drobo (reasoned from Windows'
-  documented behaviour; CI's Windows runner checks that the second bind
-  now fails); `SO_REUSEPORT` is refused everywhere. `test_agent.py` gains twelve checks for this, all on
-  loopback, and `windows/test-installer.ps1` gains thirteen for the
-  launcher, the guide and the tooltip below. (2026-11-20)
+  documented behaviour; the check that the second bind now fails runs
+  only on CI's Windows runner, which had not run it when this was
+  written); `SO_REUSEPORT` is refused everywhere. `test_agent.py` gains
+  twelve checks for this, all on loopback, and
+  `windows/test-installer.ps1` gains thirteen for the launcher, the guide
+  and the tooltip below. (2026-11-20)
 - **The Uninstall shortcut no longer claims to remove your settings.**
   Its tooltip said it removed "its settings and its access token". It
   never did: both are kept in `%LOCALAPPDATA%\DroboDashboardReborn`, as

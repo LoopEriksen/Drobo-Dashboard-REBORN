@@ -2967,6 +2967,14 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         file: the simulated launcher runs the agent on its own
         config.mock.json, and setting "driver": "drobo5n" there would
         quietly turn the testing launcher into a real-device one.
+
+        And to exit the app first, because that is what stops the
+        simulator: the launcher starts this agent hidden and stops it
+        when the app exits. Until the final review of 2026-11-20 this
+        said to close "the simulated agent's window", which does not
+        exist; closing the one window there is, the launcher's, can
+        leave the simulator holding the port, where the real launcher
+        takes it for the real agent.
         """
         if request.host == selection.SIMULATED_HOST:
             return self._send_json({
@@ -2978,10 +2986,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             "simulated",
             f"This agent is running the simulated Drobo, so it cannot "
             f"watch the Drobo at {request.host}. Nothing was changed. To "
-            f"watch a real one, close the simulated agent's window, "
-            f"then start the real agent with START DROBO DASHBOARD.bat, "
-            f"or with Drobo Dashboard REBORN from the Start menu if it "
-            f"is installed.", host=request.host), 409)
+            f"watch a real one, exit the app (with Exit on its tray "
+            f"icon, if closing its window only hides it), which stops "
+            f"the simulated Drobo, then start the real agent with START "
+            f"DROBO DASHBOARD.bat, or with Drobo Dashboard REBORN from "
+            f"the Start menu if it is installed.", host=request.host), 409)
 
     def _config_file_display(self) -> str:
         """The agent's config file as display_path shows it, or

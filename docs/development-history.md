@@ -1489,11 +1489,44 @@ string and every id unique, `release-notes.md` dry-fills with
 `installer.yml`'s `sed` leaving no placeholder, flake8 is clean, and the
 31 Python suites and the Windows test program are unchanged, since no
 code moved. Not proven here: how GitHub renders the form, which shows
-only once it is on the default branch, and the private-report link,
-which leads to a disabled form until the maintainer switches private
-vulnerability reporting on in the repository's settings; that must
-happen before this reaches `main`. Nothing here is code: no device
+only once it is on the default branch. The private-report link was
+written as if private vulnerability reporting were still to be switched
+on, and this said that had to happen before the link reached `main`; the
+final review found it already on, a read-only query of the repository's
+setting answering enabled on 2026-11-20. Nothing here is code: no device
 write, no gate and no byte sent to a Drobo changed.
+
+**11-21.** A final review of the six packages, made before any of them
+was pushed, found records claiming more than had happened and tester
+text that would send a tester wrong. Three records said CI had run or
+proven checks that nothing had run: none of the commits had been
+pushed, so neither `installer.yml` nor `tests.yml` had seen the
+launcher's thirteen new checks or the check of the Windows bind; they
+now say those checks run only there and had not run when this was
+written. `TESTING.md`, which ships in the install folder, said the report
+form asks testers to confirm they had read the diagnostics; its required
+boxes ask instead whether the copy made for posting was used, or the
+values removed by hand, and whether a capture is attached, and the
+sentence now says that. It also told a tester whose port was taken to
+change `agent.port` without saying that the Windows app does not follow
+it: the app's AGENT box starts at `http://127.0.0.1:7420` at every launch
+(readiness C3, still open), so it now gives that step, and first
+suggests closing the other program and saying which one it was. The
+README, the tester tasks and the agent's own refusal of a real address
+on the simulator said to close "the simulated agent's window", which
+does not exist: `START WITH SIMULATED DROBO (testing).bat` starts that
+agent hidden and stops it when the app exits, and closing the launcher's
+window instead can leave the simulator holding port 7420, where the
+installed launcher, which only asks `/api/ping`, takes it for the real
+agent, and the app's token is then refused. All three now say to exit
+the app. The changelog pointed "above" for an entry that is below, and
+two records still had private vulnerability reporting waiting to be
+switched on. Proven here: `test_agent.py` went from 406 checks to 407,
+the new one, on the simulator's advice, failing against the old
+sentence; the 31 Python suites pass as before, the backup suite's two
+robocopy checks being Windows-only; flake8 is clean. The .NET builds
+and the Windows test program are unchanged, since no C# moved. No
+device write, no gate and no byte sent to a Drobo changed.
 
 ## The principles that emerged
 

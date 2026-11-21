@@ -144,11 +144,17 @@ lands on the Drobo you just switched to.
   diagnostics (below), the agent's window is not masked, and it can show
   your Drobo's address, its serial and your Windows user name in a path.
 - If the agent window says **Another program is using port 7420; change
-  agent.port in ...**, something else on this PC has the agent's port. Close
-  that program, or change `agent.port` in the file the message names. If it
-  says **An agent is already running on port 7420; this one will close.**,
-  nothing is wrong: one agent is already running, and that window closes by
-  itself.
+  agent.port in ...**, something else on this PC has the agent's port. The
+  simplest way out is to close that program, start Drobo Dashboard REBORN
+  again, and say in your report which program it was. If you cannot close
+  it, change `agent.port` in the file the message names. The launcher and
+  the agent follow that setting, but the app does not: each time you open
+  the app, set **AGENT** in the **SETTINGS** under its list of Drobos to
+  `http://127.0.0.1:<the new port>` and press the **Connect** beside it.
+  The browser dashboard is then at that address too, not at 7420.
+- If the agent window says **An agent is already running on port 7420;
+  this one will close.**, nothing is wrong: one agent is already running,
+  and that window closes by itself.
 
 ## If your Drobo is not a 5N
 
@@ -233,7 +239,8 @@ EVENT-1, NETWORK-1 and USER-1, and the same value always gets the same
 placeholder. The model, firmware, states and figures are kept, because they
 are what explains a problem. Paste or attach it as it is; give it a quick
 read first: the masking is a safety net, not a promise that nothing slipped
-through, and the form asks you to confirm you have read it. The button
+through. The form asks you to confirm that you used this copy, or removed
+those values by hand. The button
 beside it, "Unmasked copy (not for posting)", gives the same report with the
 real values, for your own use only; its file name says UNMASKED. (Version 1.2.0's
 Copy diagnostics is not masked: on 1.2.0, remove those values by hand.)

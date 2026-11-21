@@ -107,7 +107,7 @@ raises the "cannot reach" alert, and that `--once` says why it took no
 reading, and that `POST /api/drobo/select` watches the Drobo picked and
 refuses the rest. Last, it starts a second agent on a port a simulated agent
 already holds, and on one a bare socket holds, and checks the sentence each
-closes with; no Drobo is contacted. 406 checks as of 2026-11-20 (the number grows with
+closes with; no Drobo is contacted. 407 checks as of 2026-11-21 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.

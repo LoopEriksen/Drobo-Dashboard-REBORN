@@ -202,9 +202,14 @@ says otherwise.
 **What to do:** start `START WITH SIMULATED DROBO (testing).bat` from a copy
 of the repository (the installer does not include it) and report, for each
 step, what you saw if it differs from what it says. The simulated agent only
-ever shows the simulated Drobo. To use your real Drobo, close the simulated
-agent's window and start START DROBO DASHBOARD.bat, or Drobo Dashboard REBORN
-from the Start menu if it is installed.
+ever shows the simulated Drobo, and it has no window of its own: it stops
+when the app exits. To use your real Drobo, exit the app (with Exit on its
+tray icon, if closing its window only hides it), which stops the simulated
+Drobo, then start START DROBO DASHBOARD.bat, or Drobo Dashboard REBORN from
+the Start menu if it is installed. Do not close the launcher's window
+instead: that can leave the simulator running unseen on port 7420; the real
+launcher then takes it for the real agent, and the app says its token was
+rejected.
 
 1. **Change Drobo finishes its search** (fixed 2026-11-02). Open the
    simulated Drobo, press **Change Drobo**, and wait. The picker must leave

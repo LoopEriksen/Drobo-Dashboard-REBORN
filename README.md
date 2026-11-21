@@ -84,10 +84,15 @@ the list; after that it remembers and goes straight there.
 
 No Drobo at hand? Double-click **`START WITH SIMULATED DROBO (testing).bat`**
 instead. It runs the same software against a built-in simulator, no hardware
-needed. The simulated agent only ever shows the simulated Drobo. To use your
-real Drobo, close the simulated agent's window and start
-`START DROBO DASHBOARD.bat`, or Drobo Dashboard REBORN from the Start menu if
-it is installed.
+needed. The simulated agent only ever shows the simulated Drobo, and it has no
+window of its own: it stops when the app exits. To use your real Drobo, exit
+the app (with Exit on its tray icon, if closing its window only hides it), or,
+if only the browser dashboard opened, press Enter in the launcher's window.
+That stops the simulated Drobo. Then start `START DROBO DASHBOARD.bat`, or
+Drobo Dashboard REBORN from the Start menu if it is installed. Closing the
+launcher's window while the app is open can leave the simulator running
+unseen on port 7420; the real launcher then takes it for the real agent, and
+the app says its token was rejected.
 
 Doing it by hand, building the Windows app, and running the tests are covered
 under [Running it by hand](#running-it-by-hand) below.

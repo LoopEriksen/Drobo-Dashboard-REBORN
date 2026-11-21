@@ -1,5 +1,5 @@
 # Drobo Dashboard REBORN — roadmap
-_Last updated: 2026-11-20_
+_Last updated: 2026-11-21_
 
 **This is how we develop the software.** When work drifts or a decision feels
 unclear, come back here first. The phases below are the maintainer's, recorded

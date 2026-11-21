@@ -3406,6 +3406,14 @@ try:
           "the real driver in the simulator's own config file",
           "START DROBO DASHBOARD.bat" in reply.get("error", "")
           and "drobo5n" not in reply.get("error", ""), reply.get("error"))
+    # The simulated launcher starts this agent hidden and stops it when
+    # the app exits. Until the final review of 2026-11-20 the advice
+    # was to close "the simulated agent's window", which does not exist.
+    check("-- after exiting the app, which stops the simulator, not "
+          "after closing an agent window the simulated launcher never "
+          "shows", "exit the app" in reply.get("error", "")
+          and "agent's window" not in reply.get("error", ""),
+          reply.get("error"))
 finally:
     _mock_select_server.shutdown()
     _mock_select_server.server_close()
