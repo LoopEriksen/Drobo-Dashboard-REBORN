@@ -174,7 +174,10 @@ released. Every push to this repository carries this file.
   written); `SO_REUSEPORT` is refused everywhere. `test_agent.py` gains
   twelve checks for this, all on loopback, and
   `windows/test-installer.ps1` gains thirteen for the launcher, the guide
-  and the tooltip below. (2026-11-20)
+  and the tooltip below. Their first CI run (2026-11-21) failed five of
+  them through a fault in the test itself, which read a count of one
+  agent as blank; the behaviour they check had worked, and the test is
+  fixed. (2026-11-20)
 - **The Uninstall shortcut no longer claims to remove your settings.**
   Its tooltip said it removed "its settings and its access token". It
   never did: both are kept in `%LOCALAPPDATA%\DroboDashboardReborn`, as

@@ -139,6 +139,12 @@ function Stop-Product {
     Start-Sleep -Milliseconds 800
 }
 
+# Both helpers below return a list, but PowerShell unrolls a function's
+# output: one match comes back as the bare object, and Windows
+# PowerShell 5.1 gives a bare CimInstance no .Count, so "exactly one"
+# read as blank and failed (the first CI run, 2026-11-21). Every caller
+# therefore wraps the call in @() again.
+#
 # The agent as a process: the bundled python.exe, from the install folder,
 # running agent\run_agent.py. The command line is part of the test because
 # the launcher also runs that python.exe for a moment to read the port from
@@ -536,9 +542,9 @@ if ((Test-Path $launcherBat) -and $pingOk) {
     Check "second launch finished within 60 s" $secondLaunchDone
     # Counted at once: a second agent window, had the launcher started one,
     # lives on for at least ten seconds after its agent closes.
-    $agentWindows = Get-AgentWindows
+    $agentWindows = @(Get-AgentWindows)
     Check "still exactly one agent window after the second launch (got $($agentWindows.Count))" ($agentWindows.Count -eq 1) "$($agentWindows.CommandLine -join ' | ')"
-    $agentsAfterLaunch = Get-AgentProcesses
+    $agentsAfterLaunch = @(Get-AgentProcesses)
     Check "still exactly one agent process after the second launch (got $($agentsAfterLaunch.Count))" ($agentsAfterLaunch.Count -eq 1)
 
     $secondAgentIn = Join-Path $LogDir 'second-agent-stdin.txt'
@@ -555,7 +561,7 @@ if ((Test-Path $launcherBat) -and $pingOk) {
     Check "a second agent started by hand closes by itself within 60 s (it did not bind beside the first)" $secondAgentDone $secondAgentText
     Check "-- with exit status 3, already running (got $(if ($secondAgentDone) { $secondAgent.ExitCode } else { 'no exit' }))" ($secondAgentDone -and $secondAgent.ExitCode -eq 3) $secondAgentText
     Check "-- saying so in one sentence, with no traceback" (($secondAgentText -match "An agent is already running on port $AgentPort; this one will close\.") -and ($secondAgentText -notmatch 'Traceback')) $secondAgentText
-    $agentsAfterSecond = Get-AgentProcesses
+    $agentsAfterSecond = @(Get-AgentProcesses)
     Check "still exactly one agent process after it (got $($agentsAfterSecond.Count))" ($agentsAfterSecond.Count -eq 1)
 
     # Run-Agent.bat itself, started the way the launcher starts it (cmd's
@@ -571,14 +577,14 @@ if ((Test-Path $launcherBat) -and $pingOk) {
     $windowsGoneBack = $false
     $windowDeadline = (Get-Date).AddSeconds(45)
     while ((Get-Date) -lt $windowDeadline) {
-        $windowCount = (Get-AgentWindows).Count
+        $windowCount = @(Get-AgentWindows).Count
         if ($windowCount -gt 1) { $sawSecondWindow = $true }
         if ($sawSecondWindow -and $windowCount -eq 1) { $windowsGoneBack = $true; break }
         Start-Sleep -Milliseconds 500
     }
-    $leftWindows = Get-AgentWindows
+    $leftWindows = @(Get-AgentWindows)
     Check "a second Run-Agent.bat window, started as the launcher starts it, closes by itself (agent windows back to $($leftWindows.Count), want 1)" ($sawSecondWindow -and $windowsGoneBack) "saw it open: $sawSecondWindow; $($leftWindows.CommandLine -join ' | ')"
-    $agentsAfterWindow = Get-AgentProcesses
+    $agentsAfterWindow = @(Get-AgentProcesses)
     Check "still exactly one agent process after that window (got $($agentsAfterWindow.Count))" ($agentsAfterWindow.Count -eq 1)
     $stillAnswers = $false
     try {

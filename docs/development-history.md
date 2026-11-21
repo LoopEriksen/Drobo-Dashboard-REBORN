@@ -1440,8 +1440,8 @@ the 31 Python suites pass as before, with the backup suite's two
 Windows-only robocopy checks; flake8 is clean; and the Windows test
 program is unchanged by this package. Not proven here: anything in the
 `.bat`, `.ps1` and `.wxs` files, which this container cannot run, and
-the Windows bind without `SO_REUSEADDR`. CI's `tests.yml` shows the
-second, and `installer.yml` the rest: `windows/test-installer.ps1` gains
+the Windows bind without `SO_REUSEADDR`. CI's `tests.yml` is where the
+second runs, and `installer.yml` the rest: `windows/test-installer.ps1` gains
 thirteen checks (about 85 with the upgrade leg, from 72), among them a
 second launch, a second agent started by hand and a second
 `Run-Agent.bat` started as the launcher starts it, each leaving exactly
@@ -1579,6 +1579,20 @@ Windows-only; flake8 is clean. Not proven here: the WPF app sending the
 serial and clearing its views, which only a Windows PC can show, and
 anything with two real Drobos. No device write was added, no gate moved, and
 no byte or XML sent to a Drobo changed.
+
+**11-21.** The work was pushed and CI ran it for the first time. `tests.yml`
+passed, Windows jobs included, so the check that a second agent cannot bind
+beside the first on Windows now has a run behind it. `installer.yml` did
+not: 80 of the lifecycle test's 85 checks passed, and the five that failed
+were the new "exactly one agent" counts, each reading blank. The behaviour
+they measure had worked -- a second agent started by hand closed with exit
+status 3 and its one sentence, a second `Run-Agent.bat` window opened and
+closed again, and the first agent still answered -- and the fault was in the
+test: PowerShell unrolls a function's output, so a helper returning a list
+of one hands back the bare process object, and Windows PowerShell 5.1 gives
+a bare `CimInstance` no `.Count`. The answer that should have read 1 read
+as nothing. Each call is now wrapped in `@()` again, with a comment saying
+why.
 
 ## The principles that emerged
 
