@@ -692,6 +692,41 @@ try:
     check("the delete note is static, so arming a delete cannot drop it",
           'id="deleteUnproven"' in page_text)
     check("no note was left as a placeholder", "@@" not in page_text)
+
+    print("\n== a change made against another Drobo is refused here too ==")
+    # Since 2026-11-21 a change may name the Drobo it was made against
+    # ("esa_id"), and one made against a Drobo the agent no longer
+    # watches is refused. The simulated arm refuses
+    # alike, before the simulator is touched.
+    simulated_esa_id = call("/api/status")[1].get("device", {}).get(
+        "serial", "")
+    status, names, reply = listed_names()
+    check("/api/shares names the simulated Drobo its list is from",
+          status == 200 and simulated_esa_id
+          and reply.get("esa_id") == simulated_esa_id,
+          (simulated_esa_id, reply.get("esa_id")))
+    victim = names[0]
+    basis_before = version_basis()
+    status, reply = call("/api/shares/delete", {
+        "name": victim, "confirm_name": victim,
+        "esa_id": "drb000000SAMPLEB"})
+    check("a delete made against another Drobo is a 409, labelled failed",
+          status == 409 and reply.get("reason") == "another_drobo"
+          and reply.get("outcome") == "failed", (status, reply))
+    check("-- and the simulator was not touched: the same config version, "
+          "and the share still listed",
+          version_basis() == basis_before and victim in listed_names()[1],
+          (version_basis(), basis_before))
+    status, reply = call("/api/shares/create",
+                         {"name": "SameDrobo", "esa_id": simulated_esa_id})
+    check("a change made against the simulated Drobo itself goes ahead",
+          status == 200 and "SameDrobo" in listed_names()[1], (status, reply))
+    status, reply = call("/api/shares/delete", {
+        "name": "SameDrobo", "confirm_name": "SameDrobo",
+        "esa_id": simulated_esa_id})
+    check("-- and so does the delete that tidies it away",
+          status == 200 and "SameDrobo" not in listed_names()[1],
+          (status, reply))
 finally:
     http_server.shutdown()
     monitor.stop()

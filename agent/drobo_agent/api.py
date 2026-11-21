@@ -50,7 +50,8 @@ nothing else; see pairing.py.
                                  reason one "vanishes"
     GET  /api/shares            the file shares, with UNC paths a
                                  front-end can open or map, plus why
-                                 Windows may refuse them
+                                 Windows may refuse them, and "esa_id":
+                                 the serial of the Drobo they are on
     GET  /api/droboapps         software installed ON the Drobo (name,
                                  version, running state, whether it has
                                  a web interface)
@@ -121,8 +122,10 @@ nothing else; see pairing.py.
     POST /api/photos/finish     (phone) check the whole file against its
                                  SHA-256, then file it; X-Upload-Id
                                  header
-    POST /api/identify          flash the Drobo's lights, so you can
-                                 tell which box is which
+    POST /api/identify[?interval=N]  flash the Drobo's lights, so you
+                                 can tell which box is which. Its
+                                 optional JSON body carries only
+                                 "esa_id" (below)
     POST /api/config/brightness  {"value": N} set LED brightness
     POST /api/config/spindown   {"delay": N} or {"enabled": false} --
                                  the drive spin-down setting
@@ -141,7 +144,12 @@ nothing else; see pairing.py.
                                  only endpoints that change anything on
                                  the device, and every 200 from the
                                  config writes means the change was READ
-                                 BACK, not merely accepted
+                                 BACK, not merely accepted. Each also
+                                 takes an optional "esa_id", the serial
+                                 of the Drobo the change was made
+                                 against, and answers 409 ("reason":
+                                 "another_drobo"), sending nothing, when
+                                 the agent now watches another
     POST /api/mock/<action>/<bay>  mock driver only: fail|warn|pull, and
                                  reset
     POST /api/mock/sign-in      {"share": S, "username": U,
@@ -1678,6 +1686,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             nasd_identify.validate_interval(interval)
         except nasd_identify.IdentifyParameterError as exc:
             return self._send_json({"error": str(exc)}, 400)
+        # The body is optional and carries only "esa_id", the Drobo the
+        # press was made against; the interval stays in the query.
+        try:
+            body = self._read_json_body()
+        except ValueError as exc:
+            return self._send_bad_json(exc)
+        refusal_body, refusal_status = self._refusal_for_another_drobo(body)
+        if refusal_body:
+            return self._send_json(refusal_body, refusal_status)
 
         driver = self.monitor.driver
         if getattr(driver, "simulate_config", False):
@@ -1752,7 +1769,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     # thing). Since 2026-08-25 the reverse case is known too: a device
     # that answers NOTHING and applies the write anyway. Every answer
     # therefore carries an "outcome" field -- see the WRITE_* constants
-    # and _config_write for the four it can hold.
+    # and _config_write for the four it can hold. And since 2026-11-21
+    # every one of these routes, Identify and DroboApps included, takes
+    # an optional "esa_id", the serial of the Drobo the change was made
+    # against, and refuses the change with a 409, sending nothing, when
+    # the agent now watches another (see _refusal_for_another_drobo).
 
     def _serve_brightness_write(self) -> None:
         """{"value": N} sets the LED brightness."""
@@ -1862,6 +1883,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             400  the caller asked for something we will not send
                  (bad JSON, missing/invalid field, an SDK parameter
                  refusal)
+            409  the change was made against another Drobo: "esa_id"
+                 names a serial that is not the one the agent watches
+                 now, so the page it came from is out of date. Nothing
+                 sent; WRITE_FAILED
             503  no live Drobo yet (command port needs address + serial)
             502  WRITE_FAILED -- the device refused it, could not
                  be reached, or took it and reads back unchanged.
@@ -1903,6 +1928,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             parsed_request = parse_request(body)
         except (ValueError, TypeError) as exc:
             return self._send_json({"error": str(exc)}, 400)
+        refusal_body, refusal_status = self._refusal_for_another_drobo(body)
+        if refusal_body:
+            return self._send_json(refusal_body, refusal_status)
 
         driver = self.monitor.driver
         simulated = bool(getattr(driver, "simulate_config", False))
@@ -2281,6 +2309,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                           "\"action\": \"Start\" or \"Stop\"} -- the "
                           "verbs are case-sensitive and only these two "
                           "are confirmed"}, 400)
+        refusal_body, refusal_status = self._refusal_for_another_drobo(body)
+        if refusal_body:
+            return self._send_json(refusal_body, refusal_status)
 
         driver = self.monitor.driver
         if getattr(driver, "simulate_config", False):
@@ -2445,6 +2476,51 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                          "come from a successful status read first"
             }
         return host, esa_id, None
+
+    def _watched_esa_id(self) -> str:
+        """
+        The serial of the Drobo a change sent now would reach: the one
+        the real driver logs in with (see _command_target), or the
+        simulated Drobo's own, as its readings report it.
+        """
+        driver = self.monitor.driver
+        if getattr(driver, "simulate_config", False):
+            return self._latest_device().get("serial", "")
+        return getattr(driver, "_known_esa_id", "")
+
+    def _latest_device(self) -> dict:
+        """The device block of the latest reading, or {} before one."""
+        return self.monitor.snapshot_dict().get("device") or {}
+
+    def _refusal_for_another_drobo(self, body: dict):
+        """
+        (refusal_body, http_status) when a change may not go to the
+        Drobo watched now -- its "esa_id" is not text (400), or names
+        another Drobo (409) -- else (None, None).
+
+        POST /api/drobo/select can switch the Drobo a running agent
+        watches, and until 2026-11-21 no change said which Drobo it
+        was made against: a share delete from a page still showing
+        Drobo A went to Drobo B's share of the same name (found by the
+        final review of 2026-11-20). Every route that changes a Drobo
+        asks here first, before the simulated/real fork and before any
+        device is contacted, so both arms refuse alike and a refused
+        change sends nothing. The 409 is labelled WRITE_FAILED, so both
+        apps show it in red, as a change that did not happen.
+        """
+        sent_esa_id, bad_esa_id = selection.parse_change_esa_id(body)
+        if bad_esa_id:
+            return bad_esa_id, 400
+        watched_esa_id = self._watched_esa_id()
+        device = self._latest_device()
+        watched_name = (device.get("name", "")
+                        if device.get("serial") == watched_esa_id else "")
+        refusal_body = selection.another_drobo_refusal(
+            sent_esa_id, watched_esa_id, watched_name)
+        if refusal_body is None:
+            return None, None
+        refusal_body["outcome"] = WRITE_FAILED
+        return refusal_body, 409
 
     # -- GET: the network around the Drobo -----------------------------
 
@@ -2736,6 +2812,15 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         network config for the port-speed check. The network read is
         best-effort -- a missing link report must not cost you the share
         list, which is the part you actually came for.
+
+        The answer carries "esa_id", the serial of the Drobo these are
+        the shares of, which both front ends send back with a share
+        change made from the list (see _refusal_for_another_drobo). A
+        cached answer is handed out only while it is about the Drobo
+        watched: a read begun before POST /api/drobo/select switched
+        Drobos could otherwise refill the cache the switch had just
+        emptied, and the previous Drobo's shares would be served as the
+        new one's for SHARES_CACHE_SECONDS.
         """
         # The simulator stands in for the DEVICE, not for this method.
         # Only the fetch is swapped (see _read_config_section); the
@@ -2750,8 +2835,10 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         simulated = getattr(self.monitor.driver, "simulate_config", False)
         if simulated:
             host, esa_id, unavailable_body = _SIMULATED_SHARES_HOST, "", None
+            listed_esa_id = self._watched_esa_id()
         else:
             host, esa_id, unavailable_body = self._command_target()
+            listed_esa_id = esa_id
         if unavailable_body:
             return self._send_json(unavailable_body, 503)
 
@@ -2761,7 +2848,8 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         with _ApiRequestHandler._shares_lock:
             cached_payload = self._fresh_cached_payload(
                 _ApiRequestHandler._shares_cache, self.SHARES_CACHE_SECONDS)
-            if cached_payload is not None:
+            if (cached_payload is not None
+                    and cached_payload.get("esa_id") == listed_esa_id):
                 return self._send_json(cached_payload)
             try:
                 shares_config = self._read_config_section(
@@ -2772,6 +2860,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
                 return self._send_command_port_unreachable(exc)
             payload = self._shares_payload(
                 shares_config, host, esa_id, simulated)
+            payload["esa_id"] = listed_esa_id
             _ApiRequestHandler._shares_cache = (time.time(), payload)
         return self._send_json(payload)
 
@@ -2970,11 +3059,11 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
 
         And to exit the app first, because that is what stops the
         simulator: the launcher starts this agent hidden and stops it
-        when the app exits. Until the final review of 2026-11-20 this
-        said to close "the simulated agent's window", which does not
-        exist; closing the one window there is, the launcher's, can
-        leave the simulator holding the port, where the real launcher
-        takes it for the real agent.
+        when the app exits. Until 2026-11-21 this said to close "the
+        simulated agent's window", which does not exist; closing the
+        one window there is, the launcher's, can leave the simulator
+        holding the port, where the real launcher takes it for the real
+        agent.
         """
         if request.host == selection.SIMULATED_HOST:
             return self._send_json({

@@ -127,11 +127,17 @@ agent is still watching it; if not, the app says so and you press Connect on
 the row you want. Please report whether the dashboard that opens shows the
 name and serial of the row you clicked.
 
-The agent watches one Drobo at a time, and every change goes to the Drobo it
-watches when the change is sent. After you switch it to another Drobo
-(Connect on another row, or the browser's address box), reload any dashboard
-page that was already open before changing anything on it, or the change
-lands on the Drobo you just switched to.
+The agent watches one Drobo at a time. Every change the app or the browser
+dashboard sends names the Drobo it was made against, so after you switch the
+agent to another Drobo (Connect on another row, or the browser's address
+box), a change made from a page or window that still shows the first Drobo
+is refused and nothing is sent: the result says the agent now watches
+another Drobo. If you see that, reload the browser page, or give the app
+about ten seconds to show the new Drobo, check which Drobo is on screen, and
+try again. A browser page that was open when you switched should move to the
+new Drobo by itself within about ten seconds; please say in your report
+whether it did. And if a change ever reaches a Drobo other than the one on
+screen, report that above all.
 
 ### If something goes wrong at the start
 

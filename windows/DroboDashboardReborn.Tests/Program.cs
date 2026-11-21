@@ -272,6 +272,32 @@ var (otherNotFound, _) = DroboSelection.ReadAnswer(404, AgentAnswer("{\"error\":
 Check("-- but a 404 about some other path is a refusal, not that",
       otherNotFound == DroboSelection.Outcome.Refused);
 
+// Every change names the Drobo it was made against. Until 2026-11-21 none
+// did, so once the agent had been switched to another Drobo, a share
+// deleted from a list still showing the first went to the second's share of
+// the same name. The agent now refuses a change whose serial is not the
+// Drobo it watches. Also before the CredentialStore section.
+Console.WriteLine("\n== DroboSelection: every change names the Drobo it was made against ==");
+var deleteChange = AgentAnswer(DroboSelection.ChangeBody(
+    new { name = "Public", confirm_name = "Public" }, " drb000000SAMPLEA "));
+Check("a change carries the serial it was made against, beside its own fields",
+      JsonHelpers.GetStringOr(deleteChange, "esa_id", "") == "drb000000SAMPLEA"
+      && JsonHelpers.GetStringOr(deleteChange, "name", "") == "Public"
+      && JsonHelpers.GetStringOr(deleteChange, "confirm_name", "") == "Public", deleteChange);
+var unnamedChange = DroboSelection.ChangeBody(new { value = 40 }, "");
+Check("-- and no serial when none is known, so the agent takes it as it did before",
+      unnamedChange == "{\"value\":40}", unnamedChange);
+var identifyChange = DroboSelection.ChangeBody(new { }, "drb000000SAMPLEB");
+Check("-- Identify's body is the serial alone",
+      identifyChange == "{\"esa_id\":\"drb000000SAMPLEB\"}", identifyChange);
+Check("a reading of a second, different Drobo is another Drobo",
+      DroboSelection.IsAnotherDrobo("drb000000SAMPLEA", "drb000000SAMPLEB"));
+Check("-- but not the first serial seen, a reading with none, or the same Drobo again",
+      !DroboSelection.IsAnotherDrobo("", "drb000000SAMPLEA")
+      && !DroboSelection.IsAnotherDrobo("drb000000SAMPLEA", "")
+      && !DroboSelection.IsAnotherDrobo("drb000000SAMPLEA", null)
+      && !DroboSelection.IsAnotherDrobo("drb000000SAMPLEA", "drb000000SAMPLEA"));
+
 // ---------------------------------------------------------------------------
 // TesterNotes -- the words that say which writes are not yet proven.
 //

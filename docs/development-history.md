@@ -1528,6 +1528,55 @@ robocopy checks being Windows-only; flake8 is clean. The .NET builds
 and the Windows test program are unchanged, since no C# moved. No
 device write, no gate and no byte sent to a Drobo changed.
 
+**A change made against the other Drobo.** The weightiest thing the
+final review found was left by the select-drobo package as a known limit:
+once `POST /api/drobo/select` had switched Drobos, nothing in a write
+said which Drobo it had been made against, so a front end that had not
+noticed the switch sent its write to the new one. The review showed it
+with loopback fakes and the SDK's delete replaced by a recorder: select
+A, select B by its serial, then a delete of "Public" was recorded
+against B. Neither front end guarded against it: the browser loaded its
+share list once per page load, read it again only after its own share
+changes, and never disarmed an armed delete when a reading brought
+another serial; the app's delete dialog posted only the name and its
+confirmation; and the app noticed a change of driver but not of
+serial. The same could happen before the route existed, when an agent
+with no serial pinned restarted on the other unit. Every route that
+changes a Drobo now takes an optional `esa_id` and is refused with a 409
+(`"reason": "another_drobo"`, labelled failed, both serials named)
+before any device is touched, on the simulator as on the real driver,
+when that serial is not the Drobo the agent watches; left out, the change goes ahead, so nothing that calls
+the API today breaks. `/api/shares` says which Drobo its list came
+from, which share changes send back, and a cached list of the previous
+Drobo is no longer handed out after a switch: a read begun before one
+could otherwise refill the cache the switch had emptied. The browser
+sends the list's serial with share changes (an armed delete the one it
+was armed on) and the latest reading's with the rest, and on a reading
+of another Drobo disarms the delete and reads its shares, settings and
+app list again; the app sends the same, its share dialogs keeping the
+serial their row was read from, and on a reading of another Drobo it
+clears the DroboApps list and the Settings tab and re-reads the Advanced
+Configuration card. Proven here: `test_agent.py` went from 407 checks to
+421 and `test_shares_api.py` from 117 to 122, and with the previous
+commit's agent code fifteen of the nineteen new checks failed, the
+recorder catching the delete sent to B's share as the review's had; the
+four that passed there check that a change named for the Drobo watched,
+or naming none, still goes through. A live run of the agent on
+two loopback greeting fakes, its share delete a recorder, answered the
+stale delete with the 409 and recorded nothing, then recorded the delete
+made against B. The page's own script, run in node against a stub page
+and a fake agent, sent the first Drobo's serial with a delete armed
+before the switch, disarmed it when the second Drobo's reading came, and
+sent the second's serial from the list read again. The Windows test
+program gains five checks of the body and of what counts as another
+Drobo, run here before its Credential Manager section (161, from 156);
+both .NET builds give no warnings; the 31 Python suites pass as before,
+the backup suite's two robocopy checks being Windows-only; flake8 is
+clean. Not proven here: the WPF app sending the serial and clearing its
+views, which only a Windows PC can show, and anything with two real
+Drobos. No device write was added, no gate moved, and no byte or XML
+sent to a Drobo changed.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

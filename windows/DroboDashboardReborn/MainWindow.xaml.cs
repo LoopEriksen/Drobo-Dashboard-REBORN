@@ -150,6 +150,25 @@ public partial class MainWindow : Window
     /// to the simulator.</summary>
     private string _lastDriverName = "";
 
+    /// <summary>
+    /// The serial of the Drobo this window shows, from the latest status
+    /// reading that named one. Sent as "esa_id" with the changes that are not
+    /// made from a share list (Identify, brightness, spin-down, DroboApps), so
+    /// the agent refuses one made here after it has switched to another Drobo
+    /// (409, nothing sent) instead of applying it there. See
+    /// NoticeWhichDrobo.
+    /// </summary>
+    private string _shownEsaId = "";
+
+    /// <summary>The serial the Shares tab's list was read from, from its
+    /// /api/shares answer. Share create and delete are made against that
+    /// list, so they carry it.</summary>
+    private string _sharesEsaId = "";
+
+    /// <summary>The serial the share-access card's boxes were filled from
+    /// (see LoadAccessChoices), which a share-access change carries.</summary>
+    private string _accessChoicesEsaId = "";
+
     private bool IsSimulator =>
         string.Equals(_lastDriverName, "mock", StringComparison.OrdinalIgnoreCase);
 
@@ -1467,19 +1486,23 @@ public partial class MainWindow : Window
         // and with auto-discovery off the manual entries never showed.
         _generation++;
         _alertNotifier.Reset();
-
-        // The Settings tab's config was read from whichever Drobo we were
-        // just connected to -- clear it out so a switch to a different
-        // device can't leave the old one's network settings on screen
-        // looking like they belong to the new one.
-        SettingsGrid.Visibility = Visibility.Collapsed;
-        SettingsEmpty.Visibility = Visibility.Visible;
-        SettingsError.Visibility = Visibility.Collapsed;
-        SettingsLinkWarningBox.Visibility = Visibility.Collapsed;
+        HideSettingsTabConfig();
 
         // Last, so the search is the newest piece of work there is.
         ShowLanding();
         _ = SearchForDevices();
+    }
+
+    /// <summary>The Settings tab's config was read from whichever Drobo we
+    /// were connected to -- cleared out so a switch to a different device
+    /// can't leave the old one's network settings on screen looking like they
+    /// belong to the new one. Refresh reads them again.</summary>
+    private void HideSettingsTabConfig()
+    {
+        SettingsGrid.Visibility = Visibility.Collapsed;
+        SettingsEmpty.Visibility = Visibility.Visible;
+        SettingsError.Visibility = Visibility.Collapsed;
+        SettingsLinkWarningBox.Visibility = Visibility.Collapsed;
     }
 
     private void ShowLanding()
@@ -1699,6 +1722,7 @@ public partial class MainWindow : Window
         try
         {
             var sharesRoot = await FetchJson("/api/shares");
+            _accessChoicesEsaId = GetStringOr(sharesRoot, "esa_id", "");
             AccessShareBox.Items.Clear();
             // Distinct user names seen across every share, collected from the
             // same answer that fills the share box -- one fetch, never two.
@@ -1757,7 +1781,7 @@ public partial class MainWindow : Window
     private async void BrightnessApply_Click(object sender, RoutedEventArgs e)
     {
         await ApplyConfig(BrightnessApplyBtn, BrightnessResult, "/api/config/brightness",
-            new { value = (int)BrightnessSlider.Value });
+            new { value = (int)BrightnessSlider.Value }, _shownEsaId);
     }
 
     private async void SpindownApply_Click(object sender, RoutedEventArgs e)
@@ -1776,7 +1800,7 @@ public partial class MainWindow : Window
             ShowConfigResult(SpindownResult, false, "Enter a whole number greater than 0 for the delay, or untick the box to turn spin-down off.");
             return;
         }
-        await ApplyConfig(SpindownApplyBtn, SpindownResult, "/api/config/spindown", body);
+        await ApplyConfig(SpindownApplyBtn, SpindownResult, "/api/config/spindown", body, _shownEsaId);
     }
 
     private async void AccessApply_Click(object sender, RoutedEventArgs e)
@@ -1790,7 +1814,7 @@ public partial class MainWindow : Window
             return;
         }
         await ApplyConfig(AccessApplyBtn, AccessResult, "/api/config/share-access",
-            new { share, user, access = level });
+            new { share, user, access = level }, _accessChoicesEsaId);
     }
 
     /// <summary>
@@ -1800,8 +1824,11 @@ public partial class MainWindow : Window
     /// verbatim rather than flattened to "done" or "failed" -- including the
     /// two awkward middles: a change the Drobo never acknowledged but which
     /// reads back, and a write nobody can settle either way.
+    /// <paramref name="madeAgainstEsaId"/> is the Drobo the card's values came
+    /// from, which the agent checks the change against (see
+    /// DroboSelection.ChangeBody).
     /// </summary>
-    private async Task ApplyConfig(Button button, TextBlock resultBox, string path, object body)
+    private async Task ApplyConfig(Button button, TextBlock resultBox, string path, object body, string madeAgainstEsaId)
     {
         if (!_adminUnlocked) { ShowConfigResult(resultBox, false, "Sign in as administrator first."); return; }
         var label = button.Content;
@@ -1809,7 +1836,7 @@ public partial class MainWindow : Window
         button.Content = "Applying…";
         try
         {
-            var (okStatus, root) = await PostWriteJson(path, body);
+            var (okStatus, root) = await PostWriteJson(path, body, madeAgainstEsaId);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             ShowConfigResult(resultBox, outcome, outcome.Succeeded()
                 ? BuildWriteSuccessMessage(root, outcome)
@@ -1898,22 +1925,25 @@ public partial class MainWindow : Window
     /// it does NOT throw on a non-2xx status, because the agent puts the
     /// human-readable reason in the error body and that is what we show.</summary>
     private Task<(bool ok, JsonElement root)> PostJson(string path, object body) =>
-        PostJsonWith(_agentHttpClient, path, body);
+        PostJsonWith(_agentHttpClient, path, JsonSerializer.Serialize(body));
 
     /// <summary>PostJson for a write that can reach the Drobo, with the
     /// write timeout. Until 2026-11-02 writes used the reads' 8 seconds,
     /// the same as one of the agent's own waits on the device, so the app
     /// gave up first and showed a failure for writes the agent went on to
-    /// settle.</summary>
-    private Task<(bool ok, JsonElement root)> PostWriteJson(string path, object body) =>
-        PostJsonWith(_agentWriteHttpClient, path, body);
+    /// settle. The body carries <paramref name="madeAgainstEsaId"/>, the
+    /// Drobo the change was made against, so the agent can refuse it if it
+    /// now watches another (see DroboSelection.ChangeBody).</summary>
+    private Task<(bool ok, JsonElement root)> PostWriteJson(string path, object body, string madeAgainstEsaId) =>
+        PostJsonWith(_agentWriteHttpClient, path, DroboSelection.ChangeBody(body, madeAgainstEsaId));
 
-    /// <summary>The POST behind PostJson and PostWriteJson.</summary>
-    private async Task<(bool ok, JsonElement root)> PostJsonWith(HttpClient client, string path, object body)
+    /// <summary>The POST behind PostJson and PostWriteJson, of a body already
+    /// serialised.</summary>
+    private async Task<(bool ok, JsonElement root)> PostJsonWith(HttpClient client, string path, string bodyJson)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
         request.Headers.Add("X-Agent-Token", Token.Password);
-        request.Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
+        request.Content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(request);
         var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
@@ -2177,6 +2207,7 @@ public partial class MainWindow : Window
     private void RenderShares(JsonElement root)
     {
         SharesError.Visibility = Visibility.Collapsed;
+        _sharesEsaId = GetStringOr(root, "esa_id", "");
 
         var advice = RenderGuestAdvice(root);
         RenderLinkWarning(root);
@@ -2512,8 +2543,12 @@ public partial class MainWindow : Window
         // inline check. If they are stale (or never loaded), the agent's own
         // check still answers with a 400 the dialog shows verbatim.
         var existing = _shares.Select(s => s.Name).ToList();
+        // The Drobo that list was read from, which the create is made
+        // against, kept now: the list is read again on every tick while the
+        // dialog is open.
+        var sharesEsaId = _sharesEsaId;
         var dialog = new NewShareDialog(existing,
-            name => PostShareWrite("/api/shares/create", new { name }))
+            name => PostShareWrite("/api/shares/create", new { name }, sharesEsaId))
         {
             Owner = this,
         };
@@ -2530,9 +2565,14 @@ public partial class MainWindow : Window
     private async void ShareDelete_Click(object sender, RoutedEventArgs e)
     {
         var row = (ShareRow)((FrameworkElement)sender).DataContext;
+        // The Drobo this row was read from, kept now for the same reason as
+        // in NewShare_Click: if the agent watches another Drobo by the time
+        // Delete is pressed, the agent refuses rather than delete that
+        // Drobo's share of the same name.
+        var sharesEsaId = _sharesEsaId;
         var dialog = new DeleteShareDialog(row.Name,
             confirmName => PostShareWrite("/api/shares/delete",
-                new { name = row.Name, confirm_name = confirmName }))
+                new { name = row.Name, confirm_name = confirmName }, sharesEsaId))
         {
             Owner = this,
         };
@@ -2553,11 +2593,11 @@ public partial class MainWindow : Window
     /// beside it. One request per call; retrying is the user's decision, never
     /// this method's, and least of all after an unsettled write.
     /// </summary>
-    private async Task<(WriteOutcome outcome, string message)> PostShareWrite(string path, object body)
+    private async Task<(WriteOutcome outcome, string message)> PostShareWrite(string path, object body, string madeAgainstEsaId)
     {
         try
         {
-            var (okStatus, root) = await PostWriteJson(path, body);
+            var (okStatus, root) = await PostWriteJson(path, body, madeAgainstEsaId);
             var outcome = WriteOutcomes.FromAgentAnswer(okStatus, root);
             return (outcome, outcome.Succeeded()
                 ? BuildWriteSuccessMessage(root, outcome)
@@ -2804,7 +2844,7 @@ public partial class MainWindow : Window
     /// <summary>The device name, the firmware line on the Settings tab, and the
     /// subtitle under the name. Also notices a change of driver, because a
     /// simulated connection must never survive a switch to real
-    /// hardware.</summary>
+    /// hardware, and a change of Drobo (see NoticeWhichDrobo).</summary>
     private void RenderDeviceHeader(JsonElement status, JsonElement device)
     {
         DeviceName.Text = GetStringOr(device, "name", "Drobo");
@@ -2817,10 +2857,55 @@ public partial class MainWindow : Window
         if (!string.Equals(source, _lastDriverName, StringComparison.OrdinalIgnoreCase))
             _simulatedConnections.Clear();
         _lastDriverName = source;
+        NoticeWhichDrobo(GetStringOr(device, "serial", ""));
 
         DeviceSub.Text = $"{GetStringOr(device, "model", "")}  ·  firmware {GetStringOr(device, "firmware", "?")}"
                        + $"  ·  {GetStringOr(device, "ip", "")}  ·  {GetStringOr(status, "source", "")} driver"
                        + FormatDeviceExtras(device);
+    }
+
+    /// <summary>
+    /// Remembers which Drobo this window shows and, when a reading is of a
+    /// different one, puts away what was read from the first and could be
+    /// acted on: the DroboApps list (Refresh reads the new one's), the
+    /// Advanced Configuration card's values (read again if the card is open),
+    /// the Settings tab's network settings, and the results of the first
+    /// Drobo's changes. The share list needs nothing here: it is read again
+    /// on every tick.
+    ///
+    /// The agent can be switched to another Drobo while this window shows the
+    /// first -- from a browser page (POST /api/drobo/select), or by a restart
+    /// that finds the other unit. Until 2026-11-21 this app noticed a change
+    /// of driver but not of Drobo, and no change said which Drobo it was made
+    /// against, so a share deleted from a list still showing Drobo A went to
+    /// Drobo B's share of the same name. Each change now carries the serial
+    /// it was made against and the agent refuses it when it watches another;
+    /// this keeps the window from offering such changes in the first place.
+    /// </summary>
+    private void NoticeWhichDrobo(string serial)
+    {
+        bool anotherDrobo = DroboSelection.IsAnotherDrobo(_shownEsaId, serial);
+        if (!string.IsNullOrEmpty(serial)) _shownEsaId = serial;
+        if (!anotherDrobo) return;
+
+        ForgetDroboAppsList();
+        foreach (var resultBox in new[] { ShareManageResult, BrightnessResult, SpindownResult, AccessResult })
+            resultBox.Visibility = Visibility.Collapsed;
+        IdentifyResultBox.Visibility = Visibility.Collapsed;
+        HideSettingsTabConfig();
+        if (_adminUnlocked) _ = LoadAdvancedCurrentValues();
+    }
+
+    /// <summary>Clears the DroboApps list and what was said about it, as
+    /// before the first Refresh.</summary>
+    private void ForgetDroboAppsList()
+    {
+        _droboApps.Clear();
+        DroboAppsSdk.Text = "";
+        DroboAppsError.Visibility = Visibility.Collapsed;
+        DroboAppsActionResult.Visibility = Visibility.Collapsed;
+        DroboAppsEmpty.Text = "Press Refresh to see what's installed on your Drobo.";
+        DroboAppsEmpty.Visibility = Visibility.Visible;
     }
 
     /// <summary>The overall-state pill, the network and firmware banners, and
@@ -4168,6 +4253,11 @@ public partial class MainWindow : Window
             // anywhere on this path.
             using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/api/identify" + query);
             request.Headers.Add("X-Agent-Token", Token.Password);
+            // The body names the Drobo the press was made against, so the
+            // agent refuses it if it now watches another; the interval stays
+            // in the query.
+            request.Content = new StringContent(DroboSelection.ChangeBody(new { }, _shownEsaId),
+                                                System.Text.Encoding.UTF8, "application/json");
             using var response = await _agentHttpClient.SendAsync(request);
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
@@ -4268,12 +4358,9 @@ public partial class MainWindow : Window
     /// current.</summary>
     private void ShowDroboAppsUnavailable(string message)
     {
+        ForgetDroboAppsList();
         DroboAppsError.Text = message;
         DroboAppsError.Visibility = Visibility.Visible;
-        _droboApps.Clear();
-        DroboAppsSdk.Text = "";
-        DroboAppsEmpty.Text = "Press Refresh to see what's installed on your Drobo.";
-        DroboAppsEmpty.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -4344,7 +4431,7 @@ public partial class MainWindow : Window
         try
         {
             var (okStatus, root) = await PostWriteJson("/api/droboapps/action",
-                new { name = row.Name, action = verb });
+                new { name = row.Name, action = verb }, _shownEsaId);
             if (okStatus && IsTrue(root, "ok"))
             {
                 ShowDroboAppActionAccepted(root);

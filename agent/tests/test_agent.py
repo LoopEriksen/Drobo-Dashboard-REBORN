@@ -43,7 +43,8 @@ from drobo_agent.models import (  # noqa: E402
 from drobo_agent.monitor import Monitor, _PACK_STATUS_BASELINE  # noqa: E402
 from drobo_agent.photos import PhotoStore  # noqa: E402
 from drobo_nasd import (  # noqa: E402
-    config_cmd, discovery, droboapps, drobosync)
+    config_cmd, discovery, droboapps, drobosync, identify as nasd_identify,
+    sharewrite)
 from drobo_nasd import esatm, eventlog, netcheck, sysinfo  # noqa: E402
 import run_agent  # noqa: E402
 
@@ -1251,6 +1252,67 @@ reloaded_store.load()
 check("index reloads", reloaded_store.missing([jpeg_sha256]) == [],
       reloaded_store.missing([jpeg_sha256]))
 
+# Stand-ins for every SDK read and write a change route can reach, used
+# by the page check below and the two-Drobo checks further down.
+# _device_calls holds what the SDK was asked to send: (function,
+# host, serial, the first argument after them, if any). Nothing they
+# record is sent anywhere.
+_device_calls = []
+_VERIFIED_WRITE = {"verified": True, "acknowledged": True, "result_code": 0}
+_saved_change_functions = (
+    config_cmd.get_config, sharewrite.delete_share, sharewrite.create_share,
+    sharewrite.set_share_user_access, droboapps.set_dimming,
+    droboapps.set_spindown, droboapps.disable_spindown,
+    droboapps.droboapps_action, droboapps.get_droboapps,
+    nasd_identify.identify)
+
+
+def _record_device_call(function_name, answer):
+    """A stand-in for one SDK read or write that records the call in
+    _device_calls, sends nothing, and gives back `answer`."""
+    def _record(*args, **kwargs):
+        _device_calls.append((function_name,) + tuple(args[:3]))
+        return answer
+    return _record
+
+
+def _record_every_change():
+    """Replace every SDK read and write a change route can reach with a
+    recorder (the shares read with _fake_get_config, which records in
+    shares_calls); _saved_change_functions puts them back."""
+    config_cmd.get_config = _fake_get_config
+    sharewrite.delete_share = _record_device_call(
+        "delete_share", _VERIFIED_WRITE)
+    sharewrite.create_share = _record_device_call(
+        "create_share", _VERIFIED_WRITE)
+    sharewrite.set_share_user_access = _record_device_call(
+        "set_share_user_access", _VERIFIED_WRITE)
+    droboapps.set_dimming = _record_device_call("set_dimming",
+                                                _VERIFIED_WRITE)
+    droboapps.set_spindown = _record_device_call("set_spindown",
+                                                 _VERIFIED_WRITE)
+    droboapps.disable_spindown = _record_device_call(
+        "disable_spindown", _VERIFIED_WRITE)
+    droboapps.droboapps_action = _record_device_call("droboapps_action", {})
+    droboapps.get_droboapps = _record_device_call("get_droboapps",
+                                                  {"apps": []})
+    nasd_identify.identify = _record_device_call("identify", {})
+
+
+#: One change of every kind a front end can send to a Drobo, each a
+#: request the agent would otherwise take.
+_CHANGES_TO_A_DROBO = (
+    ("/api/shares/delete", {"name": "Photos", "confirm_name": "Photos"}),
+    ("/api/shares/create", {"name": "Scratch"}),
+    ("/api/config/share-access",
+     {"share": "Photos", "user": "Everyone", "access": "1"}),
+    ("/api/config/brightness", {"value": 40}),
+    ("/api/config/spindown", {"enabled": False}),
+    ("/api/droboapps/action", {"name": "SomeApp", "action": "Stop"}),
+    ("/api/identify", {}),
+)
+
+
 print("\n== web dashboard ==")
 status, reply = call("/", raw=True)
 check("dashboard served without a token",
@@ -1298,6 +1360,49 @@ else:
           _rendered[0:1] == ["not reported by this Drobo"], _rendered)
     check("-- and a reported one as bytes",
           _rendered[1:2] == ["4.00 TB"], _rendered)
+
+# Since 2026-11-21 every change the page sends names the Drobo it was
+# made against, so the agent can refuse one made on a page left open
+# while it switched to another Drobo; and a reading of another Drobo
+# puts away what the page had read from the first.
+_unnamed_changes = [
+    route for route, _body in _CHANGES_TO_A_DROBO
+    if not re.search(r'sendJson\("' + re.escape(route)
+                     + r'"(?: \+ query)?,\s*withEsaId\(', _page_text)
+    or re.search(r'(?:sendJson|fetch)\("' + re.escape(route)
+                 + r'"(?: \+ query)?,\s*\{', _page_text)]
+check("every change the page sends names the Drobo it was made against",
+      not _unnamed_changes, _unnamed_changes)
+check("-- share changes the Drobo their list was read from, and an "
+      "armed delete the one its row was armed on",
+      'withEsaId({ name: name }, sharesEsaId)' in _page_text
+      and "armedDeleteEsaId = sharesEsaId;" in _page_text
+      and "confirm_name: typed }, armedDeleteEsaId)" in _page_text)
+check("-- and a reading of another Drobo disarms the delete and reads "
+      "the shares and settings again",
+      "noticeWhichDrobo(dev.serial);" in _page_function_source(
+          _page_text, "renderSnapshot")
+      and all(step in _page_function_source(_page_text,
+                                            "forgetTheOtherDrobo")
+              for step in ("disarmShareDelete();", "configLoaded = false;",
+                           "loadConfig();", "loadSettings();")))
+if _node_path is not None:
+    _node_script = (
+        _page_function_source(_page_text, "withEsaId")
+        + _page_function_source(_page_text, "isAnotherDrobo")
+        + "console.log(JSON.stringify(["
+        "withEsaId({name: 'x'}, 'B'), withEsaId({name: 'x'}, ''),"
+        "isAnotherDrobo('', 'B'), isAnotherDrobo('A', ''),"
+        "isAnotherDrobo('A', 'A'), isAnotherDrobo('A', 'B')]));")
+    _node_run = subprocess.run([_node_path, "-e", _node_script],
+                               capture_output=True, text=True, timeout=30)
+    _rendered = (json.loads(_node_run.stdout)
+                 if _node_run.returncode == 0 else _node_run.stderr)
+    check("the page's own withEsaId adds the serial only when it has one",
+          _rendered[0:2] == [{"name": "x", "esa_id": "B"}, {"name": "x"}],
+          _rendered)
+    check("-- and isAnotherDrobo is true only for a second, different "
+          "serial", _rendered[2:6] == [False, False, False, True], _rendered)
 
 # Said where the buttons are, since 2026-11-20: DroboApps Start/Stop
 # have never been sent to a real Drobo, and Identify moved no light on
@@ -3349,6 +3454,89 @@ try:
           and _restarted_driver._known_esa_id == _SELECT_ESA_ID_B,
           (repr(_restart_error), _restarted_driver.target_host()))
 
+    # A change made against the Drobo watched before the switch. Until
+    # 2026-11-21 no change said which Drobo it was made against, so a
+    # page still showing A sent its delete to B's share of the same
+    # name. Every SDK read and write a change can
+    # reach is a recorder here, so nothing below reaches any device.
+    _record_every_change()
+    try:
+        shares_calls.clear()
+        status, reply = _call_select_agent("/api/shares")
+        check("/api/shares says which Drobo its list was read from",
+              status == 200 and reply.get("esa_id") == _SELECT_ESA_ID_B
+              and shares_calls[:1]
+              == [("192.0.2.22", _SELECT_ESA_ID_B, "shares")],
+              (status, reply.get("esa_id"), shares_calls))
+        # As a read begun before the switch would leave it, finishing
+        # after the switch had emptied the cache.
+        api._ApiRequestHandler._shares_cache = (
+            time.time(), dict(reply, esa_id=_SELECT_ESA_ID_A))
+        shares_calls.clear()
+        status, reply = _call_select_agent("/api/shares")
+        check("-- and a cached list of the Drobo watched before is read "
+              "again, not handed out as this one's",
+              status == 200 and reply.get("esa_id") == _SELECT_ESA_ID_B
+              and ("192.0.2.22", _SELECT_ESA_ID_B, "shares") in shares_calls,
+              (reply.get("esa_id"), shares_calls))
+
+        _device_calls.clear()
+        shares_calls.clear()
+        _stale_answers = [
+            (path, *_call_select_agent(
+                path, dict(body, esa_id=_SELECT_ESA_ID_A)))
+            for path, body in _CHANGES_TO_A_DROBO]
+        check("every change made against the Drobo watched before is "
+              "refused with a 409 naming both serials",
+              all(status == 409 and reply.get("reason") == "another_drobo"
+                  and _SELECT_ESA_ID_A in reply.get("error", "")
+                  and _SELECT_ESA_ID_B in reply.get("error", "")
+                  for _path, status, reply in _stale_answers),
+              _stale_answers)
+        check("-- labelled failed, so both apps show that nothing "
+              "happened", all(reply.get("outcome") == "failed"
+                              for _path, _status, reply in _stale_answers),
+              _stale_answers)
+        check("-- and none of them reached a device, not even for a read",
+              _device_calls == [] and shares_calls == [],
+              (_device_calls, shares_calls))
+
+        status, reply = _call_select_agent(
+            "/api/shares/delete", {"name": "Photos", "confirm_name": "Photos",
+                                   "esa_id": _SELECT_ESA_ID_B})
+        check("the same delete made against the Drobo watched now goes "
+              "to it", status == 200 and _device_calls
+              == [("delete_share", "192.0.2.22", _SELECT_ESA_ID_B, "Photos")],
+              (status, reply, _device_calls))
+        _device_calls.clear()
+        status, reply = _call_select_agent(
+            "/api/identify", {"esa_id": _SELECT_ESA_ID_B})
+        check("-- as does Identify made against it",
+              status == 200 and _device_calls
+              == [("identify", "192.0.2.22", _SELECT_ESA_ID_B)],
+              (status, reply, _device_calls))
+        _device_calls.clear()
+        status, reply = _call_select_agent(
+            "/api/shares/delete", {"name": "Photos", "confirm_name": "Photos"})
+        check("a change that names no Drobo goes ahead as before, so a "
+              "script or an older front end still works",
+              status == 200 and len(_device_calls) == 1, (status, reply))
+        _device_calls.clear()
+        status, reply = _call_select_agent(
+            "/api/shares/delete", {"name": "Photos", "confirm_name": "Photos",
+                                   "esa_id": 7})
+        check("a serial that is not text is a 400, and nothing is sent",
+              status == 400 and reply.get("reason") == "bad_request"
+              and _device_calls == [], (status, reply, _device_calls))
+    finally:
+        (config_cmd.get_config, sharewrite.delete_share,
+         sharewrite.create_share, sharewrite.set_share_user_access,
+         droboapps.set_dimming, droboapps.set_spindown,
+         droboapps.disable_spindown, droboapps.droboapps_action,
+         droboapps.get_droboapps,
+         nasd_identify.identify) = _saved_change_functions
+        api._ApiRequestHandler._shares_cache = None
+
     # Readiness S9.1: the token page named agent/config.json, which an
     # installed copy does not have.
     status, page = _call_select_agent("/")
@@ -3407,8 +3595,8 @@ try:
           "START DROBO DASHBOARD.bat" in reply.get("error", "")
           and "drobo5n" not in reply.get("error", ""), reply.get("error"))
     # The simulated launcher starts this agent hidden and stops it when
-    # the app exits. Until the final review of 2026-11-20 the advice
-    # was to close "the simulated agent's window", which does not exist.
+    # the app exits. Until 2026-11-21 the advice was to close "the
+    # simulated agent's window", which does not exist.
     check("-- after exiting the app, which stops the simulator, not "
           "after closing an agent window the simulated launcher never "
           "shows", "exit the app" in reply.get("error", "")

@@ -190,7 +190,10 @@ still finds nothing, type the Drobo's address (the app's "Add one in
 Settings", or the browser dashboard's "Find the Drobo" box).
 `POST /api/drobo/select` points the agent at a Drobo by address. It reads that
 address's status greeting and checks its serial before changing anything,
-and it sends nothing that changes the Drobo.
+and it sends nothing that changes the Drobo. Every change either app sends
+afterwards names the Drobo it was made against, so a page or window still
+showing the previous Drobo cannot change the new one: the agent refuses the
+change and sends nothing.
 
 ### It shows you the array
 

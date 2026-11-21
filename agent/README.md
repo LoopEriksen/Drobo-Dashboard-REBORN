@@ -105,9 +105,11 @@ stops the agent again. Then, on port 7432, it starts the real Drobo driver
 with discovery made to find nothing, and checks the agent still serves and
 raises the "cannot reach" alert, and that `--once` says why it took no
 reading, and that `POST /api/drobo/select` watches the Drobo picked and
-refuses the rest. Last, it starts a second agent on a port a simulated agent
-already holds, and on one a bare socket holds, and checks the sentence each
-closes with; no Drobo is contacted. 407 checks as of 2026-11-21 (the number grows with
+refuses the rest, and that a change made against the Drobo watched before
+a switch is refused with nothing sent. Last, it starts a second agent on a
+port a simulated agent already holds, and on one a bare socket holds, and
+checks the sentence each closes with; no Drobo is contacted. 421 checks as
+of 2026-11-21 (the number grows with
 the API; to count it yourself in PowerShell:
 `(py tests\test_agent.py | Select-String -SimpleMatch "  PASS ").Count`, or in
 Git Bash: `py tests/test_agent.py | grep -c "  PASS "`), no hardware needed.
@@ -192,7 +194,7 @@ is kept current; `../docs/capabilities.md` maps each to its status.
 | GET | `/api/capacity` | Capacity numbers, including `used_fraction` |
 | GET | `/api/alerts?all=1` | Active alerts, or the full history |
 | GET | `/api/history?limit=N` | Trimmed series for graphing |
-| POST | `/api/drobo/select` | `{"host": H, "esa_id": S}` (`esa_id` optional): watch the Drobo at H from now on, with no restart, and keep it in `config.json` (`manual_discovery_ips` or `host`, and `expected_esa_id`). It reads H's status greeting first — no login, nothing that changes the Drobo — and refuses, changing nothing, when nothing answers (502), when the serial is not S, or when S is left out and the Drobo is not the one this agent is paired with (409); a body that is not an address is a 400. Choosing the Drobo already being read, and answering, changes nothing and leaves `config.json` as it is (`"already_watching": true`), so the app's reconnect at every launch never rewrites it. Switching to a different Drobo forgets the previous one's alerts and graph without sending them as resolved. What the app's and the browser's address boxes call |
+| POST | `/api/drobo/select` | `{"host": H, "esa_id": S}` (`esa_id` optional): watch the Drobo at H from now on, with no restart, and keep it in `config.json` (`manual_discovery_ips` or `host`, and `expected_esa_id`). It reads H's status greeting first — no login, nothing that changes the Drobo — and refuses, changing nothing, when nothing answers (502), when the serial is not S, or when S is left out and the Drobo is not the one this agent is paired with (409); a body that is not an address is a 400. Choosing the Drobo already being read, and answering, changes nothing and leaves `config.json` as it is (`"already_watching": true`), so the app's reconnect at every launch never rewrites it. Switching to a different Drobo forgets the previous one's alerts and graph without sending them as resolved. What the app's and the browser's address boxes call. Every route that changes a Drobo (listed in `api.py`) takes an optional `esa_id` too, the serial of the Drobo the change was made against, and refuses the change (409, `"reason": "another_drobo"`, nothing sent) when the agent now watches another; `/api/shares` says which Drobo its list is from in its own `esa_id` |
 | GET | `/api/netcheck?host=` | Whether this PC is even on the Drobo's network — the usual reason one "vanishes". `/api/status` already carries this as `network_hint`; this is for a device picker with an address and no snapshot. |
 | GET | `/api/events` | Server-sent events — live snapshots and alerts |
 | GET | `/api/photos/stats` | *Phone.* How much has been backed up |

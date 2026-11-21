@@ -33,6 +33,17 @@ Who may be chosen, and why:
     address now belongs to a different box from the row that was
     clicked.
 
+A switch has a consequence for every change a front end sends: the
+page or window it came from may still show the Drobo watched before.
+Until 2026-11-21 no write said which Drobo it was made against, so a
+share deleted from a page still showing Drobo A went to Drobo B if B
+had a share of that name (found by the final review of 2026-11-20,
+with loopback fakes and a delete that sent nothing). Every write that
+reaches a Drobo now takes an optional "esa_id", the serial of the
+Drobo the change was made against, and is refused (409, nothing sent)
+when the agent now watches another. Left out, the write goes ahead as
+before, so a script or an older front end is not broken by it.
+
 Nothing here touches the network or a file; api.py does both.
 """
 
@@ -207,3 +218,48 @@ def selected_answer(host: str, identity: dict, previous_esa_id: str,
     return {"ok": True, "message": message, "selected": device,
             "previous_esa_id": previous_esa_id, "saved_to": saved_to,
             "reachable": reachable}
+
+
+def parse_change_esa_id(body: dict):
+    """
+    (serial, None) for the "esa_id" a change to a Drobo may carry, ""
+    when it is left out, or ("", refusal) when it is not text.
+
+    Strict about the type for the reason parse_select_request is: a
+    serial sent as a number is a front end's mistake, and reading it as
+    left out would quietly switch the check below off.
+    """
+    esa_id = body.get("esa_id")
+    if esa_id is None:
+        return "", None
+    if not isinstance(esa_id, str):
+        return "", refusal(
+            "bad_request",
+            '"esa_id" must be the serial of the Drobo the change was '
+            'made against, as text, or left out.')
+    return esa_id.strip(), None
+
+
+def another_drobo_refusal(made_against_esa_id: str, watched_esa_id: str,
+                          watched_name: str):
+    """
+    The refusal for a change made against the Drobo
+    `made_against_esa_id` while the agent watches `watched_esa_id`, or
+    None when it may go ahead: the serials match, or either is unknown.
+
+    An unknown watched serial lets it through because there is then
+    nothing to mistake it for: the real driver has none only before its
+    first reading, when api.py's _command_target refuses every change
+    anyway, and the simulator is one Drobo.
+    """
+    if (not made_against_esa_id or not watched_esa_id
+            or made_against_esa_id == watched_esa_id):
+        return None
+    return refusal(
+        "another_drobo",
+        f"Nothing was sent: this change was made against the Drobo "
+        f"{made_against_esa_id!r}, but the agent now watches "
+        f"{watched_name or 'another Drobo'} ({watched_esa_id!r}). Reload "
+        f"the page, or reopen the window it came from, check which Drobo "
+        f"it shows, and try again.",
+        esa_id_sent=made_against_esa_id, esa_id_watched=watched_esa_id)

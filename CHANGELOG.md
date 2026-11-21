@@ -83,9 +83,9 @@ released. Every push to this repository carries this file.
   simulated Drobo, a real address is refused with advice to exit the
   app, which stops the simulator, and start the real agent. Tested
   against loopback fakes, not yet on a real Drobo or in the Windows app
-  on a PC. Known limit: a page already open on one
-  Drobo sends its writes to whichever Drobo the agent watches when they
-  are sent, so reload any open page after switching. (2026-11-20)
+  on a PC. A change made afterwards from a page or window still showing
+  the first Drobo is refused, not sent to the second (see Fixed,
+  2026-11-21). (2026-11-20)
 - **A Tester report issue form.** Opening an issue on this repository now
   offers a form that asks for what `TESTING.md` already called the most
   useful report: the app's version, how it was run (the MSI, from source,
@@ -111,6 +111,34 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **A change made from a view of the other Drobo is refused, not sent
+  to it.** `POST /api/drobo/select` (above) can switch the Drobo a
+  running agent watches, and no change said which Drobo it was made
+  against, so a share deleted from a browser page or window still
+  showing the first Drobo went to the second Drobo's share of the same
+  name; the same could happen when an agent with no serial pinned
+  restarted and found the other unit. Every route that changes a Drobo
+  -- Identify, LED brightness, spin-down, share access, share create,
+  share delete and DroboApps Start/Stop -- now takes an optional
+  `esa_id`, the serial of the Drobo the change was made against (in the
+  JSON body; Identify's body carries nothing else), and answers 409 with
+  `"reason": "another_drobo"` and `"outcome": "failed"`, naming both
+  serials and sending nothing, when the agent now watches another. A
+  change without `esa_id` goes ahead as before, so a script or an older
+  front end still works. `GET /api/shares` gains `esa_id`, the Drobo its
+  list was read from, and a cached list of another Drobo is read again
+  rather than handed out. Both apps send the serial: share changes the
+  one their share list came from (an armed delete the one its row was
+  armed on), the rest the Drobo of the latest reading. A reading of
+  another Drobo puts away what was read from the first: the browser
+  dashboard disarms an armed delete and reads its shares, settings and
+  app list again; the Windows app clears its DroboApps list and the
+  Settings tab's network settings and re-reads the Advanced
+  Configuration card's values. Nothing sent to a Drobo changed, and no
+  route, key or gate was renamed or moved. Tested against two loopback
+  fakes and the simulator, with every SDK write replaced by a recorder;
+  the Windows app's half compiles and its rules are tested off Windows,
+  but it has not been watched on a PC. (2026-11-21)
 - **Opening the app again no longer starts a second agent.** The Start
   Menu and desktop launcher started the agent every time and then waited
   a fixed 2 seconds. The agent's window stays open after the app closes,

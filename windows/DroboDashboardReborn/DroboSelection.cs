@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace DroboDashboardReborn;
 
@@ -86,4 +87,33 @@ public static class DroboSelection
             problem += " " + ClickToSwitch;
         return (Outcome.Refused, problem);
     }
+
+    /// <summary>
+    /// The JSON body of a change to a Drobo, with "esa_id" set to the serial
+    /// of the Drobo the change was made against, when that is known.
+    ///
+    /// The agent can be switched to another Drobo while this app shows the
+    /// first one -- from a browser page, or by a restart that finds the other
+    /// unit -- and until 2026-11-21 no change said which Drobo it was meant
+    /// for, so a share deleted from a list still showing Drobo A went to
+    /// Drobo B's share of the same name. With the serial named, the agent
+    /// refuses a change made against a Drobo it no longer watches (409,
+    /// nothing sent). Left out, the change goes ahead as before.
+    /// </summary>
+    public static string ChangeBody(object body, string? madeAgainstEsaId)
+    {
+        var changeBody = JsonSerializer.SerializeToNode(body) as JsonObject ?? new JsonObject();
+        if (!string.IsNullOrWhiteSpace(madeAgainstEsaId)) changeBody["esa_id"] = madeAgainstEsaId.Trim();
+        return changeBody.ToJsonString();
+    }
+
+    /// <summary>
+    /// Whether a reading naming <paramref name="readingSerial"/> is of a
+    /// different Drobo from <paramref name="shownSerial"/>, the one shown so
+    /// far. A reading with no serial (the Drobo did not answer) is no news,
+    /// and the first serial seen is no change.
+    /// </summary>
+    public static bool IsAnotherDrobo(string shownSerial, string? readingSerial) =>
+        !string.IsNullOrEmpty(shownSerial) && !string.IsNullOrEmpty(readingSerial)
+        && !string.Equals(shownSerial, readingSerial, System.StringComparison.Ordinal);
 }

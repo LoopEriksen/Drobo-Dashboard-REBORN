@@ -69,7 +69,11 @@ row's Drobo, and the agent watches it until you pick another (Change Drobo,
 then Connect on the other row). Opening the app reconnects to the Drobo you
 used last only if the agent is still watching it; if not, the app says so and
 you press Connect on the row you want. Please report whether the dashboard
-that opens shows the name and serial of the row you clicked.
+that opens shows the name and serial of the row you clicked. If the browser
+dashboard is open while you switch, say too whether it moves to the new
+Drobo's name and shares by itself within about ten seconds. Change nothing to
+test this: a change made from a page still showing the first Drobo is
+refused and never sent to the second, and nothing here needs a write.
 
 ## 2. What the status codes mean -- needs a pack that is degraded or rebuilding
 

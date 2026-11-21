@@ -558,6 +558,29 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     });
   }
 
+  // Which Drobo each change is made against. Every change this page sends
+  // carries a serial as "esa_id", and the agent refuses the change (409,
+  // nothing sent) when it now watches another Drobo. Until 2026-11-21 no
+  // change said which Drobo it was meant for, so a delete armed on a page
+  // left open while the agent was switched to another Drobo went to that
+  // Drobo's share of the same name. shownEsaId is the Drobo of the latest
+  // reading that named one; sharesEsaId is the Drobo the share list on
+  // screen was read from, which share changes are made against.
+  var shownEsaId = "";
+  var sharesEsaId = "";
+
+  function withEsaId(body, esaId) {
+    if (esaId) body.esa_id = esaId;
+    return body;
+  }
+
+  // True for a reading of a different Drobo from the one shown so far. A
+  // reading with no serial (the Drobo did not answer) is no news, and the
+  // first serial seen is no change.
+  function isAnotherDrobo(shown, serial) {
+    return !!shown && !!serial && serial !== shown;
+  }
+
   // The result line under a write control: green for a device-confirmed
   // change, amber for one nobody could settle, red for a refusal -- always in
   // the agent's own words. `state` is true/false for the plain two cases (so
@@ -629,6 +652,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   function renderSnapshot(s) {
     if (!s) return;
     var dev = s.device || {}, cap = s.capacity || {};
+    noticeWhichDrobo(dev.serial);
 
     $("devName").textContent = dev.name || dev.model || "Drobo";
     var bits = [];
@@ -881,8 +905,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     btn.disabled = true;
     stop.disabled = true;
     msg.textContent = working;
-    fetch("/api/identify" + query, { method: "POST", headers: { "X-Agent-Token": token } })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    sendJson("/api/identify" + query, withEsaId({}, shownEsaId))
       .then(function (res) {
         if (!res.ok || res.j.error) {
           msg.textContent = res.j.error || "The Drobo didn't accept that.";
@@ -978,7 +1001,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // agent's message says so rather than pretending, and is shown as-is.
   function appAction(name, action, btn) {
     btn.disabled = true;
-    sendJson("/api/droboapps/action", { name: name, action: action })
+    sendJson("/api/droboapps/action",
+             withEsaId({ name: name, action: action }, shownEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           // Amber for a Start/Stop whose answer was lost (it may have been
@@ -1224,6 +1248,31 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // of the page: the panel simply stays hidden.
   var configLoaded = false;
 
+  // A reading of another Drobo than the one this page has shown: the agent
+  // was switched (POST /api/drobo/select, from here or from the Windows
+  // app) or restarted on the other unit. What was read from the first one
+  // and could be acted on -- the armed delete, the share list, the settings
+  // and the app list -- is put away with the results of its changes, and
+  // read again from the new one.
+  function noticeWhichDrobo(serial) {
+    if (!serial || serial === shownEsaId) return;
+    var switched = isAnotherDrobo(shownEsaId, serial);
+    shownEsaId = serial;
+    if (switched) forgetTheOtherDrobo();
+  }
+
+  function forgetTheOtherDrobo() {
+    disarmShareDelete();
+    ["configPanel", "settingsPanel", "appsPanel", "appsResult",
+     "shareManageResult", "accessResult", "brightnessResult",
+     "spindownResult"].forEach(function (id) { $(id).hidden = true; });
+    $("appsList").textContent = "";
+    configLoaded = false;
+    settingsLoaded = false;
+    loadConfig();
+    loadSettings();
+  }
+
   // Append an informational strip. Everything goes in via textContent -- the
   // wording comes from the device's own configuration, so it is never trusted
   // as markup.
@@ -1264,6 +1313,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
 
   function renderConfig(net, sh) {
     var list = (sh && sh.shares) || [];
+    if (sh && sh.esa_id) sharesEsaId = sh.esa_id;
     var host = $("configBody");
     host.textContent = "";
 
@@ -1419,7 +1469,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       return;
     }
     btn.disabled = true;
-    sendJson("/api/config/share-access", { share: share, user: user, access: sel.value })
+    sendJson("/api/config/share-access",
+             withEsaId({ share: share, user: user, access: sel.value }, sharesEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           var state = writeProblemState(res.j);
@@ -1446,6 +1497,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // re-render the list through refreshShares above, from a fresh read.
 
   var armedDeleteName = null;
+  var armedDeleteEsaId = "";
 
   $("newShareBtn").addEventListener("click", function () {
     var btn = $("newShareBtn");
@@ -1458,7 +1510,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       return;
     }
     btn.disabled = true;
-    sendJson("/api/shares/create", { name: name })
+    sendJson("/api/shares/create", withEsaId({ name: name }, sharesEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           var state = writeProblemState(res.j);
@@ -1486,6 +1538,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
   // the same honest wording as the Windows app's DeleteShareDialog.
   function armShareDelete(name) {
     armedDeleteName = name;
+    armedDeleteEsaId = sharesEsaId;
     $("deleteHeadline").textContent = "Delete " + name;
     $("deleteDetail").textContent =
       "Deleting " + name + " is expected to destroy everything stored in " +
@@ -1499,6 +1552,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
 
   function disarmShareDelete() {
     armedDeleteName = null;
+    armedDeleteEsaId = "";
     $("deleteConfirm").hidden = true;
     $("deleteConfirmInput").value = "";
     $("deleteConfirmBtn").disabled = true;
@@ -1517,7 +1571,8 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
     btn.disabled = true;
     // What was TYPED goes out as confirm_name, so the agent's exact-match
     // check sees the string the user proved they could type.
-    sendJson("/api/shares/delete", { name: armedDeleteName, confirm_name: typed })
+    sendJson("/api/shares/delete",
+             withEsaId({ name: armedDeleteName, confirm_name: typed }, armedDeleteEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           var state = writeProblemState(res.j);
@@ -1596,7 +1651,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       return;
     }
     btn.disabled = true;
-    sendJson("/api/config/brightness", { value: v })
+    sendJson("/api/config/brightness", withEsaId({ value: v }, shownEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           var state = writeProblemState(res.j);
@@ -1645,7 +1700,7 @@ footer { margin-top: 1.5rem; font-size: .78rem; color: var(--muted); }
       body = { delay: d };
     }
     btn.disabled = true;
-    sendJson("/api/config/spindown", body)
+    sendJson("/api/config/spindown", withEsaId(body, shownEsaId))
       .then(function (res) {
         if (!res.ok || !res.j.ok) {
           var state = writeProblemState(res.j);
