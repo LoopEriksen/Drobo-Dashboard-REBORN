@@ -63,9 +63,12 @@ C and F all use it.
 
 ## A. Create the throwaway share, and take the "before" reading
 
-1. Double-click **`START DROBO DASHBOARD.bat`** in the repository folder. A
-   console window opens (that is the agent; it has to stay open while the app
-   is in use) and then the app.
+1. Double-click **`START DROBO DASHBOARD.bat`** in the repository folder. It
+   starts the agent in its own minimised window, named **Drobo Dashboard
+   REBORN - Agent (from source)** on the taskbar (it has to stay open while
+   the app is in use), waits for it to answer, and then opens the app. If it
+   says an agent already answers, do what it says before going on: an agent
+   left running by an installed copy or the simulator is not this one.
 2. Check the **STATUS** tab shows your Drobo.
 3. Go to the **SHARES** tab and press **New share…** (top right of the share
    list).
@@ -92,7 +95,8 @@ C and F all use it.
      `py tools\access_codes.py before --host <that address>`.
    - It prints your shares and each user's permission number. Ignore its own
      "Now, in Drobo Dashboard" instructions; part B below replaces them.
-7. Close the app, then close the agent's console window. Their own traffic
+7. Close the app, then close the agent's window (**Drobo Dashboard REBORN -
+   Agent (from source)** on the taskbar). Their own traffic
    would otherwise land in the recording.
 
 ## B. First recording: Blink Lights, the event log, and a new user

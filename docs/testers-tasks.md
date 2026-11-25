@@ -212,9 +212,11 @@ when the app exits. To use your real Drobo, exit the app (with Exit on its
 tray icon, if closing its window only hides it), which stops the simulated
 Drobo, then start START DROBO DASHBOARD.bat, or Drobo Dashboard REBORN from
 the Start menu if it is installed. Do not close the launcher's window
-instead: that can leave the simulator running unseen on port 7420; the real
-launcher then takes it for the real agent, and the app says its token was
-rejected.
+instead: that can leave the simulator running unseen on port 7420; a
+launcher for the real Drobo then finds that agent answering and starts none
+of its own, and the app says its token was rejected. Exiting the app no
+longer stops that simulator; restart the PC, then start the real Drobo's
+launcher again.
 
 1. **Change Drobo finishes its search** (fixed 2026-11-02). Open the
    simulated Drobo, press **Change Drobo**, and wait. The picker must leave

@@ -887,6 +887,27 @@ check("-- and with nothing extra configured it says it tried mDNS",
           "Could not find the Drobo automatically (tried mDNS). x"),
       plain_text.split("\n")[0])
 
+# Since 2026-11-25 the advice also names the Windows firewall, which may
+# drop the search's replies to python.exe. It goes after the VPN check
+# and before the "network may block the search" fallback, and it says
+# Private, never Public: the agent belongs on the home network only.
+print("\n== the not-found advice names the firewall, Private only ==")
+vpn_position = plain_text.find("VPN")
+firewall_position = plain_text.find("the firewall can also block")
+fallback_position = plain_text.find("If all of that is so")
+check("the firewall sentence sits after the VPN one and before the "
+      "fallback", -1 < vpn_position < firewall_position < fallback_position,
+      (vpn_position, firewall_position, fallback_position))
+check("-- says where to allow Python, on Private",
+      "Allow an app through firewall" in plain_text
+      and "tick Private" in plain_text and "python.exe" in plain_text,
+      plain_text)
+check("-- never on Public",
+      "never Public" in plain_text
+      and "tick Public" not in plain_text, plain_text)
+check("-- and that typing the address skips the search",
+      "skips the search altogether" in plain_text, plain_text)
+
 print("\n" + ("ALL PASS" if not failures
               else f"{len(failures)} FAILURES: {failures}"))
 sys.exit(1 if failures else 0)

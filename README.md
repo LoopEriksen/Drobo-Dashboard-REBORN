@@ -75,12 +75,16 @@ Windows 10 or 11 with Python 3 installed. Double-click
 **`START DROBO DASHBOARD.bat`** in the repository's top folder. Nothing else
 needs finding.
 
-It tells you if Python is missing. It starts the background service and opens
-the Windows app, if one is installed or built; if not, open the web dashboard
-address it prints. Keep its window open while you use the app: closing it
-stops the service. It does not open your browser by itself; the app's Tools
-tab has an "Open web dashboard" button. The first time, pick your Drobo from
-the list; after that it remembers and goes straight there.
+It tells you if Python is missing. It starts the background service in its
+own minimised window, named **Drobo Dashboard REBORN - Agent (from source)**,
+waits until the service answers, and then opens the Windows app, if one is
+installed or built; if not, open the web dashboard address it prints. Keep the
+service's window open while you use the app: closing it stops the service.
+If a service is already running, it says so and starts no second one; if
+that one is the installed copy's or the simulated Drobo's, close it first, or
+the app says its token was rejected. It does not open your browser by itself;
+the app's Tools tab has an "Open web dashboard" button. The first time, pick
+your Drobo from the list; after that it remembers and goes straight there.
 
 No Drobo at hand? Double-click **`START WITH SIMULATED DROBO (testing).bat`**
 instead. It runs the same software against a built-in simulator, no hardware
@@ -91,8 +95,10 @@ if only the browser dashboard opened, press Enter in the launcher's window.
 That stops the simulated Drobo. Then start `START DROBO DASHBOARD.bat`, or
 Drobo Dashboard REBORN from the Start menu if it is installed. Closing the
 launcher's window while the app is open can leave the simulator running
-unseen on port 7420; the real launcher then takes it for the real agent, and
-the app says its token was rejected.
+unseen on port 7420; a launcher for the real Drobo then finds that agent
+answering and starts none of its own, and the app says its token was
+rejected. Exiting the app no longer stops that simulator, so restart the PC,
+then start the real Drobo's launcher again.
 
 Doing it by hand, building the Windows app, and running the tests are covered
 under [Running it by hand](#running-it-by-hand) below.
@@ -267,7 +273,7 @@ or pull-request process: an issue, or a private report, is the way in.
 
 | What | What it is | Open first |
 |---|---|---|
-| `START DROBO DASHBOARD.bat` | Double-click to use the software with your real Drobo. Starts the background service and the Windows app. Keep its window open while you use it | — |
+| `START DROBO DASHBOARD.bat` | Double-click to use the software with your real Drobo. Starts the background service in its own window, then the Windows app. Keep the service's window open while you use it | — |
 | `START WITH SIMULATED DROBO (testing).bat` | Double-click to try the app with a pretend Drobo. No Drobo needed; the app still looks for Drobos on your network when it starts | — |
 | `CAPTURE DROBO COMMANDS (run me).bat` | Despite "run me" in its name, double-click it only when a capture is asked for. It asks for administrator rights, then records the original Drobo Dashboard 3.5.0 talking to your Drobo | [`docs/captures/README.md`](docs/captures/README.md) first: a recording can hold your Drobo password. What to record: [`docs/testers-tasks.md`](docs/testers-tasks.md) |
 | `README.md` | This page | — |

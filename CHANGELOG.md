@@ -158,9 +158,54 @@ released. Every push to this repository carries this file.
   the agent, so on a fresh clone the app read no token, the agent then
   wrote `config.json` with a new one, and every request was refused
   until a restart, under a message that pointed at neither cause. This
-  fix is in the app; it does not change the repository launcher's start
-  order. The wording is checked by the Windows test program; the retry
-  against a real agent awaits a Windows run. (2026-11-25)
+  fix is in the app; the repository launcher's start order is fixed in
+  the next entry. The wording is checked by the Windows test program;
+  the retry against a real agent awaits a Windows run. (2026-11-25)
+- **`START DROBO DASHBOARD.bat` starts the agent first and waits for
+  it.** The repository launcher opened the Windows app and only then ran
+  `py agent\run_agent.py` in its own window. The app reads its token
+  once, as it starts, so on a fresh clone, where the agent had not yet
+  written `agent\config.json`, the app started with no token, the agent
+  then wrote one, and every request was refused with "Token rejected"
+  until the app was restarted; this is what happened on the maintainer's
+  own PC. The launcher now asks the agent's `/api/ping` first, as the
+  installed launcher has since 2026-11-20, on `agent.port` from
+  `agent\config.json` (7420 by default). If an agent already answers it
+  starts none and says so: the app uses this checkout's token, so an
+  installed copy's or the simulated Drobo's agent will refuse it, and it
+  says which window to close or to exit the app, and to restart the PC if
+  an agent still answers after that (a simulated Drobo whose launcher
+  window was closed is a `python.exe` with no window, which exiting the
+  app no longer stops; the README and the tester tasks say the same).
+  Otherwise it starts the agent in its own minimised window, **Drobo
+  Dashboard REBORN - Agent (from source)**, which stays open with the
+  reason if the agent stops, waits up to 20 seconds for an answer, and
+  then opens the app with `--agent-config` as before; if the agent never
+  answers it says so and opens the app anyway. Without `curl.exe` it
+  waits 5 seconds. With no app built it prints the browser dashboard's
+  address itself. The agent no longer runs in the launcher's window:
+  testers close the "(from source)" window to stop it, and the
+  launcher's own window closes by itself unless a message needs
+  reading. The README and the hardware-session steps describe the new
+  window. The simulator launcher already waited, and is unchanged. Read
+  twice for syntax here; only a Windows PC can prove it. (2026-11-25)
+- **"Could not find the Drobo" names the Windows firewall.** On the
+  maintainer's own PC the agent found no Drobo by mDNS on a fresh config,
+  for a reason not yet known. One possibility, unconfirmed, is Windows
+  Defender Firewall dropping the search's replies to Python, after a
+  first-run firewall prompt closed with Cancel or with Python not allowed
+  on the Private profile; an installed copy's bundled `python.exe` is new
+  to every tester's firewall in the same way. The agent's advice, which
+  is also the text of its "cannot reach" alert, now says after the VPN
+  check that the firewall may block the search's replies to Python, and
+  how to allow it: Windows Security, Firewall & network protection,
+  Allow an app through firewall, press Change settings, and tick
+  Private, never Public, for `python.exe` (for an installed copy, the one
+  in its folder). The step that says to type the Drobo's address adds
+  that this skips the search altogether. `TESTING.md` and
+  `docs/running-the-agent.md` give the same steps in short.
+  `test_drivers.py` checks the sentence's place and its Private-only
+  wording (92 checks, from 88). (2026-11-25)
 - **A change made from a view of the other Drobo is refused, not sent
   to it.** `POST /api/drobo/select` (above) can switch the Drobo a
   running agent watches, and no change said which Drobo it was made

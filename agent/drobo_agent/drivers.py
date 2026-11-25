@@ -1693,6 +1693,16 @@ class Drobo5NDriver(DroboDriver):
         names the config file the agent was started with rather than a
         bare "config.json", which an installed copy keeps in
         %LOCALAPPDATA%; and names the probe tool only where it exists.
+
+        Since 2026-11-25 it also names the Windows firewall. A tester's
+        PC found nothing by mDNS on a fresh config, and one likely
+        cause, not confirmed, is a firewall dropping the search's
+        replies to python.exe: a first-run "allow this app" prompt
+        answered with Cancel, or Python not allowed on the Private
+        profile. An installed copy's bundled python.exe is new to every
+        firewall, so it meets that prompt too. Private only, never
+        Public: the agent is for the home network, and allowing Python
+        on Public would open it on every cafe or airport network too.
         """
         return (
             "Could not find the Drobo automatically (tried "
@@ -1700,9 +1710,15 @@ class Drobo5NDriver(DroboDriver):
             + f"). {exc}\n"
             "Check the Drobo is switched on and this PC is on the same "
             "network, and disconnect any VPN on this PC, which can hide "
-            "the Drobo from the search. If all of that is so, this "
-            "network may block the search (mDNS): type the Drobo's "
-            "address in the app or the browser dashboard, or set "
+            "the Drobo from the search. On Windows, the firewall can also "
+            "block the search's replies to Python: in Windows Security, "
+            "open Firewall & network protection, then Allow an app "
+            "through firewall, press Change settings, and tick Private, "
+            "never Public, for Python (python.exe; for an installed "
+            "copy, the one in the Drobo Dashboard REBORN folder). If all "
+            "of that is so, this network may block the search (mDNS): "
+            "type the Drobo's address in the app or the browser "
+            "dashboard, which skips the search altogether, or set "
             '"host": "<drobo-ip>" in the "drobo" block of '
             f"{self.config_file_display}."
             + self._probe_tool_hint()

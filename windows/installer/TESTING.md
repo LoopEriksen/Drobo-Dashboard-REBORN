@@ -103,6 +103,13 @@ answer, then opens the app.
 ### If it does not find your Drobo
 
 If the app shows no Drobo, disconnect any VPN on this PC and press Refresh.
+The Windows firewall may also be blocking the search's replies to Python,
+for example if a first-run firewall prompt was closed with Cancel: in
+Windows Security, open Firewall & network protection, then Allow an app
+through firewall, press Change settings, and tick **Private**, never Public,
+for the Python in `C:\Program Files\Drobo Dashboard REBORN\python\` (if it
+is not listed, "Allow another app..." adds its `python.exe`). Typing the
+Drobo's address, as below, skips the search altogether.
 If it still finds none, press "Add one in Settings", type the Drobo's IP
 address in the ADDRESS box, press Add, then press "Connect →" on its row. The
 agent checks that a Drobo answers at that address and watches it from then

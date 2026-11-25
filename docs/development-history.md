@@ -1642,7 +1642,36 @@ proven here, and left to a Windows PC or CI: how the copyable messages
 look and behave on screen (alignment, selection, the menu, wheel
 scrolling, a selection surviving a poll, how the longer refusal wraps)
 and the retry against a real agent. The repository launcher's start
-order is not changed by this fix.
+order is not changed by this fix; the next one changes it.
+
+The second fix is the repository launcher's. `START DROBO DASHBOARD.bat`
+now does what the installed launcher has done since 11-20: it asks the
+agent's `/api/ping` on the port in `agent\config.json` before it starts
+one, starts the agent in its own minimised window, "Drobo Dashboard
+REBORN - Agent (from source)" (the same file run again with
+`--agent-window`, which stays open with the reason if the agent stops),
+waits up to 20 seconds for an answer, and only then opens the app. An
+agent that already answers is reported rather than taken for this
+checkout's: the launcher starts none and says that an installed copy's
+or the simulator's agent will refuse this checkout's token, and what to
+close. Review found that its advice for the simulator, to exit the app,
+fails in the very case the README warns about -- a simulator whose
+launcher window was closed is a `python.exe` with no window that exiting
+the app does not stop -- so the launcher, the README and the tester
+tasks now end with restarting the PC. The same package gives the
+agent's "could not find the Drobo" advice one sentence on the Windows
+firewall, after the VPN check: that it may block the search's replies to
+Python, and how to allow `python.exe` on the Private profile, never
+Public; `TESTING.md` and `docs/running-the-agent.md` say it in short.
+It is worded as a possibility, because why the search found nothing on
+the maintainer's PC is still not known. Proven here: flake8 is clean,
+`test_drivers.py` passes 92 checks, from 88, the four new ones on the
+firewall sentence's place and its Private-only wording, `test_agent.py`
+still passes 421, and the other Python suites and the Windows test
+program are unchanged. Not proven here, because no cmd or PowerShell was
+at hand: the launcher itself, which was read twice for syntax and is
+left to a Windows PC; and whether the firewall was the cause at all,
+which only another run on that PC can show.
 
 ## The principles that emerged
 

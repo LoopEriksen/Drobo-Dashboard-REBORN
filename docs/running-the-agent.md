@@ -77,6 +77,14 @@ Until 2026-09-26 the agent exited instead when automatic discovery found
 nothing -- and since this task has no window and no restart, a PC that booted
 first ran no monitoring at all.
 
+If it never finds the Drobo although both are on the same network with no
+VPN, the Windows firewall may be blocking the search's replies to Python: in
+Windows Security, open Firewall & network protection, then Allow an app
+through firewall, press Change settings, and tick **Private**, never Public,
+for the Python that runs the agent (`pythonw.exe` for this task, `python.exe`
+in a terminal). Typing the Drobo's address in the app or the browser
+dashboard skips the search altogether.
+
 What still stops it at start-up is a device that answers but is provably not
 your Drobo (a different serial from the `expected_esa_id` in `config.json`),
 or a `config.json` that is not valid JSON or not UTF-8 text. `pythonw` has no
