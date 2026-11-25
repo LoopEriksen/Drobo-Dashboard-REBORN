@@ -579,11 +579,15 @@ public partial class MainWindow : Window
     /// --agent-config still wins outright and is still the only file
     /// looked at), and says whether the token changed.
     ///
-    /// Why: "START DROBO DASHBOARD.bat" starts this app before the agent.
-    /// On a fresh checkout there is no agent\config.json yet when the app
-    /// looks for it; the agent writes one, with a new token, a moment later,
-    /// and every request was then refused until the app was restarted.
-    /// Found on the maintainer's PC, 2026-11-25.
+    /// Why: until 2026-11-25 "START DROBO DASHBOARD.bat" started this app
+    /// before the agent. On a fresh checkout there was no agent\config.json
+    /// yet when the app looked for it; the agent wrote one, with a new
+    /// token, a moment later, and every request was then refused until the
+    /// app was restarted (found on the maintainer's PC that day). The
+    /// launcher now starts the agent first and waits for it, but the
+    /// re-read is still worth having: an agent can still write its first
+    /// config.json after this app has started -- one the launcher gave up
+    /// waiting for, or one started by hand a moment later.
     /// </summary>
     private bool TryRereadAgentToken()
     {
@@ -1470,7 +1474,7 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
             var (outcome, problem) = DroboSelection.ReadAnswer((int)response.StatusCode, doc.RootElement, chosenByPerson);
             if (outcome != DroboSelection.Outcome.Refused) return true;
-            ShowConnectError(problem ?? "The agent could not switch to that Drobo.");
+            ShowConnectError(DescribeConnectRefusal(response.StatusCode, problem));
             return false;
         }
         catch (Exception ex)
@@ -1483,6 +1487,19 @@ public partial class MainWindow : Window
             ShowPickerBusy(null, landingTextBefore);
         }
     }
+
+    /// <summary>
+    /// Why Connect was refused, for the picker's error box. A refused token
+    /// gets the search's own description, naming the file the token came
+    /// from and a second agent on the port: until 2026-11-25 Connect said
+    /// only "The agent rejected that token. Enter the right one below." The
+    /// token is not read again and the request not resent here, as the
+    /// search's is: the search that listed this row has already done that.
+    /// </summary>
+    private string DescribeConnectRefusal(HttpStatusCode statusCode, string? problem) =>
+        statusCode == HttpStatusCode.Unauthorized
+            ? DescribeTokenRefusal()
+            : problem ?? "The agent could not switch to that Drobo.";
 
     /// <summary>
     /// While <paramref name="device"/> is being asked for, says so and

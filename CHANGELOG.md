@@ -146,14 +146,17 @@ released. Every push to this repository carries this file.
   the only one) and retries once, only if the token changed; it never
   loops. If the agent still refuses, the status line no longer says
   "Token rejected. Check the token from the agent's config.json." and
-  the picker no longer says "The agent rejected that token. Enter the
-  right one below." Both now say which agent refused, which config file
+  the picker -- its search, and a row's Connect -- no longer says "The
+  agent rejected that token. Enter the right one below." All three now
+  say which agent refused, which config file
   the token was read from -- the user's own folders written as
   `%LOCALAPPDATA%`, `%OneDriveCommercial%`, `%OneDrive%` or
   `%USERPROFILE%`, so neither a user name nor a work OneDrive's
   organisation name is shown -- that another agent on the port (an
   installed copy, or the simulated Drobo) is the other usual cause, and
-  to check that file; a typed or missing token is said as such. On the
+  to check that file; a typed or missing token is said as such.
+  Connect does not read the token again or resend its request: the
+  search that listed the row has already done that. On the
   maintainer's own PC `START DROBO DASHBOARD.bat` started the app before
   the agent, so on a fresh clone the app read no token, the agent then
   wrote `config.json` with a new one, and every request was refused
@@ -186,8 +189,12 @@ released. Every push to this repository carries this file.
   address itself. The agent no longer runs in the launcher's window:
   testers close the "(from source)" window to stop it, and the
   launcher's own window closes by itself unless a message needs
-  reading. The README and the hardware-session steps describe the new
-  window. The simulator launcher already waited, and is unchanged. Read
+  reading. The agent's window is started on the checkout's full path,
+  quoted so that an `&` in it -- a work OneDrive folder carries the
+  organisation's name, which often has one -- or a `^`, `|`, `<` or `>`
+  cannot split the command and leave no agent running. The README and
+  the hardware-session steps describe the new window. The simulator
+  launcher already waited, and is unchanged. Read
   twice for syntax here; only a Windows PC can prove it. (2026-11-25)
 - **"Could not find the Drobo" names the Windows firewall.** On the
   maintainer's own PC the agent found no Drobo by mDNS on a fresh config,

@@ -73,6 +73,9 @@ public static class DroboSelection
     /// A start-up reconnect (<paramref name="chosenByPerson"/> false) that
     /// the agent refused as another Drobo also says which click switches,
     /// since that reconnect sent no serial on purpose (see RequestBody).
+    /// For a refused token (401) this gives a plain sentence only; the
+    /// window shows its own description instead, which names the file the
+    /// token was read from and so needs the window's state.
     /// </summary>
     public static (Outcome outcome, string? problem) ReadAnswer(int statusCode, JsonElement root, bool chosenByPerson = true)
     {
@@ -80,7 +83,7 @@ public static class DroboSelection
         if (statusCode == 404 && JsonHelpers.GetStringOr(root, "path", "") == Route)
             return (Outcome.AgentWithoutRoute, null);
         if (statusCode == 401)
-            return (Outcome.Refused, "The agent rejected that token. Enter the right one below.");
+            return (Outcome.Refused, "The agent refused this app's access token.");
         var problem = JsonHelpers.GetStringOr(
             root, "error", $"The agent could not switch to that Drobo (HTTP {statusCode}).");
         if (!chosenByPerson && JsonHelpers.GetStringOr(root, "reason", "") == "paired_with_another")

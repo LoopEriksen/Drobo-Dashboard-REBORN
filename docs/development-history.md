@@ -1602,7 +1602,7 @@ the app built from source -- and hit four things a tester would hit too.
 No message in the Windows app could be selected or copied, because every
 one was a WPF TextBlock, so an error could only be retyped into a report.
 The first start answered "Token rejected": `START DROBO DASHBOARD.bat`
-starts the app before the agent, so on a fresh clone the app read no
+started the app before the agent, so on a fresh clone the app read no
 token, the agent then wrote its first `config.json` with a new one, and
 every request was refused until a restart (the installed launcher has
 asked the agent's `/api/ping` first since 11-20; the repository's had
@@ -1617,61 +1617,68 @@ their firewall.
 
 The first fix to land is in the Windows app. Every status, result and
 error line a tester might quote is now a `CopyableText`, a read-only text
-box styled to look like the TextBlock it replaced, with Ctrl+C, Ctrl+A
-and a right-click Copy that takes the whole message when nothing is
-selected; labels and headings stay plain text and no wording changed.
-Review of that change found the Alerts tab emptying and refilling its
-lists on every 10-second poll, which with copyable messages destroyed a
-tester's selection each tick, so the tab now leaves its rows alone while
-they read the same (`AlertRowText`), at most about once a minute as
-"since" moves on. On a 401 the app now reads its token again from the
-same files and retries once if it changed, and a refusal that stands --
-on the status line and on the picker alike -- says which agent refused,
-which config file the token came from (written with `%LOCALAPPDATA%`,
+box styled to look like the TextBlock it replaced, with Ctrl+C, Ctrl+A and
+a right-click Copy that takes the whole message when nothing is selected;
+labels and headings stay plain text and no wording changed. Review of that
+change found the Alerts tab emptying and refilling its lists on every
+10-second poll, which with copyable messages destroyed a tester's
+selection each tick, so the tab now leaves its rows alone while they read
+the same (`AlertRowText`), at most about once a minute as "since" moves
+on. On a 401 the app now reads its token again from the same files and
+retries once if it changed, and a refusal that stands -- on the status
+line, on the picker's search and, after the final review found it still
+giving the old line, on a row's Connect -- says which agent refused, which
+config file the token came from (written with `%LOCALAPPDATA%`,
 `%OneDriveCommercial%`, `%OneDrive%` or `%USERPROFILE%` in place of the
 user's own folders, so a pasted report carries no user or employer name),
 and that a second agent on the port is the other cause. The integration
-review then found that the line under the device name, where that
-refusal and the agent's "could not find the Drobo" error appear, did not
-wrap and would have cut both off at the buttons; it wraps now. Proven
-here: both .NET builds give no warnings, and the Windows test program
-passes 189 checks before its Credential Manager section, from 161, the
-28 new ones covering the refusal wording, the path shortening and the
-alert rows; flake8 is clean and the Python suites are unchanged. Not
-proven here, and left to a Windows PC or CI: how the copyable messages
-look and behave on screen (alignment, selection, the menu, wheel
-scrolling, a selection surviving a poll, how the longer refusal wraps)
-and the retry against a real agent. The repository launcher's start
-order is not changed by this fix; the next one changes it.
+review then found that the line under the device name, where that refusal
+and the agent's "could not find the Drobo" error appear, did not wrap and
+would have cut both off at the buttons; it wraps now. Proven here: both
+.NET builds give no warnings, and the Windows test program passes 189
+checks before its Credential Manager section, from 161, the 28 new ones
+covering the refusal wording, the path shortening and the alert rows;
+flake8 is clean and the Python suites are unchanged. Not proven here, and
+left to a Windows PC or CI: how the copyable messages look and behave on
+screen (alignment, selection, the menu, wheel scrolling, a selection
+surviving a poll, how the longer refusal wraps) and the retry against a
+real agent. The repository launcher's start order is not changed by this
+fix; the next one changes it.
 
 The second fix is the repository launcher's. `START DROBO DASHBOARD.bat`
 now does what the installed launcher has done since 11-20: it asks the
 agent's `/api/ping` on the port in `agent\config.json` before it starts
 one, starts the agent in its own minimised window, "Drobo Dashboard
 REBORN - Agent (from source)" (the same file run again with
-`--agent-window`, which stays open with the reason if the agent stops),
-waits up to 20 seconds for an answer, and only then opens the app. An
-agent that already answers is reported rather than taken for this
-checkout's: the launcher starts none and says that an installed copy's
-or the simulator's agent will refuse this checkout's token, and what to
-close. Review found that its advice for the simulator, to exit the app,
-fails in the very case the README warns about -- a simulator whose
-launcher window was closed is a `python.exe` with no window that exiting
-the app does not stop -- so the launcher, the README and the tester
-tasks now end with restarting the PC. The same package gives the
+`--agent-window`, which stays open with the reason if the agent stops), waits up to 20
+seconds for an answer, and only then opens the app. An agent that already
+answers is reported rather than taken for this checkout's: the launcher
+starts none and says that an installed copy's or the simulator's agent
+will refuse this checkout's token, and what to close. The final review
+found that the agent's window, started as
+`cmd /c ""<path>" --agent-window"`, left the path unquoted in the
+launcher's own window, so an `&` in it -- likely under a work OneDrive
+folder, whose name carries the organisation's -- would split the line and
+start no agent; the outer quotes are now written `^"`, which keeps `&`,
+`^`, `|`, `<` and `>` literal (the suggested `cmd /c call` would have
+doubled a `^`). Review also found that its advice for the simulator, to
+exit the app, fails in the very case the README warns about -- a simulator
+whose launcher window was closed is a `python.exe` with no window that
+exiting the app does not stop -- so the launcher, the README and the
+tester tasks now end with restarting the PC. The same package gives the
 agent's "could not find the Drobo" advice one sentence on the Windows
 firewall, after the VPN check: that it may block the search's replies to
 Python, and how to allow `python.exe` on the Private profile, never
-Public; `TESTING.md` and `docs/running-the-agent.md` say it in short.
-It is worded as a possibility, because why the search found nothing on
-the maintainer's PC is still not known. Proven here: flake8 is clean,
+Public; `TESTING.md` and `docs/running-the-agent.md` say it in short. It
+is worded as a possibility, because why the search found nothing on the
+maintainer's PC is still not known. Proven here: flake8 is clean,
 `test_drivers.py` passes 92 checks, from 88, the four new ones on the
 firewall sentence's place and its Private-only wording, `test_agent.py`
-still passes 421, and the other Python suites and the Windows test
-program are unchanged. Not proven here, because no cmd or PowerShell was
-at hand: the launcher itself, which was read twice for syntax and is
-left to a Windows PC; and whether the firewall was the cause at all,
-which only another run on that PC can show.
+still passes 421, and the other Python suites and the Windows test program
+are unchanged. Not proven here, because no cmd or PowerShell was at hand:
+the launcher itself, which was read twice for syntax and is left to a
+Windows PC; and whether the firewall was the cause at all, which only
+another run on that PC can show.
 
 ## The principles that emerged
 

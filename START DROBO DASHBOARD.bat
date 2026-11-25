@@ -220,12 +220,20 @@ REM :start_agent -- the agent in its own minimised window, titled so a
 REM tester can find it on the taskbar and tell it from an installed
 REM copy's "Drobo Dashboard REBORN - Agent". The window is this file
 REM again, run with --agent-window. cmd /c, with the whole command in
-REM one more pair of quotes, keeps a folder path with spaces or
-REM brackets in one piece: cmd /c strips that outer pair and runs the
-REM rest as written.
+REM one more pair of quotes, keeps a folder path with spaces, brackets
+REM or an ampersand in one piece: cmd /c strips that outer pair and
+REM runs the rest as written. The outer pair is written ^" so that THIS
+REM window does not count it as a quote: a bare "" reads here as quote
+REM on, quote off, which left the path itself unquoted, so an ampersand
+REM in it split the line and no agent started (a work OneDrive folder is
+REM "OneDrive - " and the organisation's name, which often holds one).
+REM With ^" this window sees only the path's own quotes, so ampersands,
+REM pipes, angle brackets and carets in it stay literal. Not
+REM "cmd /c call ...": call doubles every caret in the path, quoted or
+REM not, so a folder with a caret in its name would not be found.
 REM ---------------------------------------------------------------
 :start_agent
-start "%AGENT_TITLE%" /min cmd /c ""%SELF%" --agent-window"
+start "%AGENT_TITLE%" /min cmd /c ^""%SELF%" --agent-window^"
 exit /b 0
 
 REM ---------------------------------------------------------------

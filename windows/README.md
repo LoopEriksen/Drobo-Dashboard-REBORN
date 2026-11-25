@@ -290,12 +290,14 @@ The executable lands at
    these files it finds: `%LOCALAPPDATA%\DroboDashboardReborn\config.json`
    (where an installed copy's agent keeps its settings), then
    `agent/config.json`. With the right token it goes straight to the list of
-   Drobos it can find; pick yours. If it finds no token, or says "The agent
-   rejected that token" (which happens when the installed copy has been used
-   on this PC, because the first file then belongs to that other agent), it
-   shows the **Agent** address (default `http://127.0.0.1:7420`) and a
-   **Token** box: paste the token from `agent/config.json` and press
-   **Connect**.
+   Drobos it can find; pick yours. If it finds no token, or says the agent
+   "refused this app's access token" and that it read its token from
+   `%LOCALAPPDATA%\DroboDashboardReborn\config.json` (which happens when the
+   installed copy has been used on this PC, because the first file then
+   belongs to that other agent; the message also names a second agent on the
+   port as the other usual cause), it shows the **Agent** address (default
+   `http://127.0.0.1:7420`) and a **Token** box: paste the token from
+   `agent/config.json` and press **Connect**.
 
 It then shows five tabs (Shares, Status, Alerts, Settings, Tools) and
 refreshes every 10 seconds.

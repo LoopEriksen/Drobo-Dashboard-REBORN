@@ -6,10 +6,14 @@ namespace DroboDashboardReborn;
 ///
 /// Why it exists: until 2026-11-25 the refusal read "Token rejected. Check
 /// the token from the agent's config.json." On the maintainer's PC that sent
-/// them looking in the wrong place. The real cause was order: the
-/// repository's launcher starts this app before the agent, so on a fresh
-/// checkout the app looked for agent\config.json before the agent had
-/// written it, and every request after that was refused. The message named
+/// them looking in the wrong place. The real cause was order: until that
+/// day the repository's launcher started this app before the agent, so on
+/// a fresh checkout the app looked for agent\config.json before the agent
+/// had written it, and every request after that was refused. (The launcher
+/// now starts the agent first and waits for it; an agent that writes its
+/// first config.json after the app has started -- one the launcher gave up
+/// waiting for -- is why MainWindow still reads the token again once on a
+/// refusal.) The message named
 /// neither the other common cause of a refusal -- a second agent, such as an
 /// installed copy or the simulated Drobo, already holding the port -- nor
 /// which config.json the app had read. Both are said now, and the file is
