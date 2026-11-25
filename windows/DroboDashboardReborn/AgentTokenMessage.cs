@@ -13,9 +13,9 @@ namespace DroboDashboardReborn;
 /// now starts the agent first and waits for it; an agent that writes its
 /// first config.json after the app has started -- one the launcher gave up
 /// waiting for -- is why MainWindow still reads the token again once on a
-/// refusal.) The message named
-/// neither the other common cause of a refusal -- a second agent, such as an
-/// installed copy or the simulated Drobo, already holding the port -- nor
+/// refusal.) The message named neither the other common cause of a
+/// refusal -- a second agent, such as an installed copy or the simulated
+/// Drobo, already holding the port -- nor
 /// which config.json the app had read. Both are said now, and the file is
 /// named exactly.
 ///

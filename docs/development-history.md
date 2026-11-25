@@ -1627,7 +1627,8 @@ the same (`AlertRowText`), at most about once a minute as "since" moves
 on. On a 401 the app now reads its token again from the same files and
 retries once if it changed, and a refusal that stands -- on the status
 line, on the picker's search and, after the final review found it still
-giving the old line, on a row's Connect -- says which agent refused, which
+giving the old line, on a row's Connect, which does not read the token
+again -- says which agent refused, which
 config file the token came from (written with `%LOCALAPPDATA%`,
 `%OneDriveCommercial%`, `%OneDrive%` or `%USERPROFILE%` in place of the
 user's own folders, so a pasted report carries no user or employer name),

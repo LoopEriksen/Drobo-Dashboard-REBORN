@@ -140,8 +140,10 @@ released. Every push to this repository carries this file.
   warnings; how it looks and behaves on a Windows screen awaits a
   Windows run. (2026-11-25)
 - **A refused token is read again once, and the refusal says where to
-  look.** When the agent answers 401 to `/api/status` or
-  `/api/discover`, the Windows app reads its token again from the same
+  look.** When the agent answers 401 to `/api/status` or to the
+  picker's network search (`/api/discover`; not the typed-address check,
+  `/api/discover?host=`, which still reports the HTTP error), the
+  Windows app reads its token again from the same
   config files (a launcher's `--agent-config` still wins outright and is
   the only one) and retries once, only if the token changed; it never
   loops. If the agent still refuses, the status line no longer says

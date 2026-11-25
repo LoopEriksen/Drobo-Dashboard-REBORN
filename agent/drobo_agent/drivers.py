@@ -1694,9 +1694,9 @@ class Drobo5NDriver(DroboDriver):
         bare "config.json", which an installed copy keeps in
         %LOCALAPPDATA%; and names the probe tool only where it exists.
 
-        Since 2026-11-25 it also names the Windows firewall. A tester's
-        PC found nothing by mDNS on a fresh config, and one likely
-        cause, not confirmed, is a firewall dropping the search's
+        Since 2026-11-25 it also names the Windows firewall. The
+        maintainer's PC found nothing by mDNS on a fresh config, and one
+        likely cause, not confirmed, is a firewall dropping the search's
         replies to python.exe: a first-run "allow this app" prompt
         answered with Cancel, or Python not allowed on the Private
         profile. An installed copy's bundled python.exe is new to every

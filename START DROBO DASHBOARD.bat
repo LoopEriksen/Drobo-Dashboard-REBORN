@@ -178,7 +178,8 @@ REM :say_agent_already_running -- an agent answered before this file
 REM started one. It may be the one this folder started earlier, which
 REM is fine. But the app is given THIS folder's agent\config.json, so if
 REM the agent answering is an installed copy's or the simulated Drobo's,
-REM its token is a different one and the app will say "Token rejected".
+REM its token is a different one and the app will say the agent refused
+REM its access token.
 REM This file cannot tell which agent it is without a token, so it says
 REM both, and waits for a key so the line can be read. It also says to
 REM restart the PC if one still answers: a simulated Drobo whose
