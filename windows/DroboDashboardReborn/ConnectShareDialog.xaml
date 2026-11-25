@@ -1,6 +1,7 @@
 ﻿<Window x:Class="DroboDashboardReborn.ConnectShareDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DroboDashboardReborn"
         Title="Connect to share"
         Width="420" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -72,9 +73,9 @@
         <TextBlock Style="{StaticResource Label}" TextWrapping="Wrap" Margin="0,0,0,16"
                    Text="Saves it in Windows Credential Manager, encrypted by Windows and readable only by your Windows account, so you are not asked again. You can see and remove it yourself in Control Panel, under Credential Manager. Left unticked, the login lasts only for this Windows sign-in session and nothing is written to this PC."/>
 
-        <TextBlock x:Name="ErrorText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
-                   Foreground="#E2564B" Background="#301714" Padding="10,8"
-                   Visibility="Collapsed" Margin="0,0,0,16"/>
+        <local:CopyableText x:Name="ErrorText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                            Foreground="#E2564B" Background="#301714" Padding="10,8"
+                            Visibility="Collapsed" Margin="0,0,0,16"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelBtn" Content="Cancel" Padding="14,6" Margin="0,0,8,0"

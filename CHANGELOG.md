@@ -111,6 +111,56 @@ released. Every push to this repository carries this file.
   are still to come: they need a Windows PC. (2026-11-08)
 
 ### Fixed
+- **The Windows app's messages can be selected and copied.** Every
+  status, result and error line a tester might quote -- the picker's
+  status, search error and manual-add result; the line under the device
+  name, where an agent-unreachable or token message appears; the
+  Network, Firmware, guest-access, link-speed, rebuild and
+  hardware-health notes and the footer; the Shares, Alerts, Settings,
+  DroboApps and event-log errors and results; each alert's and
+  event-log line's message; the Settings and Tools values and versions
+  and every action and status line there; the new-share, delete-share
+  and connect dialogs' error line; and the file browser's path and
+  state lines -- is now a read-only text box that looks like the plain
+  text it replaced (`CopyableText`, styled in `App.xaml` so the dialogs
+  get it too). Ctrl+C and Ctrl+A work, and its right-click menu has
+  Copy (the selection, or the whole message when nothing is selected)
+  and Select all; it is never a tab stop. Labels, headings, rows inside
+  clickable lists and the drive-bay rows stay plain text, and no
+  message's wording changed. Until now every message was a WPF
+  TextBlock, which cannot be selected, so on the maintainer's own PC an
+  error could only be retyped into a report. The Alerts tab no longer
+  rebuilds its rows on every 10-second poll while they read the same
+  (key, severity, message, "since" and "cleared"; `AlertRowText`), so
+  a selection in an alert is not taken away mid-copy; the rows still
+  refresh when an alert comes, goes or changes, and about once a minute
+  as "since Nm ago" moves on. The line under the device name now wraps,
+  so a long refusal or the agent's "could not find the Drobo" error is
+  read in full rather than cut off at the buttons. Built with no
+  warnings; how it looks and behaves on a Windows screen awaits a
+  Windows run. (2026-11-25)
+- **A refused token is read again once, and the refusal says where to
+  look.** When the agent answers 401 to `/api/status` or
+  `/api/discover`, the Windows app reads its token again from the same
+  config files (a launcher's `--agent-config` still wins outright and is
+  the only one) and retries once, only if the token changed; it never
+  loops. If the agent still refuses, the status line no longer says
+  "Token rejected. Check the token from the agent's config.json." and
+  the picker no longer says "The agent rejected that token. Enter the
+  right one below." Both now say which agent refused, which config file
+  the token was read from -- the user's own folders written as
+  `%LOCALAPPDATA%`, `%OneDriveCommercial%`, `%OneDrive%` or
+  `%USERPROFILE%`, so neither a user name nor a work OneDrive's
+  organisation name is shown -- that another agent on the port (an
+  installed copy, or the simulated Drobo) is the other usual cause, and
+  to check that file; a typed or missing token is said as such. On the
+  maintainer's own PC `START DROBO DASHBOARD.bat` started the app before
+  the agent, so on a fresh clone the app read no token, the agent then
+  wrote `config.json` with a new one, and every request was refused
+  until a restart, under a message that pointed at neither cause. This
+  fix is in the app; it does not change the repository launcher's start
+  order. The wording is checked by the Windows test program; the retry
+  against a real agent awaits a Windows run. (2026-11-25)
 - **A change made from a view of the other Drobo is refused, not sent
   to it.** `POST /api/drobo/select` (above) can switch the Drobo a
   running agent watches, and no change said which Drobo it was made

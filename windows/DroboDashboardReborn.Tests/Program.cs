@@ -622,6 +622,125 @@ finally
 
 
 // ---------------------------------------------------------------------------
+// AgentTokenMessage -- what the app says when the agent refuses its token.
+//
+// Until 2026-11-25 it said only "Token rejected. Check the token from the
+// agent's config.json.", which named neither a second agent on the port nor
+// the file the token came from. The paths here are synthetic, and the user
+// folder is the placeholder your-name. Placed before the CredentialStore
+// section so these run on any machine.
+Console.WriteLine("\n== AgentTokenMessage: the user's own folders become variables ==");
+const string syntheticLocalAppData = @"C:\Users\your-name\AppData\Local";
+const string syntheticProfile = @"C:\Users\your-name\";
+Check("a file in Local AppData is written with %LOCALAPPDATA%",
+      AgentTokenMessage.ShortenForDisplay(syntheticLocalAppData + @"\DroboDashboardReborn\config.json",
+                                          syntheticLocalAppData, syntheticProfile)
+      == @"%LOCALAPPDATA%\DroboDashboardReborn\config.json");
+var checkoutConfig = AgentTokenMessage.ShortenForDisplay(
+    syntheticProfile + @"source\Drobo-Dashboard-REBORN\agent\config.json",
+    syntheticLocalAppData, syntheticProfile);
+Check("a checkout under the profile is written with %USERPROFILE%",
+      checkoutConfig == @"%USERPROFILE%\source\Drobo-Dashboard-REBORN\agent\config.json", checkoutConfig);
+Check("-- and the user name is gone from it", !checkoutConfig.Contains("your-name"), checkoutConfig);
+Check("the folder is matched whatever its case, as Windows does",
+      AgentTokenMessage.ShortenForDisplay(@"c:\users\YOUR-NAME\agent\config.json", null, syntheticProfile)
+      == @"%USERPROFILE%\agent\config.json");
+Check("a folder whose name only starts the same is not the profile",
+      AgentTokenMessage.ShortenForDisplay(@"D:\Profiles\tester2\agent\config.json", null, @"D:\Profiles\tester")
+      == @"D:\Profiles\tester2\agent\config.json");
+Check("a path outside the profile is shown as it is",
+      AgentTokenMessage.ShortenForDisplay(@"D:\code\Drobo-Dashboard-REBORN\agent\config.json",
+                                          syntheticLocalAppData, syntheticProfile)
+      == @"D:\code\Drobo-Dashboard-REBORN\agent\config.json");
+Check("a blank folder never matches",
+      AgentTokenMessage.ShortenForDisplay(@"D:\agent\config.json", "", "  ") == @"D:\agent\config.json");
+const string syntheticWorkOneDrive = @"C:\Users\your-name\OneDrive - Example Org";
+var workOneDriveConfig = AgentTokenMessage.ShortenForDisplay(
+    syntheticWorkOneDrive + @"\Documents\GitHub\Drobo-Dashboard-REBORN\agent\config.json",
+    syntheticLocalAppData, syntheticProfile, syntheticWorkOneDrive, syntheticWorkOneDrive);
+Check("a checkout in a work OneDrive is written with %OneDriveCommercial%",
+      workOneDriveConfig == @"%OneDriveCommercial%\Documents\GitHub\Drobo-Dashboard-REBORN\agent\config.json",
+      workOneDriveConfig);
+Check("-- and neither the organisation nor the user name is left in it",
+      !workOneDriveConfig.Contains("Example Org") && !workOneDriveConfig.Contains("your-name"), workOneDriveConfig);
+Check("a OneDrive with only %OneDrive% set is written with it",
+      AgentTokenMessage.ShortenForDisplay(syntheticWorkOneDrive + @"\agent\config.json",
+                                          syntheticLocalAppData, syntheticProfile, null, syntheticWorkOneDrive)
+      == @"%OneDrive%\agent\config.json");
+Check("a path outside OneDrive but in the profile still says %USERPROFILE%",
+      AgentTokenMessage.ShortenForDisplay(syntheticProfile + @"source\agent\config.json",
+                                          syntheticLocalAppData, syntheticProfile,
+                                          syntheticWorkOneDrive, syntheticWorkOneDrive)
+      == @"%USERPROFILE%\source\agent\config.json");
+
+Console.WriteLine("\n== AgentTokenMessage: the refusal says where to look ==");
+const string syntheticAgentUrl = "http://127.0.0.1:7420";
+var refusedFromFile = AgentTokenMessage.Rejected(syntheticAgentUrl, @"%USERPROFILE%\repo\agent\config.json", false);
+Check("it names the agent's address", refusedFromFile.Contains("The agent at http://127.0.0.1:7420 refused"),
+      refusedFromFile);
+Check("-- the file the token was read from",
+      refusedFromFile.Contains(@"read its token from %USERPROFILE%\repo\agent\config.json."), refusedFromFile);
+Check("-- another agent on the port as a cause",
+      refusedFromFile.Contains("If another agent is running on this port (an installed copy, or the simulated Drobo), close it and start again"),
+      refusedFromFile);
+Check("-- and checking that file as the other way out",
+      refusedFromFile.EndsWith("otherwise check the token in that file."), refusedFromFile);
+var refusedTyped = AgentTokenMessage.Rejected(syntheticAgentUrl, null, false);
+Check("a typed token is not said to come from a file",
+      refusedTyped.Contains("typed in, not read from a config file") && !refusedTyped.Contains("read its token from"),
+      refusedTyped);
+Check("-- and the message says where to put the right one", refusedTyped.Contains("into the TOKEN box"), refusedTyped);
+var refusedBlank = AgentTokenMessage.Rejected(syntheticAgentUrl, null, true);
+Check("no token at all is said plainly, not as a refusal",
+      refusedBlank.Contains("this app has none") && !refusedBlank.Contains("refused"), refusedBlank);
+Check("the old wording is gone",
+      !refusedFromFile.Contains("Token rejected") && !refusedTyped.Contains("Token rejected")
+      && !refusedBlank.Contains("Token rejected"));
+
+
+// ---------------------------------------------------------------------------
+// AlertRowText -- whether a poll's alert rows would change the screen.
+//
+// Each alert's message is a CopyableText since 2026-11-25, and the Alerts tab
+// used to refill its lists on every 10-second poll, which took a tester's
+// selection away mid-copy. The lists are now left alone while the rows read
+// the same. Placed before the CredentialStore section.
+Console.WriteLine("\n== AlertRowText: an unchanged poll leaves the alerts alone ==");
+var shownAlertRows = new List<AlertRowText>
+{
+    new("drive-failed-3", "critical", "Drive in bay 3 has failed.", "since 3m ago", ""),
+    new("capacity-85", "warning", "The Drobo is 85% full.", "since 2h ago", ""),
+};
+Check("the same rows in the same order are the same",
+      AlertRowText.SameInOrder(shownAlertRows, shownAlertRows.ToList()));
+Check("two empty lists are the same", AlertRowText.SameInOrder(new List<AlertRowText>(), new List<AlertRowText>()));
+Check("a new alert is a change",
+      !AlertRowText.SameInOrder(shownAlertRows, shownAlertRows.Append(
+          new AlertRowText("temp-high", "warning", "Chassis is hot.", "just now", "")).ToList()));
+Check("an alert gone is a change", !AlertRowText.SameInOrder(shownAlertRows, shownAlertRows.Take(1).ToList()));
+Check("the same rows in another order are a change",
+      !AlertRowText.SameInOrder(shownAlertRows, shownAlertRows.AsEnumerable().Reverse().ToList()));
+Check("a minute later, 'since' moving on is a change",
+      !AlertRowText.SameInOrder(shownAlertRows, new List<AlertRowText>
+      {
+          shownAlertRows[0] with { Since = "since 4m ago" }, shownAlertRows[1],
+      }));
+Check("a changed severity is a change",
+      !AlertRowText.SameInOrder(shownAlertRows, new List<AlertRowText>
+      {
+          shownAlertRows[0], shownAlertRows[1] with { Severity = "critical" },
+      }));
+Check("a changed message is a change, case included",
+      !AlertRowText.SameInOrder(shownAlertRows, new List<AlertRowText>
+      {
+          shownAlertRows[0] with { Message = "drive in bay 3 has failed." }, shownAlertRows[1],
+      }));
+Check("a resolved alert's 'cleared' moving on is a change",
+      !AlertRowText.SameInOrder(new List<AlertRowText> { shownAlertRows[1] with { ClearedText = "cleared 1m ago" } },
+                                new List<AlertRowText> { shownAlertRows[1] with { ClearedText = "cleared 2m ago" } }));
+
+
+// ---------------------------------------------------------------------------
 // CredentialStore -- saving a Drobo login on this PC.
 //
 // These touch the REAL Windows Credential Manager, deliberately: a store that

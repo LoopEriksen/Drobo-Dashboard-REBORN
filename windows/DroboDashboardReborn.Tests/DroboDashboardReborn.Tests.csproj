@@ -25,7 +25,12 @@
     which writes are not yet proven on a real Drobo; DiagnosticsMasking,
     which makes the copy safe to post publicly; and AppErrorLog, what an
     unexpected error leaves behind. All four are checked before the
-    CredentialStore section, so they run on any machine.
+    CredentialStore section, so they run on any machine. And, since
+    2026-11-25, AgentTokenMessage: what the app says when the agent refuses
+    its token, and how it writes the user's own folders in a path; and
+    AlertRowText, which tells whether a poll's alert rows would change the
+    screen, so a tester's selection in an alert survives the poll. Also
+    before the CredentialStore section.
 
     Deliberately NOT a test framework. The Python suites in this project are
     hand-rolled (a check() function, printed PASS/FAIL, non-zero exit) for the
@@ -53,7 +58,9 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="..\DroboDashboardReborn\AgentTokenMessage.cs" Link="AgentTokenMessage.cs" />
     <Compile Include="..\DroboDashboardReborn\AlertNotifier.cs" Link="AlertNotifier.cs" />
+    <Compile Include="..\DroboDashboardReborn\AlertRowText.cs" Link="AlertRowText.cs" />
     <Compile Include="..\DroboDashboardReborn\AppErrorLog.cs" Link="AppErrorLog.cs" />
     <Compile Include="..\DroboDashboardReborn\CredentialStore.cs" Link="CredentialStore.cs" />
     <Compile Include="..\DroboDashboardReborn\DiagnosticsMasking.cs" Link="DiagnosticsMasking.cs" />

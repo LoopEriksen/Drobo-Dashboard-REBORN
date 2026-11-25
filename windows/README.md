@@ -55,7 +55,10 @@ share) and `VolumeRow` (a volume).
 
 | | |
 |---|---|
-| `App.xaml`, `App.xaml.cs` | Start-up, the splash screen, the last-chance error handlers, and the button and drop-down styles every window uses |
+| `App.xaml`, `App.xaml.cs` | Start-up, the splash screen, the last-chance error handlers, and the button, drop-down and copyable-message styles every window uses |
+| `CopyableText.cs` | A message that can be selected and copied (Ctrl+C, or right-click Copy, which takes the whole message when nothing is selected) but looks like plain text. Every status, result and error line a tester might quote uses it; labels and headings stay plain text |
+| `AgentTokenMessage.cs` | What the app says when the agent refuses its access token: which agent, which config file the token was read from (the user's own folders written as `%LOCALAPPDATA%`, `%OneDriveCommercial%`, `%OneDrive%` or `%USERPROFILE%`, so neither a user name nor a work OneDrive's organisation name shows), and that a second agent on the same port is the other usual cause. Before saying it, the app reads the token from that file once more and retries once if it changed |
+| `AlertRowText.cs` | What one alert row shows, and whether a poll's rows would show the same: while they do, the Alerts tab leaves its rows alone, so a tester's selection in an alert's message is not swept away by the 10-second poll |
 | `AppErrorLog.cs` | What an unexpected error leaves behind: the whole error, with the app version and time, in `%LOCALAPPDATA%\DroboDashboardReborn\app.log` (capped at about 1 MB, never the token or a password; the error dialog shows the same text with names and addresses masked) |
 | `AlertNotifier.cs` | Which alerts may pop up a notification |
 | `CredentialStore.cs` | Saved share logins, kept in Windows Credential Manager |

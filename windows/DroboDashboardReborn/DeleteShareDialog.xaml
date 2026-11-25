@@ -49,9 +49,9 @@
         <TextBlock x:Name="ConfirmHint" Style="{StaticResource Label}" TextWrapping="Wrap"
                    Margin="0,0,0,16"/>
 
-        <TextBlock x:Name="ErrorText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
-                   Foreground="#E2564B" Background="#301714" Padding="10,8"
-                   Visibility="Collapsed" Margin="0,0,0,16"/>
+        <local:CopyableText x:Name="ErrorText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"
+                            Foreground="#E2564B" Background="#301714" Padding="10,8"
+                            Visibility="Collapsed" Margin="0,0,0,16"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelBtn" Content="Cancel" Padding="14,6" Margin="0,0,8,0"

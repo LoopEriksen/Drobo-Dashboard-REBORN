@@ -1,6 +1,7 @@
 ﻿<Window x:Class="DroboDashboardReborn.ShareBrowserWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DroboDashboardReborn"
         Title="Browse share"
         Width="900" Height="620" MinWidth="560" MinHeight="360"
         WindowStartupLocation="CenterOwner"
@@ -62,7 +63,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0">
                 <TextBlock x:Name="Header" FontSize="17" FontWeight="SemiBold"/>
-                <TextBlock x:Name="PathText" Style="{StaticResource Label}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                <local:CopyableText x:Name="PathText" Style="{StaticResource CopyableLabel}" Margin="0,2,0,0" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                 <Button x:Name="UpBtn" Content="Up" Padding="12,5" Margin="0,0,8,0"
@@ -143,10 +144,10 @@
                     </ListView.View>
                 </ListView>
                 <!-- Empty / loading / error state, shown over the list -->
-                <TextBlock x:Name="StateText" Style="{StaticResource Label}" FontSize="12"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
-                           Visibility="Collapsed"/>
+                <local:CopyableText x:Name="StateText" Style="{StaticResource CopyableLabel}" FontSize="12"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
+                                    Visibility="Collapsed"/>
             </Grid>
         </Border>
 

@@ -1594,6 +1594,56 @@ a bare `CimInstance` no `.Count`. The answer that should have read 1 read
 as nothing. Each call is now wrapped in `@()` again, with a comment saying
 why.
 
+## On the maintainer's own PC (2026-11-25)
+
+**11-25.** The maintainer ran the current `main` on their own Windows PC
+for the hardware session -- the repository cloned fresh, their own Python,
+the app built from source -- and hit four things a tester would hit too.
+No message in the Windows app could be selected or copied, because every
+one was a WPF TextBlock, so an error could only be retyped into a report.
+The first start answered "Token rejected": `START DROBO DASHBOARD.bat`
+starts the app before the agent, so on a fresh clone the app read no
+token, the agent then wrote its first `config.json` with a new one, and
+every request was refused until a restart (the installed launcher has
+asked the agent's `/api/ping` first since 11-20; the repository's had
+not). The message sent them looking in the wrong place: it named neither
+the file the app had read its token from nor the other usual cause, a
+second agent holding the port. And the agent then found no Drobo: the
+fresh config had no last-known address, and the mDNS search came up empty
+for a reason not yet known. One possibility, unconfirmed, is Windows
+Defender Firewall blocking the replies to `python.exe`, which would meet
+testers' installed copies too, since their bundled `python.exe` is new to
+their firewall.
+
+The first fix to land is in the Windows app. Every status, result and
+error line a tester might quote is now a `CopyableText`, a read-only text
+box styled to look like the TextBlock it replaced, with Ctrl+C, Ctrl+A
+and a right-click Copy that takes the whole message when nothing is
+selected; labels and headings stay plain text and no wording changed.
+Review of that change found the Alerts tab emptying and refilling its
+lists on every 10-second poll, which with copyable messages destroyed a
+tester's selection each tick, so the tab now leaves its rows alone while
+they read the same (`AlertRowText`), at most about once a minute as
+"since" moves on. On a 401 the app now reads its token again from the
+same files and retries once if it changed, and a refusal that stands --
+on the status line and on the picker alike -- says which agent refused,
+which config file the token came from (written with `%LOCALAPPDATA%`,
+`%OneDriveCommercial%`, `%OneDrive%` or `%USERPROFILE%` in place of the
+user's own folders, so a pasted report carries no user or employer name),
+and that a second agent on the port is the other cause. The integration
+review then found that the line under the device name, where that
+refusal and the agent's "could not find the Drobo" error appear, did not
+wrap and would have cut both off at the buttons; it wraps now. Proven
+here: both .NET builds give no warnings, and the Windows test program
+passes 189 checks before its Credential Manager section, from 161, the
+28 new ones covering the refusal wording, the path shortening and the
+alert rows; flake8 is clean and the Python suites are unchanged. Not
+proven here, and left to a Windows PC or CI: how the copyable messages
+look and behave on screen (alignment, selection, the menu, wheel
+scrolling, a selection surviving a poll, how the longer refusal wraps)
+and the retry against a real agent. The repository launcher's start
+order is not changed by this fix.
+
 ## The principles that emerged
 
 None of these were written down first. Each was learned.

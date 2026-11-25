@@ -111,6 +111,16 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _statusPollInFlight;
 
+    /// <summary>
+    /// The config.json the token in the box was read from, and the token as
+    /// it was read, so a refusal can name the file (see
+    /// AgentTokenMessage.Rejected). Both null until a file supplies a token.
+    /// The token is kept beside the path because the box can be typed over:
+    /// once it no longer matches, the file is not where the token came from.
+    /// </summary>
+    private string? _agentTokenSourcePath;
+    private string? _agentTokenReadFromFile;
+
     /// <summary>The notification switches shown on the Settings panel,
     /// generated from AlertNotifier.Categories.</summary>
     private readonly ObservableCollection<NotificationCategoryRow> _notificationRows = new();
@@ -541,7 +551,12 @@ public partial class MainWindow : Window
                 AgentUrl.Text = $"http://127.0.0.1:{port}";
 
             var token = ReadAgentToken(agent);
-            if (!string.IsNullOrEmpty(token)) Token.Password = token;
+            if (!string.IsNullOrEmpty(token))
+            {
+                Token.Password = token;
+                _agentTokenSourcePath = path;
+                _agentTokenReadFromFile = token;
+            }
             return true;
         }
         catch
@@ -557,6 +572,72 @@ public partial class MainWindow : Window
     private static string? ReadAgentToken(JsonElement agent) =>
         agent.TryGetProperty("token", out var tokenElement) && tokenElement.ValueKind == JsonValueKind.String
             ? tokenElement.GetString() : null;
+
+    /// <summary>
+    /// After the agent refused the token: reads it again from the same
+    /// config files, by the same rules as at start-up (the launcher's
+    /// --agent-config still wins outright and is still the only file
+    /// looked at), and says whether the token changed.
+    ///
+    /// Why: "START DROBO DASHBOARD.bat" starts this app before the agent.
+    /// On a fresh checkout there is no agent\config.json yet when the app
+    /// looks for it; the agent writes one, with a new token, a moment later,
+    /// and every request was then refused until the app was restarted.
+    /// Found on the maintainer's PC, 2026-11-25.
+    /// </summary>
+    private bool TryRereadAgentToken()
+    {
+        var tokenBefore = Token.Password;
+        TryAutoFillFromAgentConfig();
+        return !string.Equals(Token.Password, tokenBefore, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A GET to the agent, sent once more if it was refused and re-reading
+    /// the config file found a different token. Once, and only on a change:
+    /// a token that is simply wrong must not be retried in a loop, and an
+    /// unchanged one would only be refused again. The caller owns the
+    /// response it gets back.
+    /// </summary>
+    private async Task<HttpResponseMessage> GetFromAgentRereadingTokenOnce(string path)
+    {
+        var response = await SendAgentGet(path);
+        if (response.StatusCode != HttpStatusCode.Unauthorized || !TryRereadAgentToken()) return response;
+        response.Dispose();
+        return await SendAgentGet(path);
+    }
+
+    /// <summary>One GET to the agent with the token in the box now.</summary>
+    private async Task<HttpResponseMessage> SendAgentGet(string path)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
+        request.Headers.Add("X-Agent-Token", Token.Password);
+        return await _agentHttpClient.SendAsync(request);
+    }
+
+    /// <summary>
+    /// The refusal to show when the agent will not take the token, naming
+    /// the file the token came from when it did come from one. The user's
+    /// own folders are written as %LOCALAPPDATA%, %OneDriveCommercial%,
+    /// %OneDrive% or %USERPROFILE%, so neither the Windows user name nor a
+    /// work OneDrive's organisation name reaches the screen or any report
+    /// it is pasted into.
+    /// </summary>
+    private string DescribeTokenRefusal()
+    {
+        string? tokenSource = null;
+        if (_agentTokenSourcePath is not null
+            && string.Equals(_agentTokenReadFromFile, Token.Password, StringComparison.Ordinal))
+        {
+            tokenSource = AgentTokenMessage.ShortenForDisplay(
+                _agentTokenSourcePath,
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Environment.GetEnvironmentVariable("OneDriveCommercial"),
+                Environment.GetEnvironmentVariable("OneDrive"));
+        }
+        return AgentTokenMessage.Rejected(BaseUrl, tokenSource, string.IsNullOrWhiteSpace(Token.Password));
+    }
 
     /// <summary>
     /// Where a saved agent token might live, checked in order. The
@@ -664,9 +745,7 @@ public partial class MainWindow : Window
         SetSearching(true);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/discover");
-            request.Headers.Add("X-Agent-Token", Token.Password);
-            using var response = await _agentHttpClient.SendAsync(request);
+            using var response = await GetFromAgentRereadingTokenOnce("/api/discover");
             // A newer search started while this request was out: its answer,
             // a token refusal included, is about a search nobody is waiting
             // for. Until 2026-11-02 a refusal or failure here still reached
@@ -676,7 +755,11 @@ public partial class MainWindow : Window
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                ShowDiscoverError("The agent rejected that token. Enter the right one below.");
+                // The same refusal the status path shows, naming the file
+                // and a second agent on the port: this picker is the first
+                // screen a tester sees, and until 2026-11-25 it said only
+                // "Enter the right one below."
+                ShowDiscoverError(DescribeTokenRefusal());
                 SetConnectionSettingsExpanded(true);
                 TokenHelp.Visibility = Visibility.Visible;
                 return;
@@ -1572,7 +1655,7 @@ public partial class MainWindow : Window
     /// painted, and a stale tick returns (false, null). RefreshAlerts and
     /// RefreshShares are handed the same generation and check it after each
     /// of their own requests. Until 2026-11-02 neither did, and the 401
-    /// "Token rejected" branch reported without a check, so a tick that had
+    /// (token refused) branch reported without a check, so a tick that had
     /// passed the last check here could still paint the old Drobo's alerts
     /// and shares -- and feed its alerts to the notifier.
     /// </summary>
@@ -1584,14 +1667,12 @@ public partial class MainWindow : Window
         int generation = _generation;
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "/api/status");
-            request.Headers.Add("X-Agent-Token", Token.Password);
-            using var response = await _agentHttpClient.SendAsync(request);
+            using var response = await GetFromAgentRereadingTokenOnce("/api/status");
             if (generation != _generation) return (false, null);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                var msg = "Token rejected. Check the token from the agent's config.json.";
+                var msg = DescribeTokenRefusal();
                 ShowAgentUnreachable(msg);
                 return (false, msg);
             }
@@ -1627,7 +1708,7 @@ public partial class MainWindow : Window
 
         // Tray tooltip/badge, from data this same tick already fetched --
         // see TrayIconManager.UpdateStatus. _alerts is the active-only list
-        // RenderAlerts just rebuilt, so "any critical" here means "active
+        // RenderAlerts just brought up to date, so "any critical" here means "active
         // right now", not "ever happened".
         _trayIcon?.UpdateStatus(_lastDeviceName, _lastOverallState, _alerts.Any(a => a.Severity == "critical"));
         return (true, null);
@@ -1828,7 +1909,7 @@ public partial class MainWindow : Window
     /// from, which the agent checks the change against (see
     /// DroboSelection.ChangeBody).
     /// </summary>
-    private async Task ApplyConfig(Button button, TextBlock resultBox, string path, object body, string madeAgainstEsaId)
+    private async Task ApplyConfig(Button button, CopyableText resultBox, string path, object body, string madeAgainstEsaId)
     {
         if (!_adminUnlocked) { ShowConfigResult(resultBox, false, "Sign in as administrator first."); return; }
         var label = button.Content;
@@ -1903,7 +1984,7 @@ public partial class MainWindow : Window
     /// amber can mean the unsettled case and nothing else — a case that must
     /// never look like either of its neighbours.
     /// </summary>
-    private void ShowConfigResult(TextBlock box, WriteOutcome outcome, string text)
+    private void ShowConfigResult(CopyableText box, WriteOutcome outcome, string text)
     {
         box.Text = text;
         box.Foreground = outcome switch
@@ -1918,7 +1999,7 @@ public partial class MainWindow : Window
     /// <summary>The two-state form, for this app's OWN messages -- a value the
     /// agent was never asked about, an agent that could not be reached. No
     /// device was involved, so there is no third state to render.</summary>
-    private void ShowConfigResult(TextBlock box, bool ok, string text) =>
+    private void ShowConfigResult(CopyableText box, bool ok, string text) =>
         ShowConfigResult(box, ok ? WriteOutcome.Confirmed : WriteOutcome.Failed, text);
 
     /// <summary>POST a JSON body; returns (is2xx, parsed body). Unlike FetchJson
@@ -2049,15 +2130,34 @@ public partial class MainWindow : Window
         // back. See its class comment for why that separation exists.
         NotifyNewAlerts(activeList);
 
-        _alerts.Clear();
-        foreach (var row in activeList) _alerts.Add(row);
-        _resolvedAlerts.Clear();
-        foreach (var row in resolvedList) _resolvedAlerts.Add(row);
+        ReplaceAlertRowsIfChanged(_alerts, activeList);
+        ReplaceAlertRowsIfChanged(_resolvedAlerts, resolvedList);
 
         ActiveAlertsEmpty.Visibility = activeList.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ResolvedAlertsEmpty.Visibility = resolvedList.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         UpdateAlertsTabIndicator(activeList);
+    }
+
+    /// <summary>
+    /// Puts <paramref name="freshRows"/> on screen in place of
+    /// <paramref name="shownRows"/>, unless they would show exactly the same
+    /// thing, in which case the shown rows are left alone.
+    ///
+    /// Why: each alert's message is a CopyableText, and refilling the list
+    /// destroys every one of them. Done on every 10-second poll, that took
+    /// away a tester's selection and focus mid-copy, so Ctrl+C after a poll
+    /// copied nothing (see AlertRowText).
+    /// </summary>
+    private static void ReplaceAlertRowsIfChanged(ObservableCollection<AlertRow> shownRows,
+                                                  List<AlertRow> freshRows)
+    {
+        var shownText = shownRows.Select(row => row.ShownText).ToList();
+        var freshText = freshRows.Select(row => row.ShownText).ToList();
+        if (AlertRowText.SameInOrder(shownText, freshText)) return;
+
+        shownRows.Clear();
+        foreach (var row in freshRows) shownRows.Add(row);
     }
 
     /// <summary>Builds a row for every alert in the ?all=1 answer, into

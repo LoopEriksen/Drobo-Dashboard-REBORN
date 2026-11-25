@@ -218,8 +218,8 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
                     <TextBlock Text="Drobos on your network" FontSize="22" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="LandingSub" Text="Pick the one you want to open."
-                               Style="{StaticResource Label}" FontSize="12" Margin="0,4,0,0"/>
+                    <local:CopyableText x:Name="LandingSub" Text="Pick the one you want to open."
+                                        Style="{StaticResource CopyableLabel}" FontSize="12" Margin="0,4,0,0"/>
                 </StackPanel>
                 <Button x:Name="RefreshBtn" Grid.Column="1" Content="Refresh"
                         Style="{StaticResource SecondaryButton}" VerticalAlignment="Center"
@@ -308,7 +308,7 @@
                     </Border>
 
                     <Border x:Name="DiscoverErrorBox" Style="{StaticResource WarnStrip}" Visibility="Collapsed">
-                        <TextBlock x:Name="DiscoverErrorText" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
+                        <local:CopyableText x:Name="DiscoverErrorText" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
                     </Border>
                 </StackPanel>
             </ScrollViewer>
@@ -361,8 +361,8 @@
                         <!-- The answer to "did that address work?", given straight away.
                              The agent can now probe one named address on demand, so a
                              typo and a switched-off Drobo no longer look identical. -->
-                        <TextBlock x:Name="ManualAddResult" TextWrapping="Wrap" FontSize="11"
-                                   Margin="0,0,0,10" Visibility="Collapsed"/>
+                        <local:CopyableText x:Name="ManualAddResult" TextWrapping="Wrap" FontSize="11"
+                                            Margin="0,0,0,10" Visibility="Collapsed"/>
                         <!-- Focusable="False": see the same note on DiscoveredDevices —
                              a plain ItemsControl is Focusable by default (it derives
                              from Control), which would otherwise cost Tab an extra,
@@ -457,9 +457,17 @@
                     <TextBlock Text="DROBO DASHBOARD REBORN" FontSize="10"
                                FontWeight="Bold" Foreground="#6B7683"
                                FontFamily="Consolas" Margin="0,0,0,2"/>
-                    <TextBlock x:Name="DeviceName" Text="Not connected" FontSize="24" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="DeviceSub" Text="Enter the agent token and press Connect."
-                               Style="{StaticResource Label}" FontSize="12" Margin="0,2,0,0"/>
+                    <local:CopyableText x:Name="DeviceName" Text="Not connected" FontSize="24" FontWeight="SemiBold"/>
+                    <!-- Wraps because this line also carries the agent's
+                         refusal (which agent, which config file, a second
+                         agent on the port) and the agent's own "could not
+                         find the Drobo" error, both a few hundred
+                         characters. On one line they were cut off at the
+                         buttons, the advice that matters last of all. The
+                         usual model/firmware/address line still fits on one. -->
+                    <local:CopyableText x:Name="DeviceSub" Text="Enter the agent token and press Connect."
+                                        Style="{StaticResource CopyableLabel}" FontSize="12" Margin="0,2,0,0"
+                                        TextWrapping="Wrap"/>
                 </StackPanel>
                 <!-- "and log in" — Shares is where signing in to a share actually happens
                      (ConnectShareDialog), so this just jumps there -->
@@ -492,16 +500,16 @@
                         <TextBlock Text="NETWORK" FontFamily="Consolas" FontSize="10" Foreground="#E9A83C"/>
                     </Border>
                     <StackPanel>
-                        <TextBlock x:Name="NetworkHeadline" TextWrapping="Wrap" FontSize="12"
-                                   FontWeight="SemiBold" Foreground="#E9C98A"/>
+                        <local:CopyableText x:Name="NetworkHeadline" TextWrapping="Wrap" FontSize="12"
+                                            FontWeight="SemiBold" Foreground="#E9C98A"/>
                         <!-- Always rendered with the headline above it: the detail text
                              opens with "It is on…" and reads as a fragment alone.
                              See Diagnosis.detail in netcheck.py. -->
-                        <TextBlock x:Name="NetworkDetail" TextWrapping="Wrap" FontSize="12"
-                                   Foreground="#E9C98A" Margin="0,3,0,0"/>
+                        <local:CopyableText x:Name="NetworkDetail" TextWrapping="Wrap" FontSize="12"
+                                            Foreground="#E9C98A" Margin="0,3,0,0"/>
                         <!-- The honest limits of the claim, muted but never dropped. -->
-                        <TextBlock x:Name="NetworkCaveat" TextWrapping="Wrap" FontSize="11"
-                                   Foreground="#A28A63" Margin="0,4,0,0"/>
+                        <local:CopyableText x:Name="NetworkCaveat" TextWrapping="Wrap" FontSize="11"
+                                            Foreground="#A28A63" Margin="0,4,0,0"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -519,10 +527,10 @@
                         <TextBlock Text="FIRMWARE" FontFamily="Consolas" FontSize="10" Foreground="#5C8DFF"/>
                     </Border>
                     <StackPanel>
-                        <TextBlock x:Name="FirmwareHeadline" TextWrapping="Wrap" FontSize="12"
-                                   FontWeight="SemiBold" Foreground="#C8D6EA"/>
-                        <TextBlock x:Name="FirmwareDetail" TextWrapping="Wrap" FontSize="11"
-                                   Foreground="#8FA3BC" Margin="0,4,0,0"/>
+                        <local:CopyableText x:Name="FirmwareHeadline" TextWrapping="Wrap" FontSize="12"
+                                            FontWeight="SemiBold" Foreground="#C8D6EA"/>
+                        <local:CopyableText x:Name="FirmwareDetail" TextWrapping="Wrap" FontSize="11"
+                                            Foreground="#8FA3BC" Margin="0,4,0,0"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -552,10 +560,10 @@
                                         <TextBlock Text="INFO" FontFamily="Consolas" FontSize="10" Foreground="#2C7BC4"/>
                                     </Border>
                                     <StackPanel>
-                                        <TextBlock x:Name="GuestAdviceHeadline" TextWrapping="Wrap" FontSize="12"
-                                                   FontWeight="SemiBold" Foreground="#B9D3E8"/>
-                                        <TextBlock x:Name="GuestAdviceDetail" TextWrapping="Wrap" FontSize="12"
-                                                   Foreground="#B9D3E8" Margin="0,3,0,0"/>
+                                        <local:CopyableText x:Name="GuestAdviceHeadline" TextWrapping="Wrap" FontSize="12"
+                                                            FontWeight="SemiBold" Foreground="#B9D3E8"/>
+                                        <local:CopyableText x:Name="GuestAdviceDetail" TextWrapping="Wrap" FontSize="12"
+                                                            Foreground="#B9D3E8" Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </DockPanel>
                             </Border>
@@ -575,15 +583,15 @@
                                     <StackPanel>
                                         <TextBlock Text="This Drobo's network is running slowly." TextWrapping="Wrap"
                                                    FontSize="12" FontWeight="SemiBold" Foreground="#E9C98A"/>
-                                        <TextBlock x:Name="LinkWarning" TextWrapping="Wrap" FontSize="12"
-                                                   Foreground="#E9C98A" Margin="0,3,0,0"/>
+                                        <local:CopyableText x:Name="LinkWarning" TextWrapping="Wrap" FontSize="12"
+                                                            Foreground="#E9C98A" Margin="0,3,0,0"/>
                                     </StackPanel>
                                 </DockPanel>
                             </Border>
 
-                            <TextBlock x:Name="SharesError" Grid.Row="2" Text="" FontFamily="Consolas" FontSize="11"
-                                       Foreground="#8B93A1" TextWrapping="Wrap" Visibility="Collapsed"
-                                       Margin="0,0,0,10"/>
+                            <local:CopyableText x:Name="SharesError" Grid.Row="2" Text="" FontFamily="Consolas" FontSize="11"
+                                                Foreground="#8B93A1" TextWrapping="Wrap" Visibility="Collapsed"
+                                                Margin="0,0,0,10"/>
 
                             <Border Grid.Row="3" Style="{StaticResource Card}" Padding="14">
                                 <DockPanel>
@@ -602,9 +610,9 @@
                                          ShowConfigResult). Lives here on the tab, not in the
                                          dialog, so it is still readable after the dialog closes
                                          and the list refreshes underneath it. -->
-                                    <TextBlock x:Name="ShareManageResult" DockPanel.Dock="Top" FontFamily="Consolas"
-                                               FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
-                                               Margin="0,0,0,10"/>
+                                    <local:CopyableText x:Name="ShareManageResult" DockPanel.Dock="Top" FontFamily="Consolas"
+                                                        FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
+                                                        Margin="0,0,0,10"/>
                                     <TextBlock x:Name="SharesEmpty" DockPanel.Dock="Top"
                                                Text="Connect to the agent to see shares." FontFamily="Consolas" FontSize="12"
                                                Foreground="#6B7683" Visibility="Collapsed" Margin="0,0,0,4"/>
@@ -757,7 +765,7 @@
                                             VerticalAlignment="Top" Margin="0,1,10,0">
                                         <TextBlock Text="REBUILD" FontFamily="Consolas" FontSize="10" Foreground="#E9A83C"/>
                                     </Border>
-                                    <TextBlock x:Name="RebuildNote" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
+                                    <local:CopyableText x:Name="RebuildNote" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
                                 </DockPanel>
                             </Border>
 
@@ -912,8 +920,8 @@
                                     <!-- The device's own words about a battery or PSU problem,
                                          verbatim. Both notes are empty on a healthy unit, so
                                          this line only exists when there is something to say. -->
-                                    <TextBlock x:Name="HardwareHealthNote" Style="{StaticResource Label}" FontSize="11"
-                                               TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/>
+                                    <local:CopyableText x:Name="HardwareHealthNote" Style="{StaticResource CopyableLabel}" FontSize="11"
+                                                        TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/>
                                 </StackPanel>
                             </Border>
 
@@ -971,8 +979,8 @@
                             </Border>
 
                             <!-- footer -->
-                            <TextBlock x:Name="Footer" Grid.Row="6" Margin="2,8,2,0"
-                                       Style="{StaticResource Label}" Text="Drobo Dashboard REBORN"/>
+                            <local:CopyableText x:Name="Footer" Grid.Row="6" Margin="2,8,2,0"
+                                                Style="{StaticResource CopyableLabel}" Text="Drobo Dashboard REBORN"/>
                         </Grid>
                     </ScrollViewer>
                 </TabItem>
@@ -996,9 +1004,9 @@
                     </TabItem.Header>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <TextBlock x:Name="AlertsError" Text="" FontFamily="Consolas" FontSize="11"
-                                       Foreground="#8B93A1" TextWrapping="Wrap" Visibility="Collapsed"
-                                       Margin="0,0,0,12"/>
+                            <local:CopyableText x:Name="AlertsError" Text="" FontFamily="Consolas" FontSize="11"
+                                                Foreground="#8B93A1" TextWrapping="Wrap" Visibility="Collapsed"
+                                                Margin="0,0,0,12"/>
 
                             <TextBlock Text="ACTIVE" Style="{StaticResource Label}" Margin="0,0,0,8"/>
                             <TextBlock x:Name="ActiveAlertsEmpty" Text="No problems reported."
@@ -1018,8 +1026,8 @@
                                                     <TextBlock Text="{Binding Since}" Style="{StaticResource Label}"
                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                 </StackPanel>
-                                                <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="13"
-                                                           TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                                <local:CopyableText Text="{Binding Message, Mode=OneWay}" FontFamily="Consolas" FontSize="13"
+                                                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
@@ -1047,8 +1055,8 @@
                                                     <TextBlock Text="{Binding ClearedText}" Style="{StaticResource Label}"
                                                                Foreground="#46C07A" VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                 </StackPanel>
-                                                <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="13"
-                                                           TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                                <local:CopyableText Text="{Binding Message, Mode=OneWay}" FontFamily="Consolas" FontSize="13"
+                                                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
@@ -1122,14 +1130,14 @@
                                         <StackPanel>
                                             <TextBlock Text="This Drobo's network is running slowly." TextWrapping="Wrap"
                                                        FontSize="12" FontWeight="SemiBold" Foreground="#E9C98A"/>
-                                            <TextBlock x:Name="SettingsLinkWarning" TextWrapping="Wrap" FontSize="12"
-                                                       Foreground="#E9C98A" Margin="0,3,0,0"/>
+                                            <local:CopyableText x:Name="SettingsLinkWarning" TextWrapping="Wrap" FontSize="12"
+                                                                Foreground="#E9C98A" Margin="0,3,0,0"/>
                                         </StackPanel>
                                     </DockPanel>
                                 </Border>
 
-                                <TextBlock x:Name="SettingsError" Grid.Row="2" Text="" FontFamily="Consolas" FontSize="11"
-                                           Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
+                                <local:CopyableText x:Name="SettingsError" Grid.Row="2" Text="" FontFamily="Consolas" FontSize="11"
+                                                    Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
 
                                 <!-- Versions, requested by the maintainer 2026-09-14. The app's
                                      version is fixed at build time; the firmware line follows
@@ -1140,11 +1148,11 @@
                                         <TextBlock Text="VERSIONS" Style="{StaticResource Label}" Margin="0,0,0,10"/>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                             <TextBlock Text="This app" Style="{StaticResource Label}" Width="130"/>
-                                            <TextBlock x:Name="SettingsAppVersion" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                            <local:CopyableText x:Name="SettingsAppVersion" Text="—" FontFamily="Consolas" FontSize="13"/>
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="Drobo firmware" Style="{StaticResource Label}" Width="130"/>
-                                            <TextBlock x:Name="SettingsFirmware" Text="Not connected to a Drobo" FontFamily="Consolas" FontSize="13"/>
+                                            <local:CopyableText x:Name="SettingsFirmware" Text="Not connected to a Drobo" FontFamily="Consolas" FontSize="13"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1157,35 +1165,35 @@
                                         <StackPanel x:Name="SettingsGrid" Visibility="Collapsed">
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="Device name" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsDeviceName" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsDeviceName" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="Workgroup" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsWorkgroup" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsWorkgroup" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="IP address" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsIp" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsIp" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="Subnet" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsSubnet" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsSubnet" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="Gateway" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsGateway" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsGateway" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="DNS servers" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsDns" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsDns" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                 <TextBlock Text="Jumbo frames" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsJumbo" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsJumbo" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="Port" Style="{StaticResource Label}" Width="130"/>
-                                                <TextBlock x:Name="SettingsPort" Text="—" FontFamily="Consolas" FontSize="13"/>
+                                                <local:CopyableText x:Name="SettingsPort" Text="—" FontFamily="Consolas" FontSize="13"/>
                                             </StackPanel>
                                         </StackPanel>
                                     </StackPanel>
@@ -1248,8 +1256,8 @@
                                     <Border Style="{StaticResource Card}" Padding="14" Margin="0,0,0,12">
                                         <StackPanel>
                                             <TextBlock Text="EMAIL ALERTS" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                                            <TextBlock x:Name="PrefEmailStatus" Style="{StaticResource Label}" FontSize="12" TextWrapping="Wrap"
-                                                       Text="Checking what this agent supports..."/>
+                                            <local:CopyableText x:Name="PrefEmailStatus" Style="{StaticResource CopyableLabel}" FontSize="12" TextWrapping="Wrap"
+                                                                Text="Checking what this agent supports..."/>
                                             <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                                                        Text="The original Dashboard could email you when a drive failed. This is configured in the agent's config.json, so the password never passes through this window and is never written to this app's settings file."/>
                                             <Button x:Name="PrefEmailTestBtn" Content="Send a test email" Margin="0,10,0,0"
@@ -1266,8 +1274,8 @@
                                                     <TextBlock Text="COMING SOON" FontFamily="Consolas" FontSize="9" Foreground="#5C8DFF"/>
                                                 </Border>
                                             </StackPanel>
-                                            <TextBlock x:Name="PrefUpdateStatus" Style="{StaticResource Label}" FontSize="12" TextWrapping="Wrap"
-                                                       Text="Checking..."/>
+                                            <local:CopyableText x:Name="PrefUpdateStatus" Style="{StaticResource CopyableLabel}" FontSize="12" TextWrapping="Wrap"
+                                                                Text="Checking..."/>
                                             <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                                                        Text="The machinery is built and switched off. It contacts nothing until a release feed is configured, and it will only ever tell you an update exists - downloading and installing stay your decision."/>
                                             <!-- The next step while the check is off (2026-11-20): without
@@ -1311,9 +1319,9 @@
                             <Border Grid.Row="0" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
                                     <TextBlock Text="VERSION" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="ToolsAppVersion" Text="Drobo Dashboard REBORN" FontFamily="Consolas" FontSize="13"/>
-                                    <TextBlock x:Name="ToolsAgentVersion" Text="Agent: checking…" FontFamily="Consolas" FontSize="12"
-                                               Foreground="#6B7683" Margin="0,4,0,0"/>
+                                    <local:CopyableText x:Name="ToolsAppVersion" Text="Drobo Dashboard REBORN" FontFamily="Consolas" FontSize="13"/>
+                                    <local:CopyableText x:Name="ToolsAgentVersion" Text="Agent: checking…" FontFamily="Consolas" FontSize="12"
+                                                        Foreground="#6B7683" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>
 
@@ -1334,8 +1342,8 @@
                                         <Button x:Name="OpenGuideBtn" Content="Open the guide" Style="{StaticResource SecondaryButton}"
                                                 Margin="0,0,0,8" Click="OpenGuide_Click"/>
                                     </WrapPanel>
-                                    <TextBlock x:Name="ToolsActionStatus" Text="" FontFamily="Consolas" FontSize="11"
-                                               Foreground="#6B7683" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,2,0,0"/>
+                                    <local:CopyableText x:Name="ToolsActionStatus" Text="" FontFamily="Consolas" FontSize="11"
+                                                        Foreground="#6B7683" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,2,0,0"/>
                                     <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
                                                Text="Copy diagnostics replaces serial numbers, names and addresses with placeholders such as SERIAL-1, so it is safe to post in a public issue; the unmasked copy is for your own use only."/>
 
@@ -1393,8 +1401,8 @@
                                                 VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed">
                                             <TextBlock Text="SIMULATED" FontFamily="Consolas" FontSize="9" Foreground="#2C7BC4"/>
                                         </Border>
-                                        <TextBlock x:Name="IdentifyResultText" FontFamily="Consolas" FontSize="12"
-                                                   TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                        <local:CopyableText x:Name="IdentifyResultText" FontFamily="Consolas" FontSize="12"
+                                                            TextWrapping="Wrap" VerticalAlignment="Center"/>
                                     </StackPanel>
 
                                     <!-- LED brightness, read from the same lights this button
@@ -1414,17 +1422,17 @@
                                                 <Button x:Name="ReadLedsBtn" Content="Read" Style="{StaticResource SecondaryButton}"
                                                         Padding="10,3" Margin="12,0,0,0" Click="ReadLeds_Click"/>
                                             </StackPanel>
-                                            <TextBlock x:Name="DimmingNote" Style="{StaticResource Label}" FontSize="11"
-                                                       TextWrapping="Wrap" Margin="0,6,0,0"
-                                                       Text="Press Read to ask the Drobo how bright its lights are set."/>
+                                            <local:CopyableText x:Name="DimmingNote" Style="{StaticResource CopyableLabel}" FontSize="11"
+                                                                TextWrapping="Wrap" Margin="0,6,0,0"
+                                                                Text="Press Read to ask the Drobo how bright its lights are set."/>
                                             <!-- Only ever visible if the device says it IS in demo mode.
                                                  A unit left in shop-display mode reports capacity it does
                                                  not have, which would make every number in this app wrong
                                                  with nothing else to catch it. -->
                                             <Border x:Name="DemoModeBox" Style="{StaticResource WarnStrip}"
                                                     Margin="0,10,0,0" Visibility="Collapsed">
-                                                <TextBlock x:Name="DemoModeText" TextWrapping="Wrap" FontSize="12"
-                                                           Foreground="#E9C98A"/>
+                                                <local:CopyableText x:Name="DemoModeText" TextWrapping="Wrap" FontSize="12"
+                                                                    Foreground="#E9C98A"/>
                                             </Border>
                                         </StackPanel>
                                     </Border>
@@ -1462,8 +1470,8 @@
                                                Foreground="#E9C98A" Background="#2E2311" Padding="10,8" Margin="0,0,0,10"
                                                Text="{x:Static local:TesterNotes.DroboAppsActionUnproven}"/>
 
-                                    <TextBlock x:Name="DroboAppsError" FontFamily="Consolas" FontSize="11"
-                                               Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
+                                    <local:CopyableText x:Name="DroboAppsError" FontFamily="Consolas" FontSize="11"
+                                                        Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
 
                                     <TextBlock x:Name="DroboAppsEmpty" FontFamily="Consolas" FontSize="12" Foreground="#6B7683"
                                                Text="Press Refresh to see what's installed on your Drobo."/>
@@ -1517,8 +1525,8 @@
                                          agent's own message, which already words the case where
                                          the device accepted the verb but the service has not
                                          finished changing state yet. -->
-                                    <TextBlock x:Name="DroboAppsActionResult" Style="{StaticResource Label}" FontSize="12"
-                                               FontFamily="Consolas" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                                    <local:CopyableText x:Name="DroboAppsActionResult" Style="{StaticResource CopyableLabel}" FontSize="12"
+                                                        FontFamily="Consolas" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                                 </StackPanel>
                             </Border>
 
@@ -1544,8 +1552,8 @@
                                                 Style="{StaticResource SecondaryButton}" Click="EventLogRefreshBtn_Click"/>
                                     </Grid>
 
-                                    <TextBlock x:Name="EventLogError" FontFamily="Consolas" FontSize="11"
-                                               Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
+                                    <local:CopyableText x:Name="EventLogError" FontFamily="Consolas" FontSize="11"
+                                                        Foreground="#E9C98A" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,10"/>
 
                                     <TextBlock x:Name="EventLogEmpty" FontFamily="Consolas" FontSize="12" Foreground="#6B7683"
                                                TextWrapping="Wrap" Text="Press Refresh to read the Drobo's event log."/>
@@ -1566,8 +1574,8 @@
                                                             <TextBlock Text="{Binding When}" Style="{StaticResource Label}"
                                                                        VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                         </StackPanel>
-                                                        <TextBlock Text="{Binding Message}" FontFamily="Consolas" FontSize="12"
-                                                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                        <local:CopyableText Text="{Binding Message, Mode=OneWay}" FontFamily="Consolas" FontSize="12"
+                                                                            TextWrapping="Wrap" Margin="0,4,0,0"/>
                                                     </StackPanel>
                                                 </Border>
                                             </DataTemplate>
@@ -1646,17 +1654,17 @@
                                          verbatim: it is the thing that decides, so it should be
                                          the thing that explains. -->
                                     <Border x:Name="BackupPlanBox" Style="{StaticResource WarnStrip}" Visibility="Collapsed">
-                                        <TextBlock x:Name="BackupPlanText" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
+                                        <local:CopyableText x:Name="BackupPlanText" TextWrapping="Wrap" FontSize="12" Foreground="#E9C98A"/>
                                     </Border>
 
-                                    <TextBlock x:Name="BackupStatus" Style="{StaticResource Label}" FontSize="12"
-                                               TextWrapping="Wrap" Margin="0,4,0,0"
-                                               Text="Nothing has been backed up yet."/>
+                                    <local:CopyableText x:Name="BackupStatus" Style="{StaticResource CopyableLabel}" FontSize="12"
+                                                        TextWrapping="Wrap" Margin="0,4,0,0"
+                                                        Text="Nothing has been backed up yet."/>
                                     <ProgressBar x:Name="BackupBar" Height="3" IsIndeterminate="True" Margin="0,8,0,0"
                                                  Background="#22262E" Foreground="#2C7BC4" BorderThickness="0"
                                                  Visibility="Collapsed"/>
-                                    <TextBlock x:Name="BackupTail" FontFamily="Consolas" FontSize="10" Foreground="#6B7683"
-                                               TextWrapping="NoWrap" Margin="0,8,0,0" Visibility="Collapsed"/>
+                                    <local:CopyableText x:Name="BackupTail" FontFamily="Consolas" FontSize="10" Foreground="#6B7683"
+                                                        TextWrapping="NoWrap" Margin="0,8,0,0" Visibility="Collapsed"/>
                                 </StackPanel>
                             </Border>
 
@@ -1703,8 +1711,8 @@
                                             <Button x:Name="AdminUnlockBtn" Grid.Column="4" Content="Unlock" Margin="12,0,0,0"
                                                     Style="{StaticResource PrimaryButton}" Padding="14,5" Click="AdminUnlock_Click"/>
                                         </Grid>
-                                        <TextBlock x:Name="AdminLoginError" Style="{StaticResource Label}" FontSize="12"
-                                                   Foreground="#E2564B" Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                        <local:CopyableText x:Name="AdminLoginError" Style="{StaticResource CopyableLabel}" FontSize="12"
+                                                            Foreground="#E2564B" Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                                         <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
                                                    Text="The default is user admin, password admin. This sign-in is a safety catch inside this app so settings cannot be changed by accident; the Drobo itself accepts these changes from any connected Dashboard."/>
                                     </StackPanel>
@@ -1741,8 +1749,8 @@
                                                 </Grid>
                                                 <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
                                                            Text="The scale is the Drobo's own (it reports a bare number, 59 on a stock unit); 0 is lights off. Read the current value first with the Read button above if you want to be able to put it back exactly."/>
-                                                <TextBlock x:Name="BrightnessResult" Style="{StaticResource Label}" FontSize="12" FontFamily="Consolas"
-                                                           TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                                                <local:CopyableText x:Name="BrightnessResult" Style="{StaticResource CopyableLabel}" FontSize="12" FontFamily="Consolas"
+                                                                    TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                                             </StackPanel>
                                         </Border>
 
@@ -1763,8 +1771,8 @@
                                                 </StackPanel>
                                                 <TextBlock Style="{StaticResource Label}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
                                                            Text="This is a setting, not an action: there is no 'spin down now' on a Drobo. Turning it off clears the setting the way the original Dashboard does; a bare delay of 0 is refused because the Drobo ignores it."/>
-                                                <TextBlock x:Name="SpindownResult" Style="{StaticResource Label}" FontSize="12" FontFamily="Consolas"
-                                                           TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                                                <local:CopyableText x:Name="SpindownResult" Style="{StaticResource CopyableLabel}" FontSize="12" FontFamily="Consolas"
+                                                                    TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                                             </StackPanel>
                                         </Border>
 
@@ -1796,8 +1804,8 @@
                                                 <TextBlock TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
                                                            Foreground="#E9C98A" Background="#2E2311" Padding="8,6" Margin="0,6,0,0"
                                                            Text="{x:Static local:TesterNotes.ShareAccessNote}"/>
-                                                <TextBlock x:Name="AccessResult" Style="{StaticResource Label}" FontSize="12" FontFamily="Consolas"
-                                                           TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                                                <local:CopyableText x:Name="AccessResult" Style="{StaticResource CopyableLabel}" FontSize="12" FontFamily="Consolas"
+                                                                    TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                                             </StackPanel>
                                         </Border>
                                     </StackPanel>

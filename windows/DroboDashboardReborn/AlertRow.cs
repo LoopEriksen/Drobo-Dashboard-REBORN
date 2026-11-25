@@ -52,4 +52,11 @@ public sealed class AlertRow
     /// <summary>The severity chip's text colour, paired with
     /// <see cref="ChipBackground"/> for contrast.</summary>
     public Brush SeverityBrush { get; set; } = Brushes.Gray;
+
+    /// <summary>What this row shows, for telling whether a fresh poll's
+    /// rows would change the screen (see <see cref="AlertRowText"/>). The
+    /// brushes and <see cref="SeverityText"/> follow from
+    /// <see cref="Severity"/>, so they need no comparing of their
+    /// own.</summary>
+    public AlertRowText ShownText => new(Key, Severity, Message, Since, ClearedText);
 }
